@@ -1,0 +1,48 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+:root {
+  --foreground-rgb: 0, 0, 0; /* Default to black text for light scheme (if ever used) */
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255; /* White text for dark scheme */
+    --background-start-rgb: 0, 0, 0; /* Black background start for dark scheme */
+    --background-end-rgb: 0, 0, 0;   /* Black background end for dark scheme */
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb)); /* Will be white if prefers-color-scheme: dark, else black */
+  /* This sets a very dark blue (slate-950) as the main background,
+     effectively making the site dark by default. */
+  background-color: rgb(2 6 23 / var(--tw-bg-opacity, 1)); /* slate-950 with default opacity 1 */
+
+  /* The linear-gradient below is commented out, if you prefer it, you can uncomment it
+     and adjust it. Ensure it works well with the fixed background-color above or replaces it. */
+  /* background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb)); */
+}
+
+/* Ensure your main content area also respects the dark theme */
+main {
+  /* If your body is slate-950, main will naturally sit on it.
+     You can add specific dark mode background to main if needed, e.g., bg-gray-800 dark:bg-slate-900 */
+}
+
+.button{ /* Your existing button styles, check dark mode text color for contrast */
+  @apply p-2 font-semibold rounded-lg border-solid border-2 transition ease-in-out
+   border-slate-800 dark:border-gray-700 /* Slightly lighter border for dark */
+   text-slate-800 dark:text-slate-100 /* Light text on dark for buttons */
+   hover:text-gray-800 
+   hover:bg-slate-200 dark:bg-slate-700 /* Darker bg for button on dark */
+   dark:hover:text-gray-100 dark:hover:bg-slate-600; /* Light hover text, slightly lighter bg */
+}

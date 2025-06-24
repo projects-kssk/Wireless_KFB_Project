@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:15
+    container_name: my_postgres_no_net
+    network_mode: "none"
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db-socket:/var/run/postgresql
+    environment:
+      POSTGRES_PASSWORD: Pass123
+      POSTGRES_DB: app_db
+    command:
+      [
+        "postgres",
+        "-c", "listen_addresses=",
+        "-c", "unix_socket_directories=/var/run/postgresql"
+      ]
+
+volumes:
+  db-data:
+  db-socket:

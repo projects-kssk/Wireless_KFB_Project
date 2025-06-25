@@ -27,6 +27,7 @@ export const appConfig = {
     server: "Server Status",
   },
   callSupportInfo: {
+    title:"SUPPORT:",
     phone: "453",
   },
 };

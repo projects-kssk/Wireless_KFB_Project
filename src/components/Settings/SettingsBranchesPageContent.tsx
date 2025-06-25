@@ -1,902 +1,732 @@
+'use client'
 import React, {
   useState,
   useEffect,
   useCallback,
   useMemo,
   useRef,
-} from "react";
-// Supabase client is imported from a CDN to resolve the module error.
-import { createClient } from "@supabase/supabase-js";
+  FormEvent,
+} from "react"
 import {
   XMarkIcon,
   CheckCircleIcon,
   PencilSquareIcon,
   PlusIcon,
-} from "@heroicons/react/24/solid";
-
-// Supabase Client Initialization (as provided by the user)
-// In a real app, you'd use environment variables.
-// For this example, replace with your actual Supabase URL and Anon Key.
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'YOUR_SUPABASE_URL';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'YOUR_SUPABASE_ANON_KEY';
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  ArrowPathIcon,
+  ExclamationTriangleIcon,
+  TrashIcon,
+} from "@heroicons/react/24/solid"
 
 // -----------------------------
 // Type definitions
 // -----------------------------
 interface Configuration {
-  id: number;
-  kfb: string;
-  mac_address: string;
-  kfbInfo: string[]; // This will store the string values from kfb_info_details
+  id: number
+  kfb: string
+  mac_address: string
+  kfbInfo: string[]
 }
 
+// Frontend's internal representation of a branch
 interface Branch {
-  id: number;
-  name: string;
-  created_at?: string;
+  id: number
+  name: string
 }
 
-// Updated interfaces to reflect the new database schema (using kfb_info_detail_id)
+// Shape of data received from the /api/branches endpoint
+interface BranchApiResponse {
+    id: string;
+    branchName: string;
+    // other fields from the API we don't need on the frontend
+    [key: string]: any; 
+}
+
+
 interface EspPinMappingRow {
-  config_id:            number;
-  kfb_info_detail_id: number;
-  branch_id: number;
-  pin_number: number;
+  branch_id: number
+  pin_number: number
 }
 
-interface ConfigBranch {
-  config_id:          number;
-  kfb_info_detail_id: number;
-  branch_id: number;
-  not_tested: boolean; // <-- NEW: Added not_tested flag
+interface ConfigBranchRow {
+  branch_id: number
+  not_tested: boolean
 }
 
 // -----------------------------
-// Props for this component
+// Helper: fetch + JSON wrapper
 // -----------------------------
-interface SettingsBranchesPageContentProps {
-  onNavigateBack: () => void;
-  configId: number | null;
+async function fetchJSON<T>(url: string, opts: RequestInit = {}): Promise<T> {
+  const res = await fetch(url, { cache: 'no-store', ...opts })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || res.statusText || `Request failed with status ${res.status}`)
+  }
+  return res.json()
 }
 
+
 // -----------------------------
-// Component
+// Main Application Component
 // -----------------------------
-const SettingsBranchesPageContent: React.FC<
-  SettingsBranchesPageContentProps
-> = ({ onNavigateBack, configId }) => {
-  // ─── 1) State for configurations (KFBs) ──────────────────────────────────────
-  const [configs, setConfigs] = useState<Configuration[]>([]);
-  const [selectedConfig, setSelectedConfig] = useState<Configuration | null>(
-    null
-  );
-  const [loadingConfigs, setLoadingConfigs] = useState(true);
-
-  // ─── NEW: State for selected KFB Info ────────────────────────────────────────
-  const [selectedKfbInfo, setSelectedKfbInfo] = useState<string | null>(null);
-
-  // ─── 2) State for “create/link/filter” input under Step 2 ─────────────────────
-  const [unifiedInput, setUnifiedInput] = useState("");
-  const [showSuggestions, setShowSuggestions] = useState(false);
-
-  // ─── 3) State for all existing branches (global) ─────────────────────────────
-  const [allBranches, setAllBranches] = useState<Branch[]>([]);
-
-  // ─── 4) State for “linked” branches overview ────────────────────────
-  const [linkedBranches, setLinkedBranches] = useState<Branch[]>([]);
-  const [loadingBranches, setLoadingBranches] = useState(false);
-
-  // ─── 5) State for pins: map of branchId→pinNumber (or null if none) ────────
-  const [pinMap, setPinMap] = useState<Record<number, number | null>>({});
-  const [loadingPinMap, setLoadingPinMap] = useState<Record<number, boolean>>(
-    {}
-  );
-  const [newPinInputs, setNewPinInputs] = useState<Record<number, string>>({});
-  
-  // ─── NEW: State for 'not tested' toggle ───────────────────────────────────────
-  const [notTestedMap, setNotTestedMap] = useState<Record<number, boolean>>({});
-
-
-  // ─── 6) Inline-edit state for branch naming ──────────────────────────────────
-  const [editingBranchId, setEditingBranchId] = useState<number | null>(null);
-  const [editBranchInputs, setEditBranchInputs] = useState<
-    Record<number, string>
-  >({});
-
-  // ─── 7) Error & “refresh” triggers ─────────────────────────────────────────
-  const [error, setError] = useState<string | null>(null);
-  const [refreshConfigKey, setRefreshConfigKey] = useState(0);
-  const [refreshBranchesKey, setRefreshBranchesKey] = useState(0);
-  const [refreshPinsKey, setRefreshPinsKey] = useState(0);
-
-  // A ref to close the dropdown suggestions when clicking outside
-  const suggestionBoxRef = useRef<HTMLDivElement | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-
-  // Helper to get kfb_info_detail_id from config_id and kfb_info_value
-  const getKfbInfoDetailId = useCallback(async (configId: number, kfbInfoValue: string): Promise<number | null> => {
-    const { data, error: supaErr } = await supabase
-      .from("kfb_info_details")
-      .select("id")
-      .eq("config_id", configId)
-      .eq("kfb_info_value", kfbInfoValue)
-      .single();
-    if (supaErr && supaErr.code !== 'PGRST116') {
-      console.error("Error fetching kfb_info_detail_id:", supaErr);
-      setError(`Failed to retrieve KFB Info detail ID: ${supaErr.message}`);
-      return null;
-    }
-    return data?.id || null;
-  }, []);
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 1. Fetch all KFB configurations on mount
-  // ─────────────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const fetchAllConfigs = async () => {
-      setLoadingConfigs(true);
-      setError(null);
-      try {
-        const { data: configsData, error: supaErrConfigs } = await supabase
-          .from("configurations")
-          .select("id, kfb, mac_address")
-          .order("kfb", { ascending: true });
-        if (supaErrConfigs) throw supaErrConfigs;
-
-        const { data: kfbDetailsData, error: supaErrKfbDetails } = await supabase
-          .from("kfb_info_details")
-          .select("config_id, kfb_info_value");
-        if (supaErrKfbDetails) throw supaErrKfbDetails;
-
-        const kfbInfoMap = new Map<number, string[]>();
-        (kfbDetailsData || []).forEach(detail => {
-          if (!kfbInfoMap.has(detail.config_id)) {
-            kfbInfoMap.set(detail.config_id, []);
-          }
-          kfbInfoMap.get(detail.config_id)!.push(detail.kfb_info_value);
-        });
-
-        const loadedConfigs: Configuration[] = (configsData || []).map(config => ({
-          ...config,
-          kfbInfo: kfbInfoMap.get(config.id) || [],
-        }));
-
-        setConfigs(loadedConfigs);
-      } catch (err: any) {
-        console.error("Error loading configurations:", err);
-        setError(`Failed to load configurations: ${err.message}`);
-      } finally {
-        setLoadingConfigs(false);
-      }
+const App: React.FC = () => {
+    // This state would typically be managed by a router.
+    // For this example, we'll simulate navigation.
+    const [configId, setConfigId] = useState<number | null>(1); // Example: Start with a pre-selected config ID.
+    
+    const handleNavigateBack = () => {
+        console.log("Navigating back...");
+        // In a real app, you'd use your router's back function.
+        // For now, we can just clear the selection.
+        setConfigId(null); 
     };
-    fetchAllConfigs();
-  }, [refreshConfigKey]);
 
-  // Auto-select a configuration if configId prop is provided
+    return (
+        <SettingsBranchesPageContent
+            onNavigateBack={handleNavigateBack}
+            configId={configId}
+        />
+    )
+}
+
+
+// -----------------------------
+// Settings Page Component
+// -----------------------------
+const SettingsBranchesPageContent: React.FC<{
+  onNavigateBack: () => void
+  configId: number | null
+}> = ({
+  onNavigateBack,
+  configId,
+}) => {
+  // --- STATE MANAGEMENT ---
+  
+  const [configs, setConfigs] = useState<Configuration[]>([])
+  const [selectedConfig, setSelectedConfig] = useState<Configuration | null>(null)
+  const [loadingConfigs, setLoadingConfigs] = useState(true)
+  const [selectedKfbInfo, setSelectedKfbInfo] = useState<string | null>(null)
+  const [kfbInfoDetails, setKfbInfoDetails] = useState<{ id: number; kfb_info_value: string }[]>([])
+  const [unifiedInput, setUnifiedInput] = useState("")
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [allBranches, setAllBranches] = useState<Branch[]>([])
+  const [linkedBranches, setLinkedBranches] = useState<Branch[]>([])
+  const [loadingBranches, setLoadingBranches] = useState(false)
+  const [pinMap, setPinMap] = useState<Record<number, number | null>>({})
+  const [loadingPinMap, setLoadingPinMap] = useState<Record<number, boolean>>({})
+  const [newPinInputs, setNewPinInputs] = useState<Record<number, string>>({})
+  const [notTestedMap, setNotTestedMap] = useState<Record<number, boolean>>({})
+  const [editingBranchId, setEditingBranchId] = useState<number | null>(null)
+  const [editBranchInputs, setEditBranchInputs] = useState<Record<number, string>>({})
+  const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const suggestionBoxRef = useRef<HTMLDivElement | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+
+  // --- DATA FETCHING EFFECTS ---
+
+  // 1. Load all configurations on initial mount
+  useEffect(() => {
+    setLoadingConfigs(true)
+    setError(null)
+    fetchJSON<Configuration[]>("/api/configurations")
+      .then(data => setConfigs(data))
+      .catch(err => setError(`Failed to load configurations: ${err.message}`))
+      .finally(() => setLoadingConfigs(false))
+  }, [])
+
+  // 1.2 Auto-select config based on prop
   useEffect(() => {
     if (!loadingConfigs && configId !== null) {
-      const found = configs.find((c) => c.id === configId) ?? null;
-      setSelectedConfig(found);
-      setLinkedBranches([]);
-      setPinMap({});
-      setNotTestedMap({});
-      setUnifiedInput("");
-      setEditingBranchId(null);
-      setSelectedKfbInfo(null);
+      const found = configs.find(c => c.id === configId) ?? null
+      setSelectedConfig(found)
+      setSelectedKfbInfo(null)
+      setLinkedBranches([])
+      setPinMap({})
+      setNotTestedMap({})
+      setUnifiedInput("")
+      setEditingBranchId(null)
     }
-  }, [configs, loadingConfigs, configId]);
+  }, [configs, loadingConfigs, configId])
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 2. Fetch all existing branches (once on mount)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // 1.3 Load KFB info details for the selected config
   useEffect(() => {
-    const fetchAllBranches = async () => {
-      try {
-        const { data, error: supaErr } = await supabase
-          .from("branches")
-          .select("id, name, created_at")
-          .order("name", { ascending: true });
-        if (supaErr) throw supaErr;
-        setAllBranches(data ?? []);
-      } catch (err: any) {
-        console.error("Error loading all branches:", err);
-        setError(`Failed to load all branches: ${err.message}`);
-      }
-    };
-    fetchAllBranches();
-  }, []);
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 3. When selectedConfig/KfbInfo change, reload linked branches and their 'not_tested' status
-  // ─────────────────────────────────────────────────────────────────────────────
+    if (!selectedConfig) {
+      setKfbInfoDetails([])
+      return
+    }
+    setError(null);
+    fetchJSON<{ id: number; kfb_info_value: string }[]>(
+      `/api/kfb_info_details?configId=${selectedConfig.id}`
+    )
+      .then(rows => setKfbInfoDetails(rows))
+      .catch(err => setError(`Failed to load KFB info details: ${err.message}`))
+  }, [selectedConfig])
+  
+  // 2. Load all branches for the selected KFB (to suggest for linking)
   useEffect(() => {
-    if (!selectedConfig || selectedKfbInfo === null) {
-      setLinkedBranches([]);
-      setPinMap({});
-      setNotTestedMap({});
-      return;
-    }
-    const fetchLinkedBranches = async () => {
-      setLoadingBranches(true);
-      setError(null);
-      try {
-        const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-        if (kfbInfoDetailId === null) {
-          setLinkedBranches([]);
-          setPinMap({});
-          setNotTestedMap({});
-          setLoadingBranches(false);
-          return;
-        }
-
-        // Fetch config_branches entries, including the new 'not_tested' flag
-        const { data: joinRows } = await supabase
-          .from("config_branches")
-          .select("branch_id, not_tested")
-          .eq("config_id", selectedConfig.id)
-          .eq("kfb_info_detail_id", kfbInfoDetailId);
-
-
-        const branchIds: number[] = (joinRows ?? []).map(
-          (jr: { branch_id: number }) => jr.branch_id
-        );
-        
-        // Build the 'not tested' map from the fetched data
-        const newNotTestedMap: Record<number, boolean> = {};
-        (joinRows ?? []).forEach((row: { branch_id: number, not_tested: boolean}) => {
-            newNotTestedMap[row.branch_id] = row.not_tested;
-        });
-        setNotTestedMap(newNotTestedMap);
-
-        if (branchIds.length === 0) {
-          setLinkedBranches([]);
-          setPinMap({});
-          setLoadingBranches(false);
-          return;
-        }
-
-        const { data: branchRows, error: branchErr } = await supabase
-          .from("branches")
-          .select("id, name, created_at")
-          .in("id", branchIds)
-          .order("name", { ascending: true });
-        if (branchErr) throw branchErr;
-
-        setLinkedBranches(branchRows ?? []);
-      } catch (err: any) {
-        console.error("Error loading linked branches:", err);
-        setError(`Failed to load branches: ${err.message}`);
-      } finally {
-        setLoadingBranches(false);
-      }
-    };
-    fetchLinkedBranches();
-  }, [selectedConfig, selectedKfbInfo, refreshBranchesKey, getKfbInfoDetailId]);
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 4. Whenever linkedBranches changes, fetch each branch’s PIN
-  // ─────────────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selectedConfig || selectedKfbInfo === null || linkedBranches.length === 0) {
-      setPinMap({});
-      return;
-    }
-    const fetchAllPinsForLinkedBranches = async () => {
-      const newLoading: Record<number, boolean> = {};
-      linkedBranches.forEach((b) => {
-        newLoading[b.id] = true;
-      });
-      setLoadingPinMap(newLoading);
-
-      try {
-        const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-        if (kfbInfoDetailId === null) {
-          setPinMap({});
-          const clearedLoading: Record<number, boolean> = {};
-          linkedBranches.forEach((b) => { clearedLoading[b.id] = false; });
-          setLoadingPinMap(clearedLoading);
-          return;
-        }
-
-        const { data, error: supaErr } = await supabase
-          .from("esp_pin_mappings")
-          .select("branch_id, pin_number")
-          .eq("kfb_info_detail_id", kfbInfoDetailId);
-        if (supaErr) throw supaErr;
-
-        const newMap: Record<number, number | null> = {};
-        linkedBranches.forEach((b) => {
-          newMap[b.id] = null;
-        });
-        (data ?? []).forEach(
-          (row: { branch_id: number; pin_number: number }) => {
-            newMap[row.branch_id] = row.pin_number;
-          }
-        );
-        setPinMap(newMap);
-      } catch (err: any) {
-        console.error("Error loading all pins:", err);
-        setError(`Failed to load pins: ${err.message}`);
-      } finally {
-        const clearedLoading: Record<number, boolean> = {};
-        linkedBranches.forEach((b) => {
-          clearedLoading[b.id] = false;
-        });
-        setLoadingPinMap(clearedLoading);
-      }
-    };
-    fetchAllPinsForLinkedBranches();
-  }, [linkedBranches, selectedConfig, selectedKfbInfo, refreshPinsKey, getKfbInfoDetailId]);
-
-  // Handlers for selection changes
-  const handleSelectConfig = useCallback(
-    (cfgIdStr: string) => {
-      const cfgId = Number(cfgIdStr);
-      const found = configs.find((c) => c.id === cfgId) ?? null;
-      setSelectedConfig(found);
-      setLinkedBranches([]);
-      setPinMap({});
-      setNotTestedMap({});
-      setUnifiedInput("");
-      setEditingBranchId(null);
-      setSelectedKfbInfo(null);
-    },
-    [configs]
-  );
-
-  const handleSelectKfbInfo = useCallback(
-    (kfbInfoValue: string) => {
-      // reset everything for the _new_ KFB-info
-      setSelectedKfbInfo(kfbInfoValue);
-      setLinkedBranches([]);
-      setPinMap({});
-      setNotTestedMap({});
-      setUnifiedInput("");
-      // trigger our effects
-      setRefreshBranchesKey((k) => k + 1);
-      setRefreshPinsKey((k) => k + 1);
-    },
-    []
-  );
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // NEW Handler: Toggle the 'not_tested' status for a branch
-  // ─────────────────────────────────────────────────────────────────────────────
-  const handleToggleNotTested = async (branchId: number) => {
-      if (!selectedConfig || !selectedKfbInfo) {
-          setError("Cannot change status without a selected KFB and KFB Info.");
-          return;
-      };
-
-      const currentStatus = notTestedMap[branchId] ?? false;
-      const newStatus = !currentStatus;
-
-      // Optimistic UI update for instant feedback
-      setNotTestedMap(prev => ({ ...prev, [branchId]: newStatus }));
-
-      try {
-          const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-          if (kfbInfoDetailId === null) {
-              throw new Error("Could not find the specific KFB Info ID to update.");
-          }
-
-          const { error: updateError } = await supabase
-              .from("config_branches")
-              .update({ not_tested: newStatus })
-              .match({ kfb_info_detail_id: kfbInfoDetailId, branch_id: branchId });
-
-          if (updateError) throw updateError;
-
-      } catch (err: any) {
-          console.error("Error updating 'not tested' status:", err);
-          setError(`Failed to update status: ${err.message}`);
-          // Revert the optimistic update if the database call fails
-          setNotTestedMap(prev => ({ ...prev, [branchId]: currentStatus }));
-      }
-  };
-
-  const linkExistingBranch = async (b: Branch) => {
-    if (!selectedConfig || selectedKfbInfo === null) {
-      setError("Please select a KFB configuration and KFB Info first.");
-      return;
-    }
-    if (linkedBranches.find((lb) => lb.id === b.id)) {
-      setShowSuggestions(false);
-      return;
-    }
-
-    try {
-      const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-      if (kfbInfoDetailId === null) {
-        setError("Could not find KFB Info detail ID for selected KFB Info.");
+    if (!selectedConfig) {
+        setAllBranches([]);
         return;
-      }
+    }
+    setError(null);
+    // FIX: Adapt the API response to the frontend's internal Branch type.
+    fetchJSON<BranchApiResponse[]>(`/api/branches?kfb=${selectedConfig.kfb}`)
+        .then(data => {
+            const adaptedData: Branch[] = data.map(b => ({
+                id: Number(b.id),
+                name: b.branchName,
+            }));
+            setAllBranches(adaptedData);
+        })
+        .catch(err => setError(`Failed to load branch list: ${err.message}`))
+  }, [selectedConfig]);
 
-      const { error: insertErr } = await supabase
-        .from("config_branches")
-        .insert([{  config_id: selectedConfig.id, kfb_info_detail_id: kfbInfoDetailId, branch_id: b.id, not_tested: false }]);
+  // 3. Load linked branches & pins when selection changes
+  useEffect(() => {
+    if (!selectedConfig || !selectedKfbInfo) {
+      setLinkedBranches([])
+      setPinMap({})
+      setNotTestedMap({})
+      return
+    }
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!detail) return
 
-      if (insertErr) {
-        if (insertErr.code === '23505') {
-          setError(`Branch '${b.name}' is already linked to this KFB Info.`);
-        } else {
-          throw insertErr;
+    setLoadingBranches(true)
+    setError(null)
+
+    const fetchLinkedData = async () => {
+        try {
+            const configBranchRows = await fetchJSON<ConfigBranchRow[]>(
+                `/api/config_branches?configId=${selectedConfig.id}&detailId=${detail.id}`
+            );
+
+            const notMap: Record<number, boolean> = {};
+            const branchIds = configBranchRows.map(r => {
+                notMap[r.branch_id] = r.not_tested;
+                return r.branch_id;
+            });
+            setNotTestedMap(notMap);
+
+            if (branchIds.length === 0) {
+                setLinkedBranches([]);
+                setPinMap({});
+                setLoadingBranches(false);
+                return;
+            }
+
+            // FIX: Adapt API response for linked branches
+            const linkedBranchData = await fetchJSON<BranchApiResponse[]>(`/api/branches?ids=${branchIds.join(",")}`);
+            const adaptedLinkedData: Branch[] = linkedBranchData.map(b => ({
+                id: Number(b.id),
+                name: b.branchName
+            }));
+            setLinkedBranches(adaptedLinkedData);
+
+            const pinMappingRows = await fetchJSON<EspPinMappingRow[]>(`/api/esp_pin_mappings?detailId=${detail.id}`);
+            const newPinMap: Record<number, number | null> = {};
+            adaptedLinkedData.forEach(b => newPinMap[b.id] = null);
+            pinMappingRows.forEach(r => { newPinMap[r.branch_id] = r.pin_number });
+            setPinMap(newPinMap);
+
+        } catch (err: any) {
+            setError(`Failed to load branch data: ${err.message}`);
+            setLinkedBranches([]);
+            setPinMap({});
+            setNotTestedMap({});
+        } finally {
+            setLoadingBranches(false);
         }
-      } else {
-        setLinkedBranches((prev) => [...prev, b]);
-        setPinMap((prev) => ({ ...prev, [b.id]: null }));
-        setNotTestedMap(prev => ({ ...prev, [b.id]: false })); // Default to false
-        setUnifiedInput("");
-        setShowSuggestions(false);
-        setEditingBranchId(null);
-        setRefreshBranchesKey(prev => prev + 1);
-      }
-    } catch (err: any) {
-      console.error("Error linking branch:", err);
-      setError(`Failed to link branch: ${err.message}`);
-    }
-  };
+    };
 
-  const createAndLinkBranch = async () => {
-    if (!selectedConfig || selectedKfbInfo === null) {
-      setError("Please select a KFB configuration and KFB Info first.");
-      return;
-    }
-    const trimmed = unifiedInput.trim();
-    if (!trimmed) {
-      setError("Please type a branch name.");
-      return;
-    }
+    fetchLinkedData();
 
-    if (allBranches.find((b) => b.name.toLowerCase() === trimmed.toLowerCase())) {
-      setError("That branch already exists—click its name to link.");
-      return;
-    }
+  }, [selectedConfig, selectedKfbInfo, kfbInfoDetails, refreshKey])
 
-    try {
-      const { data: newBr, error: insertBrErr } = await supabase
-        .from("branches")
-        .insert([{ name: trimmed }])
-        .select("id, name, created_at")
-        .single();
-      if (insertBrErr) throw insertBrErr;
-      if (!newBr) throw new Error("Failed to create branch.");
-
-      const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-      if (kfbInfoDetailId === null) {
-        setError("Could not find KFB Info detail ID. Branch created but not linked.");
-        return;
-      }
-
-      const { error: insertLinkErr } = await supabase
-      .from("config_branches")
-      .insert([{
-        config_id:           selectedConfig.id,
-        kfb_info_detail_id: kfbInfoDetailId,
-        branch_id:           newBr.id,
-        not_tested:          false
-      }]);
-
-
-      if (insertLinkErr) {
-        if (insertLinkErr.code === '23505') {
-          setError(`Branch '${newBr.name}' is already linked to this KFB Info.`);
-        } else {
-          throw insertLinkErr;
-        }
-      } else {
-        setAllBranches((prev) => [...prev, newBr]);
-        setLinkedBranches((prev) => [...prev, newBr]);
-        setPinMap((prev) => ({ ...prev, [newBr.id]: null }));
-        setNotTestedMap(prev => ({ ...prev, [newBr.id]: false })); // Default to false
-        setUnifiedInput("");
-        setShowSuggestions(false);
-        setEditingBranchId(null);
-        setRefreshBranchesKey(prev => prev + 1);
-      }
-    } catch (err: any) {
-      console.error("Error creating/linking branch:", err);
-      setError(`Failed to create or link branch: ${err.message}`);
-    }
-  };
-
-  const handleEditBranch = (branch: Branch) => {
-    setEditingBranchId(branch.id);
-    setEditBranchInputs((prev) => ({
-      ...prev,
-      [branch.id]: branch.name,
-    }));
-    setError(null);
-  };
-
-  const handleSaveBranchName = async (branchId: number) => {
-    const trimmed = (editBranchInputs[branchId] || "").trim();
-    if (!trimmed) {
-      setError("Branch name cannot be empty.");
-      return;
-    }
-    const branchObj = linkedBranches.find((b) => b.id === branchId);
-    if (!branchObj || trimmed === branchObj.name) {
-      setEditingBranchId(null);
-      setError(null);
-      return;
-    }
-
-    try {
-      const { error: updateErr } = await supabase
-        .from("branches")
-        .update({ name: trimmed })
-        .eq("id", branchId);
-      if (updateErr) throw updateErr;
-
-      setLinkedBranches((prev) =>
-        prev.map((b) => (b.id === branchId ? { ...b, name: trimmed } : b))
-      );
-      setAllBranches((prev) =>
-        prev.map((b) => (b.id === branchId ? { ...b, name: trimmed } : b))
-      );
-
-      setEditingBranchId(null);
-      setError(null);
-    } catch (err: any)      {
-      console.error("Error renaming branch:", err);
-      setError(`Failed to rename branch: ${err.message}`);
-    }
-  };
-
-  const handleDeletePin = async (branchId: number) => {
-    if (!selectedConfig || selectedKfbInfo === null) return;
-    const thePin = pinMap[branchId];
-    if (thePin == null) return;
-    setError(null);
-
-    try {
-      const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-      if (kfbInfoDetailId === null) throw new Error("Could not find KFB Info detail ID.");
-
-      await supabase
-        .from("esp_pin_mappings")
-        .delete()
-        .eq("kfb_info_detail_id", kfbInfoDetailId)
-        .eq("branch_id", branchId)
-        .eq("pin_number", thePin);
-
-      setPinMap((prev) => ({ ...prev, [branchId]: null }));
-    } catch (err: any) {
-      console.error("Error deleting pin:", err);
-      setError(`Failed to delete pin: ${err.message}`);
-    }
-  };
-
-  const handleAddPin = async (branchId: number) => {
-    if (!selectedConfig || selectedKfbInfo === null) return;
-    if (pinMap[branchId] != null) {
-      setError("That branch already has a pin. Delete it first to assign a new one.");
-      return;
-    }
-    const trimmedPin = (newPinInputs[branchId] || "").trim();
-    if (!trimmedPin) {
-      setError("Please enter a pin number.");
-      return;
-    }
-    const pinNum = parseInt(trimmedPin, 10);
-    if (isNaN(pinNum)) {
-      setError("Pin number must be a valid integer.");
-      return;
-    }
-    setError(null);
-    setLoadingPinMap(prev => ({ ...prev, [branchId]: true }));
   
-    try {
-      const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-      if (kfbInfoDetailId === null) throw new Error("Could not find KFB Info detail ID.");
-  
-      const { error: insertErr } = await supabase
-        .from("esp_pin_mappings")
-        .insert([{
-          config_id: selectedConfig.id,
-          kfb_info_detail_id: kfbInfoDetailId,
-          branch_id: branchId,
-          pin_number: pinNum,
-        }]);
-  
-      if (insertErr) {
-        if (insertErr.code === '23505') {
-          setError(`Pin ${pinNum} is already assigned to another branch.`);
-        } else {
-          throw insertErr;
-        }
-      } else {
-        setPinMap(prev => ({ ...prev, [branchId]: pinNum }));
-        setNewPinInputs(prev => ({ ...prev, [branchId]: "" }));
-      }
-    } catch (err: any) {
-      console.error("Error adding pin:", err);
-      setError(`Failed to add pin: ${err.message}`);
-    } finally {
-      setLoadingPinMap(prev => ({ ...prev, [branchId]: false }));
-    }
-  };
-  
-  const handleDeleteBranch = async (branchId: number) => {
-    if (!selectedConfig || selectedKfbInfo === null) return;
-    setError(null);
-    try {
-      const kfbInfoDetailId = await getKfbInfoDetailId(selectedConfig.id, selectedKfbInfo);
-      if (kfbInfoDetailId === null) throw new Error("Could not find KFB Info detail ID.");
-
-      await supabase
-        .from("config_branches")
-        .delete()
-        .eq("kfb_info_detail_id", kfbInfoDetailId)
-        .eq("branch_id", branchId);
-
-      await supabase
-        .from("esp_pin_mappings")
-        .delete()
-        .eq("kfb_info_detail_id", kfbInfoDetailId)
-        .eq("branch_id", branchId);
-
-      setLinkedBranches((prev) => prev.filter((b) => b.id !== branchId));
-      const newPinMap = { ...pinMap };
-      delete newPinMap[branchId];
-      setPinMap(newPinMap);
-      const newNotTestedMap = { ...notTestedMap };
-      delete newNotTestedMap[branchId];
-      setNotTestedMap(newNotTestedMap);
-
-      setRefreshBranchesKey(prev => prev + 1);
-    } catch (err: any) {
-      console.error("Error unlinking branch:", err);
-      setError(`Failed to unlink branch: ${err.message}`);
-    }
-  };
-
+  // --- MEMOIZED VALUES & DERIVED STATE ---
+  // FIX: Moved these useMemo hooks before the useCallback hooks that depend on them.
   const suggestionsToLink = useMemo(() => {
-    const term = unifiedInput.trim().toLowerCase();
-    if (!term || !selectedConfig || selectedKfbInfo === null) return [];
-    const linkedIds = new Set(linkedBranches.map((b) => b.id));
+    const term = unifiedInput.trim().toLowerCase()
+    if (!term || !selectedConfig || !selectedKfbInfo) return []
+    const linkedIds = new Set(linkedBranches.map(b => b.id))
     return allBranches
-      .filter((b) => !linkedIds.has(b.id) && b.name.toLowerCase().includes(term))
-      .slice(0, 5);
-  }, [allBranches, linkedBranches, unifiedInput, selectedConfig, selectedKfbInfo]);
+      .filter(b => !linkedIds.has(b.id) && b.name.toLowerCase().includes(term))
+      .slice(0, 5)
+  }, [allBranches, linkedBranches, unifiedInput, selectedConfig, selectedKfbInfo])
 
   const filteredLinkedBranches = useMemo(() => {
-    const term = unifiedInput.trim().toLowerCase();
-    if (!term) return linkedBranches;
-    return linkedBranches.filter((b) => b.name.toLowerCase().includes(term));
-  }, [linkedBranches, unifiedInput]);
+    const term = unifiedInput.trim().toLowerCase()
+    if (!term) return linkedBranches
+    return linkedBranches.filter(b => b.name.toLowerCase().includes(term))
+  }, [linkedBranches, unifiedInput])
+
+  const areAllNotTested = useMemo(() => {
+    if (filteredLinkedBranches.length === 0) return false;
+    return filteredLinkedBranches.every(b => notTestedMap[b.id]);
+  }, [filteredLinkedBranches, notTestedMap]);
+
+
+  // --- HANDLERS & ACTIONS ---
+
+  const handleSelectConfig = useCallback((idStr: string) => {
+    const id = Number(idStr)
+    const c = configs.find(x => x.id === id) ?? null
+    setSelectedConfig(c)
+    setSelectedKfbInfo(null)
+    setLinkedBranches([])
+  }, [configs])
+
+  const handleSelectKfbInfo = useCallback((val: string) => {
+    setSelectedKfbInfo(val)
+    setUnifiedInput("")
+  }, [])
+  
+  const triggerRefresh = () => setRefreshKey(k => k + 1);
+
+  const handleToggleNotTested = useCallback(async (branchId: number) => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!detail) return
+
+    const oldState = notTestedMap[branchId] || false
+    const newState = !oldState
+    setNotTestedMap(m => ({ ...m, [branchId]: newState }))
+
+    try {
+      await fetchJSON(`/api/config_branches/${detail.id}/${branchId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ not_tested: newState }),
+      })
+    } catch (err: any) {
+      setError(err.message)
+      setNotTestedMap(m => ({ ...m, [branchId]: oldState }))
+    }
+  }, [selectedKfbInfo, kfbInfoDetails, notTestedMap])
+
+  // NEW: Handler for the "Toggle All" checkbox
+  const handleToggleAllNotTested = useCallback(async () => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo);
+    if (!detail || filteredLinkedBranches.length === 0) return;
+
+    // Determine the new state: if any are unchecked, the action is to check all.
+    // If all are already checked, the action is to uncheck all.
+    const newGlobalState = filteredLinkedBranches.some(b => !notTestedMap[b.id]);
+
+    const originalMap = { ...notTestedMap };
+    
+    // Optimistically update UI
+    const newMap = { ...notTestedMap };
+    filteredLinkedBranches.forEach(b => {
+      newMap[b.id] = newGlobalState;
+    });
+    setNotTestedMap(newMap);
+
+    // Create all API requests
+    const updatePromises = filteredLinkedBranches.map(b => 
+      fetchJSON(`/api/config_branches/${detail.id}/${b.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ not_tested: newGlobalState }),
+      })
+    );
+
+    try {
+      await Promise.all(updatePromises);
+    } catch (err: any) {
+      setError(`Failed to update all branches: ${err.message}. Reverting.`);
+      setNotTestedMap(originalMap); // Revert on failure
+    }
+  }, [filteredLinkedBranches, notTestedMap, kfbInfoDetails, selectedKfbInfo]);
+
+
+  const linkExistingBranch = async (b: Branch) => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!selectedConfig || !detail) return setError("A KFB and Info must be selected.")
+    if (linkedBranches.some(x => x.id === b.id)) return
+
+    try {
+      await fetchJSON("/api/config_branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config_id: selectedConfig.id,
+          kfb_info_detail_id: detail.id,
+          branch_id: b.id,
+        }),
+      })
+      setUnifiedInput("")
+      setShowSuggestions(false)
+      triggerRefresh();
+    } catch (err: any) {
+      setError(`Failed to link branch: ${err.message}`)
+    }
+  }
+
+  const createAndLinkBranch = async () => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!selectedConfig || !detail) return setError("A KFB and Info must be selected.")
+    const name = unifiedInput.trim()
+    if (!name) return setError("Branch name cannot be empty.")
+    if (allBranches.some(b => b.name.toLowerCase() === name.toLowerCase())) {
+      return setError("A branch with this name already exists. Please select it from the suggestions to link it.")
+    }
+
+    try {
+      const newBranchData = await fetchJSON<BranchApiResponse>("/api/branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const newBranch = { id: Number(newBranchData.id), name: newBranchData.branchName };
+      setAllBranches(a => [...a, newBranch]);
+
+      await fetchJSON("/api/config_branches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config_id: selectedConfig.id,
+          kfb_info_detail_id: detail.id,
+          branch_id: newBranch.id,
+        }),
+      })
+
+      setUnifiedInput("")
+      setShowSuggestions(false)
+      triggerRefresh()
+    } catch (err: any) {
+      setError(`Failed to create and link branch: ${err.message}`)
+    }
+  }
+
+    const handleEditBranch = (b: Branch) => {
+        setEditingBranchId(b.id);
+        setEditBranchInputs(m => ({ ...m, [b.id]: b.name }));
+        setError(null);
+    }
+
+    const handleSaveBranchName = async (branchId: number) => {
+        const name = (editBranchInputs[branchId] || "").trim();
+        if (!name) return setError("Branch name cannot be empty.");
+
+        const originalBranch = allBranches.find(b => b.id === branchId);
+        if (!originalBranch || originalBranch.name === name) {
+            setEditingBranchId(null);
+            return;
+        }
+
+        try {
+            await fetchJSON(`/api/branches/${branchId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            setAllBranches(arr => arr.map(b => (b.id === branchId ? { ...b, name } : b)));
+            setLinkedBranches(arr => arr.map(b => (b.id === branchId ? { ...b, name } : b)));
+            setEditingBranchId(null);
+        } catch (err: any) {
+            setError(`Failed to rename branch: ${err.message}`);
+        }
+    };
+
+    const handleDeletePin = async (branchId: number) => {
+        const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo);
+        const pin = pinMap[branchId];
+        if (!detail || pin == null) return;
+
+        try {
+            await fetch(`/api/esp_pin_mappings?detailId=${detail.id}&branchId=${branchId}&pinNumber=${pin}`, {
+                method: 'DELETE'
+            });
+            setPinMap(m => ({ ...m, [branchId]: null }));
+        } catch (err: any) {
+            setError(`Failed to delete PIN: ${err.message}`);
+        }
+    };
+
+    const handleAddPin = async (branchId: number) => {
+        const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo);
+        if (!selectedConfig || !detail) return;
+        if (pinMap[branchId] != null) return setError("A PIN is already assigned. Please delete it first.");
+
+        const pinValue = (newPinInputs[branchId] || "").trim();
+        if (!pinValue) return setError("PIN number cannot be empty.");
+        
+        const pinNumber = parseInt(pinValue, 10);
+        if (isNaN(pinNumber)) return setError("Invalid PIN. Must be an integer.");
+
+        setLoadingPinMap(m => ({ ...m, [branchId]: true }));
+        try {
+            await fetchJSON('/api/esp_pin_mappings', {
+                method: 'POST',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    config_id: selectedConfig.id,
+                    kfb_info_detail_id: detail.id,
+                    branch_id: branchId,
+                    pin_number: pinNumber,
+                }),
+            });
+            setPinMap(m => ({ ...m, [branchId]: pinNumber }));
+            setNewPinInputs(m => ({ ...m, [branchId]: "" }));
+        } catch (err: any) {
+            setError(`Failed to add PIN: ${err.message}`);
+        } finally {
+            setLoadingPinMap(m => ({ ...m, [branchId]: false }));
+        }
+    };
+    
+    const handleUnlinkBranch = async (branchId: number) => {
+        const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo);
+        if (!detail) return;
+
+        try {
+            await fetch(`/api/config_branches?detailId=${detail.id}&branchId=${branchId}`, {
+                method: 'DELETE'
+            });
+            await fetch(`/api/esp_pin_mappings?detailId=${detail.id}&branchId=${branchId}`, {
+                method: 'DELETE'
+            });
+            
+            triggerRefresh();
+        } catch (err: any) {
+            setError(`Failed to unlink branch: ${err.message}`);
+        } finally {
+            setConfirmDeleteId(null);
+        }
+    };
+
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (suggestionBoxRef.current && !suggestionBoxRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false);
+        setShowSuggestions(false)
       }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+
+  // --- RENDER ---
 
   if (loadingConfigs) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-900 text-white">
-        <p className="text-xl animate-pulse">Loading configurations…</p>
+      <div className="flex h-screen items-center justify-center bg-gray-100 text-gray-800">
+        <ArrowPathIcon className="h-12 w-12 animate-spin mr-4" />
+        <p className="text-5xl font-light">Loading Configurations…</p>
       </div>
-    );
+    )
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // MAIN JSX
-  // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-full flex-col dark:bg-slate-950 px-4 sm:px-6 md:px-8 py-5 font-sans items-center">
-    <div className="w-full flex-grow dark:bg-slate-900/50 p-6 lg:p-8 rounded-2xl shadow-2xl flex flex-col gap-6">
-      <h1 className="text-5xl font-bold text-slate-800 dark:text-slate-100">Program</h1>
+    <div className="flex h-screen w-full flex-col bg-gray-50 text-gray-900 px-2 sm:px-4 py-6">
+      <div className="w-full mx-auto flex-grow bg-white p-6 rounded-2xl shadow-xl flex flex-col gap-6">
 
-      {error && (
-        <div className="rounded-xl border border-red-400 bg-red-100 p-5 text-red-700 dark:border-red-600 dark:bg-red-900/50 dark:text-red-200" role="alert">
-          <div className="flex justify-between items-start gap-4">
-            <div>
-              <p className="font-bold text-xl">Error:</p>
-              <p className="break-words text-xl">{error}</p>
+        <header>
+            <h1 className="text-6xl font-bold text-gray-900 tracking-tight">Branch Configuration</h1>
+            <p className="text-xl text-gray-600 mt-2">Manage branches, pins, and test status for KFB devices.</p>
+        </header>
+
+        {error && (
+          <div className="rounded-xl border border-red-400 bg-red-100 p-4 text-red-800">
+            <div className="flex justify-between items-start gap-4">
+                <ExclamationTriangleIcon className="h-7 w-7 text-red-600 mt-1 flex-shrink-0" />
+              <div className="flex-grow">
+                <p className="font-bold text-xl">An Error Occurred:</p>
+                <p className="text-lg">{error}</p>
+              </div>
+              <button onClick={() => setError(null)} className="text-2xl text-red-700 hover:text-red-900 transition-colors">&times;</button>
             </div>
-            <button onClick={() => setError(null)} className="text-2xl text-red-700 dark:text-red-200 hover:text-red-900 dark:hover:text-red-100 font-bold">&times;</button>
           </div>
+        )}
+
+        <div className="grid md:grid-cols-2 gap-6">
+            <section className="rounded-xl bg-white p-6 shadow-md border">
+                <h2 className="text-3xl font-semibold text-gray-800">1. Select KFB Number</h2>
+                <select
+                    className="w-full rounded-lg border-2 border-gray-300 bg-gray-50 text-gray-900 text-xl p-3 mt-4 focus:ring-blue-500 focus:border-blue-500 transition"
+                    value={selectedConfig ? String(selectedConfig.id) : ""}
+                    onChange={e => handleSelectConfig(e.target.value)}
+                >
+                    <option disabled value="">-- Select a KFB --</option>
+                    {configs.map(c => <option key={c.id} value={c.id}>{c.kfb}</option>)}
+                </select>
+            </section>
+
+            <section className={`rounded-xl p-6 transition-opacity duration-500 ${selectedConfig ? 'opacity-100 bg-white shadow-md border' : 'opacity-50 bg-gray-100'}`}>
+                <h2 className="text-3xl font-semibold text-gray-800">
+                    2. Select KFB Info
+                </h2>
+                <select
+                    className="w-full rounded-lg border-2 border-gray-300 bg-gray-50 text-gray-900 text-xl p-3 mt-4 focus:ring-blue-500 focus:border-blue-500 transition"
+                    value={selectedKfbInfo || ""}
+                    onChange={e => handleSelectKfbInfo(e.target.value)}
+                    disabled={!selectedConfig || kfbInfoDetails.length === 0}
+                >
+                    <option disabled value="">
+                        {selectedConfig ? (kfbInfoDetails.length > 0 ? '-- Select Info --' : 'No info available') : 'Select KFB first'}
+                    </option>
+                    {kfbInfoDetails.map(d => (
+                        <option key={d.id} value={d.kfb_info_value}>{d.kfb_info_value}</option>
+                    ))}
+                </select>
+            </section>
         </div>
-      )}
 
-      <section className="rounded-2xl bg-white shadow-lg dark:bg-slate-800 p-6">
-        <h2 className="pb-3 text-3xl font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">
-          1. Select KFB Number
-        </h2>
-        <select id="configSelect" value={selectedConfig ? String(selectedConfig.id) : ""} onChange={(e) => handleSelectConfig(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white p-4 text-2xl text-slate-900 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100">
-          <option disabled value="">-- Select a KFB Number --</option>
-          {configs.map((c) => (<option key={c.id} value={c.id}>{c.kfb}</option>))}
-        </select>
-      </section>
 
-      {selectedConfig && (
-        <section className="rounded-2xl bg-white shadow-lg dark:bg-slate-800 p-6">
-          <h2 className="pb-3 text-3xl font-semibold text-slate-700 dark:border-slate-700 dark:text-slate-200">
-            1.1. Select KFB Info for: <span className="font-bold text-sky-600 dark:text-sky-400">{selectedConfig.kfb}</span>
-          </h2>
-          <select
-            id="kfbInfoSelect"
-            value={selectedKfbInfo || ""}
-            onChange={(e) => handleSelectKfbInfo(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 bg-white p-4 text-2xl text-slate-900 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/50 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100"
-            disabled={!selectedConfig || selectedConfig.kfbInfo?.length === 0}
-          >
-            <option disabled value="">-- Select a KFB Info --</option>
-            {selectedConfig.kfbInfo?.length > 0 ? (
-              selectedConfig.kfbInfo.map((info, index) => (
-                <option key={index} value={info}>{info}</option>
-              ))
-            ) : (
-              <option disabled>No KFB Info available for this KFB</option>
-            )}
-          </select>
-        </section>
-      )}
         {selectedConfig && selectedKfbInfo && (
-          <section className="rounded-2xl bg-white dark:bg-slate-800 shadow-lg p-6 flex-1 flex flex-col overflow-hidden">
-            <h2 className="text-3xl font-semibold text-slate-700 dark:text-slate-200 mb-4">
-              2. Branches for <span className="font-bold text-sky-600 dark:text-sky-400">{selectedConfig.kfb}</span> 
-              (Info: <span className="font-bold text-sky-600 dark:text-sky-400">{selectedKfbInfo}</span>)
+          <section className="rounded-xl bg-white p-6 flex-1 flex flex-col overflow-hidden shadow-md border">
+            <h2 className="text-4xl font-semibold text-gray-800 mb-5">
+              3. Manage Branches
             </h2>
 
-            {/* filter / link input */}
-            <div className="relative mb-6">
-              <input
-                type="text"
-                value={unifiedInput}
-                onChange={e => { setUnifiedInput(e.target.value); setShowSuggestions(true) }}
-                onFocus={() => setShowSuggestions(true)}
-                placeholder="Filter, Link, or Create Branch…"
-                className="w-full rounded-2xl border-2 border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-6 py-4 text-2xl placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
-              />
-              {/* … your suggestion dropdown here … */}
+            <div className="relative mb-5" ref={suggestionBoxRef}>
+              <form onSubmit={(e: FormEvent) => { e.preventDefault(); createAndLinkBranch(); }}>
+                <input
+                    type="text"
+                    className="w-full rounded-lg border-2 border-gray-300 bg-white text-gray-900 text-xl px-5 py-3 focus:ring-blue-500 focus:border-blue-500 transition placeholder-gray-400"
+                    placeholder="Filter, Link, or Create New Branch…"
+                    value={unifiedInput}
+                    onChange={e => { setUnifiedInput(e.target.value); setShowSuggestions(true); }}
+                    onFocus={() => setShowSuggestions(true)}
+                />
+                 {showSuggestions && (
+                    <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 mt-1 rounded-lg shadow-lg max-h-60 overflow-auto z-20">
+                        {suggestionsToLink.map(b => (
+                            <div
+                                key={b.id}
+                                className="px-4 py-2 text-lg hover:bg-blue-100 cursor-pointer transition-colors"
+                                onClick={() => linkExistingBranch(b)}
+                            >
+                                Link existing: <span className="font-semibold">{b.name}</span>
+                            </div>
+                        ))}
+                        {unifiedInput.trim() && !suggestionsToLink.some(s => s.name.toLowerCase() === unifiedInput.trim().toLowerCase()) && (
+                            <div className="px-4 py-3 text-center text-gray-500 border-t border-gray-200">
+                                <button type="submit" className="w-full text-left hover:text-blue-600">
+                                    Create new branch: “<strong className="text-green-600">{unifiedInput}</strong>”
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+              </form>
             </div>
 
-            <div className="flex-1 overflow-auto">
-              <table className="min-w-full divide-y divide-slate-300 dark:divide-slate-600">
-                <thead className="bg-slate-100 dark:bg-slate-700">
+            <div className="flex-1 overflow-auto -mx-6 px-6">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-100 sticky top-0">
                   <tr>
-                    <th className="px-6 py-4 text-left text-2xl font-semibold text-slate-600 dark:text-slate-300 uppercase">
-                      Branch
+                    <th className="px-6 py-3 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Branch</th>
+                    {/* NEW: Toggle all checkbox in header */}
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">
+                      <label className="flex items-center justify-center gap-2 cursor-pointer">
+                        <input 
+                            type="checkbox"
+                            className="form-checkbox h-5 w-5 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500"
+                            checked={areAllNotTested}
+                            onChange={handleToggleAllNotTested}
+                            disabled={filteredLinkedBranches.length === 0}
+                         />
+                        Not Tested
+                      </label>
                     </th>
-                    <th className="px-6 py-4 text-center text-2xl font-semibold text-slate-600 dark:text-slate-300 uppercase">
-                      Not Tested
-                    </th>
-                    <th className="px-6 py-4 text-center text-2xl font-semibold text-slate-600 dark:text-slate-300 uppercase">
-                      PIN
-                    </th>
-                    <th className="px-6 py-4 text-center text-2xl font-semibold text-slate-600 dark:text-slate-300 uppercase">
-                      Actions
-                    </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">PIN</th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {loadingBranches ? (
+                    <tr><td colSpan={4} className="p-8 text-center text-xl text-gray-500"><ArrowPathIcon className="h-7 w-7 animate-spin inline mr-3" />Loading Branches...</td></tr>
+                  ) : filteredLinkedBranches.length === 0 ? (
+                    <tr><td colSpan={4} className="p-8 text-center text-xl text-gray-500">No branches linked. Use the input above to add one.</td></tr>
+                  ) : filteredLinkedBranches.map(b => (
+                    <tr key={b.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap text-lg">
+                        {editingBranchId === b.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              className="border-2 border-blue-500 bg-white rounded px-2 py-1 w-full"
+                              value={editBranchInputs[b.id] ?? ""}
+                              onChange={e => setEditBranchInputs(m => ({ ...m, [b.id]: e.target.value }))}
+                              onKeyDown={e => e.key === 'Enter' && handleSaveBranchName(b.id)}
+                              onBlur={() => setEditingBranchId(null)}
+                              autoFocus
+                            />
+                            <button onClick={() => handleSaveBranchName(b.id)} className="text-green-600 hover:text-green-500"><CheckCircleIcon className="h-6 w-6" /></button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            {/* FIX: Use `b.name` which is now correctly mapped */}
+                            <span>{b.name}</span>
+                            <button onClick={() => handleEditBranch(b)} className="text-gray-400 hover:text-gray-700 transition-colors"><PencilSquareIcon className="h-5 w-5" /></button>
+                          </div>
+                        )}
+                      </td>
 
-                        <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-600">
-          {loadingBranches ? (
-            <tr>
-              <td colSpan={4} className="p-6 text-center text-2xl text-slate-500 dark:text-slate-400">
-                Loading branches…
-              </td>
-            </tr>
-          ) : filteredLinkedBranches.length === 0 ? (
-            <tr>
-              <td colSpan={4} className="p-6 text-center text-2xl text-slate-500 dark:text-slate-400">
-                No branches linked.
-              </td>
-            </tr>
-          ) : (
-            filteredLinkedBranches.map((b) => (
-              <tr key={b.id}>
-                {/* BRANCH */}
-                <td className="px-6 py-4 text-2xl text-slate-800 dark:text-slate-200">
-                  {b.name}
-                </td>
+                      <td className="px-6 py-4 text-center">
+                        <label className="inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={notTestedMap[b.id] ?? false}
+                            onChange={() => handleToggleNotTested(b.id)}
+                            className="form-checkbox h-6 w-6 rounded border-gray-300 text-yellow-500 focus:ring-yellow-500"
+                          />
+                        </label>
+                      </td>
 
-                {/* NOT TESTED */}
-                <td className="px-6 py-4 text-center">
-                  <button
-                    onClick={() => handleToggleNotTested(b.id)}
-                    className={`
-                      relative inline-flex h-8 w-16 items-center rounded-full transition
-                      ${notTestedMap[b.id] ? 'bg-yellow-500' : 'bg-gray-300 dark:bg-slate-600'}
-                    `}
-                    role="switch"
-                    aria-checked={notTestedMap[b.id] ?? false}
-                  >
-                    <span
-                      className={`
-                        inline-block h-7 w-7 transform rounded-full bg-white shadow transition
-                        ${notTestedMap[b.id] ? 'translate-x-8' : 'translate-x-0'}
-                      `}
-                    />
-                  </button>
-                </td>
-
-                {/* PIN */}
-                <td className="px-6 py-4 text-center">
-                  {loadingPinMap[b.id] ? (
-                    <span className="animate-pulse text-2xl text-gray-500 dark:text-gray-400">…</span>
-                  ) : pinMap[b.id] != null ? (
-                    <div className="inline-flex items-center space-x-2">
-                      <code className="font-mono text-2xl  text-gray-500 dark:text-gray-400">PIN {pinMap[b.id]}</code>
-                      <button
-                        onClick={() => handleDeletePin(b.id)}
-                        className="text-red-500 hover:text-red-700"
-                        title="Remove PIN"
-                      >
-                        <XMarkIcon className="h-6 w-6" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="inline-flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={newPinInputs[b.id] || ""}
-                        onChange={e => setNewPinInputs(p => ({ ...p, [b.id]: e.target.value }))}
-                        onKeyDown={e => e.key === 'Enter' && handleAddPin(b.id)}
-                        placeholder="Add"
-                        className="w-20 rounded-xl  text-gray-500 dark:text-gray-400 border px-3 py-2 text-2xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                      />
-                      <button
-                        onClick={() => handleAddPin(b.id)}
-                        disabled={!newPinInputs[b.id]}
-                        className="text-teal-600 hover:text-teal-800 disabled:opacity-50"
-                        title="Add PIN"
-                      >
-                        <PlusIcon className="h-6 w-6" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-
-                {/* ACTIONS */}
-                <td className="px-6 py-4 text-center">
-                  {confirmDeleteId === b.id ? (
-                    <div className="inline-flex space-x-2">
-                      <button
-                        onClick={() => { handleDeleteBranch(b.id); setConfirmDeleteId(null); }}
-                        className="px-4 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setConfirmDeleteId(null)}
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition"
-                      >
-                        No
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmDeleteId(b.id)}
-                      className="px-6 py-2 bg-red-600 text-white rounded-xl hover:bg-red-700 transition"
-                    >
-                      Unlink
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-
+                      <td className="px-6 py-4 text-center text-lg">
+                        {loadingPinMap[b.id] ? (
+                          <ArrowPathIcon className="h-5 w-5 animate-spin mx-auto text-gray-400" />
+                        ) : pinMap[b.id] != null ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <code className="bg-gray-200 text-teal-700 px-2 py-1 rounded-md text-base">PIN {pinMap[b.id]}</code>
+                            <button onClick={() => handleDeletePin(b.id)} className="text-red-500 hover:text-red-700 transition-colors">
+                              <XMarkIcon className="h-5 w-5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <form onSubmit={(e) => {e.preventDefault(); handleAddPin(b.id)}} className="inline-flex items-center gap-1">
+                            <input
+                              type="text"
+                              className="w-20 bg-white border-2 border-gray-300 rounded px-2 py-1 text-center focus:border-blue-500"
+                              placeholder="Add"
+                              value={newPinInputs[b.id] || ""}
+                              onChange={e => setNewPinInputs(m => ({ ...m, [b.id]: e.target.value }))}
+                            />
+                            <button type="submit" className="text-green-600 hover:text-green-500 transition-colors">
+                              <PlusIcon className="h-6 w-6" />
+                            </button>
+                          </form>
+                        )}
+                      </td>
+                      
+                      <td className="px-6 py-4 text-center">
+                         {confirmDeleteId === b.id ? (
+                           <div className="flex justify-center items-center gap-2">
+                             <span className="text-yellow-600 font-semibold">Unlink?</span>
+                             <button onClick={() => handleUnlinkBranch(b.id)} className="bg-red-600 text-white px-3 py-1 text-sm rounded-md hover:bg-red-500 transition">Yes</button>
+                             <button onClick={() => setConfirmDeleteId(null)} className="bg-gray-300 text-gray-800 px-3 py-1 text-sm rounded-md hover:bg-gray-400 transition">No</button>
+                           </div>
+                         ) : (
+                           <button onClick={() => setConfirmDeleteId(b.id)} className="bg-red-100 text-red-700 px-3 py-2 text-sm rounded-lg hover:bg-red-200 hover:text-red-800 transition flex items-center gap-2 mx-auto font-semibold">
+                             <TrashIcon className="h-4 w-4" /> Unlink
+                           </button>
+                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
             </div>
           </section>
         )}
-
-
+      </div>
     </div>
-  </div>
-  );
-};
+  )
+}
 
-export { SettingsBranchesPageContent };
-export default SettingsBranchesPageContent;
+
+export { SettingsBranchesPageContent }
+export default SettingsBranchesPageContent

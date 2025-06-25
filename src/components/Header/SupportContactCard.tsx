@@ -4,6 +4,7 @@ import React from "react";
 
 interface SupportContactCardProps {
   supportInfo: {
+    title:string;
     phone: string;
   };
 }
@@ -17,22 +18,9 @@ interface SupportContactCardProps {
 export const SupportContactCard: React.FC<SupportContactCardProps> = ({
   supportInfo,
 }) => (
-  <div
-    className="
-      p-6
-      border-2 border-slate-300 dark:border-slate-600
-      rounded-xl shadow-xl
-      bg-white dark:bg-slate-700
-      w-64 h-40
-      flex flex-col justify-center items-center
-    "
-  >
-    <p className="text-2xl font-bold text-slate-700 dark:text-slate-200 mb-2">
-      SUPPORT CALL
-    </p>
-    <p className="text-4xl text-slate-800 dark:text-slate-800 mb-1 font-bold">
-      {supportInfo.phone}
-    </p>
-
+  <div className="flex flex-col items-center justify-center p-4 h-full bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700">
+    <span className="text-sm font-bold tracking-wider uppercase text-slate-500 dark:text-slate-400">{supportInfo.title}</span>
+    <span className="text-4xl font-extrabold text-slate-900 dark:text-slate-50">{supportInfo.phone}</span>
   </div>
+
 );

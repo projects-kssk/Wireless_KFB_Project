@@ -9,7 +9,9 @@ import { SupportContactCard } from "@/components/Header/SupportContactCard";
 import { MenuIcon, XMarkIcon } from "@/components/Icons/Icons";
 import { appConfig } from "@/components/config/appConfig";
 
-const CUSTOM_HEADER_HEIGHT = "12rem";
+// --- End of Placeholder Components ---
+
+const CUSTOM_HEADER_HEIGHT = "6rem"; // Reduced from 12rem
 
 interface HeaderProps {
   onSettingsClick: () => void;
@@ -31,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
     // Everything else becomes "offline"
     return "offline";
   };
+
+  type SimpleStatus = "connected" | "error" | "offline";
 
   // Initialize each indicator to a SimpleStatus
   const [scanner1Status, setScanner1Status] = useState<SimpleStatus>(
@@ -86,41 +90,31 @@ export const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     setIsClient(true);
 
-    // --- Window Resize Logic ---
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
     };
     handleResize();
     window.addEventListener("resize", handleResize);
 
-    // --- Scroll Logic for Auto-Hiding Header ---
     const handleScroll = () => {
       const currentScrollY = window.scrollY;
-      // Show header if scrolling up or at the very top of the page
       if (currentScrollY < lastScrollY.current || currentScrollY <= 10) {
         setIsHeaderVisible(true);
       } else {
-      // Hide header if scrolling down
         setIsHeaderVisible(false);
       }
-      // Update the last scroll position
       lastScrollY.current = currentScrollY;
     };
-    // Use passive listener for better scroll performance
     window.addEventListener("scroll", handleScroll, { passive: true });
 
-
-    // --- Cleanup ---
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll);
     };
-  }, []); // Empty dependency array ensures this runs only once on mount
+  }, []); 
 
-  // If header is hidden by config, return null
   if (appConfig.hideHeader) return null;
 
-  // Hide status cards on smaller screens when sidebar is open
   const widgetsDynamicClass =
     isClient &&
     currentView === "main" &&
@@ -137,54 +131,39 @@ export const Header: React.FC<HeaderProps> = ({
       className={`w-full bg-slate-100 dark:bg-slate-900 shadow-lg sticky top-0 z-30 transition-transform duration-300 ease-in-out ${isHeaderVisible ? "translate-y-0" : "-translate-y-full"}`}
       style={{ height: CUSTOM_HEADER_HEIGHT }}
     >
-      <div className="flex items-stretch justify-between w-full h-full px-6 sm:px-8 md:px-10 ">
-        <div className="flex items-center flex-shrink-0">
-          {/* Only show “hamburger / close” on dashboard */}
+      <div className="flex items-center justify-between w-full h-full px-4 sm:px-6 md:px-8">
+        <div className="flex items-center flex-shrink-0 h-full">
           {currentView === "main" && (
             <button
               onClick={onToggleSidebar}
-              className="p-3 sm:p-4 mr-3 md:mr-5 text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 focus:outline-none rounded-full hover:bg-slate-200 dark:hover:bg-slate-700"
+              className="p-2 mr-2 md:mr-4 text-slate-700 dark:text-slate-200 hover:text-sky-600 dark:hover:text-sky-400 focus:outline-none rounded-full hover:bg-slate-200 dark:hover:bg-slate-700"
               aria-label={isSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
             >
               {isSidebarOpen ? (
-                <XMarkIcon className="w-9 h-9 sm:w-10 sm:h-10" />
+                <XMarkIcon className="w-8 h-8" />
               ) : (
-                <MenuIcon className="w-9 h-9 sm:w-10 sm:h-10" />
+                <MenuIcon className="w-8 h-8" />
               )}
             </button>
           )}
 
-          {/* Three status cards + support (visible/hide logic via widgetsDynamicClass) */}
-          <div className={`items-stretch space-x-6 py-3 ${widgetsDynamicClass}`}>
-            <StatusIndicatorCard
-              label={appConfig.indicatorLabels.scanner1}
-              status={scanner1Status}
-            />
-            <StatusIndicatorCard
-              label={appConfig.indicatorLabels.scanner2}
-              status={scanner2Status}
-            />
-            <StatusIndicatorCard
-              label={appConfig.indicatorLabels.server}
-              status={serverStatus}
-            />
+          <div className={`items-stretch h-full py-3 space-x-4 ${widgetsDynamicClass}`}>
             <SupportContactCard supportInfo={appConfig.callSupportInfo} />
           </div>
         </div>
 
-        <div className="flex items-center ml-auto flex-shrink-0 px-6 sm:px-6 md:px-8 mt-5 mb-5 pt-2">
+        <div className="flex items-center ml-auto flex-shrink-0">
           <button
             type="button"
             aria-label={mainButtonText}
-            className="h-full flex items-center px-8 sm:px-10 md:px-12 py-4 sm:py-5 text-lg sm:text-xl lg:text-2xl font-bold uppercase tracking-wider text-sky-100 dark:text-sky-100 bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600 rounded-xl shadow-xl hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-sky-400 dark:focus:ring-sky-500 transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
+            className="flex items-center px-6 sm:px-8 md:px-10 py-3 sm:py-4 text-lg sm:text-xl lg:text-2xl font-bold uppercase tracking-wider text-sky-100 dark:text-sky-100 bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-600 rounded-xl shadow-xl hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-sky-400 dark:focus:ring-sky-500 transition-all duration-200 ease-in-out transform hover:scale-105 active:scale-95"
             onClick={onSettingsClick}
           >
             {mainButtonText}
           </button>
         </div>
       </div>
-
-      {/* (Optional) Keyframes for pulsating animations */}
+      
       <style>
         {`
           @keyframes pulse-red {
@@ -200,4 +179,5 @@ export const Header: React.FC<HeaderProps> = ({
   );
 };
 
+// Default export for usage in other files
 export default Header;

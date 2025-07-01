@@ -1,5 +1,11 @@
 // next.config.ts
-export default {
-  // output: "export",
-  images: { unoptimized: true }
+import { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  images: {
+    unoptimized: true,
+  },
+  // no `output: 'export'` here
 }
+
+export default nextConfig

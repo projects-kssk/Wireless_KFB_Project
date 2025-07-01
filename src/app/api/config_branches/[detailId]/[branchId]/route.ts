@@ -8,10 +8,13 @@ interface PatchBody { not_tested: boolean }
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { detailId: string; branchId: string } }
+  { params }: { params: Promise<{ detailId: string; branchId: string }> }
 ) {
-  const detailId = Number(params.detailId)
-  const branchId = Number(params.branchId)
+  // await the params promise
+  const { detailId: detailStr, branchId: branchStr } = await params
+  const detailId = Number(detailStr)
+  const branchId = Number(branchStr)
+
   if (Number.isNaN(detailId) || Number.isNaN(branchId)) {
     return NextResponse.json(
       { error: 'Invalid detailId or branchId in URL' },

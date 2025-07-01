@@ -5,11 +5,13 @@ import { saveConfig, deleteConfig, getConfigById } from '@/lib/data'
 
 export const dynamic = 'force-dynamic'
 
-interface Params { params: { id: string } }
-
 // GET a single config by ID
-export async function GET(request: Request, { params }: Params) {
-  const id = Number(params.id)
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: idStr } = await params
+  const id = Number(idStr)
   if (Number.isNaN(id)) {
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
@@ -23,8 +25,12 @@ export async function GET(request: Request, { params }: Params) {
 }
 
 // PUT / replace or update the config
-export async function PUT(request: Request, { params }: Params) {
-  const id = Number(params.id)
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: idStr } = await params
+  const id = Number(idStr)
   if (Number.isNaN(id)) {
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
@@ -49,11 +55,16 @@ export async function PUT(request: Request, { params }: Params) {
 }
 
 // DELETE
-export async function DELETE(request: Request, { params }: Params) {
-  const id = Number(params.id)
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id: idStr } = await params
+  const id = Number(idStr)
   if (Number.isNaN(id)) {
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
+
   try {
     await deleteConfig(id)
     return NextResponse.json({ success: true })

@@ -91,3 +91,5 @@ lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
 
 
 USE_SYSTEM_FPM=true npx electron-builder build --linux deb --arm64
+
+https://chatgpt.com/c/6863d3ad-0e20-800f-b7bf-89117257f776

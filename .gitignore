@@ -36,3 +36,5 @@ next-env.d.ts
 supabase-project/supabase
 supabase-project/supabase
 dist 
+.env
+db-socket/.s.PGSQL.5432.lock

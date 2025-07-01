@@ -88,3 +88,6 @@ chmod +x dist/*.AppImage
 ./dist/wireless-KFB-1.0.0.AppImage
 
 lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+
+
+USE_SYSTEM_FPM=true npx electron-builder build --linux deb --arm64

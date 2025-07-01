@@ -38,14 +38,17 @@ export async function GET(request: Request) {
 
       // We'll cast these to your BranchDisplayData shape (you can omit
       // fields your Settings component doesn't use)
-      const data: BranchDisplayData[] = rows.map(r => ({
-        id:           r.id.toString(),
-        branchName:   r.name,
-        // In Settings we only care about id & name; the rest can be left undefined
-        testStatus:   'not_tested',
-        pinNumber:    undefined,
-        kfbInfoValue: undefined,
-      }))
+  const data: BranchDisplayData[] = rows.map((r: { 
+    id: number; 
+    name: string; 
+    created_at: string; 
+  }) => ({
+    id:           r.id.toString(),
+    branchName:   r.name,
+    testStatus:   'not_tested',
+    pinNumber:    undefined,
+    kfbInfoValue: undefined,
+  }));
 
       return NextResponse.json(data)
     }
@@ -88,13 +91,13 @@ export async function GET(request: Request) {
       [kfb]
     )
 
-    const data: BranchDisplayData[] = rows.map(r => ({
-      id:           r.id.toString(),
-      branchName:   r.name,
-      testStatus:   r.pin_number != null ? 'ok' : 'not_tested',
-      pinNumber:    r.pin_number  ?? undefined,
-      kfbInfoValue: r.kfb_info_value ?? undefined,
-    }))
+    const data = rows.map<BranchDisplayData>(r => ({
+        id:           r.id.toString(),
+        branchName:   r.name,
+        testStatus:   'not_tested',
+        pinNumber:    undefined,
+        kfbInfoValue: undefined,
+      }));
 
     return NextResponse.json(data)
   } catch (err: any) {

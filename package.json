@@ -18,11 +18,10 @@
   ],
   "scripts": {
     "dev": "concurrently -k -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"next dev\" \"npx wait-on http://localhost:3000 && electron .\"",
-  "build:renderer": "next build && next export",
-  "build:electron": "tsc -p tsconfig.electron.json",
-  "build": "npm run build:renderer && npm run build:electron && electron-builder --linux --arm64 AppImage",
-
-  "start": "electron .",
+    "build:renderer": "next build && next export",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:renderer && npm run build:electron && electron-builder --linux --arm64 AppImage",
+    "start": "electron .",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
     "format": "prettier . --write"
@@ -41,6 +40,9 @@
     "zod": "3.25.42"
   },
   "devDependencies": {
+    "@types/pg": "^8.15.4",
+    "@types/react": "19.1.8",
+    "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
     "electron": "^36.5.0",
     "electron-builder": "^26.0.12",
@@ -75,7 +77,9 @@
       "target": [
         {
           "target": "AppImage",
-          "arch": ["arm64"]
+          "arch": [
+            "arm64"
+          ]
         }
       ]
     }

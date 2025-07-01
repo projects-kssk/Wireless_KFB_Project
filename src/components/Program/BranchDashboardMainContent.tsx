@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'; // Added useRef
-import type { BranchDisplayData } from '@/types/branch';
 import type { TestStatus, SubStatus } from '@/types/types';
-
+import type { BranchDisplayData } from '@/types/types'
 
 // Mock CheckCircleIcon component (no longer directly used in the OK animation, but kept for type safety if needed elsewhere)
 const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (

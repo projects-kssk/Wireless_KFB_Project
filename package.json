@@ -1,7 +1,7 @@
 {
   "name": "typescript-nextjs-starter",
   "version": "1.0.0",
-  "description": "A TypeScript starter for Next.js that includes all you need to build amazing projects",
+  "description": "Next.js + Electron starter (x64 dev, arm64 prod)",
   "private": true,
   "type": "module",
   "main": "dist/main/main.js",
@@ -13,24 +13,28 @@
   "license": "MIT",
   "keywords": [
     "nextjs",
-    "starter",
+    "electron",
     "typescript"
   ],
   "scripts": {
-    "dev": "concurrently -k -n \"NEXT,ELECTRON\" -c \"yellow,blue\" --kill-others \"next dev\" \"npx wait-on http://localhost:3000 && electron .\"",
+    "dev": "concurrently -k -n \"NEXT,ELECTRON\" -c \"yellow,blue\" \"next dev\" \"pnpm exec wait-on http://localhost:3000 && pnpm exec electron .\"",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "build": "npm run build:renderer && npm run build:electron && electron-builder --linux AppImage --arm64",
-    "start": "electron .",
+    "build": "pnpm run build:renderer && pnpm run build:electron && pnpm exec electron-builder --linux AppImage",
+    "build:arm64": "pnpm run build:renderer && pnpm run build:electron && pnpm exec electron-builder --linux AppImage --arm64",
+    "start": "pnpm exec electron .",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
-    "format": "prettier . --write"
+    "format": "prettier . --write",
+    "postinstall": "pnpm exec electron-builder install-app-deps && node node_modules/electron/install.js"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.3",
+    "@serialport/parser-readline": "^13.0.0",
     "@supabase/supabase-js": "^2.49.8",
     "@t3-oss/env-nextjs": "0.13.6",
     "dotenv": "^17.0.0",
+    "electron": "^37.2.0",
     "electron-serve": "^1.2.0",
     "next": "15.3.3",
     "next-seo": "^6.5.0",
@@ -38,6 +42,7 @@
     "pg": "^8.16.2",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "serialport": "^13.0.0",
     "zod": "3.25.42"
   },
   "devDependencies": {
@@ -46,7 +51,6 @@
     "@types/react-dom": "19.1.6",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
-    "electron": "^36.5.0",
     "electron-builder": "^26.0.12",
     "eslint": "9.27.0",
     "husky": "9.1.7",
@@ -78,12 +82,7 @@
     "linux": {
       "icon": "assets",
       "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "arm64"
-          ]
-        }
+        "AppImage"
       ]
     }
   }

@@ -909,8 +909,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               htmlFor="mac_address"
               className={labelStyle.replace('text-5xl', 'text-4xl')}
             >
-              ESP MAC Address
-            </label>
+                          </label>
             <input
               type="text"
               name="mac_address"

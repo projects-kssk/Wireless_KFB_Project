@@ -24,20 +24,12 @@ interface KfbInfo {
 }
 
 // --- SVG ICONS ---
-const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      {...props}
-    >
-      <path
-        fillRule="evenodd"
-        d="M2.25 12c0-5.385 4.365-9.75 9.75-9.75s9.75 4.365 9.75 9.75-4.365 9.75-9.75 9.75S2.25 17.385 2.25 12zm13.36-1.814a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
+const CheckCircleIcon = ({ className = "w-5 h-5" }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+    <polyline points="22 4 12 14.01 9 11.01"></polyline>
+  </svg>
+);
 
 const XCircleIcon = ({ className = "w-5 h-5" }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -74,6 +66,7 @@ const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+
 // --- HELPER FUNCTIONS ---
 const getStatusInfo = (status: TestStatus) => {
   switch (status) {
@@ -105,7 +98,7 @@ const BranchCard = ({ branch }: { branch: BranchDisplayData }) => {
       <div className="p-8 flex-grow flex flex-col justify-between">
         <div className="flex justify-between items-center mb-6">
           {/* Status display */}
-          <div className={`inline-flex items-center gap-4 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'p-5 text-4xl' : 'px-4 py-2 text-lg'}`}>
+          <div className={`inline-flex items-center gap-4 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'p-5 text-5xl' : 'px-4 py-2 text-lg'}`}>
             <statusInfo.Icon className={isBigStatus ? "w-12 h-12" : "w-6 h-6"} />
             <span>{statusInfo.text}</span>
           </div>
@@ -167,7 +160,6 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (allOk) {
       setShowOkAnimation(true);
-      // The parent component now handles the reset, so we just control the animation visibility
       timeoutRef.current = setTimeout(() => setShowOkAnimation(false), 5000);
     } else {
       setShowOkAnimation(false);
@@ -182,38 +174,16 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
   }, [onScanAgainRequest]);
 
   const mainContent = () => {
-    // 1. When the check is actively running (isScanning is true after an initial load)
-    if (isScanning && branchesData.length > 0) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full min-h-[500px]">
-          <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
-            SELF CHECKING...
-          </h2>
-        </div>
-      );
-    }
-
-    // 2. When the check is complete and all are OK, show the success animation
     if (showOkAnimation) {
       return (
-        <div className="p-10 text-center w-full flex flex-col items-center justify-center">
-            <div className="relative">
-            {/* Outer pulsating green circle */}
-            <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-green-100 dark:bg-green-700/30 rounded-full flex items-center justify-center animate-pulse">
-                {/* Inner white circle */}
-                <div className="w-60 h-60 sm:w-[250px] sm:h-[250px] bg-white dark:bg-gray-800 rounded-full flex items-center justify-center shadow-lg">
-                <CheckCircleIcon className="w-[150px] h-[150px] sm:w-[160px] sm:h-[160px] text-green-600 dark:text-green-400" />
-                </div>
-            </div>
-            </div>
-            <h3 className="p-10 font-black text-green-500 uppercase tracking-widest text-8xl sm:text-9xl">
-                CHECK OK
-            </h3>
+        <div className="bg-white p-10 text-center w-full flex flex-col items-center justify-center rounded-lg shadow-2xl shadow-green-500/20">
+          <h3 className="font-black text-green-500 uppercase tracking-widest text-9xl">
+            OK
+          </h3>
         </div>
       );
     }
 
-    // 3. Initial state, before the first scan
     if (hasMounted && branchesData.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-white/50 rounded-2xl border-4 border-dashed border-slate-400 p-10 cursor-pointer hover:border-blue-500 hover:bg-white transition-all duration-300" onClick={handleScan}>
@@ -225,8 +195,7 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
         </div>
       );
     }
-    
-    // 4. Default view: show the list of branches with failures or not tested
+
     return (
       <div className="flex flex-wrap justify-center items-start gap-8 w-full">
         {pending.map((branch) => (
@@ -238,12 +207,15 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
 
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-8">
-        <header className="w-full text-center mb-12 min-h-[108px]"> {/* Added min-height to prevent layout shift */}
+        <header className="w-full text-center mb-12">
             <h1 className="text-9xl font-bold uppercase tracking-wider text-slate-700">
-            {kfbInfo?.board ?? kfbNumber}
+            {kfbInfo?.board ?? kfbNumber /* or kfbInput if you prefer */}
+
             </h1>
         </header>
+        <div className="w-full max-w-screen-2xl mx-auto flex justify-center">
              {mainContent()}
+        </div>
       <style>{`.animate-pulse-gray-background { animation: pulse-gray 2s cubic-bezier(.4,0,.6,1) infinite; } @keyframes pulse-gray { 0%,100%{ opacity:.2 } 50%{ opacity:.05 } }`}</style>
     </div>
   );
@@ -337,18 +309,12 @@ const App: React.FC = () => {
       const { failures }: { failures: number[] } = await res.json();
 
       if (failures.length === 0) {
-        // On success, first update the status to trigger the 'allOk' animation
         setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as TestStatus })));
-
-        // After the animation duration, reset the entire application state
-        setTimeout(() => {
-          setBranchesData([]);
-          setKfbNumber('');
-          setKfbInfo(null);
-          setMacAddress('');
-          setKfbInput(''); // Clear the input field for the next scan
-        }, 5000); // This must match the animation timeout
-
+        await new Promise(r => setTimeout(r, 5000)); 
+        setBranchesData([]);
+        setKfbNumber('');
+        setMacAddress('');
+        setKfbInfo(null);
       } else {
         setBranchesData(prev => prev.map(b => ({
           ...b,

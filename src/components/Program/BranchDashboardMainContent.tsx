@@ -69,7 +69,7 @@ const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
       {[10,14,17,22,26,29,34,38,41,46,50,53,58,62,65,70,74,77,82,86].map((x,i) => (
         <rect key={i} x={x} y="10" width={i%3===2?3:i%2===1?1:2} height="30" />
       ))}
-       <text x="50" y="47" fontSize="5" textAnchor="middle" fill="currentColor">1 7 2 3 6 4 8 5</text>
+       <text x="50" y="47" fontSize="6" textAnchor="middle" fill="currentColor">IW15387663458</text>
     </g>
   </svg>
 );
@@ -199,15 +199,17 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
         <div className="p-10 text-center w-full flex flex-col items-center justify-center">
             <div className="relative">
             {/* Outer pulsating green circle */}
-            <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-green-100 dark:bg-green-700/30 rounded-full flex items-center justify-center animate-pulse">
-                {/* Inner white circle */}
-                <div className="w-60 h-60 sm:w-[250px] sm:h-[250px] bg-white dark:bg-gray-800 rounded-full flex items-center justify-center shadow-lg">
-                <CheckCircleIcon className="w-[150px] h-[150px] sm:w-[160px] sm:h-[160px] text-green-600 dark:text-green-400" />
+            <div className="relative">
+                {/* Outer pulsating green circle */}
+                <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-green-100 dark:bg-green-700/30 rounded-full flex items-center justify-center animate-pulse">
+                  {/* Inner white circle */}
+                    {/* White Pipe */}
+                      <CheckCircleIcon className="w-150 h-150 sm:w-160 sm:h-160 text-green-600 dark:text-green-400" />  {/* CheckCircleIcon with adjusted size */}
                 </div>
-            </div>
+              </div>
             </div>
             <h3 className="p-10 font-black text-green-500 uppercase tracking-widest text-8xl sm:text-9xl">
-                CHECK OK
+                OK
             </h3>
         </div>
       );
@@ -221,7 +223,7 @@ export const BranchDashboardMainContent: React.FC<DashboardProps> = ({
           <p className="text-7xl text-slate-500 font-bold uppercase tracking-wider">
             Please Scan KFB BOARD
           </p>
-          {isScanning && <p className="text-slate-500 mt-4 text-2xl animate-pulse">Scanning…</p>}
+          {isScanning && <p className="text-slate-500 mt-4 text-6xl animate-pulse">Scanning…</p>}
         </div>
       );
     }

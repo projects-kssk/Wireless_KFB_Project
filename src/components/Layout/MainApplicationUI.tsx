@@ -1,37 +1,26 @@
 import React, {
   useState,
   useEffect,
-  useMemo,
   useCallback,
-  useRef,
   FormEvent,
 } from 'react';
 
+// --- TYPE IMPORTS ---
+// Import shared types from a central location to ensure consistency across components.
+// This resolves the error by using the same type definition as BranchControlSidebar.
+import { BranchDisplayData, KfbInfo, TestStatus } from '@/types/types';
 
-
-import { Header } from '@/components/Header/Header'
-import { BranchControlSidebar } from '@/components/Program/BranchControlSidebar'
-import { SettingsRightSidebar } from '@/components/Settings/SettingsRightSidebar'
-import { SettingsPageContent } from '@/components/Settings/SettingsPageContent'
-import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranchesPageContent'
-import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent'
+import { Header } from '@/components/Header/Header';
+import { BranchControlSidebar } from '@/components/Program/BranchControlSidebar';
+import { SettingsRightSidebar } from '@/components/Settings/SettingsRightSidebar';
+import { SettingsPageContent } from '@/components/Settings/SettingsPageContent';
+import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranchesPageContent';
+import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent';
 
 // --- MAIN COMPONENTS ---
 
-type TestStatus = 'ok' | 'nok' | 'not_tested';
-
-interface BranchDisplayData {
-  id: string;
-  branchName: string;
-  testStatus: TestStatus;
-  pinNumber?: number | null;
-}
-
-interface KfbInfo {
-    board: string;
-    projectName: string;
-    kfbId: string;
-}
+// The local definitions for TestStatus, BranchDisplayData, and KfbInfo have been removed.
+// They are now imported from '@/types/types' to match the types expected by child components.
 
 const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg {...props} viewBox="0 0 100 50" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -45,6 +34,7 @@ const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+// Props interface for the main dashboard content area.
 interface DashboardProps {
   appHeaderHeight: string;
   onScanAgainRequest: () => void;
@@ -53,7 +43,6 @@ interface DashboardProps {
   kfbInfo: KfbInfo | null;
   isScanning: boolean;
 }
-
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
@@ -64,7 +53,7 @@ const MainApplicationUI: React.FC = () => {
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
 
-  // data
+  // data - Now correctly typed using the imported BranchDisplayData
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
   const [kfbNumber, setKfbNumber] = useState<string>('');
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
@@ -89,7 +78,7 @@ const MainApplicationUI: React.FC = () => {
       // MOCK API CALLS
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      // Mock fetching branches
+      // Mock fetching branches - this data is compatible with the stricter, imported type
       const mockBranches: BranchDisplayData[] = [
         { id: '1', branchName: 'BRANCH_1', testStatus: 'nok', pinNumber: 1 },
         { id: '2', branchName: 'BRANCH_2', testStatus: 'not_tested', pinNumber: 2 },
@@ -168,7 +157,7 @@ const MainApplicationUI: React.FC = () => {
         <BranchControlSidebar
           isOpen={isLeftSidebarOpen}
           toggleSidebar={toggleLeftSidebar}
-          branches={branchesData}
+          branches={branchesData} // This prop no longer causes a type error
           onSetStatus={handleSetBranchStatus}
           sidebarWidthProvided={SIDEBAR_WIDTH}
           appHeaderHeight={actualHeaderHeight}
@@ -184,12 +173,15 @@ const MainApplicationUI: React.FC = () => {
         />
 
         <div className="flex flex-col flex-1 overflow-hidden">
-           
-
             <main className="flex-1 bg-gray-50 dark:bg-slate-900 overflow-y-auto" style={{ overflowX: 'hidden' }}>
               {mainView === 'dashboard' ? (
                 <BranchDashboardMainContent
-               
+                  appHeaderHeight={actualHeaderHeight}
+                  onScanAgainRequest={loadBranchesData}
+                  branchesData={branchesData}
+                  kfbNumber={kfbNumber}
+                  kfbInfo={kfbInfo}
+                  isScanning={isScanning}
                 />
               ) : mainView === 'settingsConfiguration' ? (
                 <SettingsPageContent onNavigateBack={showDashboard} onShowProgramForConfig={showBranchesSettingsInMain} />

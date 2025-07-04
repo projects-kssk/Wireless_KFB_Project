@@ -17,11 +17,12 @@
     "typescript"
   ],
   "scripts": {
-    "dev": "concurrently -k -n \"NEXT,ELECTRON\" -c \"yellow,blue\" \"next dev\" \"pnpm exec wait-on http://localhost:3000 && pnpm exec electron .\"",
+"dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"pnpm exec wait-on http://localhost:3000 && electron .\"",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
-    "build": "pnpm run build:renderer && pnpm run build:electron && pnpm exec electron-builder --linux AppImage",
+    "build": "pnpm run build:renderer && pnpm run build:server && pnpm run build:electron && pnpm exec electron-builder --linux AppImage",
     "build:arm64": "pnpm run build:renderer && pnpm run build:electron && pnpm exec electron-builder --linux AppImage --arm64",
+    "build:server": "tsc -p tsconfig.server.json",
     "start": "pnpm exec electron .",
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
@@ -47,6 +48,7 @@
   },
   "devDependencies": {
     "@types/pg": "^8.15.4",
+    "ts-node-dev": "^2.0.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "autoprefixer": "^10.4.21",

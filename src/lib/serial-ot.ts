@@ -2,6 +2,7 @@
 import { SerialPort } from 'serialport';
 import { ReadlineParser } from '@serialport/parser-readline';
 
+// Configure the serial port (adjust path/baud as needed)
 const port = new SerialPort({
   path: '/dev/ttyUSB0',
   baudRate: 115200,
@@ -9,7 +10,10 @@ const port = new SerialPort({
   // rtscts: true,
 });
 
-const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+// Create a line-oriented parser and pipe data from the port
+const parser = new ReadlineParser({ delimiter: '\r\n' });
+port.pipe(parser);
+
 type QueueItem = {
   cmd: string;
   resolve: (lines: string[]) => void;
@@ -20,8 +24,10 @@ type QueueItem = {
 const commandQueue: QueueItem[] = [];
 let busy = false;
 
+// Handle incoming lines
 parser.on('data', (line: string) => {
   console.log('⟵', line);
+
   if (!busy || commandQueue.length === 0) return;
   const current = commandQueue[0];
   current.buffer.push(line);
@@ -42,11 +48,13 @@ parser.on('data', (line: string) => {
 
 function processQueue() {
   if (busy || commandQueue.length === 0) return;
-
   busy = true;
+
   const { cmd, reject } = commandQueue[0];
   console.log('⟶', cmd);
-  port.write(cmd + '\r\n', err => {
+
+  // Write command and handle errors
+  port.write(cmd + '\r\n', (err: Error | null) => {
     if (err) {
       commandQueue.shift();
       busy = false;

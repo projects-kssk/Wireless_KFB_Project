@@ -49,7 +49,7 @@ interface EspPinMappingRow {
 
 interface ConfigBranchRow {
   branch_id: number
-  not_tested: boolean
+  not_tested?: boolean
 }
 
 // -----------------------------
@@ -121,7 +121,7 @@ const SettingsBranchesPageContent: React.FC<{
   const [refreshKey, setRefreshKey] = useState(0)
   const suggestionBoxRef = useRef<HTMLDivElement | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
-
+  const [looseContactMap, setLooseContactMap] = useState<Record<number, boolean>>({});
   // --- DATA FETCHING EFFECTS ---
 
   // 1. Load all configurations on initial mount
@@ -203,8 +203,8 @@ const SettingsBranchesPageContent: React.FC<{
 
             const notMap: Record<number, boolean> = {};
             const branchIds = configBranchRows.map(r => {
-                notMap[r.branch_id] = r.not_tested;
-                return r.branch_id;
+              notMap[r.branch_id] = r.not_tested ?? false;
+              return r.branch_id;
             });
             setNotTestedMap(notMap);
 
@@ -339,7 +339,70 @@ const SettingsBranchesPageContent: React.FC<{
     }
   }, [filteredLinkedBranches, notTestedMap, kfbInfoDetails, selectedKfbInfo]);
 
-
+  const handleToggleLooseContact = useCallback(async (branchId: number) => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!detail) return
+  
+    const oldLoose = looseContactMap[branchId]
+    const newLoose = !oldLoose
+    const currentNot = notTestedMap[branchId] ?? false
+  
+    // optimistically update
+    setLooseContactMap(m => ({ ...m, [branchId]: newLoose }))
+  
+    try {
+      await fetchJSON(
+        `/api/config_branches/${detail.id}/${branchId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            loose_contact: newLoose,
+            not_tested: currentNot    // include this!
+          }),
+        }
+      )
+    } catch (err: any) {
+      setError(err.message)
+      setLooseContactMap(m => ({ ...m, [branchId]: oldLoose }))
+    }
+  }, [looseContactMap, notTestedMap, kfbInfoDetails, selectedKfbInfo])
+  
+  
+  const handleToggleAllLooseContact = useCallback(async () => {
+    const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
+    if (!detail || filteredLinkedBranches.length === 0) return
+  
+    const newLoose = filteredLinkedBranches.some(b => !looseContactMap[b.id])
+    const origLoose = { ...looseContactMap }
+    const origNot    = { ...notTestedMap }
+  
+    // optimistically update
+    setLooseContactMap(m => {
+      filteredLinkedBranches.forEach(b => m[b.id] = newLoose)
+      return { ...m }
+    })
+  
+    try {
+      await Promise.all(filteredLinkedBranches.map(b =>
+        fetchJSON(
+          `/api/config_branches/${detail.id}/${b.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              loose_contact: newLoose,
+              not_tested: notTestedMap[b.id] ?? false
+            }),
+          }
+        )
+      ))
+    } catch (err: any) {
+      setError(`Failed to update loose-contact: ${err.message}`)
+      setLooseContactMap(origLoose)
+    }
+  }, [filteredLinkedBranches, looseContactMap, notTestedMap, kfbInfoDetails, selectedKfbInfo])
+  
   const linkExistingBranch = async (b: Branch) => {
     const detail = kfbInfoDetails.find(d => d.kfb_info_value === selectedKfbInfo)
     if (!selectedConfig || !detail) return setError("A KFB and Info must be selected.")
@@ -632,10 +695,26 @@ const SettingsBranchesPageContent: React.FC<{
                         Not Tested
                       </label>
                     </th>
+                    <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">
+  <label className="flex items-center justify-center gap-2 cursor-pointer">
+    <input
+      type="checkbox"
+      className="form-checkbox h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+      checked={
+        filteredLinkedBranches.length > 0 &&
+        filteredLinkedBranches.every(b => looseContactMap[b.id])
+      }
+      onChange={handleToggleAllLooseContact}
+      disabled={filteredLinkedBranches.length === 0}
+    />
+    Loose Contact
+  </label>
+</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">PIN</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
+      
                 <tbody className="divide-y divide-gray-200">
                   {loadingBranches ? (
                     <tr><td colSpan={4} className="p-8 text-center text-xl text-gray-500"><ArrowPathIcon className="h-7 w-7 animate-spin inline mr-3" />Loading Branches...</td></tr>
@@ -675,6 +754,16 @@ const SettingsBranchesPageContent: React.FC<{
                           />
                         </label>
                       </td>
+                      <td className="px-6 py-4 text-center">
+  <label className="inline-flex items-center cursor-pointer">
+    <input
+      type="checkbox"
+      checked={looseContactMap[b.id]}
+      onChange={() => handleToggleLooseContact(b.id)}
+      className="form-checkbox h-6 w-6 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+    />
+  </label>
+</td>
 
                       <td className="px-6 py-4 text-center text-lg">
                         {loadingPinMap[b.id] ? (

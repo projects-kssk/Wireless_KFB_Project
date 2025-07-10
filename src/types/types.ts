@@ -36,6 +36,16 @@ export interface Branch {
   name: string;
 }
 
+/** NEW: Detailed information for a fetched KFB board */
+export interface KfbInfo {
+  /** Board model identifier */
+  board: string;
+  /** Project name or description */
+  projectName: string;
+  /** Unique KFB ID */
+  kfbId: string;
+}
+
 export interface EspPinMapping {
   [pinNumber: string]: string;
 }

@@ -31,8 +31,8 @@ async function startNextServer(): Promise<void> {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => handle(req, res))
     server.on('error', reject)
-    server.listen(3000, () => {
-      console.log('▶ Next.js listening on http://localhost:3000')
+    server.listen(3001, () => {
+      console.log('▶ Next.js listening on http://localhost:3001')
       resolve()
     })
   })
@@ -63,14 +63,14 @@ async function createWindow() {
 
   // ─── Dev: point at your local `next dev` ────────────────────────────────
   if (isDev) {
-    win.loadURL('http://localhost:3000')
+    win.loadURL('http://localhost:3001')
     win.webContents.openDevTools()
 
   // ─── Prod: spin up Next.js and then load it ─────────────────────────────
   } else {
     try {
       await startNextServer()
-      win.loadURL('http://localhost:3000')
+      win.loadURL('http://localhost:3001')
     } catch (err) {
       console.error('❌ Failed to start Next.js server', err)
     }

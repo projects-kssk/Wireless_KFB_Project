@@ -17,7 +17,7 @@
     "typescript"
   ],
   "scripts": {
-"dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"pnpm exec wait-on http://localhost:3000 && electron .\"",
+"dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"pnpm exec wait-on http://localhost:3001 && electron .\"",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "pnpm run build:renderer && pnpm run build:server && pnpm run build:electron && pnpm exec electron-builder --linux AppImage",

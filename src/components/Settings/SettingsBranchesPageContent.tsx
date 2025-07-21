@@ -223,6 +223,14 @@ const SettingsBranchesPageContent: React.FC<{
             }));
             setLinkedBranches(adaptedLinkedData);
 
+                        // Initialize looseContactMap here:
+            const looseMap: Record<number, boolean> = {};
+            linkedBranchData.forEach(b => {
+              looseMap[Number(b.id)] = !!b.looseContact;
+            });
+            setLooseContactMap(looseMap);
+
+
             const pinMappingRows = await fetchJSON<EspPinMappingRow[]>(`/api/esp_pin_mappings?detailId=${detail.id}`);
             const newPinMap: Record<number, number | null> = {};
             adaptedLinkedData.forEach(b => newPinMap[b.id] = null);

@@ -22,11 +22,17 @@ export async function GET(request: Request) {
         return NextResponse.json<BranchDisplayData[]>([], { status: 200 })
       }
 
-      const { rows } = await pool.query<{ id: number; name: string }>(
-        `SELECT id, name
-           FROM branches
-          WHERE id = ANY($1)
-          ORDER BY name`,
+      const { rows } = await pool.query<{
+        id: number;
+        name: string;
+        not_tested: boolean | null;
+        loose_contact: boolean | null;
+      }>(
+        `SELECT b.id, b.name, cb.not_tested, cb.loose_contact
+          FROM branches b
+      LEFT JOIN config_branches cb ON cb.branch_id = b.id
+          WHERE b.id = ANY($1)
+      ORDER BY b.name`,
         [ids]
       )
 
@@ -36,6 +42,8 @@ export async function GET(request: Request) {
         testStatus:   'not_tested',
         pinNumber:    undefined,
         kfbInfoValue: undefined,
+        notTested:    !!r.not_tested,
+        looseContact: !!r.loose_contact,
       }))
 
       return NextResponse.json(data, { status: 200 })
@@ -46,24 +54,28 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Missing ?kfb=' }, { status: 400 })
     }
 
-    const { rows } = await pool.query<{
-      id:             number
-      name:           string
-      pin_number:     number | null
-      kfb_info_value: string | null
+   const { rows } = await pool.query<{
+      id: number;
+      name: string;
+      pin_number: number | null;
+      kfb_info_value: string | null;
+      not_tested: boolean | null;
+      loose_contact: boolean | null;
     }>(
       `
       SELECT DISTINCT ON (b.id)
         b.id,
         b.name,
         ep.pin_number,
-        kid.kfb_info_value
+        kid.kfb_info_value,
+        cb.not_tested,
+        cb.loose_contact
       FROM configurations    AS cfg
       JOIN config_branches    AS cb ON cb.config_id = cfg.id
       JOIN branches           AS b  ON b.id = cb.branch_id
       LEFT JOIN kfb_info_details AS kid ON kid.id = cb.kfb_info_detail_id
       LEFT JOIN esp_pin_mappings  AS ep  ON
-           ep.kfb_info_detail_id = cb.kfb_info_detail_id
+          ep.kfb_info_detail_id = cb.kfb_info_detail_id
         AND ep.branch_id         = b.id
       WHERE cfg.kfb = $1
       ORDER BY b.id, ep.pin_number DESC
@@ -77,7 +89,10 @@ export async function GET(request: Request) {
       testStatus:   'not_tested',
       pinNumber:    r.pin_number ?? undefined,
       kfbInfoValue: r.kfb_info_value ?? undefined,
+      notTested:    !!r.not_tested,
+      looseContact: !!r.loose_contact,
     }))
+
 
     return NextResponse.json(data, { status: 200 })
   } catch (err: any) {

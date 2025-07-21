@@ -209,32 +209,42 @@ useEffect(() => {
     if (hasMounted && branchesData.length === 0) {
       if (isManualEntry) {
         return (
-          <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-2xl p-10">
-            <h2 className="text-5xl text-slate-600 font-semibold mb-8 text-center">Enter KFB Board Number</h2>
-            <form onSubmit={handleManualSubmit} className="w-full flex flex-col items-center gap-6">
-              <input
-                type="text"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder="e.g., IW15387663458"
-                className="w-full text-center text-4xl p-4 rounded-xl border-2 border-slate-300 focus:border-blue-500 focus:ring-blue-500 transition-all"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={!inputValue.trim() || isScanning}
-                className="w-full bg-blue-600 text-white font-bold text-2xl py-4 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
-              >
-                {isScanning ? 'Submitting...' : 'Submit'}
-              </button>
-            </form>
-            <button
-              onClick={() => setIsManualEntry(false)}
-              className="mt-6 text-slate-500 hover:text-blue-600 transition-colors"
-            >
-              Back to Scan
-            </button>
-          </div>
+    <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-2xl p-0">
+  <div className="w-full bg-white/90 rounded-2xl shadow-2xl border border-slate-200 p-10 flex flex-col items-center">
+    <h2 className="text-4xl sm:text-5xl font-bold text-blue-600 mb-8 text-center flex items-center gap-2">
+      <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+        <rect x="4" y="7" width="16" height="10" rx="3" stroke="currentColor" />
+        <path d="M8 7V5a4 4 0 0 1 8 0v2" stroke="currentColor" />
+      </svg>
+      Enter KFB Board Number
+    </h2>
+    <form onSubmit={handleManualSubmit} className="w-full flex flex-col items-center gap-6">
+     <input
+  type="text"
+  value={inputValue}
+  onChange={(e) => setInputValue(e.target.value)}
+  placeholder="e.g., IW15387663458"
+  className="w-full text-center text-4xl p-5 rounded-xl border-2 border-blue-500 bg-slate-50 text-slate-800 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 shadow-inner transition-all font-mono tracking-wider placeholder:text-slate-400"
+  autoFocus
+/>
+
+      <button
+        type="submit"
+        disabled={!inputValue.trim() || isScanning}
+        className="w-full bg-blue-600 text-white font-extrabold text-2xl py-4 rounded-xl shadow-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
+      >
+        {isScanning ? 'Submitting...' : 'Submit'}
+      </button>
+    </form>
+    <button
+      onClick={() => setIsManualEntry(false)}
+      className="mt-8 text-base sm:text-lg text-slate-500 hover:text-blue-600 transition-colors underline"
+    >
+      Back to Scan
+    </button>
+  </div>
+</div>
+
         );
       }
 

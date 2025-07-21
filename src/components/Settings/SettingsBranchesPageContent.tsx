@@ -758,7 +758,7 @@ const SettingsBranchesPageContent: React.FC<{
   <label className="inline-flex items-center cursor-pointer">
     <input
       type="checkbox"
-      checked={looseContactMap[b.id]}
+      checked={!!looseContactMap[b.id]}
       onChange={() => handleToggleLooseContact(b.id)}
       className="form-checkbox h-6 w-6 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
     />

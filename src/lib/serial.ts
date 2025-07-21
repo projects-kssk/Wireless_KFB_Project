@@ -9,7 +9,7 @@ import { ReadlineParser } from '@serialport/parser-readline'
 export async function sendAndReceive(cmd: string, timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: '/dev/ttyUSB0',
+      path: '/dev/ttyUSB1',
       baudRate: 115200,
       lock: false,
       autoOpen: false,
@@ -62,7 +62,7 @@ export async function sendAndReceive(cmd: string, timeout = 10000): Promise<stri
 export async function sendToEsp(cmd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: '/dev/ttyUSB0',
+      path: '/dev/ttyUSB1',
       baudRate: 115200,
       lock: false,
       autoOpen: false,

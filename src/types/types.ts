@@ -30,6 +30,11 @@ export interface BranchDisplayData {
   pinNumber?: number
   /** optional kfb_info_details.value */
   kfbInfoValue?: string
+    /** UI: is this branch marked as loose contact? */
+  looseContact?: boolean
+
+  /** UI: is this branch marked as not tested? */
+  notTested?: boolean
 }
 export interface Branch {
   id: number;

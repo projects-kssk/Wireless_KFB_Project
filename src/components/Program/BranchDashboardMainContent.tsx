@@ -1,3 +1,4 @@
+
 // src/components/Program/BranchDashboardMainContent.tsx
 import React, {
   useState,
@@ -102,27 +103,33 @@ const BranchCard = ({ branch }: { branch: BranchDisplayData }) => {
   );
 };
 
-/** rename this so it matches your component */
 export interface BranchDashboardMainContentProps {
   onScanAgainRequest: () => void;
-  /** height of the header bar so content can offset beneath it */
+  onManualSubmit: (kfbNumber: string) => void;
   appHeaderHeight: string;
   branchesData: BranchDisplayData[];
   isScanning: boolean;
   kfbNumber: string;
   kfbInfo: KfbInfo | null;
+  allowManualInput?: boolean;
+    onResetKfb?: () => void; // <-- add this
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   appHeaderHeight,
   onScanAgainRequest,
+  onManualSubmit,
   branchesData,
   isScanning,
   kfbNumber,
   kfbInfo,
+  allowManualInput = true,
+    onResetKfb, // <-- Add this here!
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
+  const [isManualEntry, setIsManualEntry] = useState(false);
+  const [inputValue, setInputValue] = useState('');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => { setHasMounted(true); }, []);
@@ -142,22 +149,36 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [hasMounted, pending, branchesData]
   );
 
-  useEffect(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    if (allOk) {
-      setShowOkAnimation(true);
-      timeoutRef.current = setTimeout(() => setShowOkAnimation(false), 5000);
-    } else {
+useEffect(() => {
+  if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  if (allOk) {
+    setShowOkAnimation(true);
+    timeoutRef.current = setTimeout(() => {
       setShowOkAnimation(false);
-    }
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [allOk]);
+      // --- Add this to trigger the reset in parent
+      if (typeof onResetKfb === 'function') onResetKfb();
+      setIsManualEntry(false); // also reset manual entry mode in this component
+      setInputValue(''); // clear the manual input field
+    }, 5000); // your OK duration
+  } else {
+    setShowOkAnimation(false);
+  }
+  return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+}, [allOk]);
+
 
   const handleScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(false);
     onScanAgainRequest();
   }, [onScanAgainRequest]);
+  
+  const handleManualSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (inputValue.trim()) {
+      onManualSubmit(inputValue.trim());
+    }
+  };
 
   const mainContent = () => {
     if (isScanning && branchesData.length > 0) {
@@ -186,14 +207,63 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
 
     if (hasMounted && branchesData.length === 0) {
+      if (isManualEntry) {
+        return (
+          <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-2xl p-10">
+            <h2 className="text-5xl text-slate-600 font-semibold mb-8 text-center">Enter KFB Board Number</h2>
+            <form onSubmit={handleManualSubmit} className="w-full flex flex-col items-center gap-6">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="e.g., IW15387663458"
+                className="w-full text-center text-4xl p-4 rounded-xl border-2 border-slate-300 focus:border-blue-500 focus:ring-blue-500 transition-all"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!inputValue.trim() || isScanning}
+                className="w-full bg-blue-600 text-white font-bold text-2xl py-4 rounded-xl hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
+              >
+                {isScanning ? 'Submitting...' : 'Submit'}
+              </button>
+            </form>
+            <button
+              onClick={() => setIsManualEntry(false)}
+              className="mt-6 text-slate-500 hover:text-blue-600 transition-colors"
+            >
+              Back to Scan
+            </button>
+          </div>
+        );
+      }
+
       return (
-        <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-white/50 rounded-2xl border-4 border-dashed border-slate-400 p-10 cursor-pointer hover:border-blue-500 hover:bg-white transition-all duration-300" onClick={handleScan}>
-          <BarcodeIcon className="w-[500px] h-[250px] text-slate-400 mb-8" />
-          <p className="text-7xl text-slate-500 font-semibold uppercase tracking-wider">
-            Please Scan KFB BOARD
-          </p>
-          {isScanning && <p className="text-slate-500 mt-4 text-6xl animate-pulse">Scanning…</p>}
+        <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-white/50 rounded-2xl border-4 border-dashed border-slate-400 p-10">
+          <div
+            className="flex flex-col items-center justify-center w-full"
+            onClick={handleScan}
+            style={{ cursor: 'pointer' }}
+          >
+            {/* Barcode container for centering and styling */}
+            <div className="flex items-center justify-center rounded-2xl bg-gray-100 p-10 mb-12" style={{ minWidth: 450, minHeight: 250 }}>
+              <BarcodeIcon className="w-[450px] h-[250px] text-slate-400" />
+            </div>
+            <p className="text-7xl text-slate-500 font-semibold uppercase tracking-wider text-center">
+              Please Scan KFB BOARD
+            </p>
+            {isScanning && <p className="text-slate-500 mt-4 text-6xl animate-pulse text-center">Scanning…</p>}
+          </div>
+          {allowManualInput && (
+            <button
+              onClick={() => setIsManualEntry(true)}
+              className="mt-8 text-xl text-slate-500 hover:text-blue-600 transition-colors underline"
+            >
+              Or enter number manually
+            </button>
+          )}
         </div>
+
       );
     }
 
@@ -208,11 +278,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-8" style={{ paddingTop: appHeaderHeight }}>
-      <header className="w-full text-center mb-12 min-h-[108px]">
+     <header className="w-full text-center mb-12 min-h-[108px]">
+      {(kfbInfo?.board || kfbNumber) ? (
         <h1 className="text-9xl font-bold uppercase tracking-wider text-slate-700">
           {kfbInfo?.board ?? kfbNumber}
         </h1>
-      </header>
+      ) : null}
+    </header>
+
       {mainContent()}
       <style>{`
         .animate-pulse-gray-background {

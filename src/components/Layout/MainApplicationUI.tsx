@@ -29,9 +29,15 @@ const MainApplicationUI: React.FC = () => {
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
   const [macAddress, setMacAddress] = useState('');
   const [isScanning, setIsScanning] = useState(false);
-
+const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Settings flow
   const [currentConfigIdForProgram, setCurrentConfigIdForProgram] = useState<number|null>(null);
+const handleResetKfb = () => {
+  setKfbNumber('');
+  setKfbInfo(null);
+  setBranchesData([]);
+  setKfbInput('');
+};
 
   // KFB input
   const [kfbInput, setKfbInput] = useState('IWTESTBOARD');
@@ -40,40 +46,26 @@ const MainApplicationUI: React.FC = () => {
     loadBranchesData();
   };
 
-  // Mock / Fetch logic
-  const loadBranchesData = useCallback(async () => {
-    if (!kfbInput) return;
-    setIsScanning(true);
-    try {
-      // simulate delay
-      await new Promise(r => setTimeout(r, 1000));
+const loadBranchesData = useCallback(async () => {
+  if (!kfbInput) return;
+  setIsScanning(true);
+  setErrorMsg(null);
+  setBranchesData([]);
+  try {
+    const res = await fetch(`/api/branches?kfb=${encodeURIComponent(kfbInput)}`);
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const data: BranchDisplayData[] = await res.json();
+    setBranchesData(data);
+    setKfbNumber(kfbInput.toUpperCase());
+  } catch (error: any) {
+    setBranchesData([]);
+    setKfbNumber('');
+    setErrorMsg('No branches found or failed to load.');
+  } finally {
+    setTimeout(() => setIsScanning(false), 300);
+  }
+}, [kfbInput]);
 
-      // stub data
-      const mock: BranchDisplayData[] = [
-        { id: '1', branchName: 'BRANCH_1', testStatus: 'nok', pinNumber: 1 },
-        { id: '2', branchName: 'BRANCH_2', testStatus: 'not_tested', pinNumber: 2 },
-        { id: '3', branchName: 'BRANCH_3', testStatus: 'not_tested', pinNumber: 3 },
-      ];
-      const mockInfo: KfbInfo = {
-        board: 'PNL_A52',
-        projectName: 'Main Board Rev 2',
-        kfbId: '78A4-11B3',
-      };
-      const mockMac = '00:1B:44:11:3A:B7';
-
-      setBranchesData(mock);
-      setKfbNumber(kfbInput);
-      setKfbInfo(mockInfo);
-      setMacAddress(mockMac);
-    } catch {
-      setBranchesData([]);
-      setKfbNumber('');
-      setMacAddress('');
-      setKfbInfo(null);
-    } finally {
-      setTimeout(() => setIsScanning(false), 500);
-    }
-  }, [kfbInput]);
 
   useEffect(() => { loadBranchesData(); }, [loadBranchesData]);
 
@@ -98,6 +90,11 @@ const MainApplicationUI: React.FC = () => {
     mainView === 'settingsConfiguration' || mainView === 'settingsBranches'
       ? 'settings'
       : 'main';
+const handleManualSubmit = (submittedNumber: string) => {
+  setKfbInput(submittedNumber);
+  setKfbNumber(submittedNumber);
+  loadBranchesData();
+};
 
   const toggleLeftSidebar = () => setIsLeftSidebarOpen(v => !v);
   const toggleSettingsSidebar = () => setIsSettingsSidebarOpen(v => !v);
@@ -149,11 +146,13 @@ const MainApplicationUI: React.FC = () => {
           {mainView === 'dashboard' ? (
             <BranchDashboardMainContent
               appHeaderHeight={actualHeaderHeight}
+                onManualSubmit={handleManualSubmit} // <-- make sure this is present
               onScanAgainRequest={loadBranchesData}
               branchesData={branchesData}
               kfbNumber={kfbNumber}
               kfbInfo={kfbInfo}
               isScanning={isScanning}
+              onResetKfb={handleResetKfb}   // <-- add this line
             />
           ) : mainView === 'settingsConfiguration' ? (
             <SettingsPageContent

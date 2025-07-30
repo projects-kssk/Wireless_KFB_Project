@@ -7,7 +7,9 @@ import { setLastScan } from './scannerMemory'
  * then resolve on the first line containing OK, SUCCESS or any FAIL.
  */
 
-let scannerStarted = false;
+let scannerPort: SerialPort | null = null
+let scannerParser: ReadlineParser | null = null
+let scannerStarted = false
 export async function sendAndReceive(cmd: string, timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
@@ -96,36 +98,71 @@ export async function sendToEsp(cmd: string): Promise<void> {
 
 export function listenScanner({
   path = '/dev/ttyACM0',
-  baudRate = 9600, // Try 9600 if 115200 doesn't work!
+  baudRate = 9600,
   onScan,
 }: {
   path?: string
   baudRate?: number
   onScan: (barcode: string) => void
 }) {
-  const port = new SerialPort({ path, baudRate, autoOpen: true })
-  const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }))
-  parser.on('data', raw => {
-    const code = raw.trim()
-    if (code) onScan(code)
-  })
-  port.on('error', e => {
-    console.error('SerialPort error', e)
-  })
-  return port // So you can close() it later if needed
+  if (scannerPort) {
+    // Remove or comment out this log to avoid spam:
+    // console.log(`[scanner] Already started on ${scannerPort.path}, not opening again.`);
+    return scannerPort;
+  }
+  console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`);
+  scannerPort = new SerialPort({ path, baudRate, autoOpen: true });
+  scannerParser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+  scannerParser.on('data', raw => {
+    const code = raw.trim();
+    console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
+    if (code) onScan(code);
+  });
+  scannerPort.on('error', e => {
+    console.error('SerialPort error', e);
+    scannerPort = null;
+    scannerParser = null;
+    scannerStarted = false;
+  });
+  return scannerPort;
 }
+
 
 export function ensureScanner() {
-  if (scannerStarted) return;
-  scannerStarted = true;
+  if (scannerStarted && scannerPort?.isOpen) return
+  scannerStarted = true
   listenScanner({
-    path: '/dev/ttyACM0',  // or make configurable as needed
+    path: '/dev/ttyACM0',
     baudRate: 9600,
     onScan: setLastScan
-  });
+  })
 }
 
+// Optional: add manual close (useful for dev/hot-reload)
+export function closeScanner() {
+  if (scannerPort) {
+    scannerPort.close(err => {
+      if (err) console.error('Error closing scanner port:', err)
+    })
+    scannerPort = null
+    scannerParser = null
+    scannerStarted = false
+  }
+}
 
+// Cleanup on exit (not perfect, but helps in dev)
+process.on('SIGINT', () => {
+  closeScanner()
+  process.exit()
+})
+process.on('SIGTERM', () => {
+  closeScanner()
+  process.exit()
+})
+process.on('uncaughtException', () => {
+  closeScanner()
+  process.exit(1)
+})
 
 export default { sendAndReceive, sendToEsp, listenScanner, ensureScanner }
 

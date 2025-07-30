@@ -595,8 +595,7 @@ const SettingsBranchesPageContent: React.FC<{
       <div className="w-full mx-auto flex-grow bg-white p-6 rounded-2xl shadow-xl flex flex-col gap-6">
 
         <header>
-            <h1 className="text-6xl font-bold text-gray-900 tracking-tight">Branch Configuration</h1>
-            <p className="text-xl text-gray-600 mt-2">Manage branches, pins, and test status for KFB devices.</p>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Branch Configuration</h1>
         </header>
 
         {error && (
@@ -614,7 +613,7 @@ const SettingsBranchesPageContent: React.FC<{
 
         <div className="grid md:grid-cols-2 gap-6">
             <section className="rounded-xl bg-white p-6 shadow-md border">
-                <h2 className="text-3xl font-semibold text-gray-800">1. Select KFB Number</h2>
+                <h2 className="text-2xl font-semibold text-gray-800">1. Select KFB Number</h2>
                 <select
                     className="w-full rounded-lg border-2 border-gray-300 bg-gray-50 text-gray-900 text-xl p-3 mt-4 focus:ring-blue-500 focus:border-blue-500 transition"
                     value={selectedConfig ? String(selectedConfig.id) : ""}
@@ -626,7 +625,7 @@ const SettingsBranchesPageContent: React.FC<{
             </section>
 
             <section className={`rounded-xl p-6 transition-opacity duration-500 ${selectedConfig ? 'opacity-100 bg-white shadow-md border' : 'opacity-50 bg-gray-100'}`}>
-                <h2 className="text-3xl font-semibold text-gray-800">
+                <h2 className="text-2xl font-semibold text-gray-800">
                     2. Select KFB Info
                 </h2>
                 <select
@@ -648,7 +647,7 @@ const SettingsBranchesPageContent: React.FC<{
 
         {selectedConfig && selectedKfbInfo && (
           <section className="rounded-xl bg-white p-6 flex-1 flex flex-col overflow-hidden shadow-md border">
-            <h2 className="text-4xl font-semibold text-gray-800 mb-5">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-5">
               3. Manage Branches
             </h2>
 
@@ -689,6 +688,7 @@ const SettingsBranchesPageContent: React.FC<{
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-100 sticky top-0">
                   <tr>
+                        <th className="px-6 py-3 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">#</th>
                     <th className="px-6 py-3 text-left text-sm font-semibold text-gray-600 uppercase tracking-wider">Branch</th>
                     {/* NEW: Toggle all checkbox in header */}
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">
@@ -704,20 +704,20 @@ const SettingsBranchesPageContent: React.FC<{
                       </label>
                     </th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">
-  <label className="flex items-center justify-center gap-2 cursor-pointer">
-    <input
-      type="checkbox"
-      className="form-checkbox h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-      checked={
-        filteredLinkedBranches.length > 0 &&
-        filteredLinkedBranches.every(b => looseContactMap[b.id])
-      }
-      onChange={handleToggleAllLooseContact}
-      disabled={filteredLinkedBranches.length === 0}
-    />
-    Loose Contact
-  </label>
-</th>
+                    <label className="flex items-center justify-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="form-checkbox h-5 w-5 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                        checked={
+                          filteredLinkedBranches.length > 0 &&
+                          filteredLinkedBranches.every(b => looseContactMap[b.id])
+                        }
+                        onChange={handleToggleAllLooseContact}
+                        disabled={filteredLinkedBranches.length === 0}
+                      />
+                      Loose Contact
+                    </label>
+                  </th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">PIN</th>
                     <th className="px-6 py-3 text-center text-sm font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                   </tr>
@@ -728,8 +728,9 @@ const SettingsBranchesPageContent: React.FC<{
                     <tr><td colSpan={4} className="p-8 text-center text-xl text-gray-500"><ArrowPathIcon className="h-7 w-7 animate-spin inline mr-3" />Loading Branches...</td></tr>
                   ) : filteredLinkedBranches.length === 0 ? (
                     <tr><td colSpan={4} className="p-8 text-center text-xl text-gray-500">No branches linked. Use the input above to add one.</td></tr>
-                  ) : filteredLinkedBranches.map(b => (
+                  ) : filteredLinkedBranches.map((b, idx)=> (
                     <tr key={b.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 whitespace-nowrap text-lg text-gray-400">{idx + 1}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-lg">
                         {editingBranchId === b.id ? (
                           <div className="flex items-center gap-2">
@@ -763,15 +764,15 @@ const SettingsBranchesPageContent: React.FC<{
                         </label>
                       </td>
                       <td className="px-6 py-4 text-center">
-  <label className="inline-flex items-center cursor-pointer">
-    <input
-      type="checkbox"
-      checked={!!looseContactMap[b.id]}
-      onChange={() => handleToggleLooseContact(b.id)}
-      className="form-checkbox h-6 w-6 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
-    />
-  </label>
-</td>
+                      <label className="inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!looseContactMap[b.id]}
+                          onChange={() => handleToggleLooseContact(b.id)}
+                          className="form-checkbox h-6 w-6 rounded border-gray-300 text-blue-500 focus:ring-blue-500"
+                        />
+                      </label>
+                    </td>
 
                       <td className="px-6 py-4 text-center text-lg">
                         {loadingPinMap[b.id] ? (

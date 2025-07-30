@@ -47,6 +47,26 @@ const handleResetKfb = () => {
     e.preventDefault();
     loadBranchesData();
   };
+
+useEffect(() => {
+  if (mainView !== 'dashboard' || isScanning || !!branchesData.length) return;
+
+  const interval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/serial/scanner');
+      const { code } = await res.json();
+      if (code && code !== kfbInput) {
+        console.log(`[SCANNER] UI received: ${code}`); // <--- LOG HERE
+        setKfbInput(code);
+        setKfbNumber(code);
+        loadBranchesData();
+      }
+    } catch (e) {}
+  }, 500);
+
+  return () => clearInterval(interval);
+}, [mainView, isScanning, branchesData.length]);
+
 const loadBranchesData = useCallback(async () => {
   if (!kfbInput) return;
   setIsScanning(true);

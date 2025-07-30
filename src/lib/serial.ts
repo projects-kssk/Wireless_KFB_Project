@@ -1,15 +1,17 @@
 // src/lib/serial.ts
 import { SerialPort } from 'serialport'
 import { ReadlineParser } from '@serialport/parser-readline'
-
+import { setLastScan } from './scannerMemory'
 /**
  * Send a command, ignore echoes/extra chatter,
  * then resolve on the first line containing OK, SUCCESS or any FAIL.
  */
+
+let scannerStarted = false;
 export async function sendAndReceive(cmd: string, timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: '/dev/ttyUSB1',
+      path: '/dev/ttyUSB0',
       baudRate: 115200,
       lock: false,
       autoOpen: false,
@@ -62,7 +64,7 @@ export async function sendAndReceive(cmd: string, timeout = 10000): Promise<stri
 export async function sendToEsp(cmd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: '/dev/ttyUSB1',
+      path: '/dev/ttyUSB0',
       baudRate: 115200,
       lock: false,
       autoOpen: false,
@@ -91,4 +93,39 @@ export async function sendToEsp(cmd: string): Promise<void> {
   })
 }
 
-export default { sendAndReceive, sendToEsp }
+
+export function listenScanner({
+  path = '/dev/ttyACM0',
+  baudRate = 9600, // Try 9600 if 115200 doesn't work!
+  onScan,
+}: {
+  path?: string
+  baudRate?: number
+  onScan: (barcode: string) => void
+}) {
+  const port = new SerialPort({ path, baudRate, autoOpen: true })
+  const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }))
+  parser.on('data', raw => {
+    const code = raw.trim()
+    if (code) onScan(code)
+  })
+  port.on('error', e => {
+    console.error('SerialPort error', e)
+  })
+  return port // So you can close() it later if needed
+}
+
+export function ensureScanner() {
+  if (scannerStarted) return;
+  scannerStarted = true;
+  listenScanner({
+    path: '/dev/ttyACM0',  // or make configurable as needed
+    baudRate: 9600,
+    onScan: setLastScan
+  });
+}
+
+
+
+export default { sendAndReceive, sendToEsp, listenScanner, ensureScanner }
+

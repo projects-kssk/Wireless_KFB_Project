@@ -17,7 +17,7 @@
     "typescript"
   ],
   "scripts": {
-"dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"pnpm exec wait-on http://localhost:3001 && electron .\"",
+    "dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"pnpm exec wait-on http://localhost:3001 && electron .\"",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "pnpm run build:renderer && pnpm run build:server && pnpm run build:electron && pnpm exec electron-builder --linux AppImage",
@@ -27,7 +27,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
     "format": "prettier . --write",
-    "postinstall": "pnpm exec electron-builder install-app-deps && node node_modules/electron/install.js"
+    "postinstall": "pnpm exec electron-builder install-app-deps"
   },
   "dependencies": {
     "@heroicons/react": "^2.1.3",
@@ -35,7 +35,6 @@
     "@supabase/supabase-js": "^2.49.8",
     "@t3-oss/env-nextjs": "0.13.6",
     "dotenv": "^17.0.0",
-    "electron": "^37.2.0",
     "electron-serve": "^1.2.0",
     "next": "15.3.3",
     "next-seo": "^6.5.0",
@@ -48,11 +47,11 @@
   },
   "devDependencies": {
     "@types/pg": "^8.15.4",
-    "ts-node-dev": "^2.0.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
+    "electron": "^37.2.5",
     "electron-builder": "^26.0.12",
     "eslint": "9.27.0",
     "husky": "9.1.7",
@@ -60,6 +59,7 @@
     "prettier": "3.5.3",
     "tailwindcss": "^3.4.3",
     "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
     "typescript": "5.8.3",
     "wait-on": "^8.0.3"
   },
@@ -73,13 +73,16 @@
       ".next/**/*",
       ".env.production",
       "dist/main/**/*",
+       "dist-server/**/*",
       "package.json"
     ],
+    "asarUnpack": ["**/*.node"],
     "extraResources": [
       {
         "from": "assets/icon.png",
         "to": "assets/icon.png"
-      }
+      },
+       { "from": "dist-server",     "to": "dist-server" } 
     ],
     "linux": {
       "icon": "assets",
@@ -88,4 +91,4 @@
       ]
     }
   }
-}
+} 

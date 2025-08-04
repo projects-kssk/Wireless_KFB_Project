@@ -1,42 +1,46 @@
 // src/app/api/config_branches/[detailId]/[branchId]/route.ts
 import { NextResponse } from 'next/server'
-import { pool }         from '@/lib/postgresPool'
+import { pool } from '@/lib/postgresPool'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
-// Notice: both fields are optional (for PATCH semantics)
-interface PatchBody {
-  not_tested?: boolean
-  loose_contact?: boolean
-}
+const PatchSchema = z.object({
+  not_tested: z.boolean().optional(),
+  loose_contact: z.boolean().optional(),
+})
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ detailId: string; branchId: string }> }
 ) {
-  // await the params promise (correct for Next.js route handlers!)
   const { detailId: detailStr, branchId: branchStr } = await params
   const detailId = Number(detailStr)
   const branchId = Number(branchStr)
 
   if (Number.isNaN(detailId) || Number.isNaN(branchId)) {
-    return NextResponse.json(
-      { error: 'Invalid detailId or branchId in URL' },
-      { status: 400 }
-    )
+    return NextResponse.json({ error: 'Invalid detailId or branchId in URL' }, { status: 400 })
   }
 
-  let body: PatchBody
+  let body: z.infer<typeof PatchSchema>
   try {
-    body = await request.json()
+    const json = await request.json()                // unknown
+    const parsed = PatchSchema.safeParse(json)       // narrow
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'At least one of `not_tested` or `loose_contact` (boolean) is required' },
+        { status: 400 }
+      )
+    }
+    body = parsed.data
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Build SET clause dynamically:
   const updates: string[] = []
-  const values: any[] = []
+  const values: unknown[] = []
   let idx = 1
+
   if (typeof body.not_tested === 'boolean') {
     updates.push(`not_tested = $${idx++}`)
     values.push(body.not_tested)
@@ -52,7 +56,6 @@ export async function PATCH(
     )
   }
 
-  // Add WHERE params
   values.push(detailId, branchId)
 
   const sql = `
@@ -66,9 +69,10 @@ export async function PATCH(
   try {
     await client.query(sql, values)
     return NextResponse.json({ success: true })
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('PATCH /api/config_branches error', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   } finally {
     client.release()
   }

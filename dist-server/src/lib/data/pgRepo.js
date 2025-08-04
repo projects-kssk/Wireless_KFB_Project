@@ -1,26 +1,34 @@
-// /src/lib/data/pgRepo.ts
+// src/lib/data/pgRepo.ts
 import { pool } from '../postgresPool';
 export const pgRepo = {
     async getAll() {
         const client = await pool.connect();
         try {
-            // copy your /api/configurations GET logic here
-            // run the SQL, build the maps, return the same shape
-            // …
+            // TODO: implement: run your SELECT with joins and map it to Configuration[]
             return [];
         }
         finally {
             client.release();
         }
     },
-    async getById(id) { /* … */ return null; },
+    async getById(id) {
+        const client = await pool.connect();
+        try {
+            // TODO: implement lookup by id and map to Configuration
+            return null;
+        }
+        finally {
+            client.release();
+        }
+    },
     async upsert(data) {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            // your PUT or POST logic from route.ts goes here
+            // TODO: implement insert/update logic and RETURNING id
             await client.query('COMMIT');
-            return data.id;
+            // fallback until you return the real id from SQL:
+            return data.id ?? 0;
         }
         catch (e) {
             await client.query('ROLLBACK');
@@ -31,7 +39,7 @@ export const pgRepo = {
         }
     },
     async delete(id) {
-        await pool.query('DELETE FROM configurations WHERE id=$1', [id]);
-    }
+        await pool.query('DELETE FROM configurations WHERE id = $1', [id]);
+    },
 };
 //# sourceMappingURL=pgRepo.js.map

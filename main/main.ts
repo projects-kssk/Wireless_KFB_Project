@@ -6,22 +6,16 @@ import { pathToFileURL } from 'node:url'
 const PORT = parseInt(process.env.PORT || '3001', 10)
 const isDev = !app.isPackaged
 
-function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000): Promise<void> {
+function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000) {
   const start = Date.now()
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const tryConnect = () => {
-      const sock = net.connect({ port, host })
-      sock.on('connect', () => {
-        sock.end()
-        resolve()
-      })
-      sock.on('error', () => {
-        sock.destroy()
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error(`Timed out waiting for ${host}:${port}`))
-        } else {
-          setTimeout(tryConnect, 250)
-        }
+      const s = net.connect({ port, host })
+      s.once('connect', () => { s.end(); resolve() })
+      s.once('error', () => {
+        s.destroy()
+        if (Date.now() - start > timeoutMs) reject(new Error(`Timed out waiting for ${host}:${port}`))
+        else setTimeout(tryConnect, 250)
       })
     }
     tryConnect()
@@ -30,11 +24,10 @@ function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000): Promi
 
 async function ensureServerInProd() {
   if (isDev) return
-  // dist-server/server.js is packaged into app.asar (see step 4)
-  const appRoot = path.join(process.resourcesPath, 'app.asar')
-  const serverEntry = path.join(appRoot, 'dist-server', 'server.js')
-  // importing starts the server (your server.ts runs on import)
-  await import(pathToFileURL(serverEntry).href)
+  // dist-server is shipped outside ASAR via extraResources
+  const serverEntry = path.join(process.resourcesPath, 'dist-server', 'server.js')
+  console.log('[main] loading server:', serverEntry)
+  await import(pathToFileURL(serverEntry).href)  // starts Next server
   await waitForPort(PORT)
 }
 
@@ -44,26 +37,15 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false
-      // preload: path.join(__dirname, 'preload.js'), // optional
-    }
+    webPreferences: { contextIsolation: true, nodeIntegration: false }
   })
 
-  if (isDev) {
-    await waitForPort(PORT)
-    await win.loadURL(`http://127.0.0.1:${PORT}`)
-    win.webContents.openDevTools({ mode: 'detach' })
-  } else {
-    await win.loadURL(`http://127.0.0.1:${PORT}`)
-  }
+  await waitForPort(PORT)
+  await win.loadURL(`http://127.0.0.1:${PORT}`)
+
+  if (isDev) win.webContents.openDevTools({ mode: 'detach' })
 }
 
 app.whenReady().then(createWindow)
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow()
-})
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

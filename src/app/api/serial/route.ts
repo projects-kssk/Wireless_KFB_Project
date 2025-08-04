@@ -1,34 +1,50 @@
+// src/app/api/serial/route.ts
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
+const Body = z.object({
+  normalPins: z.array(z.number().int()).optional(),
+  latchPins:  z.array(z.number().int()).optional(),
+  mac:        z.string().min(1),
+})
+
 export async function POST(request: Request) {
-  let body: { normalPins?: number[]; latchPins?: number[]; mac: string }
+  // parse & validate
+  let payload: z.infer<typeof Body>
   try {
-    body = await request.json()
+    const json = await request.json()
+    const parsed = Body.safeParse(json)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Expected { normalPins?: number[], latchPins?: number[], mac: string }' },
+        { status: 400 }
+      )
+    }
+    payload = parsed.data
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { normalPins = [], latchPins = [], mac } = body
-  if ((!Array.isArray(normalPins) && !Array.isArray(latchPins)) || typeof mac !== 'string') {
-    return NextResponse.json({ error: 'Expected { normalPins?: number[], latchPins?: number[], mac: string }' }, { status: 400 })
-  }
+  const { normalPins = [], latchPins = [], mac } = payload
 
+  // build command
   let cmd = 'MONITOR'
   if (normalPins.length) cmd += ' ' + normalPins.join(',')
-  if (latchPins.length) cmd += ' LATCH ' + latchPins.join(',')
+  if (latchPins.length)  cmd += ' LATCH ' + latchPins.join(',')
   cmd += ' ' + mac
 
-  // dynamic import as before
+  // dynamic import of serial helper
   let sendToEsp: (cmd: string) => Promise<void>
   try {
     const mod = await import('@/lib/serial')
-    const helper = mod.default ?? mod
+    const helper = (mod as any).default ?? mod
     if (typeof helper.sendToEsp !== 'function') throw new Error('sendToEsp missing')
-    sendToEsp = helper.sendToEsp
-  } catch (err: any) {
+    sendToEsp = helper.sendToEsp as (cmd: string) => Promise<void>
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
     console.error('load serial helper error:', err)
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
@@ -36,8 +52,9 @@ export async function POST(request: Request) {
   try {
     await sendToEsp(cmd)
     return NextResponse.json({ success: true })
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown'
     console.error('POST /api/serial error:', err)
-    return NextResponse.json({ error: err.message || 'Unknown' }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

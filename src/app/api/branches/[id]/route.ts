@@ -1,8 +1,11 @@
 // src/app/api/branches/[id]/route.ts
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
+
+const BodySchema = z.object({ name: z.string().trim().min(1) })
 
 export async function PATCH(
   request: Request,
@@ -10,15 +13,17 @@ export async function PATCH(
 ) {
   const { id } = await params
 
-  let name = ''
+  // Validate body
+  let name: string
   try {
-    const body = await request.json()
-    if (typeof body?.name === 'string') name = body.name.trim()
+    const json = await request.json()
+    const parsed = BodySchema.safeParse(json)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Branch name is required' }, { status: 400 })
+    }
+    name = parsed.data.name
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-  }
-  if (!name) {
-    return NextResponse.json({ error: 'Branch name is required' }, { status: 400 })
   }
 
   try {

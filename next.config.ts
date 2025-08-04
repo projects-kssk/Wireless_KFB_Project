@@ -2,25 +2,52 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  // 1) Required for Electron packaging + custom server:
+  //    produces .next/standalone with its own node_modules/next runtime
+  output: 'standalone',
+
   images: {
     unoptimized: true,
   },
 
-  // Prevent Webpack from bundling the native serialport addon:
+  // Optional: if ESLint blocks your CI builds
+  // eslint: { ignoreDuringBuilds: true },
+
+  // 2) Help Next keep native packages external in RSC/server:
+  //    (works across 13/14/15 — harmless if ignored)
+  experimental: {
+    serverComponentsExternalPackages: ['serialport', '@serialport/parser-readline'],
+  },
+
+  // 3) Precise control via webpack hook
   webpack(config, { isServer }) {
+    // --- Server (Node) build ---
     if (isServer) {
-      // `config.externals` can be an array or a function; we cast to `any[]` for simplicity
+      // Ensure serialport is loaded at runtime, not bundled
       const existing = Array.isArray(config.externals)
         ? config.externals
-        : [config.externals as any]
+        : [config.externals].filter(Boolean)
 
       config.externals = [
         ...existing,
-        // these two modules will now be loaded via `require(...)` at runtime
         'serialport',
         '@serialport/parser-readline',
       ]
+    } else {
+      // --- Client (browser) build ---
+      // If any shared file accidentally imports serialport, hard-disable it for the browser
+      config.resolve = config.resolve || {}
+      config.resolve.fallback = {
+        ...(config.resolve.fallback || {}),
+        serialport: false,
+        '@serialport/parser-readline': false,
+        // (Node core modules are already false in Next 15, but you can be explicit)
+        fs: false,
+        net: false,
+        tls: false,
+      }
     }
+
     return config
   },
 }

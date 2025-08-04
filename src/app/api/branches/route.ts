@@ -2,14 +2,13 @@
 import { NextResponse }           from 'next/server'
 import { pool }                   from '@/lib/postgresPool'
 import type { BranchDisplayData } from '@/types/types'
-
+import { z } from 'zod' // ⬅️ add this import
 export const dynamic = 'force-dynamic'
-
+const BodySchema = z.object({ name: z.string().trim().min(1) })
 export async function GET(request: Request) {
   const url    = new URL(request.url)
   const kfb    = url.searchParams.get('kfb')
   const idsRaw = url.searchParams.get('ids')
-
   try {
     // SETTINGS MODE: fetch by explicit IDs
     if (idsRaw) {
@@ -102,17 +101,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  // 1) parse & validate
+
+    // 1) parse & validate
   let name: string
   try {
-    const body = await request.json()
-    name = (typeof body.name === 'string' && body.name.trim()) || ''
+    const json = await request.json()            // json: unknown
+    const parsed = BodySchema.safeParse(json)    // narrow & validate
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Branch name is required' }, { status: 400 })
+    }
+    name = parsed.data.name
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
-  if (!name) {
-    return NextResponse.json({ error: 'Branch name is required' }, { status: 400 })
-  }
+
 
   const client = await pool.connect()
   try {

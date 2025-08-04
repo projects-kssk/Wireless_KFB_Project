@@ -1,12 +1,21 @@
 let lastScan: string | null = null;
+const RING: string[] = [];
+const MAX = 100;
 
 export function setLastScan(code: string) {
-  console.log(`[scannerMemory] setLastScan called with: "${code}"`);
   lastScan = code;
+  const line = `${new Date().toISOString()} ${code}`;
+  RING.push(line);
+  if (RING.length > MAX) RING.shift();
 }
 
 export function getLastScanAndClear() {
-  const temp = lastScan;
+  const c = lastScan;
   lastScan = null;
-  return temp;
+  return c;
+}
+
+export function getScanLog() {
+  // newest first
+  return [...RING].reverse();
 }

@@ -2,14 +2,8 @@
 import { SerialPort } from 'serialport'
 import { ReadlineParser } from '@serialport/parser-readline'
 import { setLastScan } from './scannerMemory'
-/**
- * Send a command, ignore echoes/extra chatter,
- * then resolve on the first line containing OK, SUCCESS or any FAIL.
- */
 
-let scannerPort: SerialPort | null = null
-let scannerParser: ReadlineParser | null = null
-let scannerStarted = false
+/** ----------------- ESP command helpers (you already had these) ----------------- */
 export async function sendAndReceive(cmd: string, timeout = 10000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
@@ -28,16 +22,13 @@ export async function sendAndReceive(cmd: string, timeout = 10000): Promise<stri
     }
 
     parser.on('data', raw => {
-      const line = raw.trim()
+      const line = String(raw).trim()
       console.log('⟵ [ESP line]', line)
       const up = line.toUpperCase()
-
-      // Accept SUCCESS or OK anywhere, or anything containing FAIL
       if (up.includes('SUCCESS') || up.includes('OK') || up.includes('FAIL')) {
         cleanup()
         resolve(line)
       }
-      // otherwise keep waiting
     })
 
     timer = setTimeout(() => {
@@ -60,9 +51,6 @@ export async function sendAndReceive(cmd: string, timeout = 10000): Promise<stri
   })
 }
 
-/**
- * Fire-and-forget a command, with console echo of any incoming lines.
- */
 export async function sendToEsp(cmd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
@@ -72,7 +60,7 @@ export async function sendToEsp(cmd: string): Promise<void> {
       autoOpen: false,
     })
     const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }))
-    parser.on('data', l => console.log('⟵ [ESP]', l.trim()))
+    parser.on('data', l => console.log('⟵ [ESP]', String(l).trim()))
 
     port.open(err => {
       if (err) return reject(err)
@@ -95,6 +83,10 @@ export async function sendToEsp(cmd: string): Promise<void> {
   })
 }
 
+/** ----------------- Scanner helpers (you already had these) ----------------- */
+let scannerPort: SerialPort | null = null
+let scannerParser: ReadlineParser | null = null
+let scannerStarted = false
 
 export function listenScanner({
   path = '/dev/ttyACM0',
@@ -105,40 +97,30 @@ export function listenScanner({
   baudRate?: number
   onScan: (barcode: string) => void
 }) {
-  if (scannerPort) {
-    // Remove or comment out this log to avoid spam:
-    // console.log(`[scanner] Already started on ${scannerPort.path}, not opening again.`);
-    return scannerPort;
-  }
-  console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`);
-  scannerPort = new SerialPort({ path, baudRate, autoOpen: true });
-  scannerParser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+  if (scannerPort) return scannerPort
+  console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`)
+  scannerPort = new SerialPort({ path, baudRate, autoOpen: true })
+  scannerParser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }))
   scannerParser.on('data', raw => {
-    const code = raw.trim();
-    console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
-    if (code) onScan(code);
-  });
+    const code = String(raw).trim()
+    console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`)
+    if (code) onScan(code)
+  })
   scannerPort.on('error', e => {
-    console.error('SerialPort error', e);
-    scannerPort = null;
-    scannerParser = null;
-    scannerStarted = false;
-  });
-  return scannerPort;
+    console.error('SerialPort error', e)
+    scannerPort = null
+    scannerParser = null
+    scannerStarted = false
+  })
+  return scannerPort
 }
-
 
 export function ensureScanner() {
   if (scannerStarted && scannerPort?.isOpen) return
   scannerStarted = true
-  listenScanner({
-    path: '/dev/ttyACM0',
-    baudRate: 9600,
-    onScan: setLastScan
-  })
+  listenScanner({ path: '/dev/ttyACM0', baudRate: 9600, onScan: setLastScan })
 }
 
-// Optional: add manual close (useful for dev/hot-reload)
 export function closeScanner() {
   if (scannerPort) {
     scannerPort.close(err => {
@@ -150,19 +132,47 @@ export function closeScanner() {
   }
 }
 
-// Cleanup on exit (not perfect, but helps in dev)
+/** ----------------- NEW: Singleton ESP line stream for WS broadcast ----------------- */
+let espPort: SerialPort | null = null
+let espParser: ReadlineParser | null = null
+
+export function getEspLineStream(
+  path = '/dev/ttyUSB0',
+  baudRate = 115200
+): { port: SerialPort; parser: ReadlineParser } {
+  if (espPort && espParser) return { port: espPort, parser: espParser }
+  espPort = new SerialPort({ path, baudRate, autoOpen: true })
+  espParser = espPort.pipe(new ReadlineParser({ delimiter: '\r\n' }))
+
+  espPort.on('error', e => {
+    console.error('[ESP port error]', e)
+    espPort = null
+    espParser = null
+  })
+  return { port: espPort, parser: espParser }
+}
+
+/** Optional: cleanup on exit (dev convenience) */
 process.on('SIGINT', () => {
   closeScanner()
+  if (espPort) espPort.close(() => {})
   process.exit()
 })
 process.on('SIGTERM', () => {
   closeScanner()
+  if (espPort) espPort.close(() => {})
   process.exit()
 })
 process.on('uncaughtException', () => {
   closeScanner()
+  if (espPort) espPort.close(() => {})
   process.exit(1)
 })
 
-export default { sendAndReceive, sendToEsp, listenScanner, ensureScanner }
-
+export default {
+  sendAndReceive,
+  sendToEsp,
+  listenScanner,
+  ensureScanner,
+  getEspLineStream,
+}

@@ -1,7 +1,7 @@
 {
-  "name": "typescript-nextjs-starter",
-  "version": "1.0.0",
-  "description": "Next.js + Electron starter (x64 dev, arm64 prod)",
+  "name": "wirelesskfb",
+  "version": "1.0.1",
+  "description": "Wireless KFB Project",
   "private": true,
   "type": "module",
   "main": "dist/main/main.js",

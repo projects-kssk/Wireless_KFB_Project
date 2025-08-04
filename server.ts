@@ -1,68 +1,66 @@
 // server.ts
-import next from 'next';
-import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { WebSocketServer } from 'ws';
-import { sendOtCommand, parser } from './lib/serial-ot';
-const dev = process.env.NODE_ENV !== 'production';
-const app = next({ dev });
-const handle = app.getRequestHandler();
-const PORT = parseInt(process.env.PORT || '3001', 10);
+import next from 'next'
+import { createServer, IncomingMessage, ServerResponse } from 'http'
+import { WebSocketServer, RawData } from 'ws'
+// ⬇️ use the real file and add .js extension for ESM
+import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
+
+const dev = process.env.NODE_ENV !== 'production'
+const app = next({ dev })
+const handle = app.getRequestHandler()
+const PORT = parseInt(process.env.PORT || '3001', 10)
 
 app.prepare().then(() => {
-  const server = createServer((req: IncomingMessage, res: ServerResponse) =>
-    handle(req, res)
-  );
-
-  const wss = new WebSocketServer({ noServer: true });
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => handle(req, res))
+  const wss = new WebSocketServer({ noServer: true })
 
   server.on('upgrade', (req, socket, head) => {
     if (req.url === '/api/thread-ws') {
       wss.handleUpgrade(req, socket, head, ws => {
-        wss.emit('connection', ws, req);
-      });
+        wss.emit('connection', ws, req)
+      })
     } else {
-      socket.destroy();
+      socket.destroy()
     }
-  });
+  })
+
+  // single shared serial stream for all clients
+  const { parser } = getEspLineStream('/dev/ttyUSB0', 115200)
 
   wss.on('connection', ws => {
-    console.log('WS client connected');
+    console.log('WS client connected')
 
-    // stream serial lines as events
-    parser.on('data', (line: string) => {
-      ws.send(JSON.stringify({ type: 'event', data: line }));
-    });
+    const onData = (raw: unknown) => {
+      const line = String(raw).trim()
+      ws.send(JSON.stringify({ type: 'event', data: line }))
+    }
+    parser.on('data', onData)
 
-    ws.on('message', async raw => {
-      let msg: { type: string; cmd?: string };
+    ws.on('message', async (raw: RawData) => {
+      let msg: { type: string; cmd?: string }
       try {
-        msg = JSON.parse(raw.toString());
+        msg = JSON.parse(raw.toString())
       } catch {
-        return;
+        return
       }
 
       if (msg.type === 'command' && msg.cmd) {
         try {
-          const lines = await sendOtCommand(msg.cmd);
-          ws.send(
-            JSON.stringify({ type: 'response', success: true, result: lines })
-          );
-        } catch (err: any) {
-          ws.send(
-            JSON.stringify({
-              type: 'response',
-              success: false,
-              error: err.message,
-            })
-          );
+          const result = await sendAndReceive(msg.cmd)
+          ws.send(JSON.stringify({ type: 'response', success: true, result }))
+        } catch (err: unknown) {
+          const message =
+            err instanceof Error ? err.message : typeof err === 'string' ? err : String(err)
+          ws.send(JSON.stringify({ type: 'response', success: false, error: message }))
         }
       }
-    });
+    })
 
-    ws.on('close', () => console.log('WS client disconnected'));
-  });
+    ws.on('close', () => {
+      parser.off('data', onData)
+      console.log('WS client disconnected')
+    })
+  })
 
-  server.listen(PORT, () =>
-    console.log(`> Ready on http://localhost:${PORT}`)
-  );
-});
+  server.listen(PORT, () => console.log(`> Ready on http://localhost:${PORT}`))
+})

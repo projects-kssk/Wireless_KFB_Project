@@ -157,17 +157,13 @@ const MainApplicationUI: React.FC = () => {
 
         const res = await fetch('/api/serial/scanner', { cache: 'no-store' });
         if (res.ok) {
-          const { code } = await res.json();
-          if (typeof code === 'string') {
-            const val = code.trim();
-            if (val && val !== kfbInputRef.current) {
-                  console.log('[SCANNER][client] received code:', val); // <— visible in browser
-              // update input and kick off loading with the fresh value
-              setKfbInput(val);
-              setKfbNumber(val);
-              await loadBranchesData(val);
-            }
-          }
+         const { code } = await res.json();
+        const val = typeof code === 'string' ? code.trim() : '';
+        if (val && val !== kfbInputRef.current) {
+          setKfbInput(val);
+         setKfbNumber(val);
+          await loadBranchesData(val);
+        }
         } else {
           // Non-200 from scanner endpoint — surface a hint (optional)
           // const txt = await res.text();

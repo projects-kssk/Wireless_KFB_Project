@@ -87,10 +87,15 @@ export function listenScanner({ path = '/dev/ttyACM0', baudRate = 9600, onScan, 
         return scannerPort;
     console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`);
     scannerPort = new SerialPort({ path, baudRate, autoOpen: true });
-    scannerParser = scannerPort.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+   
+// AFTER – accept "\n" or "\r\n"
+scannerParser = scannerPort.pipe(
+  new ReadlineParser({ delimiter: /\r?\n/ })  // <— key change
+);
     scannerParser.on('data', raw => {
         const code = String(raw).trim();
-        console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
+  console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
+  if (code) setLastScan(code);    // unchanged
         if (code)
             onScan(code);
     });

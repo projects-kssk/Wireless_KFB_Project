@@ -13,11 +13,7 @@ const nextConfig: NextConfig = {
   // Optional: if ESLint blocks your CI builds
   // eslint: { ignoreDuringBuilds: true },
 
-  // 2) Help Next keep native packages external in RSC/server:
-  //    (works across 13/14/15 — harmless if ignored)
-  experimental: {
-    serverComponentsExternalPackages: ['serialport', '@serialport/parser-readline'],
-  },
+  
 
   // 3) Precise control via webpack hook
   webpack(config, { isServer }) {

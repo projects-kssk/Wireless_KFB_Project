@@ -1,89 +1,69 @@
-// src/main/main.ts
 import { app, BrowserWindow } from 'electron'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import next from 'next'
-import http from 'http'
-import dotenv from 'dotenv'
+import path from 'node:path'
+import net from 'node:net'
+import { pathToFileURL } from 'node:url'
 
-// ─── ESM __dirname shim ─────────────────────────────────────────────────────
-const __filename = fileURLToPath(import.meta.url)
-const __dirname  = path.dirname(__filename)
-dotenv.config({
-  path: path.join(__dirname, '../../.env.production')
-})
-// ─── Silence ANGLE/EGL GPU-init errors ────────────────────────────────────
-app.disableHardwareAcceleration()
+const PORT = parseInt(process.env.PORT || '3001', 10)
+const isDev = !app.isPackaged
 
-// ─── Determine environment ─────────────────────────────────────────────────
-const isProd = app.isPackaged
-const isDev  = !isProd
-
-// ─── Where your Next.js project lives ──────────────────────────────────────
-const projectRoot = path.join(__dirname, '../../')
-
-// ─── Prepare Next.js and its request handler ──────────────────────────────
-const nextApp = next({ dev: isDev, dir: projectRoot })
-const handle  = nextApp.getRequestHandler()
-
-async function startNextServer(): Promise<void> {
-  await nextApp.prepare()
+function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000): Promise<void> {
+  const start = Date.now()
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => handle(req, res))
-    server.on('error', reject)
-    server.listen(3001, () => {
-      console.log('▶ Next.js listening on http://localhost:3001')
-      resolve()
-    })
+    const tryConnect = () => {
+      const sock = net.connect({ port, host })
+      sock.on('connect', () => {
+        sock.end()
+        resolve()
+      })
+      sock.on('error', () => {
+        sock.destroy()
+        if (Date.now() - start > timeoutMs) {
+          reject(new Error(`Timed out waiting for ${host}:${port}`))
+        } else {
+          setTimeout(tryConnect, 250)
+        }
+      })
+    }
+    tryConnect()
   })
+}
+
+async function ensureServerInProd() {
+  if (isDev) return
+  // dist-server/server.js is packaged into app.asar (see step 4)
+  const appRoot = path.join(process.resourcesPath, 'app.asar')
+  const serverEntry = path.join(appRoot, 'dist-server', 'server.js')
+  // importing starts the server (your server.ts runs on import)
+  await import(pathToFileURL(serverEntry).href)
+  await waitForPort(PORT)
 }
 
 async function createWindow() {
-  // ─── Icon path (packaged vs. dev) ────────────────────────────────────────
-  const iconPath = isProd
-    ? path.join(process.resourcesPath, 'assets', 'icon.png')
-    : path.join(__dirname, '../../assets/icon.png')
+  await ensureServerInProd()
 
-  // ─── macOS dock icon ────────────────────────────────────────────────────
-  if (process.platform === 'darwin' && app.dock) {
-    app.dock.setIcon(iconPath)
-  }
-
-  // ─── Create the BrowserWindow ────────────────────────────────────────────
   const win = new BrowserWindow({
-    width: 1024,
-    height: 768,
-    icon: iconPath,
+    width: 1200,
+    height: 800,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false,
-    },
+      nodeIntegration: false
+      // preload: path.join(__dirname, 'preload.js'), // optional
+    }
   })
 
-  // ─── Dev: point at your local `next dev` ────────────────────────────────
   if (isDev) {
-    win.loadURL('http://localhost:3001')
-    win.webContents.openDevTools()
-
-  // ─── Prod: spin up Next.js and then load it ─────────────────────────────
+    await waitForPort(PORT)
+    await win.loadURL(`http://127.0.0.1:${PORT}`)
+    win.webContents.openDevTools({ mode: 'detach' })
   } else {
-    try {
-      await startNextServer()
-      win.loadURL('http://localhost:3001')
-    } catch (err) {
-      console.error('❌ Failed to start Next.js server', err)
-    }
+    await win.loadURL(`http://127.0.0.1:${PORT}`)
   }
 }
 
-// ─── Standard Electron app lifecycle ───────────────────────────────────────
 app.whenReady().then(createWindow)
-
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
-
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow()
 })

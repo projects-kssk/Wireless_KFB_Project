@@ -1,38 +1,46 @@
-// /src/lib/data/pgRepo.ts
-import { pool } from '../postgresPool';
-import { ConfigRepo } from './types';
-import type { Configuration, ConfigurationFormData } from '@/types/types';
+// src/lib/data/pgRepo.ts
+import { pool } from '../postgresPool'
+import type { ConfigRepo } from './types'
+import type { Configuration, ConfigurationFormData } from '@/types/types'
 
 export const pgRepo: ConfigRepo = {
-  async getAll() {
-    const client = await pool.connect();
+  async getAll(): Promise<Configuration[]> {
+    const client = await pool.connect()
     try {
-      // copy your /api/configurations GET logic here
-      // run the SQL, build the maps, return the same shape
-      // …
-      return []; 
+      // TODO: implement: run your SELECT with joins and map it to Configuration[]
+      return []
     } finally {
-      client.release();
+      client.release()
     }
   },
 
-  async getById(id) { /* … */ return null },
-  async upsert(data) {
-    const client = await pool.connect();
+  async getById(id: number): Promise<Configuration | null> {
+    const client = await pool.connect()
     try {
-      await client.query('BEGIN');
-      // your PUT or POST logic from route.ts goes here
-      await client.query('COMMIT');
-      return data.id!;
+      // TODO: implement lookup by id and map to Configuration
+      return null
+    } finally {
+      client.release()
+    }
+  },
+
+  async upsert(data: ConfigurationFormData): Promise<number> {
+    const client = await pool.connect()
+    try {
+      await client.query('BEGIN')
+      // TODO: implement insert/update logic and RETURNING id
+      await client.query('COMMIT')
+      // fallback until you return the real id from SQL:
+      return data.id ?? 0
     } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
+      await client.query('ROLLBACK')
+      throw e
     } finally {
-      client.release();
+      client.release()
     }
   },
 
-  async delete(id) {
-    await pool.query('DELETE FROM configurations WHERE id=$1', [id]);
-  }
-};
+  async delete(id: number): Promise<void> {
+    await pool.query('DELETE FROM configurations WHERE id = $1', [id])
+  },
+}

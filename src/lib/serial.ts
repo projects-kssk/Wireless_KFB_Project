@@ -4,10 +4,10 @@ import { ReadlineParser } from "@serialport/parser-readline";
 import { setLastScan } from "@/lib/scannerMemory";
 import { broadcast, DeviceInfo } from "@/lib/bus";
 
-/** ────────────────────────────────────────────────────────────────────────────
- * ESP command helpers (unchanged)
- * ────────────────────────────────────────────────────────────────────────────
- */
+/* ────────────────────────────────────────────────────────────────────────────
+   ESP helpers
+   ──────────────────────────────────────────────────────────────────────────── */
+
 export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
@@ -21,28 +21,21 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
     let timer: NodeJS.Timeout;
     const cleanup = () => {
       clearTimeout(timer);
-      try {
-        parser.removeAllListeners();
-      } catch {}
-      try {
-        port.close(() => {});
-      } catch {}
+      try { parser.removeAllListeners(); } catch {}
+      try { port.close(() => {}); } catch {}
     };
 
     parser.on("data", (raw) => {
       const line = String(raw).trim();
       console.log("⟵ [ESP line]", line);
       const up = line.toUpperCase();
-      if (up.includes("SUCCESS") || up.includes("OK") || up.includes("FAIL")) {
+      if (up.includes("SUCCESS") || up.includes("OK") || up.includes("FAIL") || up.startsWith("ERROR")) {
         cleanup();
         resolve(line);
       }
     });
 
-    timer = setTimeout(() => {
-      cleanup();
-      reject(new Error("ESP response timed out"));
-    }, timeout);
+    timer = setTimeout(() => { cleanup(); reject(new Error("ESP response timed out")); }, timeout);
 
     port.open((err) => {
       if (err) return reject(err);
@@ -52,10 +45,7 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
       });
     });
 
-    port.on("error", (e) => {
-      cleanup();
-      reject(e);
-    });
+    port.on("error", (e) => { cleanup(); reject(e); });
   });
 }
 
@@ -68,6 +58,45 @@ export async function listSerialDevices(): Promise<DeviceInfo[]> {
     manufacturer: d.manufacturer ?? null,
     serialNumber: d.serialNumber ?? null,
   }));
+}
+
+/** Presence check: treat server "online" if the ESP device node exists */
+export async function isEspPresent(
+  path = process.env.ESP_TTY_PATH ?? "/dev/ttyUSB0"
+): Promise<boolean> {
+  const list = await SerialPort.list();
+  return list.some((d) => d.path === path);
+}
+
+/** Optional ping (templated) — only used if ESP_PING_CMD is non-empty */
+export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
+  const tmpl = (process.env.ESP_PING_CMD ?? "PING").trim(); // e.g. "PING {mac} {payload}"
+  const mac = process.env.ESP_MAC ?? "";                    // real MAC if firmware requires it
+  const payload = Math.floor(Date.now() / 1000).toString();
+  const cmd = tmpl.replace(/\{mac\}/gi, mac).replace(/\{payload\}/gi, payload);
+
+  try {
+    const raw = await sendAndReceive(cmd, 3000);
+    const ok = /(^OK\b|SUCCESS)/i.test(raw) && !/^ERROR/i.test(raw);
+    return { ok, raw };
+  } catch (e: any) {
+    return { ok: false, raw: String(e?.message ?? e) };
+  }
+}
+
+/** Combined health:
+ *  - If ESP_PING_CMD is blank => Online = presence only (no ping)
+ *  - Else => Online = presence && ping OK
+ */
+export async function espHealth(): Promise<{ present: boolean; ok: boolean; raw: string }> {
+  const present = await isEspPresent();
+  const tmpl = (process.env.ESP_PING_CMD ?? "").trim();
+
+  if (!present) return { present, ok: false, raw: "not present" };
+  if (!tmpl) return { present, ok: true, raw: "present (no ping)" };
+
+  const { ok, raw } = await pingEsp();
+  return { present, ok, raw };
 }
 
 export async function sendToEsp(cmd: string): Promise<void> {
@@ -87,73 +116,72 @@ export async function sendToEsp(cmd: string): Promise<void> {
         if (werr) return reject(werr);
         port.drain((derr) => {
           if (derr) return reject(derr);
-          port.close(() => {
-            console.log("⟶ [you]", cmd);
-            resolve();
-          });
+          port.close(() => { console.log("⟶ [you]", cmd); resolve(); });
         });
       });
     });
 
-    port.on("error", (e) => {
-      console.error("SerialPort error", e);
-      reject(e);
-    });
+    port.on("error", (e) => { console.error("SerialPort error", e); reject(e); });
   });
 }
 
-/** ────────────────────────────────────────────────────────────────────────────
- * Scanner singleton
- * ────────────────────────────────────────────────────────────────────────────
- */
-type ScannerState = {
+/* ────────────────────────────────────────────────────────────────────────────
+   Multi-scanner singleton (per path) with per-port cooldown/backoff
+   (unchanged from your version)
+   ──────────────────────────────────────────────────────────────────────────── */
+
+type ScannerPerPath = {
   port: SerialPort | null;
   parser: ReadlineParser | null;
   starting: Promise<void> | null;
 };
 
-const G = globalThis as unknown as {
-  __scannerState?: ScannerState;
-  __scannerRetry?: RetryState;
-};
-if (!G.__scannerState) G.__scannerState = { port: null, parser: null, starting: null };
-const scannerState = G.__scannerState;
-
-/** Retry/cooldown state persisted across HMR */
 type RetryState = {
-  nextAttemptAt: number; // epoch ms
-  retryMs: number; // backoff ms
+  nextAttemptAt: number;
+  retryMs: number;
   lastError: string | null;
-  lastErrSentAt: number; // epoch ms (for throttling error events)
+  lastErrSentAt: number;
 };
-if (!G.__scannerRetry)
-  G.__scannerRetry = { nextAttemptAt: 0, retryMs: 2000, lastError: null, lastErrSentAt: 0 };
-const retry = G.__scannerRetry;
+
+type Runtime = { state: ScannerPerPath; retry: RetryState };
+
+const GG = globalThis as any;
+if (!GG.__scanners) GG.__scanners = new Map<string, Runtime>();
+const scanners: Map<string, Runtime> = GG.__scanners;
+
+function getRuntime(path: string): Runtime {
+  let rt = scanners.get(path);
+  if (!rt) {
+    rt = {
+      state: { port: null, parser: null, starting: null },
+      retry: { nextAttemptAt: 0, retryMs: 2000, lastError: null, lastErrSentAt: 0 },
+    };
+    scanners.set(path, rt);
+  }
+  return rt;
+}
 
 const now = () => Date.now();
-const inCooldown = () => now() < retry.nextAttemptAt;
-const bumpCooldown = (ms?: number) => {
-  retry.retryMs = Math.min(ms ?? Math.ceil(retry.retryMs * 1.7), 60_000);
-  retry.nextAttemptAt = now() + retry.retryMs;
+const inCooldown = (r: RetryState) => now() < r.nextAttemptAt;
+const bumpCooldown = (r: RetryState, ms?: number) => {
+  r.retryMs = Math.min(ms ?? Math.ceil(r.retryMs * 1.7), 60_000);
+  r.nextAttemptAt = now() + r.retryMs;
 };
-const resetCooldown = () => {
-  retry.retryMs = 2000;
-  retry.nextAttemptAt = 0;
-};
+const resetCooldown = (r: RetryState) => { r.retryMs = 2000; r.nextAttemptAt = 0; };
 
-function broadcastScannerErrorOnce(msg: string) {
+function broadcastScannerErrorOnce(r: RetryState, msg: string) {
   const t = now();
-  if (retry.lastError !== msg || t - retry.lastErrSentAt > 5000) {
-    retry.lastError = msg;
-    retry.lastErrSentAt = t;
+  if (r.lastError !== msg || t - r.lastErrSentAt > 5000) {
+    r.lastError = msg;
+    r.lastErrSentAt = t;
     broadcast({ type: "scanner/error", error: msg });
   }
 }
 
-function attachScannerHandlers(port: SerialPort, parser: ReadlineParser) {
+function attachScannerHandlers(path: string, state: ScannerPerPath, retry: RetryState, port: SerialPort, parser: ReadlineParser) {
   parser.on("data", (raw) => {
     const code = String(raw).trim();
-    console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
+    console.log(`[serial:${path}] "${raw}" -> "${code}"`);
     if (code) {
       setLastScan(code);
       broadcast({ type: "scan", code });
@@ -161,111 +189,118 @@ function attachScannerHandlers(port: SerialPort, parser: ReadlineParser) {
   });
 
   port.on("close", () => {
-    console.warn("[scanner] port closed");
+    console.warn(`[scanner:${path}] port closed`);
     broadcast({ type: "scanner/close" });
-    scannerState.port = null;
-    scannerState.parser = null;
-    scannerState.starting = null;
+    state.port = null;
+    state.parser = null;
+    state.starting = null;
   });
 
   port.on("error", (e) => {
-    console.error("[scanner] port error", e);
-    broadcastScannerErrorOnce(String(e?.message ?? e));
-    try {
-      port.close(() => {});
-    } catch {}
-    scannerState.port = null;
-    scannerState.parser = null;
-    scannerState.starting = null;
-    bumpCooldown(); // back off on error
+    console.error(`[scanner:${path}] port error`, e);
+    broadcastScannerErrorOnce(retry, String(e?.message ?? e));
+    try { port.close(() => {}); } catch {}
+    state.port = null;
+    state.parser = null;
+    state.starting = null;
+    bumpCooldown(retry);
   });
 }
 
-/** Public: lightweight status for API routes/UI */
-export function getScannerStatus() {
-  return {
-    open: !!scannerState.port?.isOpen,
-    inCooldown: inCooldown(),
-    nextAttemptAt: retry.nextAttemptAt,
-    lastError: retry.lastError,
-  };
-}
+export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
+  const { state, retry } = getRuntime(path);
+  if (state.port?.isOpen) return;
+  if (state.starting) return state.starting;
+  if (inCooldown(retry)) throw new Error(`SCANNER_COOLDOWN ${path} until ${new Date(retry.nextAttemptAt).toISOString()}`);
 
-/** Public: called by SSE route when it sees devices; resets cooldown if desired path appears */
-export function considerDevicesForScanner(
-  devices: DeviceInfo[],
-  desiredPath = process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0"
-) {
-  const present = devices.some((d) => d.path === desiredPath);
-  if (present) resetCooldown();
-  return present;
-}
-
-export async function ensureScanner(
-  path = process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0",
-  baudRate = 115200
-): Promise<void> {
-  if (scannerState.port?.isOpen) return;
-  if (scannerState.starting) return scannerState.starting;
-  if (inCooldown()) {
-    throw new Error(`SCANNER_COOLDOWN until ${new Date(retry.nextAttemptAt).toISOString()}`);
-  }
-
-  // Only attempt to open if the target device path is present right now
   const devices = await listSerialDevices();
-  const present = devices.some((d) => d.path === path);
-  if (!present) {
+  if (!devices.some((d) => d.path === path)) {
     const msg = `Scanner port not present: ${path}`;
-    broadcastScannerErrorOnce(msg);
-    bumpCooldown(10_000); // wait at least 10s before the next try
+    broadcastScannerErrorOnce(retry, msg);
+    bumpCooldown(retry, 10_000);
     throw new Error(msg);
   }
 
-  scannerState.starting = new Promise<void>((resolve, reject) => {
-    console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`);
+  state.starting = new Promise<void>((resolve, reject) => {
+    console.log(`[scanner:${path}] Opening at ${baudRate}...`);
     const port = new SerialPort({ path, baudRate, autoOpen: false, lock: false });
     const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
 
     port.open((err) => {
       if (err) {
-        console.error("[scanner] open error", err);
-        broadcastScannerErrorOnce(String(err?.message ?? err));
-        scannerState.port = null;
-        scannerState.parser = null;
-        scannerState.starting = null;
-        bumpCooldown();
+        console.error(`[scanner:${path}] open error`, err);
+        broadcastScannerErrorOnce(retry, String(err?.message ?? err));
+        state.port = null;
+        state.parser = null;
+        state.starting = null;
+        bumpCooldown(retry);
         return reject(err);
       }
-      console.log("[scanner] port opened");
-      resetCooldown(); // success clears backoff
-      scannerState.port = port;
-      scannerState.parser = parser;
-      attachScannerHandlers(port, parser);
+      console.log(`[scanner:${path}] opened`);
+      resetCooldown(retry);
+      state.port = port;
+      state.parser = parser;
+      attachScannerHandlers(path, state, retry, port, parser);
       broadcast({ type: "scanner/open" });
+      state.starting = null;
       resolve();
-      // allow future re-opens if it closes later
-      scannerState.starting = null;
     });
   });
 
-  return scannerState.starting;
+  return state.starting;
 }
 
-export function closeScanner() {
-  if (scannerState.port) {
-    scannerState.port.close((err) => {
-      if (err) console.error("Error closing scanner port:", err);
-    });
+export async function ensureScanners(pathsInput?: string | string[], baudRate = 115200): Promise<void> {
+  const paths = Array.isArray(pathsInput)
+    ? pathsInput
+    : (pathsInput ?? process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+  await Promise.all(paths.map((p) => ensureScannerForPath(p, baudRate).catch(() => {})));
+}
+
+export async function ensureScanner(
+  path = (process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0")
+    .split(",")[0]
+    .trim(),
+  baudRate = 115200
+): Promise<void> {
+  return ensureScannerForPath(path, baudRate);
+}
+
+export function getScannerStatus() {
+  const obj: Record<string, { open: boolean; inCooldown: boolean; nextAttemptAt: number; lastError: string | null }> = {};
+  for (const [path, rt] of scanners.entries()) {
+    obj[path] = {
+      open: !!rt.state.port?.isOpen,
+      inCooldown: inCooldown(rt.retry),
+      nextAttemptAt: rt.retry.nextAttemptAt,
+      lastError: rt.retry.lastError,
+    };
   }
-  scannerState.port = null;
-  scannerState.parser = null;
-  scannerState.starting = null;
+  return obj;
 }
 
-/** ────────────────────────────────────────────────────────────────────────────
- * Optional: ESP line stream singleton
- * ────────────────────────────────────────────────────────────────────────────
- */
+export function considerDevicesForScanner(
+  devices: DeviceInfo[],
+  pathsInput = process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0"
+) {
+  const paths = pathsInput.split(",").map((s) => s.trim()).filter(Boolean);
+  let anyPresent = false;
+  for (const p of paths) {
+    const present = devices.some((d) => d.path === p);
+    if (present) {
+      const { retry } = getRuntime(p);
+      resetCooldown(retry);
+      anyPresent = true;
+    }
+  }
+  return anyPresent;
+}
+
+/** Optional: ESP line stream singleton */
 let espPort: SerialPort | null = null;
 let espParser: ReadlineParser | null = null;
 
@@ -285,29 +320,30 @@ export function getEspLineStream(
 }
 
 /** Dev-cleanup on exit */
-process.on("SIGINT", () => {
-  closeScanner();
-  if (espPort) espPort.close(() => {});
-  process.exit();
-});
-process.on("SIGTERM", () => {
-  closeScanner();
-  if (espPort) espPort.close(() => {});
-  process.exit();
-});
-process.on("uncaughtException", () => {
-  closeScanner();
-  if (espPort) espPort.close(() => {});
-  process.exit(1);
-});
+function closeAllScanners() {
+  for (const [, rt] of scanners.entries()) {
+    const p = rt.state.port;
+    if (p) p.close(() => {});
+    rt.state.port = null;
+    rt.state.parser = null;
+    rt.state.starting = null;
+  }
+}
+process.on("SIGINT", () => { closeAllScanners(); if (espPort) espPort.close(() => {}); process.exit(); });
+process.on("SIGTERM", () => { closeAllScanners(); if (espPort) espPort.close(() => {}); process.exit(); });
+process.on("uncaughtException", () => { closeAllScanners(); if (espPort) espPort.close(() => {}); process.exit(1); });
 
 export default {
   sendAndReceive,
   sendToEsp,
-  ensureScanner,
-  closeScanner,
-  getEspLineStream,
+  pingEsp,
+  espHealth,
+  isEspPresent,
   listSerialDevices,
+  ensureScanner,
+  ensureScannerForPath,
+  ensureScanners,
   getScannerStatus,
   considerDevicesForScanner,
+  getEspLineStream,
 };

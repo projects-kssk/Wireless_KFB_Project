@@ -1175,32 +1175,9 @@ const SettingsBranchesPageContent: React.FC<{
 
           {/* Right-side controls: Display Mode + Compact toggle */}
           <div className="flex items-center gap-3">
-            <div className="inline-flex overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200 shadow-sm">
-              {(['auto','pc','tv'] as const).map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setDisplayMode(m)}
-                  className={clsx(
-                    'px-3 py-1.5 text-[13px] font-medium transition',
-                    displayMode === m ? 'bg-emerald-500 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  )}
-                  aria-pressed={displayMode === m}
-                >
-                  {m === 'auto' ? 'Auto' : m.toUpperCase()}
-                </button>
-              ))}
-            </div>
+    
 
-            <label className="inline-flex items-center gap-2 text-[13px] text-slate-600">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-slate-300"
-                checked={dense}
-                onChange={() => setDense(v => !v)}
-              />
-              Compact rows
-            </label>
+        
           </div>
         </div>
       </header>

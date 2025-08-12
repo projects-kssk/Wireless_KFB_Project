@@ -1,78 +1,84 @@
-// src/app/api/config_branches/[detailId]/[branchId]/route.ts
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
-import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
-const PatchSchema = z.object({
-  not_tested: z.boolean().optional(),
-  loose_contact: z.boolean().optional(),
-})
-
+// PATCH /api/config_branches/:detailId/:branchId
+// Body: { not_tested?: boolean, loose_contact?: boolean }
 export async function PATCH(
-  request: Request,
+  req: Request,
   { params }: { params: Promise<{ detailId: string; branchId: string }> }
 ) {
-  const { detailId: detailStr, branchId: branchStr } = await params
-  const detailId = Number(detailStr)
-  const branchId = Number(branchStr)
-
-  if (Number.isNaN(detailId) || Number.isNaN(branchId)) {
-    return NextResponse.json({ error: 'Invalid detailId or branchId in URL' }, { status: 400 })
+  const { detailId, branchId } = await params
+  const detail = Number(detailId)
+  const branch = Number(branchId)
+  if (Number.isNaN(detail) || Number.isNaN(branch)) {
+    return NextResponse.json({ error: 'Invalid ids' }, { status: 400 })
   }
 
-  let body: z.infer<typeof PatchSchema>
-  try {
-    const json = await request.json()                // unknown
-    const parsed = PatchSchema.safeParse(json)       // narrow
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'At least one of `not_tested` or `loose_contact` (boolean) is required' },
-        { status: 400 }
-      )
-    }
-    body = parsed.data
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
-  }
+  let body: any
+  try { body = await req.json() } catch { body = {} }
 
-  const updates: string[] = []
-  const values: unknown[] = []
-  let idx = 1
+  const sets: string[] = []
+  const vals: any[] = []
 
   if (typeof body.not_tested === 'boolean') {
-    updates.push(`not_tested = $${idx++}`)
-    values.push(body.not_tested)
+    sets.push(`not_tested = $${sets.length + 3}`)
+    vals.push(body.not_tested)
   }
   if (typeof body.loose_contact === 'boolean') {
-    updates.push(`loose_contact = $${idx++}`)
-    values.push(body.loose_contact)
+    sets.push(`loose_contact = $${sets.length + 3}`)
+    vals.push(body.loose_contact)
   }
-  if (updates.length === 0) {
-    return NextResponse.json(
-      { error: 'At least one of `not_tested` or `loose_contact` (boolean) is required' },
-      { status: 400 }
-    )
+  if (sets.length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
   }
 
-  values.push(detailId, branchId)
+  try {
+    const q = `
+      UPDATE config_branches
+         SET ${sets.join(', ')}
+       WHERE kfb_info_detail_id = $1 AND branch_id = $2`
+    await pool.query(q, [detail, branch, ...vals])
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    console.error(`PATCH /api/config_branches/${detail}/${branch} error:`, err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
 
-  const sql = `
-    UPDATE config_branches
-       SET ${updates.join(', ')}
-     WHERE kfb_info_detail_id = $${idx++}
-       AND branch_id          = $${idx}
-  `
+// DELETE /api/config_branches/:detailId/:branchId  (unlink)
+// Also cleans up any pin mapping for that pair.
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ detailId: string; branchId: string }> }
+) {
+  const { detailId, branchId } = await params
+  const detail = Number(detailId)
+  const branch = Number(branchId)
+  if (Number.isNaN(detail) || Number.isNaN(branch)) {
+    return NextResponse.json({ error: 'Invalid ids' }, { status: 400 })
+  }
 
   const client = await pool.connect()
   try {
-    await client.query(sql, values)
-    return NextResponse.json({ success: true })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    console.error('PATCH /api/config_branches error', err)
-    return NextResponse.json({ error: message }, { status: 500 })
+    await client.query('BEGIN')
+    await client.query(
+      `DELETE FROM esp_pin_mappings
+        WHERE kfb_info_detail_id = $1 AND branch_id = $2`,
+      [detail, branch]
+    )
+    const { rowCount } = await client.query(
+      `DELETE FROM config_branches
+        WHERE kfb_info_detail_id = $1 AND branch_id = $2`,
+      [detail, branch]
+    )
+    await client.query('COMMIT')
+    return NextResponse.json({ success: true, deleted: rowCount ?? 0 })
+  } catch (err: any) {
+    await client.query('ROLLBACK')
+    console.error(`DELETE /api/config_branches/${detail}/${branch} error:`, err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()
   }

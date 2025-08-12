@@ -155,26 +155,35 @@ const BottomSheet: React.FC<{
             dragConstraints={{ top: 0, bottom: 0 }}
             onDragEnd={handleDragEnd}
             className={clsx(
-              'fixed inset-x-0 z-[80] flex flex-col bg-white text-slate-100 shadow-2xl',
+              'fixed inset-x-0 z-[80] flex flex-col bg-white text-slate-900 shadow-2xl',
               fullscreen
                 ? 'inset-0 rounded-none'
                 : `bottom-0 ${heightClass} rounded-t-[28px] sm:left-1/2 sm:right-auto sm:bottom-6 sm:-translate-x-1/2 sm:w-[560px] sm:rounded-3xl`
             )}
             style={{ paddingBottom: fullscreen ? undefined : 'max(env(safe-area-inset-bottom), 12px)' }}
           >
-            {!fullscreen && <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-white/20" />}
-            <div className="flex items-center justify-between px-4 py-3">
-              <button
-                onClick={onClose}
-                className="inline-flex items-center gap-1 rounded-2xl bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-[0.98]"
-              >
-                <ArrowLeftIcon className="h-4 w-4" />
-                Close
-              </button>
-              {title && <div className="text-[15px] font-semibold tracking-wide text-white/90">{title}</div>}
-              <div className="w-16" />
+            {!fullscreen && <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-slate-200" />}
+
+            {/* header: spacer • centered title • close on right */}
+<div className="relative px-4 py-3">
+  {title && (
+    <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[15px] font-semibold tracking-wide">
+      {title}
+    </div>
+  )}
+
+  <button
+    onClick={onClose}
+    aria-label="Close"
+    className="absolute right-4 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-slate-200 hover:bg-slate-100 active:scale-95"
+  >
+    <XMarkIcon className="h-5 w-5 text-slate-600" />
+  </button>
+</div>            
+
+            <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
+              {children}
             </div>
-            <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">{children}</div>
           </motion.div>
         </>
       )}
@@ -307,20 +316,26 @@ const AnchoredPopover: React.FC<{
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={SHEET_SPRING}
-            className="fixed z-[80] overflow-hidden rounded-2xl bg-white text-slate-100 shadow-2xl ring-1 ring-white/10"
+            className="fixed z-[80] overflow-hidden rounded-2xl bg-white text-slate-900 shadow-2xl ring-1 ring-white/10"
             style={{ top: coords.top, left: coords.left, width: coords.w }}
           >
-            <div className="flex items-center justify-between px-4 py-3">
-              <button
-                onClick={onClose}
-                className="inline-flex items-center gap-1 rounded-2xl bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-[0.98]"
-              >
-                <ArrowLeftIcon className="h-4 w-4" />
-                Close
-              </button>
-              {title && <div className="text-[15px] font-semibold tracking-wide text-white/90">{title}</div>}
-              <div className="w-16" />
-            </div>
+          <div className="relative flex items-center justify-between px-4 py-3">
+  {title && (
+    <div className="text-[15px] font-semibold tracking-wide text-slate-900">
+      {title}
+    </div>
+  )}
+
+  <button
+    onClick={onClose}
+    aria-label="Close"
+    // centered with a small downward offset (3px). tweak 1–4px to taste.
+    className="absolute right-4 top-[calc(50%+3px)] -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-slate-200 hover:bg-slate-100 active:scale-95"
+  >
+    <XMarkIcon className="h-5 w-5 text-slate-600" />
+  </button>
+</div>
+
             <div className="max-h-[70vh] overflow-auto px-4 pb-4">{children}</div>
           </motion.div>
         </>
@@ -354,25 +369,39 @@ const DesktopFullscreenOverlay: React.FC<{
           transition={SHEET_SPRING}
           className="fixed inset-0 z-[80] flex items-start justify-center p-6"
         >
-          <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white text-slate-100 shadow-2xl ring-1 ring-white/10">
-            <div className="flex items-center justify-between px-4 py-3">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={title ?? 'Dialog'}
+            className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white text-slate-900 shadow-2xl ring-1 ring-white/10"
+          >
+            {/* Header: left spacer • centered title • close on right */}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center px-4 py-3">
+              <div className="h-8 w-8" />
+              {title && (
+                <div className="justify-self-center text-[15px] font-semibold tracking-wide">
+                  {title}
+                </div>
+              )}
               <button
                 onClick={onClose}
-                className="inline-flex items-center gap-1 rounded-2xl bg-white/5 px-3 py-1.5 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-[0.98]"
+                aria-label="Close"
+                className="justify-self-end inline-flex h-8 w-8 items-center justify-center rounded-full ring-1 ring-slate-200 hover:bg-slate-100 active:scale-95"
               >
-                <ArrowLeftIcon className="h-4 w-4" />
-                Close
+                <XMarkIcon className="h-5 w-5 text-slate-600" />
               </button>
-              {title && <div className="text-[15px] font-semibold tracking-wide text-white/90">{title}</div>}
-              <div className="w-16" />
             </div>
-            <div className="max-h-[calc(100vh-6rem)] overflow-auto px-4 pb-4">{children}</div>
+
+            <div className="max-h-[calc(100vh-6rem)] overflow-auto px-4 pb-4">
+              {children}
+            </div>
           </div>
         </motion.div>
       </>
     )}
   </AnimatePresence>
 )
+
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * AdaptiveSheet
@@ -425,58 +454,78 @@ const PickerList: React.FC<{
 
   return (
     <div className="mx-auto w-full max-w-xl space-y-4">
-      <div className="-mx-4 sticky top-0 z-10 bg-white/85 backdrop-blur px-4 pb-3">
-        <div className="flex items-center gap-2 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10 focus-within:ring-white/20">
-          <MagnifyingGlassIcon className="h-5 w-5 text-white/60" />
+      {/* Sticky iOS-style search bar */}
+      <div className="-mx-4 sticky top-0 z-10 bg-white/90 backdrop-blur px-4 pb-3 pt-2">
+<div className="flex items-center gap-3 rounded-full bg-white px-4 py-2.5 shadow-md
+                ring-1 ring-slate-200 outline-none
+                focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-400
+                focus-within:ring-offset-2 focus-within:ring-offset-white">
+          <MagnifyingGlassIcon className="h-5 w-5 shrink-0 text-slate-500" />
           <input
             placeholder={placeholder ?? 'Search'}
             value={q}
             onChange={e => setQ(e.target.value)}
-            className="w-full rounded-2xl bg-transparent text-base text-white placeholder-white/40 outline-none"
-          />
+     className="w-full appearance-none rounded-full bg-transparent text-[16px] lg:text-[17px]
+             outline-none focus:outline-none placeholder:text-slate-400"
+/>
           {q && (
-            <button onClick={() => setQ('')} className="active:scale-95">
-              <XMarkIcon className="h-5 w-5 text-white/60" />
+            <button
+              onClick={() => setQ('')}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-200/80 active:scale-95"
+              aria-label="Clear"
+            >
+              <XMarkIcon className="h-4 w-4 text-slate-700" />
             </button>
           )}
         </div>
       </div>
 
-      <ul className="overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
+      {/* Card container with soft border + shadow */}
+      <ul className="overflow-hidden rounded-3xl bg-white ring-1 ring-black/5 shadow-sm">
         {list.map((opt, idx) => {
           const isSel = selected?.toLowerCase() === opt.toLowerCase()
-          return (
-            <li key={`${opt}-${idx}`} className="border-b border-white/5 last:border-none">
-              <button
-                onClick={() => onSelect(opt)}
-                className="group flex w-full items-center justify-between px-4 py-4 text-left active:scale-[0.998] transition"
-              >
-                <span className="truncate text-[17px] font-medium text-white/90">{opt}</span>
-                <AnimatePresence initial={false}>
-                  {isSel && (
-                    <motion.span
-                      key="tick"
-                      initial={{ scale: 0.6, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.6, opacity: 0 }}
-                      transition={SHEET_SPRING}
-                      className="inline-flex items-center justify-center rounded-full bg-emerald-500/90 p-2 ring-1 ring-emerald-300/50"
-                    >
-                      <CheckIcon className="h-5 w-5 text-white" />
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </button>
-            </li>
-          )
-        })}
+          const isLast = idx === list.length - 1
+        return (
+          <li key={`${opt}-${idx}`} className="relative">
+            <button
+              onClick={() => onSelect(opt)}
+              className="group flex w-full items-center justify-between px-4 py-4 text-left text-[16px] active:bg-slate-100/80 transition-colors"
+              aria-selected={isSel}
+              role="option"
+            >
+              <span className="truncate font-medium text-slate-900">{opt}</span>
+
+              <AnimatePresence initial={false}>
+                {isSel && (
+                  <motion.span
+                    key="tick"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.6, opacity: 0 }}
+                    transition={SHEET_SPRING}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white ring-1 ring-emerald-300/60"
+                  >
+                    <CheckIcon className="h-4 w-4" />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </button>
+
+            {/* inset divider like iOS (hidden on last) */}
+            {!isLast && (
+              <div className="pointer-events-none absolute bottom-0 left-4 right-4 h-px bg-slate-200/80" />
+            )}
+          </li>
+        )})}
+
         {list.length === 0 && (
-          <div className="px-4 py-8 text-center text-sm text-white/60">No matches</div>
+          <li className="px-4 py-8 text-center text-sm text-slate-500">No matches</li>
         )}
       </ul>
     </div>
   )
 }
+
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Create Branch
@@ -533,104 +582,106 @@ const CreateBranchPanel: React.FC<{
       desktopFullscreen
       width={560}
     >
-      <div className="mx-auto w-full max-w-xl space-y-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Branch name */}
-          <div className="space-y-1.5">
-            <label className="text-sm text-white/70">Branch name</label>
-            <input
-              value={name}
-              onChange={e => setName(e.target.value)}
-              placeholder="e.g. CL_3001"
-              className="w-full rounded-2xl bg-white/5 px-4 py-3 text-[15px] text-white outline-none ring-1 ring-white/10 placeholder:text-white/40 focus:ring-white/20"
-            />
-          </div>
+     <div className="mx-auto w-full max-w-xl space-y-6 text-slate-900">
+  <div className="grid gap-6 md:grid-cols-2">
+    {/* Branch name */}
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-slate-700">Branch name</label>
+      <input
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="e.g. CL_3001"
+        className="w-full rounded-xl bg-slate-50 px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none ring-1 ring-slate-200 focus:bg-white focus:ring-2 focus:ring-emerald-400/60 transition"
+      />
+    </div>
 
-          {/* Assign PIN (free input 1..40) */}
-          <div className="space-y-1.5">
-            <label className="text-sm text-white/70">Assign PIN (optional)</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                inputMode="numeric"
-                min={MIN_PIN}
-                max={MAX_PIN}
-                step={1}
-                placeholder="1–40"
-                value={pin ?? ''}
-                onChange={e => {
-                  const v = e.target.value
-                  if (v === '') return setPin(null)
-                  const n = clamp(parseInt(v, 10))
-                  setPin(Number.isNaN(n) ? null : n)
-                }}
-                aria-invalid={isPinTaken}
-                className={clsx(
-                  "w-28 rounded-2xl bg-white/5 px-3 py-2.5 text-[15px] text-white outline-none ring-1 placeholder:text-white/40",
-                  isPinTaken ? "ring-red-400/70" : "ring-white/10",
-                  "focus:ring-white/20"
-                )}
-              />
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setPin(p => (p == null ? MIN_PIN : clamp(p - 1)))}
-                  className="rounded-2xl bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-95"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPin(p => (p == null ? MIN_PIN : clamp(p + 1)))}
-                  className="rounded-2xl bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-95"
-                >
-                  +
-                </button>
-                {pin != null && (
-                  <button
-                    type="button"
-                    onClick={() => setPin(null)}
-                    className="ml-1 rounded-2xl bg-white/5 px-3 py-2 text-sm ring-1 ring-white/10 hover:bg-white/10 active:scale-95"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-            {isPinTaken ? (
-              <p className="text-xs text-red-300">This PIN is already in use. Choose another.</p>
-            ) : (
-              <p className="text-xs text-white/50">Any value from {MIN_PIN} to {MAX_PIN}. Example: 39 or 40.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Flags */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-            <span className="text-sm text-white/80">Loose contact</span>
-            <IOSwitch checked={loose} onChange={setLoose} />
-          </div>
-          <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3 ring-1 ring-white/10">
-            <span className="text-sm text-white/80">Not tested</span>
-            <IOSwitch checked={notTested} onChange={setNotTested} />
-          </div>
-        </div>
-
-        {/* Submit */}
-        <div className="pt-2">
+    {/* Assign PIN (free input 1..40) */}
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-slate-700">Assign PIN (optional)</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={MIN_PIN}
+          max={MAX_PIN}
+          step={1}
+          placeholder="1–40"
+          value={pin ?? ''}
+          onChange={e => {
+            const v = e.target.value
+            if (v === '') return setPin(null)
+            const n = clamp(parseInt(v, 10))
+            setPin(Number.isNaN(n) ? null : n)
+          }}
+          aria-invalid={isPinTaken}
+          className={clsx(
+            "w-28 rounded-xl bg-slate-50 px-3 py-2.5 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none ring-1 transition",
+            isPinTaken ? "ring-red-300 focus:ring-2 focus:ring-red-400/70" : "ring-slate-200 focus:bg-white focus:ring-2 focus:ring-emerald-400/60"
+          )}
+        />
+        <div className="flex items-center gap-1.5">
           <button
-            onClick={submit}
-            disabled={!canSubmit || saving}
-            className={clsx(
-              'w-full rounded-2xl px-4 py-3 text-[15px] font-semibold active:scale-[0.99] transition',
-              canSubmit && !saving ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-white/10 text-white/60'
-            )}
+            type="button"
+            onClick={() => setPin(p => (p == null ? MIN_PIN : clamp(p - 1)))}
+            className="rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
           >
-            {saving ? 'Creating…' : 'Create'}
+            −
           </button>
+          <button
+            type="button"
+            onClick={() => setPin(p => (p == null ? MIN_PIN : clamp(p + 1)))}
+            className="rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
+          >
+            +
+          </button>
+          {pin != null && (
+            <button
+              type="button"
+              onClick={() => setPin(null)}
+              className="ml-1 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
+      {isPinTaken ? (
+        <p className="text-xs text-red-600">This PIN is already in use. Choose another.</p>
+      ) : (
+        <p className="text-xs text-slate-500">Any value from {MIN_PIN} to {MAX_PIN}. Example: 39 or 40.</p>
+      )}
+    </div>
+  </div>
+
+  {/* Flags */}
+  <div className="grid gap-4 md:grid-cols-2">
+    <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3 ring-1 ring-slate-200">
+      <span className="text-sm text-slate-700">Loose contact</span>
+      <IOSwitch checked={loose} onChange={setLoose} />
+    </div>
+    <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3 ring-1 ring-slate-200">
+      <span className="text-sm text-slate-700">Not tested</span>
+      <IOSwitch checked={notTested} onChange={setNotTested} />
+    </div>
+  </div>
+
+  {/* Submit */}
+  <div className="pt-2">
+    <button
+      onClick={submit}
+      disabled={!canSubmit || saving}
+      className={clsx(
+        "w-full rounded-xl px-4 py-3 text-[15px] font-semibold active:scale-[0.99] transition",
+        canSubmit && !saving
+          ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-[0_6px_20px_-8px_rgba(16,185,129,0.55)]"
+          : "bg-slate-100 text-slate-400"
+      )}
+    >
+      {saving ? "Creating…" : "Create"}
+    </button>
+  </div>
+</div>
+
     </AdaptiveSheet>
   )
 }
@@ -1280,11 +1331,15 @@ const SettingsBranchesPageContent: React.FC<{
                   createBranchViaSheet()
                 }}
               >
-                <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-md ring-1 ring-slate-200">
+<div className="flex items-center gap-3 rounded-full bg-white px-4 py-2.5 shadow-md
+                ring-1 ring-slate-200 outline-none
+                focus-within:outline-none focus-within:ring-2 focus-within:ring-blue-400
+                focus-within:ring-offset-2 focus-within:ring-offset-white">
                   <MagnifyingGlassIcon className="h-5 w-5 text-slate-500" />
                   <input
                     type="text"
-                    className="w-full rounded-2xl bg-transparent text-[16px] lg:text-[17px] outline-none placeholder:text-slate-400"
+                     className="w-full appearance-none rounded-full bg-transparent text-[16px] lg:text-[17px]
+             outline-none focus:outline-none placeholder:text-slate-400"
                     placeholder="Filter, link, or create branch…"
                     value={unifiedInput}
                     onChange={e => {
@@ -1512,10 +1567,8 @@ const SettingsBranchesPageContent: React.FC<{
         ) : (
           <div className="flex flex-1 items-center justify-center">
             <div className="text-center">
-              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow ring-1 ring-slate-200">
-                <ChevronDownIcon className="h-7 w-7 text-slate-500" />
-              </div>
-              <p className="text-sm text-slate-600">Choose a KFB and KFB Info to manage branches.</p>
+             
+              <p className="text-xl text-slate-600">Choose a KFB and KFB Info to manage branches.</p>
             </div>
           </div>
         )}

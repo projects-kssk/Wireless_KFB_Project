@@ -18,22 +18,18 @@ type SerialEvent =
   | { type: "scanner/close" }
   | { type: "scanner/error"; error: string };
 
+const SSE_PATH = "/api/serial/events";
+
 export function useSerialEvents() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [lastScan, setLastScan] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Point this at your SSE route path (the one returning text/event-stream)
-    const url = `${window.location.origin}/api/serial/sse`; // ← adjust if your route differs
-    const es = new EventSource(url);
-
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
+    const es = new EventSource(SSE_PATH);
 
     es.onmessage = (ev) => {
-      // server also sends ": ping" comments; EventSource ignores those
       try {
         const msg: SerialEvent = JSON.parse(ev.data);
         switch (msg.type) {
@@ -46,15 +42,21 @@ export function useSerialEvents() {
           case "scan":
             setLastScan(String(msg.code));
             break;
-          // other events are informational
+          case "scanner/error":
+            setScannerError(String(msg.error || "Scanner error"));
+            break;
         }
       } catch {
-        // ignore malformed frames
+        /* ignore */
       }
+    };
+
+    es.onerror = () => {
+      // keep UI calm; EventSource will retry automatically
     };
 
     return () => es.close();
   }, []);
 
-  return { devices, server, lastScan, sseConnected: connected };
+  return { devices, server, lastScan, scannerError };
 }

@@ -1,38 +1,67 @@
-import { NextResponse } from "next/server";
-import { onSerialEvent, broadcast } from "@/lib/bus";
-import { listSerialDevices } from "@/lib/serial";
-import { ensureScanner, sendAndReceive } from "@/lib/serial";
+// src/app/api/serial/events/route.ts
+import { onSerialEvent } from "@/lib/bus";
+import { listSerialDevices, ensureScanner, sendAndReceive } from "@/lib/serial";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const encoder = new TextEncoder();
+  let closed = false;
+  let heartbeat: NodeJS.Timeout | null = null;
+  let pingTimer: NodeJS.Timeout | null = null;
+  let unsubscribe: (() => void) | null = null;
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: unknown) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const cleanup = () => {
+        if (closed) return;
+        closed = true;
+        if (heartbeat) clearInterval(heartbeat);
+        if (pingTimer) clearInterval(pingTimer);
+        if (unsubscribe) unsubscribe();
+        try { controller.close(); } catch {}
       };
-      const heartbeat = setInterval(() => {
-        // SSE comment as keepalive
-        controller.enqueue(encoder.encode(`: ping\n\n`));
-      }, 15000);
+
+      // Close when the client disconnects
+      try {
+        // @ts-ignore – Next.js Request has a signal
+        req.signal?.addEventListener("abort", cleanup);
+      } catch {}
+
+      const safeEnqueue = (text: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          cleanup();
+        }
+      };
+      const send = (obj: unknown) => safeEnqueue(`data: ${JSON.stringify(obj)}\n\n`);
+      const sendComment = (txt: string) => safeEnqueue(`: ${txt}\n\n`);
+
+      // heartbeat keepalive
+      heartbeat = setInterval(() => sendComment("ping"), 15000);
 
       // subscribe to serial bus
-      const unsubscribe = onSerialEvent((e) => send(e));
+      unsubscribe = onSerialEvent((e) => send(e));
 
       // initial snapshot
       try {
         const devices = await listSerialDevices();
         send({ type: "devices", devices });
-      } catch {}
+      } catch {
+        // ignore
+      }
 
-      // keep trying to open scanner once (no-op if open)
-      ensureScanner().catch(() => {});
+      // try to open scanner once; if not present, report as event (no crash)
+      ensureScanner().catch((err: any) => {
+        const msg = String(err?.message ?? err);
+        send({ type: "scanner/error", error: msg });
+      });
 
       // periodic ESP ping + device refresh
-      const pingTimer = setInterval(async () => {
+      pingTimer = setInterval(async () => {
         try {
           const raw = await sendAndReceive("PING", 3000);
           const ok = /OK|SUCCESS/i.test(raw);
@@ -44,24 +73,19 @@ export async function GET() {
         try {
           const devices = await listSerialDevices();
           send({ type: "devices", devices });
-        } catch {}
+        } catch {
+          // ignore
+        }
       }, 5000);
 
-      // cleanup
-      const close = () => {
-        clearInterval(heartbeat);
-        clearInterval(pingTimer);
-        unsubscribe();
-        controller.close();
-      };
-
-      // If the client disconnects, the stream cancels.
-      (controller as any).__close = close;
+      // expose cleanup to cancel()
+      (controller as any).__cleanup = cleanup;
     },
-    cancel(reason) {
+
+    cancel() {
       // @ts-ignore
-      const close = (this as any).__close as undefined | (() => void);
-      if (close) close();
+      const cleanup = (this as any).__cleanup as undefined | (() => void);
+      if (cleanup) cleanup();
     },
   });
 

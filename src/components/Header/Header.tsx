@@ -4,15 +4,15 @@ import type { SimpleStatus } from "@/components/Header/StatusIndicatorCard";
 import { MenuIcon, XMarkIcon } from "@/components/Icons/Icons";
 import { appConfig } from "@/components/config/appConfig";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { useSerialEvents } from "./useSerialEvents";
 
 /* ────────────────────────────────────────────────────────────────────────────
    Config
    ──────────────────────────────────────────────────────────────────────────── */
 const CUSTOM_HEADER_HEIGHT = "7rem";
-const WS_PATH = "/api/serial/ws"; // change if your WS route differs
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Types for socket payloads
+   Types used locally (mirrors server payloads)
    ──────────────────────────────────────────────────────────────────────────── */
 type DeviceInfo = {
   path: string;
@@ -21,89 +21,6 @@ type DeviceInfo = {
   manufacturer: string | null;
   serialNumber: string | null;
 };
-
-type SerialEvent =
-  | { type: "devices"; devices: DeviceInfo[] }
-  | { type: "esp"; ok: boolean; raw?: string; error?: string }
-  | { type: "scan"; code: string }
-  | { type: "scanner/open" }
-  | { type: "scanner/close" }
-  | { type: "scanner/error"; error: string };
-
-/* ────────────────────────────────────────────────────────────────────────────
-   WebSocket hook (auto-reconnect with backoff)
-   ──────────────────────────────────────────────────────────────────────────── */
-function useSerialSocket() {
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  const [server, setServer] = useState<SimpleStatus>("offline");
-  const [lastScan, setLastScan] = useState<string | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-
-  useEffect(() => {
-    let ws: WebSocket | null = null;
-    let retry = 1200; // ms
-    let timer: number | null = null;
-
-    const url = (() => {
-      const { protocol, host } = window.location;
-      const proto = protocol === "https:" ? "wss:" : "ws:";
-      return `${proto}//${host}${WS_PATH}`;
-    })();
-
-    const connect = () => {
-      ws = new WebSocket(url);
-
-      ws.onopen = () => {
-        setWsConnected(true);
-        retry = 1200; // reset backoff
-      };
-
-      ws.onclose = () => {
-        setWsConnected(false);
-        timer = window.setTimeout(connect, Math.min(retry, 8000)) as unknown as number;
-        retry *= 1.6;
-      };
-
-      ws.onerror = () => {
-        try { ws?.close(); } catch {}
-      };
-
-      ws.onmessage = (ev) => {
-        try {
-          const msg: SerialEvent = JSON.parse(ev.data);
-          switch (msg.type) {
-            case "devices":
-              setDevices(Array.isArray(msg.devices) ? msg.devices : []);
-              break;
-            case "esp":
-              setServer(msg.ok ? "connected" : "offline");
-              break;
-            case "scan":
-              setLastScan(String(msg.code));
-              break;
-            case "scanner/close":
-              // let presence snap handle reds; no-op
-              break;
-            case "scanner/open":
-            case "scanner/error":
-              // informational; UI derived from other signals
-              break;
-          }
-        } catch {
-          // ignore malformed frames
-        }
-      };
-    };
-
-    connect();
-    return () => {
-      if (timer) clearTimeout(timer);
-      try { ws?.close(); } catch {}
-    };
-  }, []);
-
-  return { devices, server, lastScan, wsConnected };
-}
 
 /* ────────────────────────────────────────────────────────────────────────────
    Style tokens (soft glass, crisper LED, cleaner shadows)
@@ -179,7 +96,9 @@ const LedPill: React.FC<{
   const cfg =
     color === "green"
       ? {
-          core: "#22c55e", mid: "#16a34a", dark: "#0f7a3b",
+          core: "#22c55e",
+          mid: "#16a34a",
+          dark: "#0f7a3b",
           ring: "ring-emerald-200/80",
           halo: "0 0 0 10px rgba(16,185,129,.18), 0 16px 36px rgba(16,185,129,.35)",
           chipBg: "bg-emerald-600 text-white",
@@ -187,14 +106,18 @@ const LedPill: React.FC<{
         }
       : color === "amber"
       ? {
-          core: "#f59e0b", mid: "#d97706", dark: "#b45309",
+          core: "#f59e0b",
+          mid: "#d97706",
+          dark: "#b45309",
           ring: "ring-amber-200/80",
           halo: "0 0 0 10px rgba(245,158,11,.18), 0 16px 36px rgba(245,158,11,.32)",
           chipBg: "bg-amber-600 text-white",
           subBg: "bg-amber-100 text-amber-800",
         }
       : {
-          core: "#f43f5e", mid: "#e11d48", dark: "#be123c",
+          core: "#f43f5e",
+          mid: "#e11d48",
+          dark: "#be123c",
           ring: "ring-rose-200/80",
           halo: "0 0 0 10px rgba(244,63,94,.18), 0 16px 36px rgba(244,63,94,.32)",
           chipBg: "bg-rose-600 text-white",
@@ -284,7 +207,15 @@ interface HeaderProps {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Header (WS-driven LEDs)
+   Helpers for VID:PID normalization
+   ──────────────────────────────────────────────────────────────────────────── */
+const normHex = (s?: string | null) =>
+  (s ?? "").replace(/^0x/i, "").padStart(4, "0").toLowerCase();
+const pair = (vid?: string | null, pid?: string | null) =>
+  vid && pid ? `${normHex(vid)}:${normHex(pid)}` : null;
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Header (SSE-driven LEDs)
    ──────────────────────────────────────────────────────────────────────────── */
 export const Header: React.FC<HeaderProps> = ({
   onSettingsClick,
@@ -297,9 +228,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const lastScrollY = useRef(0);
 
-  const { devices, server, lastScan } = useSerialSocket();
+  // live data from /api/serial/events (SSE)
+  const { devices, server, lastScan } = useSerialEvents();
 
-  // Scanners from config (path helps tie a physical device to the pill)
+  // Scanners from config (tie pills to physical devices by path and/or VID:PID)
   const scanners = useMemo(
     () =>
       (appConfig as any).scanners?.length
@@ -311,23 +243,36 @@ export const Header: React.FC<HeaderProps> = ({
     []
   );
 
-  // Helper: whether a device path exists for this scanner
+  // Presence check for each configured scanner
   const isPresentFor = (idx: number) => {
-    const cfg = scanners[idx] as any;
-    if (cfg?.path) return devices.some((d) => d.path.includes(cfg.path));
-    // fallback heuristic if paths aren't configured
-    return devices.length > idx;
+    const cfg = (scanners as any)[idx] ?? {};
+    const usbAllow = Array.isArray(cfg.usb)
+      ? (cfg.usb as string[]).map((p) => p.toLowerCase())
+      : null;
+
+    return devices.some((d: DeviceInfo) => {
+      // path match, if configured
+      if (cfg.path && !String(d.path).includes(String(cfg.path))) return false;
+      // VID:PID match, if configured
+      if (usbAllow) {
+        const p = pair(d.vendorId, d.productId);
+        if (!p || !usbAllow.includes(p)) return false;
+      }
+      // if neither filter provided, any device satisfies
+      return true;
+    });
   };
 
-  // Derive LED states (iOS rule you asked: scanners green if present; red otherwise)
-  const s1Color: "green" | "red" = isPresentFor(0) ? "green" : "red";
-  const s2Color: "green" | "red" = isPresentFor(1) ? "green" : "red";
-  const s1Sub = isPresentFor(0) ? (lastScan ? `Last: ${lastScan}` : "Ready") : "Not detected";
-  const s2Sub = isPresentFor(1) ? (lastScan ? `Last: ${lastScan}` : "Ready") : "Not detected";
+  // Derive LED states
+  const s1 = isPresentFor(0);
+  const s2 = isPresentFor(1);
 
-  // Server (ESP32) color
-  const serverColor: "green" | "amber" | "red" =
-    server === "connected" ? "green" : "red";
+  const s1Color: "green" | "red" = s1 ? "green" : "red";
+  const s2Color: "green" | "red" = s2 ? "green" : "red";
+  const s1Sub = s1 ? (lastScan ? `Last: ${lastScan}` : "Ready") : "Not detected";
+  const s2Sub = s2 ? (lastScan ? `Last: ${lastScan}` : "Ready") : "Not detected";
+
+  const serverColor: "green" | "amber" | "red" = server === "connected" ? "green" : "red";
   const serverSub = server === "connected" ? "Online" : "Offline";
 
   useEffect(() => {
@@ -350,7 +295,7 @@ export const Header: React.FC<HeaderProps> = ({
     };
   }, []);
 
-  if (appConfig.hideHeader) return null;
+  if ((appConfig as any).hideHeader) return null;
 
   const widgetsDynamicClass =
     isClient &&

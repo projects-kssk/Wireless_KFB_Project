@@ -1,4 +1,5 @@
-// src/components/MainApplicationUI.tsx
+'use client';
+
 import React, {
   useState,
   useEffect,
@@ -83,7 +84,7 @@ const MainApplicationUI: React.FC = () => {
       setMacAddress(mac_address);
       setKfbInfo(kfb_info);
 
-      // c) Extract pins for monitoring from *data*, not branchesData!
+      // c) Extract pins for monitoring from data
       const latchPins = data
         .filter(b => b.looseContact && !b.notTested && typeof b.pinNumber === 'number')
         .map(b => b.pinNumber);
@@ -134,7 +135,6 @@ const MainApplicationUI: React.FC = () => {
       setErrorMsg('No branches found or failed to load.');
       console.error('Load/MONITOR error:', error);
     } finally {
-      // small delay for UX
       setTimeout(() => setIsScanning(false), 300);
     }
   }, []);
@@ -148,26 +148,20 @@ const MainApplicationUI: React.FC = () => {
 
     const tick = async () => {
       try {
-        // Avoid overlapping scans
         if (isScanningRef.current) {
-          // try again shortly
           if (!stopped) timer = window.setTimeout(tick, 250);
           return;
         }
 
         const res = await fetch('/api/serial/scanner', { cache: 'no-store' });
         if (res.ok) {
-         const { code } = await res.json();
-        const val = typeof code === 'string' ? code.trim() : '';
-        if (val && val !== kfbInputRef.current) {
-          setKfbInput(val);
-         setKfbNumber(val);
-          await loadBranchesData(val);
-        }
-        } else {
-          // Non-200 from scanner endpoint — surface a hint (optional)
-          // const txt = await res.text();
-          // setErrorMsg(`Scanner endpoint error: ${res.status}`);
+          const { code } = await res.json();
+          const val = typeof code === 'string' ? code.trim() : '';
+          if (val && val !== kfbInputRef.current) {
+            setKfbInput(val);
+            setKfbNumber(val);
+            await loadBranchesData(val);
+          }
         }
       } catch (e) {
         console.error('[SCANNER] poll error', e);
@@ -176,7 +170,7 @@ const MainApplicationUI: React.FC = () => {
       }
     };
 
-    tick(); // start polling immediately
+    tick();
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
@@ -236,7 +230,7 @@ const MainApplicationUI: React.FC = () => {
   }, [branchesData, macAddress]);
 
   // Layout helpers
-  const actualHeaderHeight = '4rem';
+  const actualHeaderHeight = mainView === 'dashboard' ? '4rem' : '0rem';
   const leftOffset =
     mainView === 'dashboard' && isLeftSidebarOpen ? SIDEBAR_WIDTH : '0';
 
@@ -269,6 +263,7 @@ const MainApplicationUI: React.FC = () => {
 
   return (
     <div className="relative flex min-h-screen bg-slate-100 dark:bg-slate-900">
+      {/* Left sidebar only on dashboard */}
       {mainView === 'dashboard' && (
         <BranchControlSidebar
           isOpen={isLeftSidebarOpen}
@@ -288,12 +283,15 @@ const MainApplicationUI: React.FC = () => {
         className="flex flex-1 flex-col transition-all"
         style={{ marginLeft: leftOffset }}
       >
-        <Header
-          onSettingsClick={handleHeaderClick}
-          currentView={appCurrentViewType}
-          isSidebarOpen={isLeftSidebarOpen && mainView === 'dashboard'}
-          onToggleSidebar={toggleLeftSidebar}
-        />
+        {/* Header ONLY on dashboard */}
+        {mainView === 'dashboard' && (
+          <Header
+            onSettingsClick={handleHeaderClick}
+            currentView={appCurrentViewType}
+            isSidebarOpen={isLeftSidebarOpen}
+            onToggleSidebar={toggleLeftSidebar}
+          />
+        )}
 
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
           {mainView === 'dashboard' ? (
@@ -346,6 +344,8 @@ const MainApplicationUI: React.FC = () => {
         </main>
       </div>
 
+      {/* Settings sidebar sticks around (header controls it on dashboard).
+          We still pass header height so it can offset correctly; it's 0rem on settings views. */}
       <SettingsRightSidebar
         isOpen={isSettingsSidebarOpen}
         onClose={() => setIsSettingsSidebarOpen(false)}

@@ -1,4 +1,3 @@
-// src/components/Settings/SettingsRightSidebar.tsx
 'use client';
 
 import React, { useState, useEffect } from "react";
@@ -6,7 +5,7 @@ import { motion, AnimatePresence, type Variants } from "framer-motion";
 import { XMarkIcon } from "@/components/Icons/Icons";
 import {
   SettingsHomeIcon,
-  SettingsCogIcon,
+  SettingsCogIcon,   // now a Sliders/Tuning icon under the hood
   SettingsCubeIcon,
 } from "@/components/Icons/Icons";
 import { FlexibleOtpModal } from "@/components/Modals/FlexibleOtpModal";
@@ -17,14 +16,14 @@ type SettingsSectionId = "MAIN_S" | "CONFIG_S" | "BRANCHES_S";
 interface SettingsRightSidebarProps {
   isOpen: boolean;
   onClose: () => void;
-  appHeaderHeight: string;
+  appHeaderHeight: string; // kept for API compatibility
   onShowConfigurationInMain: () => void;
   onShowBranchesSettingsInMain: () => void;
 }
 
 /* Glass styles */
 const SheetGlass =
-  "bg-white/85 dark:bg-slate-900/75 backdrop-blur-2xl border border-white/70 dark:border-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.28)]";
+  "bg-white/85 dark:bg-slate-900/80 backdrop-blur-2xl border border-white/70 dark:border-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.28)]";
 
 const TileGlass =
   "bg-white/80 dark:bg-slate-800/60 backdrop-blur-2xl border border-white/60 dark:border-white/10 shadow-[0_12px_36px_-14px_rgba(2,6,23,0.35)]";
@@ -44,7 +43,7 @@ const overlayVariants: Variants = {
 export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
   isOpen,
   onClose,
-  appHeaderHeight,
+  appHeaderHeight, // eslint-disable-line @typescript-eslint/no-unused-vars
   onShowConfigurationInMain,
   onShowBranchesSettingsInMain,
 }) => {
@@ -67,7 +66,7 @@ export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
   const handleTileClick = (sectionId: SettingsSectionId) => {
     if (sectionId === "MAIN_S") {
       setActiveSection("MAIN_S");
-      if (showInternalPinModal) setShowInternalPinModal(false);
+      setShowInternalPinModal(false);
       return;
     }
     if (activeSection === sectionId && showInternalPinModal && internalPinTarget === sectionId) return;
@@ -135,28 +134,27 @@ export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
             className={`fixed top-0 right-0 z-50 h-svh ${SheetGlass} flex flex-col`}
             style={{
               width: RIGHT_SETTINGS_SIDEBAR_WIDTH,
-              paddingTop: `calc(${appHeaderHeight} + env(safe-area-inset-top))`,
+              paddingTop: "calc(env(safe-area-inset-top) + 6px)", // tight to top, keeps safe area
             }}
           >
-            {/* Header (tighter, more iOS) */}
-            <div className="px-5 pt-2 pb-3 sticky top-0 z-10 bg-gradient-to-b from-white/85 via-white/40 to-transparent dark:from-slate-900/80 dark:via-slate-900/40">
-              <div className="mx-auto mb-2 h-1 w-12 rounded-full bg-slate-300/80 dark:bg-slate-600/70" />
+            {/* Header */}
+            <div className="px-5 pt-1 pb-2 sticky top-0 z-10 bg-gradient-to-b from-white/90 via-white/45 to-transparent dark:from-slate-900/85 dark:via-slate-900/45 shadow-[inset_0_-1px_0_rgba(2,6,23,0.08)]">
               <div className="flex items-center justify-between">
                 <h2 className="text-[28px] leading-none font-extrabold tracking-tight text-slate-900 dark:text-white">
                   Settings
                 </h2>
                 <button
                   onClick={onClose}
-                  className="group inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/80 dark:bg-slate-800/70 border border-white/60 dark:border-white/10 shadow-md hover:shadow-lg transition"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/80 dark:bg-slate-800/70 border border-white/60 dark:border-white/10 shadow-md hover:shadow-lg transition"
                   aria-label="Close settings"
                 >
-                  <XMarkIcon className="h-6 w-6 text-slate-800 dark:text-slate-100 group-active:scale-95 transition-transform" />
+                  <XMarkIcon className="h-6 w-6 text-slate-800 dark:text-slate-100" />
                 </button>
               </div>
             </div>
 
-            {/* Tiles */}
-            <div className="flex-1 overflow-y-auto px-5 pb-6">
+            {/* Tiles (extra top padding so the first card’s top border is visible) */}
+            <div className="flex-1 overflow-y-auto px-5 pt-3 pb-6">
               <div className="flex h-full flex-col gap-5">
                 <Tile
                   active={activeSection === "MAIN_S"}
@@ -166,11 +164,10 @@ export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
                   onClick={() => handleTileClick("MAIN_S")}
                 />
                 <Tile
-                  /* Better KFB CONFIG icon behavior: gentle spin on hover */
                   active={activeSection === "CONFIG_S"}
                   label="KFB Config"
                   accent="violet"
-                  Icon={SettingsCogIcon}
+                  Icon={SettingsCogIcon}     // sliders icon
                   onClick={() => handleTileClick("CONFIG_S")}
                   spinOnHover
                 />
@@ -220,10 +217,7 @@ export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Tile — iOS glass card with animated hover ring + glow
-   - Hover: thicker accent ring, brighter glow, slight lift
-   - Active: persistent accent ring
-   - Optional spinOnHover: rotates the icon slightly (used for the cog)
+   Tile — iOS glass card with lively hover/active rings & subtle glow
    ──────────────────────────────────────────────────────────────────────────── */
 type TileProps = {
   label: string;
@@ -238,26 +232,26 @@ const accentMap = {
   sky: {
     ringBase:  "ring-sky-300/70",
     ringHover: "group-hover:ring-sky-400/90",
-    glowHover: "group-hover:shadow-[0_26px_54px_-18px_rgba(14,165,233,0.45)]",
     dot:       "bg-sky-50",
     icon:      "text-sky-600",
     badge:     "from-sky-50 to-white",
+    borderGlow:"shadow-[0_0_0_3px_rgba(14,165,233,0.35),0_28px_58px_-18px_rgba(14,165,233,0.45)]",
   },
   violet: {
     ringBase:  "ring-violet-300/70",
     ringHover: "group-hover:ring-violet-400/90",
-    glowHover: "group-hover:shadow-[0_26px_54px_-18px_rgba(139,92,246,0.45)]",
     dot:       "bg-violet-50",
     icon:      "text-violet-600",
     badge:     "from-violet-50 to-white",
+    borderGlow:"shadow-[0_0_0_3px_rgba(139,92,246,0.35),0_28px_58px_-18px_rgba(139,92,246,0.45)]",
   },
   emerald: {
     ringBase:  "ring-emerald-300/70",
     ringHover: "group-hover:ring-emerald-400/90",
-    glowHover: "group-hover:shadow-[0_26px_54px_-18px_rgba(16,185,129,0.45)]",
     dot:       "bg-emerald-50",
     icon:      "text-emerald-600",
     badge:     "from-emerald-50 to-white",
+    borderGlow:"shadow-[0_0_0_3px_rgba(16,185,129,0.35),0_28px_58px_-18px_rgba(16,185,129,0.45)]",
   },
 };
 
@@ -267,32 +261,36 @@ const Tile: React.FC<TileProps> = ({ label, active, onClick, Icon, accent, spinO
   return (
     <motion.button
       onClick={onClick}
-      whileHover={{ y: -2 }}
+      whileHover={{ y: -3, scale: 1.005 }}
       whileTap={{ scale: 0.995 }}
       className={[
-        "group flex-1 min-h-[28vh] w-full rounded-3xl p-6 text-left transition-all duration-200",
-        TileGlass,
-        active
-          ? `ring-2 ${acc.ringBase}`
-          : "ring-1 ring-white/55 dark:ring-white/10",
-        acc.ringHover,
-        acc.glowHover,
+        "group relative flex-1 min-h-[28vh] w-full rounded-3xl p-6 text-left transition-all duration-200",
         "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/80",
+        TileGlass,
+        active ? `ring-2 ${acc.ringBase}` : "ring-1 ring-white/55 dark:ring-white/10",
+        "ring-offset-1 ring-offset-white/60 dark:ring-offset-slate-900/40",
       ].join(" ")}
+      aria-pressed={active}
     >
-      <div className="flex h-full flex-col items-center justify-center gap-6">
+      {/* Hover/active border glow overlay */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 rounded-3xl opacity-0 ${acc.borderGlow} ${acc.ringHover} transition-opacity duration-200 group-hover:opacity-100`}
+      />
+
+      <div className="relative z-[1] flex h-full flex-col items-center justify-center gap-6">
         {/* Icon badge */}
         <div
           className={[
             "rounded-2xl border border-white/70 dark:border-white/10 h-24 w-24 grid place-items-center shadow-inner",
-            acc.dot,
             "bg-gradient-to-b",
             acc.badge,
+            acc.dot,
           ].join(" ")}
         >
           <motion.div
             animate={{ rotate: 0 }}
-            whileHover={spinOnHover ? { rotate: 25 } : undefined}
+            whileHover={spinOnHover ? { rotate: 22 } : undefined}
             transition={{ type: "spring", stiffness: 250, damping: 18 }}
           >
             <Icon className={`h-12 w-12 ${acc.icon}`} />

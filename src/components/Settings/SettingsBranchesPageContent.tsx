@@ -110,7 +110,10 @@ const IOSwitch: React.FC<{ checked: boolean; onChange: (v: boolean) => void; dis
 
 const SHEET_SPRING: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.9 }
 const BACKDROP_SPRING: Transition = { type: 'spring', stiffness: 280, damping: 28 }
+const headerSpring: Transition = { type: 'spring', stiffness: 520, damping: 40 };
 
+const sheetCard =
+  'bg-white/80 dark:bg-slate-900/70 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.18)]';
 /* ─────────────────────────────────────────────────────────────────────────────
  * BottomSheet (mobile)
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -1181,6 +1184,33 @@ const SettingsBranchesPageContent: React.FC<{
           </div>
         </div>
       </header>
+
+            {/* Header */}
+            <motion.header
+              initial={{ y: -8, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={headerSpring}
+              className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {onNavigateBack && (
+                    <button
+                      onClick={onNavigateBack}
+                      className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
+                    >
+                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                      Dashboard
+                    </button>
+                  )}
+                  <h1 className="ml-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    KFB Configurations
+                  </h1>
+                </div>
+              
+              </div>
+            </motion.header>
+      
 
       {/* Content */}
       <main className="mx-auto flex w-full flex-1 flex-col gap-4 px-4 py-4">

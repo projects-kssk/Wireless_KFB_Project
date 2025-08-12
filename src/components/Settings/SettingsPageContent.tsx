@@ -129,7 +129,8 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
 
   const [showEspBranchModal, setShowEspBranchModal] = useState(false);
   const [pinToAssign, setPinToAssign] = useState<string | null>(null);
-
+  const [deleteAnchor, setDeleteAnchor] = useState<DOMRect | null>(null);
+  const delModalRef = useRef<HTMLDivElement>(null);
   /* Fetch */
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -247,10 +248,12 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const requestDelete = (id: number) => {
+  const requestDelete = (id: number, e?: React.MouseEvent<HTMLButtonElement>) => {
     setConfigToDelete(id);
+    setDeleteAnchor(e ? (e.currentTarget as HTMLElement).getBoundingClientRect() : null);
     setShowDeleteModal(true);
   };
+
 
   const confirmDelete = async () => {
     if (configToDelete == null) return;
@@ -706,14 +709,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                             <PencilSquareIcon className="h-5 w-5" />
                             Edit
                           </button>
-                          <button
-                            onClick={() => requestDelete(config.id)}
-                            className="inline-flex items-center justify-center gap-2 rounded-full w-[120px] px-4 py-2.5 text-[14px] font-semibold text-white bg-red-600 ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99]"
-                            title="Delete"
-                          >
-                            <TrashIcon className="h-5 w-5" />
-                            Delete
-                          </button>
+                       <button
+                        onClick={(e) => requestDelete(config.id, e)}
+                        className="inline-flex items-center justify-center gap-2 rounded-full w-[120px] px-4 py-2.5 text-[14px] font-semibold text-white bg-red-600 ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99]"
+                        title="Delete"
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                        Delete
+                      </button>
                         </div>
                       </td>
                       <td className="px-6 py-4 border-b border-slate-200/70 dark:border-slate-700/60">
@@ -742,43 +745,97 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
       </motion.section>
 
       {/* Delete Confirmation Modal */}
-      <AnimatePresence>
-        {showDeleteModal && (
+     {/* Delete Confirmation Popover (anchored) */}
+<AnimatePresence>
+  {showDeleteModal && deleteAnchor && (
+    <>
+      {/* Backdrop with a cutout around the popover */}
+      {(() => {
+        // popover layout
+        const POPOVER_W = 520;
+        const margin = 12;
+        const top = Math.min(
+          window.innerHeight - 16,
+          deleteAnchor.bottom + margin
+        );
+        const left = Math.max(
+          8,
+          Math.min(window.innerWidth - POPOVER_W - 8, deleteAnchor.right - POPOVER_W)
+        );
+
+        return (
           <>
-            <motion.div
-              key="del-backdrop"
-              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={fade}
-              onClick={cancelDelete}
-            />
-            <motion.div
-              key="del-modal"
-              initial={{ opacity: 0, y: 14, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 14, scale: 0.98 }}
-              transition={cardSpring}
-              className={`${sheetCard} fixed inset-0 z-[90] mx-auto my-auto w-[min(92vw,560px)] rounded-2xl p-6 sm:p-8`}
-              role="dialog" aria-modal="true"
+            {/* Masked overlay (shadows everything except the popover rect) */}
+         <motion.svg
+          className="fixed inset-0 z-[80] w-screen h-screen"
+          width="100%"
+          height="100%"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={fade}
+          onClick={cancelDelete}
+        >
+          <defs>
+            <mask
+              id="del-cutout"
+              x="0" y="0" width="100%" height="100%"
+              maskUnits="userSpaceOnUse"
+              maskContentUnits="userSpaceOnUse"  // <-- important
             >
+              <rect x="0" y="0" width="100%" height="100%" fill="white" />
+              <rect
+                x={left - 8}
+                y={top - 8}
+                width={POPOVER_W + 16}
+                height={220}
+                rx={16}
+                ry={16}
+                fill="black"
+              />
+            </mask>
+          </defs>
+
+          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,.6)" mask="url(#del-cutout)" />
+        </motion.svg>
+
+
+            {/* Popover card */}
+            <motion.div
+              ref={delModalRef}
+              key="del-pop"
+              initial={{ opacity: 0, y: 8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              transition={cardSpring}
+              className={`${sheetCard} fixed z-[90] rounded-2xl p-6 sm:p-7 shadow-2xl`}
+              style={{ top, left, width: POPOVER_W }}
+              role="dialog"
+              aria-modal="true"
+            >
+              {/* little caret */}
+              <div
+                className="absolute -top-2 right-8 h-4 w-4 rotate-45 bg-white dark:bg-slate-900 ring-1 ring-black/5"
+              />
               <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50">
-                  <ExclamationTriangleIcon className="h-7 w-7 text-red-600 dark:text-red-400" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50">
+                  <ExclamationTriangleIcon className="h-6 w-6 text-red-600 dark:text-red-400" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-xl font-semibold text-slate-900 dark:text-white">Delete Configuration</h3>
-                  <p className="mt-2 text-[15px] text-slate-600 dark:text-slate-300">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+                    Delete Configuration
+                  </h3>
+                  <p className="mt-1 text-[14px] text-slate-600 dark:text-slate-300">
                     Are you sure you want to delete this configuration? This action cannot be undone.
                   </p>
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3">
+
+              <div className="mt-5 flex justify-end gap-3">
                 <button
                   type="button"
                   onClick={cancelDelete}
-                  className="rounded-full bg-white/90 px-6 py-3 text-[15px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-white active:scale-[0.99]"
+                  className="rounded-full bg-white/90 px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-white active:scale-[0.99]"
                 >
                   Cancel
                 </button>
@@ -786,15 +843,19 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                   type="button"
                   onClick={confirmDelete}
                   disabled={isLoading}
-                  className="rounded-full bg-red-600 px-6 py-3 text-[15px] font-semibold text-white shadow-lg ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99] disabled:opacity-60"
+                  className="rounded-full bg-red-600 px-5 py-2.5 text-[14px] font-semibold text-white shadow-lg ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99] disabled:opacity-60"
                 >
                   {isLoading ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
             </motion.div>
           </>
-        )}
-      </AnimatePresence>
+        );
+      })()}
+    </>
+  )}
+</AnimatePresence>
+
 
       {/* Discover ESP modal + rounded hole overlay */}
       <AnimatePresence>

@@ -1,7 +1,7 @@
 // src/lib/serial.ts
 import { SerialPort } from 'serialport';
 import { ReadlineParser } from '@serialport/parser-readline';
-import { setLastScan } from './scannerMemory';
+import { setLastScan } from '@/lib/scannerMemory';
 
 /** ────────────────────────────────────────────────────────────────────────────
  * ESP command helpers (unchanged)

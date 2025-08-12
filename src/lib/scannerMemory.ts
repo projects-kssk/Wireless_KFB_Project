@@ -1,21 +1,20 @@
-let lastScan: string | null = null;
-const RING: string[] = [];
-const MAX = 100;
+// src/lib/scannerMemory.ts
+type ScanMem = { last: string | null; ts: number };
 
-export function setLastScan(code: string) {
-  lastScan = code;
-  const line = `${new Date().toISOString()} ${code}`;
-  RING.push(line);
-  if (RING.length > MAX) RING.shift();
+const g = globalThis as unknown as { __scanMem?: ScanMem };
+if (!g.__scanMem) g.__scanMem = { last: null, ts: 0 };
+
+export function setLastScan(s: string) {
+  g.__scanMem!.last = s?.trim() || null;
+  g.__scanMem!.ts = Date.now();
 }
 
 export function getLastScanAndClear() {
-  const c = lastScan;
-  lastScan = null;
-  return c;
+  const v = g.__scanMem!.last;
+  g.__scanMem!.last = null;
+  return v;
 }
 
-export function getScanLog() {
-  // newest first
-  return [...RING].reverse();
+export function peekLastScan() {
+  return g.__scanMem!.last;
 }

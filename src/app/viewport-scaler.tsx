@@ -1,133 +1,140 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 type Props = { children: React.ReactNode }
 type DisplayMode = 'auto' | 'pc' | 'tv'
 
-const canUseDOM = typeof window !== 'undefined' && typeof document !== 'undefined'
+const canUseDOM = typeof window !== 'undefined'
+const BASE_W = 1440
+const BASE_H = 900
 
 export default function ViewportScaler({ children }: Props) {
   const [mode, setMode] = useState<DisplayMode>('auto')
   const [scale, setScale] = useState(1)
-  const [vvw, setVVW] = useState<number | null>(null)
-  const [vvh, setVVH] = useState<number | null>(null)
-
-  const baseW = 1440
-  const baseH = 900
+  const [activeTV, setActiveTV] = useState(false)       // true = we are scaling now
+  const lastZoomScale = useRef(1)
+  const resizeRAF = useRef(0 as number | 0)
+  const debTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const getQueryMode = (): DisplayMode | null => {
     if (!canUseDOM) return null
     const q = new URLSearchParams(window.location.search)
     const m = (q.get('mode') || '').toLowerCase()
-    if (m === 'tv' || m === 'pc' || m === 'auto') return m as DisplayMode
-    if (q.get('tv') === '1') return 'tv'
-    if (q.get('tv') === '0') return 'auto'
-    if (q.get('pc') === '1') return 'pc'
-    return null
+    return m === 'tv' || m === 'pc' || m === 'auto' ? (m as DisplayMode) : null
   }
-
   const getStoredMode = (): DisplayMode | null => {
     if (!canUseDOM) return null
-    const stored = (localStorage.getItem('displayMode') || '').toLowerCase()
-    if (stored === 'tv' || stored === 'pc' || stored === 'auto') return stored as DisplayMode
+    const s = (localStorage.getItem('displayMode') || '').toLowerCase()
+    if (s === 'tv' || s === 'pc' || s === 'auto') return s as DisplayMode
     const legacy = localStorage.getItem('tvMode')
-    if (legacy === 'true') return 'tv'
-    if (legacy === 'false') return 'auto'
-    return null
+    return legacy ? (legacy === 'true' ? 'tv' : 'auto') : null
   }
-
-  const isTVLike = (): boolean => {
+  const isTVLike = () => {
     if (!canUseDOM) return false
-    const vw = window.visualViewport?.width ?? window.innerWidth
-    const vh = window.visualViewport?.height ?? window.innerHeight
-    const big = vw >= 1920 && vh >= 900
-    const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : ''
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const big = vw >= 1920 && vh >= 1080
+    const ua = navigator.userAgent || ''
     const tvUA = /(smarttv|tizen|netcast|appletv|googletv|hbbtv|viera|bravia|firetv|android\s*tv)/i.test(ua)
     return big || tvUA
   }
+  const resolveMode = (m: DisplayMode): DisplayMode => (m === 'auto' ? (isTVLike() ? 'tv' : 'pc') : m)
 
-  const resolveActiveMode = (m: DisplayMode): DisplayMode => {
-    if (!canUseDOM) return m === 'tv' ? 'pc' : (m === 'auto' ? 'pc' : m)
-    return m === 'auto' ? (isTVLike() ? 'tv' : 'pc') : m
-  }
-
-  // initial mode (client)
+  // initial mode
   useEffect(() => {
-    const initial = getQueryMode() ?? getStoredMode() ?? (isTVLike() ? 'tv' : 'pc')
+    const initial = getQueryMode() ?? getStoredMode() ?? 'pc'
     setMode(initial)
   }, [])
 
-  // listen to external changes
+  // attributes + scaling logic
   useEffect(() => {
     if (!canUseDOM) return
-    const onDisplayMode = (e: Event) => {
-      const detail = (e as CustomEvent).detail
-      if (detail === 'tv' || detail === 'pc' || detail === 'auto') setMode(detail)
-      else if (detail && typeof detail === 'object') {
-        const m = (detail as any).mode
-        if (m === 'tv' || m === 'pc' || m === 'auto') setMode(m)
-      }
-    }
-    window.addEventListener('display-mode-change', onDisplayMode as EventListener)
-    return () => window.removeEventListener('display-mode-change', onDisplayMode as EventListener)
-  }, [])
+    const html = document.documentElement
+    html.setAttribute('data-display', mode)
+    html.setAttribute('data-tv', resolveMode(mode) === 'tv' ? '1' : '0')
+    localStorage.setItem('displayMode', mode)
+    localStorage.setItem('tvMode', String(mode === 'tv'))
 
-  // apply attrs + persist + compute scale on any viewport change
-  useEffect(() => {
-    if (!canUseDOM) return
-
-    const applyAttrs = (m: DisplayMode) => {
-      const el = document.documentElement
-      el.setAttribute('data-display', m)
-      el.setAttribute('data-tv', m === 'tv' ? '1' : '0') // legacy
-      localStorage.setItem('displayMode', m)
-      localStorage.setItem('tvMode', String(m === 'tv'))
-    }
-
-    let raf = 0
     const calc = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const vw = window.visualViewport?.width ?? window.innerWidth
-        const vh = window.visualViewport?.height ?? window.innerHeight
-        setVVW(vw); setVVH(vh)
+      if (resizeRAF.current) return
+      resizeRAF.current = requestAnimationFrame(() => {
+        resizeRAF.current = 0
 
-        const active = resolveActiveMode(mode)
-        if (active !== 'tv') { setScale(1); return }
-        setScale(Math.min(vw / baseW, vh / baseH))
+        const target = resolveMode(mode)
+        // Page zoom/pinch state (1 == not zoomed)
+        const pageScale = window.visualViewport?.scale ?? 1
+        lastZoomScale.current = pageScale
+
+        // If the user has zoomed the page (pinch or browser zoom), we STOP scaling.
+        if (target !== 'tv' || Math.abs(pageScale - 1) > 0.01) {
+          setActiveTV(false)
+          setScale(1)
+          return
+        }
+
+        const vw = window.innerWidth
+        const vh = window.innerHeight
+        const next = Math.min(vw / BASE_W, vh / BASE_H)
+        setScale(next)
+        setActiveTV(true)
       })
     }
 
-    applyAttrs(mode)
+    const debouncedCalc = () => {
+      // Burst events (iOS pinch throws many); settle for 80ms
+      if (debTimer.current) clearTimeout(debTimer.current)
+      debTimer.current = setTimeout(calc, 80)
+    }
+
+    // first run
     calc()
 
-    const vv = window.visualViewport
-    window.addEventListener('resize', calc, { passive: true })
-    window.addEventListener('orientationchange', calc, { passive: true })
-    vv?.addEventListener('resize', calc, { passive: true })
-    vv?.addEventListener('scroll', calc, { passive: true })
+    window.addEventListener('resize', debouncedCalc, { passive: true })
+    window.addEventListener('orientationchange', debouncedCalc, { passive: true })
+    // visualViewport: no 'scroll' listener → it janks during pinch-zoom
+    window.visualViewport?.addEventListener('resize', debouncedCalc, { passive: true })
+
     return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', calc as EventListener)
-      window.removeEventListener('orientationchange', calc as EventListener)
-      vv?.removeEventListener('resize', calc as EventListener)
-      vv?.removeEventListener('scroll', calc as EventListener)
+      if (resizeRAF.current) cancelAnimationFrame(resizeRAF.current)
+      if (debTimer.current) clearTimeout(debTimer.current)
+      window.removeEventListener('resize', debouncedCalc as EventListener)
+      window.removeEventListener('orientationchange', debouncedCalc as EventListener)
+      window.visualViewport?.removeEventListener('resize', debouncedCalc as EventListener)
     }
   }, [mode])
 
-  const style = useMemo<React.CSSProperties>(() => {
-    const active = resolveActiveMode(mode)
-    if (active !== 'tv') return {}
-    if (!canUseDOM || vvw == null || vvh == null) return {}
+  // Outer wrapper letterboxes & centers when TV scaling is active.
+  const wrapperStyle = useMemo<React.CSSProperties>(() => {
+    if (!activeTV) return {}
     return {
-      transform: `scale(${scale})`,
-      transformOrigin: 'top left',
-      width: `${vvw / scale}px`,
-      height: `${vvh / scale}px`,
+      position: 'fixed',
+      inset: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
       overflow: 'hidden',
     }
-  }, [mode, scale, vvw, vvh])
+  }, [activeTV])
 
-  return <div style={style}>{children}</div>
+  // Inner "canvas" is a fixed base size scaled to fit.
+  const canvasStyle = useMemo<React.CSSProperties>(() => {
+    if (!activeTV) return {}
+    return {
+      width: BASE_W,
+      height: BASE_H,
+      transform: `scale(${scale})`,
+      transformOrigin: 'center center',
+      willChange: 'transform',
+      contain: 'layout paint size style',
+    }
+  }, [activeTV, scale])
+
+  return activeTV ? (
+    <div style={wrapperStyle}>
+      <div style={canvasStyle}>{children}</div>
+    </div>
+  ) : (
+    <>{children}</>
+  )
 }

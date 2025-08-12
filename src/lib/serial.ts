@@ -2,7 +2,7 @@
 import { SerialPort } from 'serialport';
 import { ReadlineParser } from '@serialport/parser-readline';
 import { setLastScan } from '@/lib/scannerMemory';
-
+import { serialBus, broadcast, DeviceInfo } from "@/lib/bus";
 /** ────────────────────────────────────────────────────────────────────────────
  * ESP command helpers (unchanged)
  * ────────────────────────────────────────────────────────────────────────────
@@ -54,6 +54,17 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
   });
 }
 
+export async function listSerialDevices(): Promise<DeviceInfo[]> {
+  const list = await SerialPort.list();
+  return list.map(d => ({
+    path: d.path,
+    vendorId: d.vendorId ?? null,
+    productId: d.productId ?? null,
+    manufacturer: d.manufacturer ?? null,
+    serialNumber: d.serialNumber ?? null,
+  }));
+}
+
 export async function sendToEsp(cmd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
@@ -103,21 +114,26 @@ if (!g.__scannerState) {
 const scannerState = g.__scannerState;
 
 function attachScannerHandlers(port: SerialPort, parser: ReadlineParser) {
-  parser.on('data', raw => {
+  parser.on("data", raw => {
     const code = String(raw).trim();
     console.log(`[serial] Raw data received: "${raw}" (trimmed: "${code}")`);
-    if (code) setLastScan(code);
+    if (code) {
+      setLastScan(code);
+      broadcast({ type: "scan", code });     // NEW: push scans live
+    }
   });
 
-  port.on('close', () => {
-    console.warn('[scanner] port closed');
+  port.on("close", () => {
+    console.warn("[scanner] port closed");
+    broadcast({ type: "scanner/close" });     // NEW
     scannerState.port = null;
     scannerState.parser = null;
     scannerState.starting = null;
   });
 
-  port.on('error', e => {
-    console.error('[scanner] port error', e);
+  port.on("error", e => {
+    console.error("[scanner] port error", e);
+    broadcast({ type: "scanner/error", error: String(e?.message ?? e) }); // NEW
     try { port.close(() => {}); } catch {}
     scannerState.port = null;
     scannerState.parser = null;
@@ -125,44 +141,38 @@ function attachScannerHandlers(port: SerialPort, parser: ReadlineParser) {
   });
 }
 
-/**
- * Ensure the scanner port is opened exactly once, at 115200 baud.
- */
 export async function ensureScanner(
-  path = process.env.SCANNER_TTY_PATH ?? '/dev/ttyACM0',
-  baudRate = 115200  // <— updated from 9600
+  path = process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0",
+  baudRate = 115200
 ): Promise<void> {
   if (scannerState.port?.isOpen) return;
   if (scannerState.starting) return scannerState.starting;
 
   scannerState.starting = new Promise<void>((resolve, reject) => {
     console.log(`[scanner] Opening serial port ${path} at baud ${baudRate}...`);
-    const port = new SerialPort({
-      path,
-      baudRate,
-      autoOpen: false,
-      lock: false,
-    });
-    const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }));
+    const port = new SerialPort({ path, baudRate, autoOpen: false, lock: false });
+    const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
 
     port.open(err => {
       if (err) {
-        console.error('[scanner] open error', err);
+        console.error("[scanner] open error", err);
         scannerState.port = null;
         scannerState.parser = null;
         scannerState.starting = null;
         return reject(err);
       }
-      console.log('[scanner] port opened');
+      console.log("[scanner] port opened");
       scannerState.port = port;
       scannerState.parser = parser;
       attachScannerHandlers(port, parser);
+      broadcast({ type: "scanner/open" });    // NEW
       resolve();
     });
   });
 
   return scannerState.starting;
 }
+
 
 export function closeScanner() {
   if (scannerState.port) {

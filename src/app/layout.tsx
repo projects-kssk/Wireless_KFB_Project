@@ -1,13 +1,20 @@
 import './globals.css'
 import { ThemeProvider } from './theme-provider'
 import { Poppins } from 'next/font/google'
-import ViewportScaler from './viewport-scaler'
 
 const poppins = Poppins({
   weight: ['100','200','300','400','500','600','700','800','900'],
   subsets: ['latin'],
   display: 'swap',
 })
+
+// Optional (Next.js app router): explicitly allow zooming
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+} as const
 
 export const metadata = {
   title: 'Wireless KFB',
@@ -23,10 +30,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body className={`${poppins.className} bg-gray-100 min-h-screen`}>
         <ThemeProvider attribute="class" defaultTheme="light">
-          {/* Scales entire app in TV mode; exposes data-display / data-tv on <html> */}
-          <ViewportScaler>
-            <main className="h-full overflow-hidden">{children}</main>
-          </ViewportScaler>
+            {/* no overflow-hidden here; we’ll control it via [data-tv="1"] in CSS */}
+            <main className="h-full">{children}</main>
         </ThemeProvider>
       </body>
     </html>

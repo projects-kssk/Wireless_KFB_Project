@@ -46,3 +46,10 @@ main {
    hover:bg-slate-200 dark:bg-slate-700 /* Darker bg for button on dark */
    dark:hover:text-gray-100 dark:hover:bg-slate-600; /* Light hover text, slightly lighter bg */
 }
+/* Only lock overflow when the scaler is active */
+html[data-tv="1"] body > div:first-child main {
+  overflow: hidden;
+}
+
+/* Optional: letterbox background for TV */
+html[data-tv="1"] body { background: #000; }

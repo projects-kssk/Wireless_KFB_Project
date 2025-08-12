@@ -58,14 +58,13 @@ const sheetCard =
 const tileCard =
   'bg-white/85 dark:bg-slate-800/60 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_12px_36px_-12px_rgba(2,6,23,0.25)]';
 const inputBase =
-  'block w-full rounded-2xl px-5 py-4 text-[17px] bg-white/80 dark:bg-slate-800/70 ring-1 ring-slate-200/80 dark:ring-white/10 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-white/60 dark:focus:ring-offset-slate-900/40 shadow-inner';
+  'block w-full rounded-2xl px-5 py-4 text-[17px] bg-white/80 dark:bg-slate-800/70 ring-1 ring-slate-200/80 dark:ring-white/10 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-white/60 dark:focus:ring-offset-slate-900/40 shadow-inner transition-all';
 
-/* Framer transitions (typed, so no TS error) */
 const headerSpring: Transition = { type: 'spring', stiffness: 520, damping: 40 };
 const cardSpring: Transition = { type: 'spring', stiffness: 520, damping: 45 };
 const fade: Transition = { type: 'tween', duration: 0.18 };
 
-/* Highlight a DOMRect (used for edit + discover spotlights) */
+/* Anchor rect (spotlights & hole) */
 function useAnchorRect(active: boolean, ref: React.RefObject<HTMLElement>) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   useEffect(() => {
@@ -114,6 +113,8 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const [discoverStatus, setDiscoverStatus] = useState<'idle' | 'searching' | 'success' | 'error'>('idle');
   const [foundMac, setFoundMac] = useState<string | null>(null);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [autoCloseEnabled, setAutoCloseEnabled] = useState(true);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   const [showEspBranchModal, setShowEspBranchModal] = useState(false);
   const [pinToAssign, setPinToAssign] = useState<string | null>(null);
@@ -260,7 +261,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   };
   const cancelDelete = () => { setShowDeleteModal(false); setConfigToDelete(null); };
 
-  /* ESP mapping (kept) */
+  /* ESP mapping */
   const handleOpenEspBranchModal = (pinNumber: string) => { setPinToAssign(pinNumber); setShowEspBranchModal(true); };
   const handleAssignBranchToEspPin = (pin: string, branch: string) => {
     setCurrentConfig(prev => ({ ...prev, espPinMappings: { ...(prev.espPinMappings || {}), [pin]: branch } }));
@@ -273,7 +274,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     });
   };
 
-  /* Filter (KFB, MAC, info only) */
+  /* Filter */
   const filteredConfigurations = useMemo(() => {
     if (!filterText.trim()) return configurations;
     const q = filterText.toLowerCase();
@@ -285,16 +286,17 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     );
   }, [configurations, filterText]);
 
-  /* Editing spotlight */
+  /* Spotlights / hole */
   const formRef = useRef<HTMLDivElement>(null);
   const editRect = useAnchorRect(isEditing, formRef);
 
-  /* Discover ESP spotlight anchor (around the MAC input area) */
   const macWrapperRef = useRef<HTMLDivElement>(null);
   const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
 
-  /* Discovery flow */
+  /* Discovery */
   const startDiscover = async () => {
+    setAutoCloseEnabled(true);
+    setCountdown(null);
     setDiscoverOpen(true);
     setDiscoverStatus('searching');
     setDiscoverError(null);
@@ -317,6 +319,50 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     }
   };
 
+  const retryDiscover = async () => {
+    setAutoCloseEnabled(false);
+    setCountdown(null);
+    setDiscoverStatus('searching');
+    setDiscoverError(null);
+    setFoundMac(null);
+    try {
+      const res = await fetch('/api/esp/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = (await res.json()) as { macAddress?: string; error?: string };
+      if (!data.macAddress) throw new Error(data.error || 'No MAC returned');
+      setFoundMac(data.macAddress);
+      setCurrentConfig(prev => ({ ...prev, mac_address: data.macAddress }));
+      setDiscoverStatus('success');
+    } catch (e: any) {
+      setDiscoverStatus('error');
+      setDiscoverError(e?.message || 'Discovery failed');
+    }
+  };
+
+  // Auto-close when success + enabled
+  useEffect(() => {
+    if (!discoverOpen) return;
+    if (discoverStatus !== 'success' || !autoCloseEnabled) return;
+
+    setCountdown(3); // keep your current 3-second close
+    const id = setInterval(() => {
+      setCountdown(prev => {
+        if (prev == null) return null;
+        if (prev <= 1) {
+          clearInterval(id);
+          setDiscoverOpen(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [discoverOpen, discoverStatus, autoCloseEnabled]);
+
   /* Loading screen */
   if (isLoading && configurations.length === 0 && !formNotification.message) {
     return (
@@ -336,6 +382,8 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const needsKfb = isEditing && !currentConfig.kfb.trim();
   const needsMac = isEditing && !currentConfig.mac_address.trim();
   const needsInfo = isEditing && currentConfig.kfbInfo.every(s => !s.trim());
+
+  const macPulseActive = discoverOpen && discoverStatus === 'success';
 
   return (
     <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 sm:p-6 lg:p-6 flex flex-col">
@@ -456,7 +504,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
           </div>
 
           {/* MAC + Discover */}
-          <div ref={macWrapperRef} className="space-y-2">
+          <div ref={macWrapperRef} className="space-y-2 relative">
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
               MAC Address
             </label>
@@ -466,7 +514,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                 name="mac_address"
                 value={currentConfig.mac_address}
                 onChange={handleInputChange}
-                className={inputBase}
+                className={`${inputBase} ${
+                  macPulseActive
+                    ? 'bg-emerald-50 ring-emerald-400 shadow-[0_0_0_4px_rgba(16,185,129,.18)]'
+                    : ''
+                }`}
                 placeholder="XX:XX:XX:XX:XX:XX"
               />
               <button
@@ -722,42 +774,108 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Discover ESP modal + highlight around MAC */}
+      {/* Discover ESP modal + rounded hole overlay */}
       <AnimatePresence>
         {discoverOpen && (
           <>
-            <motion.div
-              key="disc-backdrop"
-              className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={fade}
-              onClick={() => setDiscoverOpen(false)}
-            />
+            {/* Rounded HOLE overlay (no highlighted square corners) */}
+          {/* Blur + darken everything except the MAC field (4-strip cutout) */}
+{discoverRect ? (
+  <>
+    {/* top */}
+    <motion.div
+      className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
+      style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }}
+      onClick={() => setDiscoverOpen(false)}
+    />
+    {/* left */}
+    <motion.div
+      className="fixed top-0 z-[80] bg-black/60 backdrop-blur-md"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
+      style={{
+        top: Math.max(0, discoverRect.top - 12),
+        left: 0,
+        width: Math.max(0, discoverRect.left - 12),
+        height: discoverRect.height + 24,
+      }}
+      onClick={() => setDiscoverOpen(false)}
+    />
+    {/* right */}
+    <motion.div
+      className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
+      style={{
+        top: Math.max(0, discoverRect.top - 12),
+        left: discoverRect.left + discoverRect.width + 12,
+        height: discoverRect.height + 24,
+      }}
+      onClick={() => setDiscoverOpen(false)}
+    />
+    {/* bottom */}
+    <motion.div
+      className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-md"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
+      style={{ top: discoverRect.top + discoverRect.height + 12 }}
+      onClick={() => setDiscoverOpen(false)}
+    />
+  </>
+) : (
+  <motion.div
+    className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md"
+    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
+    onClick={() => setDiscoverOpen(false)}
+  />
+)}
+
+
+            {/* Highlight ring/pulse on success */}
             {discoverRect && (
-              <motion.div
-                key="disc-ring"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={cardSpring}
-                className="pointer-events-none fixed z-[95] rounded-2xl ring-2 ring-indigo-500 shadow-[0_0_0_8px_rgba(99,102,241,0.25)]"
-                style={{
-                  top: Math.max(8, discoverRect.top - 8),
-                  left: Math.max(8, discoverRect.left - 8),
-                  width: discoverRect.width + 16,
-                  height: discoverRect.height + 16,
-                }}
-              />
+              <>
+                <motion.div
+                  key="disc-ring"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={cardSpring}
+                  className={`pointer-events-none fixed z-[95] rounded-2xl ring-2 ${
+                    discoverStatus === 'success' ? 'ring-emerald-500' : 'ring-indigo-500'
+                  } ${discoverStatus === 'success' ? 'shadow-[0_0_0_10px_rgba(16,185,129,0.22)]' : 'shadow-[0_0_0_8px_rgba(99,102,241,0.25)]'}`}
+                  style={{
+                    top: Math.max(8, discoverRect.top - 8),
+                    left: Math.max(8, discoverRect.left - 8),
+                    width: discoverRect.width + 16,
+                    height: discoverRect.height + 16,
+                  }}
+                />
+                {discoverStatus === 'success' && (
+                  <motion.div
+                    key="disc-ring-pulse"
+                    className="pointer-events-none fixed z-[94] rounded-3xl"
+                    style={{
+                      top: Math.max(8, discoverRect.top - 16),
+                      left: Math.max(8, discoverRect.left - 16),
+                      width: discoverRect.width + 32,
+                      height: discoverRect.height + 32,
+                      boxShadow: '0 0 0 0 rgba(16,185,129,0.18)',
+                    }}
+                    initial={{ scale: 0.98, opacity: 0.6 }}
+                    animate={{ scale: [0.98, 1.06, 0.98], opacity: [0.6, 0.18, 0.6] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                  />
+                )}
+              </>
             )}
+
             <DiscoverEspModal
               open={discoverOpen}
               status={discoverStatus}
               mac={foundMac}
               error={discoverError}
+              countdown={countdown}
+              autoCloseEnabled={autoCloseEnabled}
               onClose={() => setDiscoverOpen(false)}
-              onRetry={startDiscover}
+              onRetry={retryDiscover}
             />
           </>
         )}
@@ -771,7 +889,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         currentPinAssignment={pinToAssign ? currentConfig.espPinMappings?.[pinToAssign] : undefined}
         availableBranches={currentConfig.branchPins}
         onAssignBranch={handleAssignBranchToEspPin}
-        onUnassignBranch={handleUnassignBranchFromEspPin}
+        onUnassignBranchFromEspPin={handleUnassignBranchFromEspPin}
         espPinMappings={currentConfig.espPinMappings || {}}
       />
     </div>
@@ -781,7 +899,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
 export default SettingsPageContent;
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Discover ESP Modal (inline so you get the full working file)
+ * Discover ESP Modal (bigger MAC banner, improved countdown with ripples)
  * ──────────────────────────────────────────────────────────────────────────── */
 
 function DiscoverEspModal({
@@ -791,6 +909,8 @@ function DiscoverEspModal({
   status,
   mac,
   error,
+  countdown,
+  autoCloseEnabled,
 }: {
   open: boolean;
   onClose: () => void;
@@ -798,15 +918,15 @@ function DiscoverEspModal({
   status: 'idle' | 'searching' | 'success' | 'error';
   mac: string | null;
   error: string | null;
+  countdown: number | null;
+  autoCloseEnabled: boolean;
 }) {
   const SHEET: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.9 };
-  const FADE: Transition = { duration: 0.22 };
 
   return (
     <AnimatePresence>
       {open && (
         <>
-          {/* sheet */}
           <motion.div
             key="esp-sheet"
             role="dialog"
@@ -816,55 +936,90 @@ function DiscoverEspModal({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={SHEET}
-            className="fixed inset-0 z-[100] mx-auto my-auto flex w-[min(92vw,800px)] items-start justify-center p-5"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3"
           >
-            <div className="relative w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-black/5">
+            <div className="relative h-[min(88vh,820px)] w-[min(96vw,1400px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
               {/* Title bar */}
-              <div className="flex items-center justify-between px-5 py-4">
+              <div className="flex items-center justify-between px-6 py-4">
                 <h3 className="text-[18px] font-semibold text-slate-900">Discover ESP</h3>
-                <button
-                  onClick={onClose}
-                  className="inline-flex h-9 items-center justify-center rounded-full px-4 text-[14px] font-semibold ring-1 ring-slate-200 hover:bg-slate-100 active:scale-95"
-                >
-                  Close
-                </button>
-              </div>
-
-              {/* Content */}
-              <div className="px-5 pb-6">
-                <StatusCard
-                  text={
-                    status === 'searching'
-                      ? 'Connecting to ESP over Wi-Fi…'
-                      : status === 'success'
-                      ? `Found ESP! MAC: ${mac ?? ''}`
-                      : status === 'error'
-                      ? (error || 'Discovery failed.')
-                      : 'Ready'
-                  }
-                  tone={status}
-                />
-
-                <div className="mt-6 rounded-2xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                  <EspLinkAnimation searching={status === 'searching'} success={status === 'success'} />
-                </div>
-
-                <div className="mt-6 flex justify-end gap-3">
+                <div className="flex items-center gap-3">
                   {status !== 'searching' && (
                     <button
-                      type="button"
                       onClick={onRetry}
-                      className="rounded-full bg-indigo-600 px-6 py-3 text-[15px] font-semibold text-white shadow-lg ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]"
+                      className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]"
                     >
                       Retry
                     </button>
+                  )}
+                  <button
+                    onClick={onClose}
+                    className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              {/* Status: bigger MAC banner on success */}
+              <StatusBanner status={status} mac={mac} error={error} />
+
+              {/* Animation panel */}
+              <div className="px-6 pb-6">
+                <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                  <EspLinkAnimation
+                    searching={status === 'searching'}
+                    success={status === 'success'}
+                    big
+                  />
+
+                  {/* Improved number-only countdown + CLOSING under it */}
+                  {status === 'success' && autoCloseEnabled && countdown !== null && (
+                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                      <div className="relative -mt-2 flex flex-col items-center">
+                        {/* ripple ring burst each tick */}
+                        <motion.div
+                          key={`r1-${countdown}`}
+                          initial={{ scale: 0.7, opacity: 0.35 }}
+                          animate={{ scale: 1.5, opacity: 0 }}
+                          transition={{ duration: 0.9, ease: 'easeOut' }}
+                          className="absolute mx-auto -z-[1] h-[220px] w-[220px] rounded-full border-[6px] border-emerald-400/50 md:h-[300px] md:w-[300px] lg:h-[360px] lg:w-[360px]"
+                        />
+                        <motion.div
+                          key={`r2-${countdown}`}
+                          initial={{ scale: 0.5, opacity: 0.25 }}
+                          animate={{ scale: 1.8, opacity: 0 }}
+                          transition={{ duration: 1.1, ease: 'easeOut' }}
+                          className="absolute mx-auto -z-[1] h-[180px] w-[180px] rounded-full border-[4px] border-emerald-300/40 md:h-[240px] md:w-[240px] lg:h-[300px] lg:w-[300px]"
+                        />
+
+                        <motion.span
+                          key={`count-${countdown}`}
+                          initial={{ y: 16, opacity: 0, scale: 0.9 }}
+                          animate={{ y: 0, opacity: 1, scale: 1 }}
+                          transition={{ type: 'spring', stiffness: 700, damping: 32 }}
+                          className="select-none text-[8rem] md:text-[11rem] lg:text-[12rem] font-black leading-none tracking-tight text-emerald-600 drop-shadow-[0_10px_30px_rgba(16,185,129,.25)]"
+                        >
+                          {countdown}
+                        </motion.span>
+
+                        <motion.div
+                          key={`closing-${countdown}`}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                          className="mt-4 rounded-full bg-emerald-500/15 px-6 py-2 text-[14px] md:text-[16px] font-extrabold uppercase tracking-[0.24em] text-emerald-700 ring-1 ring-emerald-300"
+                        >
+                          Closing
+                        </motion.div>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
           </motion.div>
 
-          {/* keyframes for packets using offset-path (forward & reverse) */}
+          {/* CSS keyframes for packet animation */}
           <style
             dangerouslySetInnerHTML={{
               __html: `
@@ -880,7 +1035,7 @@ function DiscoverEspModal({
                 95% { opacity: 1; }
                 100% { offset-distance: 0%; opacity: .0; }
               }
-            `,
+              `,
             }}
           />
         </>
@@ -889,20 +1044,31 @@ function DiscoverEspModal({
   );
 }
 
-function StatusCard({ text, tone }: { text: string; tone: 'idle' | 'searching' | 'success' | 'error' }) {
-  const base = 'rounded-2xl px-4 py-3 text-center text-[15px] font-medium ring-1';
-  const cls =
-    tone === 'error'
-      ? `${base} bg-red-50 text-red-700 ring-red-200`
-      : tone === 'success'
-      ? `${base} bg-emerald-50 text-emerald-700 ring-emerald-200`
-      : `${base} bg-white text-slate-700 ring-slate-200`;
-
+function StatusBanner({
+  status,
+  mac,
+  error,
+}: { status: 'idle' | 'searching' | 'success' | 'error'; mac: string | null; error: string | null }) {
+  if (status === 'success') {
+    return (
+      <div className="mx-6 rounded-2xl bg-emerald-50 px-4 py-4 text-center ring-1 ring-emerald-200">
+        <div className="text-[13px] font-semibold uppercase tracking-widest text-emerald-600">Found ESP</div>
+        <div className="mt-1 text-2xl md:text-3xl font-mono font-bold text-emerald-700">{mac}</div>
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div className="mx-6 rounded-2xl bg-red-50 px-4 py-3 text-center text-[15px] font-medium text-red-700 ring-1 ring-red-200">
+        {error || 'Discovery failed.'}
+      </div>
+    );
+  }
   return (
-    <div className={cls}>
+    <div className="mx-6 rounded-2xl bg-white px-4 py-3 text-center text-[15px] font-medium text-slate-700 ring-1 ring-slate-200">
       <div className="flex items-center justify-center gap-3">
-        <span>{text}</span>
-        {tone === 'searching' && <LoadingDots />}
+        <span>Connecting to ESP over Wi-Fi…</span>
+        <LoadingDots />
       </div>
     </div>
   );
@@ -918,21 +1084,20 @@ function LoadingDots() {
   );
 }
 
-/* ———————————————————————————————— */
-/* The animated diagram (two ESP boards + animated line, packets both ways) */
-/* ———————————————————————————————— */
+/* Diagram */
+function EspLinkAnimation({
+  searching,
+  success,
+  big = false,
+}: { searching: boolean; success: boolean; big?: boolean }) {
+  const W = big ? 1200 : 720;
+  const H = big ? 420 : 230;
 
-function EspLinkAnimation({ searching, success }: { searching: boolean; success: boolean }) {
-  const W = 720;
-  const H = 230;
-
-  // Curved path like your reference image (used by both the dashed stroke & the packet animation)
-  const linkPath = `M 140 ${H / 2} C ${W / 2 - 80} ${H / 2 - 70}, ${W / 2 + 80} ${H / 2 - 70}, ${W - 140} ${H / 2}`;
+  const linkPath = `M 160 ${H / 2} C ${W / 2 - 120} ${H / 2 - (big ? 110 : 70)}, ${W / 2 + 120} ${H / 2 - (big ? 110 : 70)}, ${W - 160} ${H / 2}`;
 
   return (
     <div className="relative mx-auto w-full overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50">
-      <svg viewBox={`0 0 ${W} ${H}`} className="block h-[230px] w-full">
-        {/* subtle grid */}
+      <svg viewBox={`0 0 ${W} ${H}`} className={`block w-full ${big ? 'h-[420px] md:h-[420px]' : 'h-[230px]'}`}>
         <defs>
           <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
             <path d="M 16 0 L 0 0 0 16" fill="none" stroke="rgba(2,6,23,.06)" strokeWidth="1" />
@@ -944,78 +1109,74 @@ function EspLinkAnimation({ searching, success }: { searching: boolean; success:
         </defs>
         <rect x="0" y="0" width={W} height={H} fill="url(#grid)" />
 
-        {/* marching dashed connection line */}
         <motion.path
           d={linkPath}
           fill="none"
-          stroke={success ? 'rgba(16,185,129,.75)' : 'rgba(99,102,241,.65)'}
-          strokeWidth="3"
+          stroke={success ? 'rgba(16,185,129,.8)' : 'rgba(99,102,241,.75)'}
+          strokeWidth={big ? 4 : 3}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray="10 12"
-          animate={searching ? { strokeDashoffset: [0, -44] } : { strokeDashoffset: 0 }}
+          strokeDasharray="12 14"
+          animate={searching ? { strokeDashoffset: [0, -56] } : { strokeDashoffset: 0 }}
           transition={{ duration: 1.2, repeat: searching ? Infinity : 0, ease: 'linear' }}
         />
 
-        {/* boards */}
-        <g transform={`translate(60, ${H / 2 - 48})`}><EspBoard /></g>
-        <g transform={`translate(${W - 60 - 120}, ${H / 2 - 48})`}><EspBoard /></g>
+        <g transform={`translate(80, ${H / 2 - (big ? 80 : 48)})`}><EspBoard big={big} /></g>
+        <g transform={`translate(${W - (big ? 200 : 60) - (big ? 160 : 120)}, ${H / 2 - (big ? 80 : 48)})`}><EspBoard big={big} /></g>
 
-        {/* Wi-Fi pulses */}
-        <WifiPulse x={120} y={H / 2 - 6} />
-        <WifiPulse x={W - 120} y={H / 2 - 6} right />
+        <WifiPulse x={big ? 200 : 120} y={H / 2 - (big ? 10 : 6)} />
+        <WifiPulse x={W - (big ? 200 : 120)} y={H / 2 - (big ? 10 : 6)} right />
 
-        {/* end glows */}
-        <circle cx="140" cy={H / 2} r="22" fill="url(#glow)" />
-        <circle cx={W - 140} cy={H / 2} r="22" fill="url(#glow)" />
+        <circle cx={big ? 160 : 140} cy={H / 2} r={big ? 28 : 22} fill="url(#glow)" />
+        <circle cx={W - (big ? 160 : 140)} cy={H / 2} r={big ? 28 : 22} fill="url(#glow)" />
       </svg>
 
-      {/* Packets along the path – both directions */}
       {searching && (
         <>
-          <PacketStream path={linkPath} duration={2.6} count={3} />
-          <PacketStream path={linkPath} duration={2.8} count={3} reverse />
+          <PacketStream path={linkPath} duration={2.6} count={4} />
+          <PacketStream path={linkPath} duration={2.8} count={4} reverse />
         </>
       )}
 
-      {/* helper text */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[12px] text-slate-500">
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[12px] text-slate-500">
         {success ? 'Connected' : 'Searching nearby boards…'}
       </div>
     </div>
   );
 }
 
-/* Simplified ESP32 dev-board icon */
-function EspBoard() {
+function EspBoard({ big = false }: { big?: boolean }) {
+  const w = big ? 160 : 120;
+  const h = big ? 128 : 96;
+  const pinCount = big ? 18 : 14;
+
   return (
-    <svg width="120" height="96" viewBox="0 0 120 96">
-      <rect x="2" y="2" width="116" height="92" rx="8" className="fill-white" />
-      <rect x="2" y="2" width="116" height="92" rx="8" className="fill-none" stroke="rgba(2,6,23,.12)" strokeWidth="2" />
-      <rect x="2" y="2" width="116" height="16" rx="8" className="fill-slate-100" />
-      <rect x="12" y="24" width="52" height="48" rx="4" className="fill-slate-200" />
-      <rect x="12" y="24" width="52" height="48" rx="4" className="fill-none" stroke="rgba(2,6,23,.18)" />
-      <rect x="72" y="26" width="30" height="22" rx="3" className="fill-slate-300" />
-      <rect x="72" y="52" width="14" height="10" rx="2" className="fill-slate-300" />
-      <rect x="88" y="52" width="14" height="10" rx="2" className="fill-slate-300" />
-      <rect x="72" y="66" width="10" height="6" rx="2" className="fill-slate-300" />
-      <rect x="84" y="66" width="18" height="6" rx="2" className="fill-slate-300" />
-      {Array.from({ length: 14 }).map((_, i) => (
-        <rect key={`l-${i}`} x="0" y={18 + i * 5} width="4" height="3" className="fill-slate-200" />
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
+      <rect x="2" y="2" width={w - 4} height={h - 4} rx="10" className="fill-white" />
+      <rect x="2" y="2" width={w - 4} height={h - 4} rx="10" className="fill-none" stroke="rgba(2,6,23,.12)" strokeWidth="2" />
+      <rect x="2" y="2" width={w - 4} height={big ? 20 : 16} rx="10" className="fill-slate-100" />
+      <rect x="12" y={big ? 28 : 24} width={big ? 72 : 52} height={big ? 68 : 48} rx="5" className="fill-slate-200" />
+      <rect x="12" y={big ? 28 : 24} width={big ? 72 : 52} height={big ? 68 : 48} rx="5" className="fill-none" stroke="rgba(2,6,23,.18)" />
+      <rect x={big ? 92 : 72} y={big ? 30 : 26} width={big ? 42 : 30} height={big ? 30 : 22} rx="4" className="fill-slate-300" />
+      <rect x={big ? 92 : 72} y={big ? 64 : 52} width={big ? 20 : 14} height={big ? 14 : 10} rx="3" className="fill-slate-300" />
+      <rect x={big ? 116 : 88} y={big ? 64 : 52} width={big ? 20 : 14} height={big ? 14 : 10} rx="3" className="fill-slate-300" />
+      <rect x={big ? 92 : 72} y={big ? 84 : 66} width={big ? 14 : 10} height={big ? 10 : 6} rx="3" className="fill-slate-300" />
+      <rect x={big ? 110 : 84} y={big ? 84 : 66} width={big ? 26 : 18} height={big ? 10 : 6} rx="3" className="fill-slate-300" />
+      {Array.from({ length: pinCount }).map((_, i) => (
+        <rect key={`l-${i}`} x="0" y={(big ? 22 : 18) + i * (big ? 6 : 5)} width="4" height={big ? 4 : 3} className="fill-slate-200" />
       ))}
-      {Array.from({ length: 14 }).map((_, i) => (
-        <rect key={`r-${i}`} x="116" y={18 + i * 5} width="4" height="3" className="fill-slate-200" />
+      {Array.from({ length: pinCount }).map((_, i) => (
+        <rect key={`r-${i}`} x={w - 4} y={(big ? 22 : 18) + i * (big ? 6 : 5)} width="4" height={big ? 4 : 3} className="fill-slate-200" />
       ))}
     </svg>
   );
 }
 
-/* Wi-Fi pulse arcs near each board */
 function WifiPulse({ x, y, right = false }: { x: number; y: number; right?: boolean }) {
   const dir = right ? -1 : 1;
-  const base = `M ${x} ${y} q ${12 * dir} -10 ${24 * dir} 0`;
-  const mid = `M ${x} ${y} q ${18 * dir} -16 ${36 * dir} 0`;
-  const big = `M ${x} ${y} q ${24 * dir} -22 ${48 * dir} 0`;
+  const base = `M ${x} ${y} q ${18 * dir} -14 ${36 * dir} 0`;
+  const mid = `M ${x} ${y} q ${26 * dir} -22 ${52 * dir} 0`;
+  const big = `M ${x} ${y} q ${34 * dir} -30 ${68 * dir} 0`;
   return (
     <>
       <motion.path d={base} fill="none" stroke="rgba(99,102,241,.55)" strokeWidth="2"
@@ -1028,7 +1189,6 @@ function WifiPulse({ x, y, right = false }: { x: number; y: number; right?: bool
   );
 }
 
-/* Packets following the curved link using CSS offset-path */
 function PacketStream({
   path,
   duration = 2.6,
@@ -1040,11 +1200,11 @@ function PacketStream({
       {Array.from({ length: count }).map((_, i) => (
         <span
           key={i}
-          className="absolute h-2 w-2 rounded-full shadow-[0_0_0_4px_rgba(99,102,241,.15)]"
+          className="absolute h-2 w-2 rounded-full shadow-[0_0_0_5px_rgba(99,102,241,.15)]"
           style={
             {
-              background: 'rgb(99 102 241)', // indigo-500
-              // @ts-ignore vendor prefix handled by browser
+              background: 'rgb(99 102 241)',
+              // @ts-ignore
               offsetPath: `path('${path}')`,
               animation: `${reverse ? 'packetReverse' : 'packet'} ${duration}s linear ${i * (duration / count)}s infinite`,
             } as React.CSSProperties

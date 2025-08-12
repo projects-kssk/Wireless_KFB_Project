@@ -1163,27 +1163,7 @@ const SettingsBranchesPageContent: React.FC<{
   return (
     <div className="flex min-h-screen w-screen flex-col bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
       {/* Sticky header */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-        <div className="mx-auto flex w-full items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onNavigateBack}
-              className="inline-flex items-center gap-1 rounded-2xl bg-slate-100 px-2 py-1.5 text-sm text-slate-700 ring-1 ring-slate-200 hover:bg-slate-200"
-            >
-              <ArrowLeftIcon className="h-4 w-4" />
-              Back
-            </button>
-            <h1 className="ml-1 text-base font-semibold md:text-lg">Branch Configuration</h1>
-          </div>
-
-          {/* Right-side controls: Display Mode + Compact toggle */}
-          <div className="flex items-center gap-3">
-    
-
-        
-          </div>
-        </div>
-      </header>
+  
 
             {/* Header */}
             <motion.header
@@ -1203,9 +1183,7 @@ const SettingsBranchesPageContent: React.FC<{
                       Dashboard
                     </button>
                   )}
-                  <h1 className="ml-1 text-lg font-semibold text-slate-900 dark:text-white">
-                    KFB Configurations
-                  </h1>
+              
                 </div>
               
               </div>

@@ -91,8 +91,7 @@ export const appConfig: AppConfig = {
 
   callSupportInfo: {
     count: 621,
-    subtitle: "24/7 Hotline",
-    ctaText: "Call",
+
     onCta: () => {
       if (typeof window !== "undefined") {
         window.location.href = "tel:+18001234567";

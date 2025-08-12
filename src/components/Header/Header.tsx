@@ -1,8 +1,10 @@
-// src/components/Header/Header.tsx
+'use client';
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MenuIcon, XMarkIcon } from "@/components/Icons/Icons";
 import { appConfig } from "@/components/config/appConfig";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import type { Variants } from "framer-motion";
 import { useSerialEvents } from "./useSerialEvents";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -36,10 +38,15 @@ const DividerHairline =
   "after:absolute after:inset-y-1.5 after:left-[72px] after:w-px after:bg-white/60 dark:after:bg-white/10";
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Support pill
+   Support pill (with optional Call button)
    ──────────────────────────────────────────────────────────────────────────── */
-const SupportPill: React.FC<{ count?: number }> = ({ count = 0 }) => {
+const SupportPill: React.FC<{ count?: number; showCall?: boolean; onCall?: () => void }> = ({
+  count = 0,
+  showCall = false,
+  onCall,
+}) => {
   const display = Number.isFinite(count) ? Number(count) : 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -47,13 +54,14 @@ const SupportPill: React.FC<{ count?: number }> = ({ count = 0 }) => {
       className={[
         "relative inline-flex items-center rounded-full w-full",
         "h-[64px] 2xl:h-[72px] min-[1920px]:h-[88px] min-[2560px]:h-[108px]",
-        "pl-[76px] pr-6 sm:pr-7 2xl:pl-[84px] 2xl:pr-8",
+        "pl-[76px] pr-3 sm:pr-4 2xl:pl-[84px] 2xl:pr-4",
         Glass,
         DividerHairline,
       ].join(" ")}
       style={{ overflow: "hidden" }}
       aria-live="polite"
     >
+      {/* Left numeric badge */}
       <div className="absolute left-3 top-1/2 -translate-y-1/2">
         <div
           className={[
@@ -63,6 +71,7 @@ const SupportPill: React.FC<{ count?: number }> = ({ count = 0 }) => {
             "bg-sky-600 text-white ring-2 ring-white/80 dark:ring-white/10",
             "shadow-[0_10px_24px_rgba(2,132,199,0.35)]",
           ].join(" ")}
+          title="Open support items"
         >
           {display}
           <span
@@ -76,9 +85,37 @@ const SupportPill: React.FC<{ count?: number }> = ({ count = 0 }) => {
         </div>
       </div>
 
+      {/* Label */}
       <span className="text-xl 2xl:text-2xl min-[1920px]:text-4xl min-[2560px]:text-5xl font-extrabold tracking-tight text-slate-900 dark:text-white">
         Support
       </span>
+
+      {/* Call button (right side) */}
+      {showCall && (
+        <motion.button
+          type="button"
+          onClick={onCall}
+          whileTap={{ scale: 0.94 }}
+          className={[
+            "ml-auto inline-flex items-center justify-center",
+            "h-10 w-10 2xl:h-12 2xl:w-12 min-[1920px]:h-14 min-[1920px]:w-14 min-[2560px]:h-16 min-[2560px]:w-16",
+            "rounded-full bg-sky-50 text-sky-600",
+            "ring-1 ring-sky-200/70 shadow-inner hover:bg-sky-100",
+          ].join(" ")}
+          aria-label="Call support"
+          title="Call support"
+        >
+          {/* iOS-like phone glyph (SVG) */}
+          <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="h-6 w-6 2xl:h-7 2xl:w-7 min-[1920px]:h-8 min-[1920px]:w-8"
+            aria-hidden
+          >
+            <path d="M6.62 10.79a15.07 15.07 0 006.59 6.59l1.82-1.82a1 1 0 011.02-.24c1.12.37 2.33.57 3.55.57a1 1 0 011 1V20a1 1 0 01-1 1C11.3 21 3 12.7 3 2a1 1 0 011-1h2.11a1 1 0 011 1c0 1.22.2 2.43.57 3.55a1 1 0 01-.24 1.02l-1.82 1.82z" />
+          </svg>
+        </motion.button>
+      )}
     </motion.div>
   );
 };
@@ -303,10 +340,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   const mainButtonText = currentView === "settings" ? "Dashboard" : "Settings";
 
-  const barVariants = {
+  const barVariants: Variants = {
     shown: { y: 0, transition: { type: "spring", stiffness: 650, damping: 40 } },
-    hidden: { y: "-100%", transition: { type: "tween", duration: 0.25 } },
-  };
+    hidden: { y: -120, transition: { type: "tween", duration: 0.25 } },
+  } as const;
 
   const sidebarBtnOpenMods =
     "ring-1 ring-white/70 dark:ring-white/10 translate-y-[-2px] -translate-x-[2px] shadow-[0_12px_24px_rgba(2,6,23,0.18)]";
@@ -357,10 +394,14 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Middle: 4-wide grid (fills width on TV) */}
           <div className={`flex-1 ${widgetsDynamicClass} items-center h-full ${showSidebarToggle ? "ml-4 sm:ml-6 2xl:ml-8" : ""}`}>
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 2xl:gap-8 min-[1920px]:gap-10 min-[2560px]:gap-12 w-full">
-              <SupportPill count={(appConfig as any).callSupportInfo?.count ?? 0} />
+              <SupportPill
+                count={(appConfig as any).callSupportInfo?.count ?? 0}
+                showCall={Boolean((appConfig as any).callSupportInfo?.onCta)}
+                onCall={(appConfig as any).callSupportInfo?.onCta}
+              />
               <LedPill title="Scanner" suffix={1} color={s1Color} sub={s1Sub} />
               <LedPill title="Scanner" suffix={2} color={s2Color} sub={s2Sub} />
-              <LedPill title="Server Status" color={serverColor} sub={serverSub} />
+              <LedPill title="Server" color={serverColor} sub={serverSub} />
             </div>
           </div>
 
@@ -372,7 +413,7 @@ export const Header: React.FC<HeaderProps> = ({
             whileHover={{ y: -2 }}
             whileTap={{ scale: 0.96 }}
             className={[
-              "ml-6 2xl:ml-10 min-[1920px]:ml-12", // explicit breathing room
+              "ml-6 2xl:ml-10 min-[1920px]:ml-12",
               "inline-flex items-center gap-3",
               "h-[64px] 2xl:h-[72px] min-[1920px]:h-[88px] min-[2560px]:h-[108px]",
               "px-6 2xl:px-8 min-[1920px]:px-10 min-[2560px]:px-12",

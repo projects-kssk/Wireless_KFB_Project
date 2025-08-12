@@ -36,6 +36,7 @@
     "@t3-oss/env-nextjs": "0.13.6",
     "dotenv": "^17.0.0",
     "electron-serve": "^1.2.0",
+    "framer-motion": "^12.23.12",
     "next": "15.3.3",
     "next-seo": "^6.5.0",
     "next-themes": "^0.4.6",
@@ -73,16 +74,21 @@
       ".next/**/*",
       ".env.production",
       "dist/main/**/*",
-       "dist-server/**/*",
+      "dist-server/**/*",
       "package.json"
     ],
-    "asarUnpack": ["**/*.node"],
+    "asarUnpack": [
+      "**/*.node"
+    ],
     "extraResources": [
       {
         "from": "assets/icon.png",
         "to": "assets/icon.png"
       },
-       { "from": "dist-server",     "to": "dist-server" } 
+      {
+        "from": "dist-server",
+        "to": "dist-server"
+      }
     ],
     "linux": {
       "icon": "assets",
@@ -91,4 +97,4 @@
       ]
     }
   }
-} 
+}

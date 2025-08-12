@@ -65,26 +65,37 @@ const cardSpring: Transition = { type: 'spring', stiffness: 520, damping: 45 };
 const fade: Transition = { type: 'tween', duration: 0.18 };
 
 /* Anchor rect (spotlights & hole) */
-function useAnchorRect(active: boolean, ref: React.RefObject<HTMLElement>) {
+
+function useAnchorRect<T extends HTMLElement>(
+  active: boolean,
+  ref: React.RefObject<T | null>
+) {
   const [rect, setRect] = useState<DOMRect | null>(null);
+
   useEffect(() => {
     if (!active) return;
+
     const calc = () => {
-      if (!ref.current) return setRect(null);
-      setRect(ref.current.getBoundingClientRect());
+      const el = ref.current;
+      if (!el) return setRect(null);
+      setRect(el.getBoundingClientRect());
     };
+
     calc();
     window.addEventListener('resize', calc);
     window.addEventListener('scroll', calc, true);
-    (window.visualViewport ?? window).addEventListener?.('resize', calc);
+    (window.visualViewport ?? window).addEventListener?.('resize', calc as any);
+
     return () => {
       window.removeEventListener('resize', calc);
       window.removeEventListener('scroll', calc, true);
       (window.visualViewport ?? window).removeEventListener?.('resize', calc as any);
     };
   }, [active, ref]);
+
   return rect;
 }
+
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Component
@@ -286,14 +297,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     );
   }, [configurations, filterText]);
 
-  /* Spotlights / hole */
-  const formRef = useRef<HTMLDivElement>(null);
-  const editRect = useAnchorRect(isEditing, formRef);
+    /* Spotlights / hole */
+    const formRef = useRef<HTMLDivElement>(null);
+    const editRect = useAnchorRect(isEditing, formRef);
 
-  const macWrapperRef = useRef<HTMLDivElement>(null);
-  const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
+    const macWrapperRef = useRef<HTMLDivElement>(null);
+    const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
 
-  /* Discovery */
+
   const startDiscover = async () => {
     setAutoCloseEnabled(true);
     setCountdown(null);
@@ -308,10 +319,13 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as { macAddress?: string; error?: string };
-      if (!data.macAddress) throw new Error(data.error || 'No MAC returned');
-      setFoundMac(data.macAddress);
-      setCurrentConfig(prev => ({ ...prev, mac_address: data.macAddress }));
+
+      const raw = (await res.json()) as { macAddress?: string; error?: string };
+      const mac = raw.macAddress;                // <- take into a local
+      if (!mac) throw new Error(raw.error || 'No MAC returned');
+
+      setFoundMac(mac);
+      setCurrentConfig(prev => ({ ...prev, mac_address: mac })); // <- mac is string
       setDiscoverStatus('success');
     } catch (e: any) {
       setDiscoverStatus('error');
@@ -332,10 +346,13 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const data = (await res.json()) as { macAddress?: string; error?: string };
-      if (!data.macAddress) throw new Error(data.error || 'No MAC returned');
-      setFoundMac(data.macAddress);
-      setCurrentConfig(prev => ({ ...prev, mac_address: data.macAddress }));
+
+      const raw = (await res.json()) as { macAddress?: string; error?: string };
+      const mac = raw.macAddress;                // <- take into a local
+      if (!mac) throw new Error(raw.error || 'No MAC returned');
+
+      setFoundMac(mac);
+      setCurrentConfig(prev => ({ ...prev, mac_address: mac })); // <- mac is string
       setDiscoverStatus('success');
     } catch (e: any) {
       setDiscoverStatus('error');

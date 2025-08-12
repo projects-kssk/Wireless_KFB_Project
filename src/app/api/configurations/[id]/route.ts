@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { pool } from '@/lib/postgresPool';
-
+import { pool} from '@/lib/postgresPool';
+import type { Pool, PoolClient } from "pg";
 export const dynamic = 'force-dynamic';
 
 type CfgRow = { id: number; kfb: string; mac_address: string };
@@ -8,7 +8,6 @@ type DetailRow = { id: number; config_id: number; kfb_info_value: string };
 type BranchRow = { id: number; name: string };
 type CbRow = { kfb_info_detail_id: number; branch_id: number; name: string };
 type PinRow = { kfb_info_detail_id: number; pin_number: number; branch_id: number };
-
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim() !== '';
 }
@@ -23,13 +22,13 @@ async function tableHasConfigIdOnEspPins(client: any): Promise<boolean> {
   );
   return rows.length > 0;
 }
-
-async function upsertBranches(
-  client: any,
+export async function upsertBranches(
+  client: Pool | PoolClient,   // <-- not `any`
   names: string[]
 ): Promise<Map<string, number>> {
   const uniq = Array.from(new Set(names.map(n => n.trim()).filter(Boolean)));
   const map = new Map<string, number>();
+
   for (const name of uniq) {
     const res = await client.query<BranchRow>(
       `INSERT INTO branches(name)

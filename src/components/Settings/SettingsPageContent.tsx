@@ -410,13 +410,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               KFB Configurations
             </h1>
           </div>
-          <input
-            type="text"
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Search KFB, MAC, info…"
-            className={`${inputBase} max-w-xl`}
-          />
+ 
         </div>
       </motion.header>
 
@@ -618,10 +612,21 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         transition={cardSpring}
         className={`${tileCard} rounded-3xl overflow-hidden`}
       >
-        <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
-          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Overview</h2>
-        </div>
+       <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
+  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+      Overview
+    </h2>
 
+    <input
+      type="text"
+      value={filterText}
+      onChange={(e) => setFilterText(e.target.value)}
+      placeholder="Search KFB, MAC, info…"
+      className={`${inputBase} w-full sm:w-[28rem] max-w-full`}
+    />
+  </div>
+</div>
         <div className="max-h-[60vh] overflow-auto">
           <table className="min-w-full table-fixed text-[15px] border-separate border-spacing-0">
             <colgroup>

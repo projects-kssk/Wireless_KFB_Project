@@ -6,10 +6,12 @@ export const OTP_FROM_ENV = process.env.OTP_FROM_ENV ?? "1234";
 export const RIGHT_SETTINGS_SIDEBAR_WIDTH = "28rem";
 export const SIDEBAR_WIDTH = "24rem";
 
-// Optional helper types
+/** A scanner may be addressed via API endpoint and/or identified by USB path/VID:PID. */
 export type ScannerConfig = {
   name: string;
-  endpoint: string;
+  endpoint?: string;     // e.g. "/api/serial/scanner?device=1"
+  path?: string;         // e.g. "ttyACM0" (substring match)
+  usb?: string[];        // e.g. ["1a86:7523"] VID:PID allowlist (lowercase)
 };
 
 export interface AppConfig {
@@ -17,7 +19,12 @@ export interface AppConfig {
   otpLength: number;
   hideHeader: boolean;
 
-  // initial statuses (your UI clamps 'default' -> 'offline')
+  /** Show hamburger toggle (the header also checks ui?.showSidebarToggle). */
+  showSidebarToggle?: boolean;
+  ui?: {
+    showSidebarToggle?: boolean;
+  };
+
   initialStatuses: {
     scanner1: StatusType;
     scanner2: StatusType;
@@ -36,10 +43,10 @@ export interface AppConfig {
     server: string;
   };
 
-  // endpoints for each physical scanner; adjust as needed
+  /** Config entries for each physical scanner. */
   scanners: ScannerConfig[];
 
-  // support pill content
+  /** Support pill content */
   callSupportInfo: {
     count?: number;
     subtitle?: string;
@@ -51,12 +58,16 @@ export interface AppConfig {
 export const appConfig: AppConfig = {
   correctOtp: OTP_FROM_ENV,
   otpLength: OTP_FROM_ENV.length,
+
   hideHeader: false,
 
+  // Hidden by default; set true to show the hamburger.
+  showSidebarToggle: false,
+
   initialStatuses: {
-    scanner1: "default" as StatusType,
-    scanner2: "default" as StatusType,
-    server: "default" as StatusType,
+    scanner1: "default",
+    scanner2: "default",
+    server: "default",
   },
 
   demoMode: {
@@ -71,10 +82,11 @@ export const appConfig: AppConfig = {
     server: "Server Status",
   },
 
-  // If you only have one API route right now, point both to "/api/serial/scanner".
+  // If you only have one API route now, keep endpoints;
+  // add 'path' later if you want precise USB presence mapping.
   scanners: [
-    { name: "Scanner 1", endpoint: "/api/serial/scanner?device=1" },
-    { name: "Scanner 2", endpoint: "/api/serial/scanner?device=2" },
+    { name: "Scanner 1", endpoint: "/api/serial/scanner?device=1", path: "ttyACM0" },
+    { name: "Scanner 2", endpoint: "/api/serial/scanner?device=2", path: "ttyACM1" },
   ],
 
   callSupportInfo: {
@@ -83,7 +95,6 @@ export const appConfig: AppConfig = {
     ctaText: "Call",
     onCta: () => {
       if (typeof window !== "undefined") {
-        // Replace with your support number
         window.location.href = "tel:+18001234567";
       }
     },

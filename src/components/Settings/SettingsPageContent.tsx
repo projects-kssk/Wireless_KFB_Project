@@ -55,17 +55,17 @@ const initialFormState: ConfigurationFormData = {
 };
 
 const sheetCard =
-  'bg-white/80 dark:bg-slate-900/70 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.18)]';
+  'bg-white/80 dark:bg-slate-900/70 backdrop-blur-xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.18)]';
 const tileCard =
-  'bg-white/85 dark:bg-slate-800/60 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_12px_36px_-12px_rgba(2,6,23,0.25)]';
+  'bg-white/85 dark:bg-slate-800/60 backdrop-blur-xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_12px_36px_-12px_rgba(2,6,23,0.25)]';
 const inputBase =
   'block w-full rounded-2xl px-5 py-4 text-[17px] bg-white/80 dark:bg-slate-800/70 ring-1 ring-slate-200/80 dark:ring-white/10 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400 focus:ring-offset-2 focus:ring-offset-white/60 dark:focus:ring-offset-slate-900/40 shadow-inner transition-all';
 
-const headerSpring: Transition = { type: 'spring', stiffness: 520, damping: 40 };
-const cardSpring: Transition = { type: 'spring', stiffness: 520, damping: 45 };
+const headerSpring: Transition = { type: 'spring', stiffness: 360, damping: 40 };
+const cardSpring: Transition = { type: 'spring', stiffness: 360, damping: 45 };
 const fade: Transition = { type: 'tween', duration: 0.18 };
 
-/* Anchor rect (spotlights & hole) */
+/* Anchor rect */
 function useAnchorRect<T extends HTMLElement>(active: boolean, ref: React.RefObject<T | null>) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   useEffect(() => {
@@ -88,13 +88,11 @@ function useAnchorRect<T extends HTMLElement>(active: boolean, ref: React.RefObj
   return rect;
 }
 
-  // Flash a field for `ms` when its value changes
-function useFlashOnChange<T>(value: T, ms = 1400) {
+/* Subtle flash */
+function useFlashOnChange<T>(value: T, ms = 900) {
   const [flash, setFlash] = React.useState(false);
   const prev = React.useRef(value);
-
   React.useEffect(() => {
-    // compare by value (works for strings, numbers, small arrays)
     if (JSON.stringify(prev.current) !== JSON.stringify(value)) {
       setFlash(true);
       const t = setTimeout(() => setFlash(false), ms);
@@ -102,10 +100,8 @@ function useFlashOnChange<T>(value: T, ms = 1400) {
       return () => clearTimeout(t);
     }
   }, [value, ms]);
-
   return flash;
 }
-
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Component
@@ -301,7 +297,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     );
   }, [configurations, filterText]);
 
-  /* Spotlights / hole */
+  /* Spotlights */
   const formRef = useRef<HTMLDivElement>(null);
   const editRect = useAnchorRect(isEditing, formRef);
 
@@ -359,19 +355,30 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     }
   };
 
-  // TEST action (calls API)
+  // TEST action (robust to non-JSON responses)
   const handleTest = async () => {
     if (!foundMac) return;
     try {
       setTestStatus('calling');
       setTestMsg(null);
+
       const res = await fetch('/api/esp/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Test failed');
+
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = {};
+      const raw = await res.text();
+      try {
+        data = contentType.includes('application/json') ? JSON.parse(raw) : (raw ? { message: raw } : {});
+      } catch {
+        data = { message: raw }; // tolerate bad JSON
+      }
+
+      if (!res.ok) throw new Error(data?.error || raw || 'Test failed');
+
       setTestStatus('ok');
       setTestMsg(data?.message || 'Test command sent.');
     } catch (e: any) {
@@ -379,7 +386,8 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
       setTestMsg(e?.message ?? 'Failed to send test.');
     }
   };
-const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
+
+  const macFlash = useFlashOnChange(currentConfig.mac_address, 900);
 
   /* Loading screen */
   if (isLoading && configurations.length === 0 && !formNotification.message) {
@@ -392,20 +400,13 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
     );
   }
 
-
-
-
-
-  const needsKfb = isEditing && !currentConfig.kfb.trim();
   const needsInfo = isEditing && currentConfig.kfbInfo.every((s) => !s.trim());
-  const macPulseActive = discoverOpen && discoverStatus === 'success';
-
 
   return (
-    <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900  p-4 flex flex-col">
+    <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 flex flex-col">
       {/* Header */}
       <motion.header
-        initial={{ y: -8, opacity: 0 }}
+        initial={{ y: -6, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={headerSpring}
         className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
@@ -424,31 +425,31 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
               </button>
             )}
           </div>
-          <h1 className="justify-self-center flex items-center gap-3 text-xl md:text-xl lg:text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-            <SettingsCogIcon className="h-6 w-6 md:h-7 md:w-7 lg:h-8 lg:w-8 text-slate-700/90 dark:text-white/80" aria-hidden />
+          <h1 className="justify-self-center flex items-center gap-3 text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            <SettingsCogIcon className="h-6 w-6 text-slate-700/90 dark:text-white/80" aria-hidden />
             <span className="whitespace-nowrap">KFB CONFIG</span>
           </h1>
           <div className="justify-self-end" />
         </div>
       </motion.header>
 
-      {/* Editing spotlight overlay */}
+      {/* Editing spotlight (subtle) */}
       <AnimatePresence>
         {isEditing && editRect && (
           <>
-            <motion.div key="spot-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-sm" />
+            <motion.div key="spot-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 0.4 }} exit={{ opacity: 0 }} transition={fade} className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-[1px]" />
             <motion.div
               key="spot-ring"
-              initial={{ opacity: 0, scale: 0.98 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.98 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={cardSpring}
-              className="pointer-events-none fixed z-[60] rounded-3xl ring-2 ring-sky-500 shadow-[0_0_0_8px_rgba(56,189,248,0.25)]"
+              className="pointer-events-none fixed z-[60] rounded-2xl ring-2 ring-sky-400/70"
               style={{
-                top: Math.max(8, editRect.top - 8),
-                left: Math.max(8, editRect.left - 8),
-                width: editRect.width + 16,
-                height: editRect.height + 16,
+                top: Math.max(8, editRect.top - 6),
+                left: Math.max(8, editRect.left - 6),
+                width: editRect.width + 12,
+                height: editRect.height + 12,
               }}
             />
           </>
@@ -458,7 +459,7 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
       {/* Form */}
       <motion.section
         ref={formRef}
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={cardSpring}
         className={`${tileCard} relative z-[70] rounded-3xl p-6 sm:p-8 mb-6 ${isEditing ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-sky-50' : ''}`}
@@ -473,9 +474,9 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
           {formNotification.message && (
             <motion.div
               key="notice"
-              initial={{ opacity: 0, y: -6 }}
+              initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
+              exit={{ opacity: 0, y: -4 }}
               transition={fade}
               className={[
                 'mb-6 rounded-2xl p-4 text-[15px] ring-1',
@@ -510,25 +511,20 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
           <div ref={macWrapperRef} className="space-y-2 relative">
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">MAC Address</label>
             <div className="flex items-center gap-2">
-           <input
-  type="text"
-  name="mac_address"
-  value={currentConfig.mac_address}
-  onChange={handleInputChange}
-  // expose a data attribute we can target with Tailwind variants
-  data-flash={macFlash || (discoverOpen && discoverStatus === 'success')}
-  className={[
-    inputBase,
-    // stronger, obvious highlight when data-flash="true"
-    'transition-[background-color,box-shadow,outline-color,ring-color,ring-width]',
-    'data-[flash=true]:bg-emerald-50',
-    'data-[flash=true]:ring-2 data-[flash=true]:ring-emerald-500',
-    'data-[flash=true]:outline data-[flash=true]:outline-2 data-[flash=true]:outline-emerald-200',
-    'data-[flash=true]:shadow-[0_0_0_6px_rgba(16,185,129,.22)]',
-    'data-[flash=true]:animate-pulse', // optional: quick pulse
-  ].join(' ')}
-  placeholder="XX:XX:XX:XX:XX:XX"
-/>
+              <input
+                type="text"
+                name="mac_address"
+                value={currentConfig.mac_address}
+                onChange={handleInputChange}
+                data-flash={macFlash || (discoverOpen && discoverStatus === 'success')}
+                className={[
+                  inputBase,
+                  'transition-[background-color,box-shadow,outline-color,ring-color,ring-width]',
+                  'data-[flash=true]:bg-emerald-50',
+                  'data-[flash=true]:ring-2 data-[flash=true]:ring-emerald-500',
+                ].join(' ')}
+                placeholder="XX:XX:XX:XX:XX:XX"
+              />
 
               <button
                 type="button"
@@ -546,7 +542,7 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
           <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">KFB Info</label>
           <div className="space-y-3">
             {currentConfig.kfbInfo.map((info, idx) => (
-              <motion.div key={`kfb-${idx}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className="flex items-center gap-3">
+              <motion.div key={`kfb-${idx}`} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className="flex items-center gap-3">
                 <input
                   type="text"
                   value={info}
@@ -612,8 +608,8 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
         </div>
       </motion.section>
 
-      {/* Overview (unchanged) */}
-      <motion.section initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className={`${tileCard} rounded-3xl overflow-hidden`}>
+      {/* Overview */}
+      <motion.section initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className={`${tileCard} rounded-3xl overflow-hidden`}>
         <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Overview</h2>
@@ -734,9 +730,9 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
             <motion.div
               ref={delModalRef}
               key="del-pop"
-              initial={{ opacity: 0, y: 8, scale: 0.98 }}
+              initial={{ opacity: 0, y: 6, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              exit={{ opacity: 0, y: 6, scale: 0.98 }}
               transition={cardSpring}
               className={`${sheetCard} fixed z-[90] rounded-2xl p-6 sm:p-7 shadow-2xl`}
               style={{
@@ -784,9 +780,9 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
           <>
             {discoverRect ? (
               <>
-                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={() => setDiscoverOpen(false)} />
+                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={() => setDiscoverOpen(false)} />
                 <motion.div
-                  className="fixed top-0 z-[80] bg-black/60 backdrop-blur-md"
+                  className="fixed top-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -795,7 +791,7 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
                   onClick={() => setDiscoverOpen(false)}
                 />
                 <motion.div
-                  className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
+                  className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -804,7 +800,7 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
                   onClick={() => setDiscoverOpen(false)}
                 />
                 <motion.div
-                  className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-md"
+                  className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -814,7 +810,7 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
                 />
               </>
             ) : (
-              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={() => setDiscoverOpen(false)} />
+              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={() => setDiscoverOpen(false)} />
             )}
 
             <DiscoverEspModal
@@ -849,10 +845,8 @@ const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
 
 export default SettingsPageContent;
 
-
-
 /* ────────────────────────────────────────────────────────────────────────────
- * Discover ESP Modal (taller boards + labels + centered TEST)
+ * Discover ESP Modal (taller, calm)
  * ──────────────────────────────────────────────────────────────────────────── */
 function DiscoverEspModal({
   open,
@@ -875,127 +869,109 @@ function DiscoverEspModal({
   testStatus: 'idle' | 'calling' | 'ok' | 'error';
   testMsg: string | null;
 }) {
-  const SHEET: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.9 };
+  const SHEET: Transition = { type: 'spring', stiffness: 360, damping: 42, mass: 0.9 };
+
+  // derive status strip text
+  const showSuccess = status === 'success' && testStatus === 'ok';
+  const stripText =
+    status === 'searching'
+      ? 'WAITING FOR BUTTON PRESS ON BOARDS ESP32'
+      : showSuccess
+      ? 'SUCCESS'
+      : status === 'success'
+      ? 'CONNECTED'
+      : 'CONNECTING…';
+
+  const stripTone =
+    status === 'searching'
+      ? 'indigo'
+      : showSuccess
+      ? 'emerald'
+      : status === 'success'
+      ? 'sky'
+      : 'slate';
 
   return (
     <AnimatePresence>
       {open && (
-        <>
-          <motion.div
-            key="esp-sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Discover ESP"
-            initial={{ opacity: 0, y: 16, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 16, scale: 0.98 }}
-            transition={SHEET}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3"
-          >
-            {/* Bigger modal canvas */}
-            <div className="relative h-[min(80vh,750px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
-              {/* Title bar */}
-              <div className="flex items-center justify-between px-6 py-4">
-                <h3 className="text-[18px] font-semibold text-slate-900">Discover ESP</h3>
-                <div className="flex items-center gap-3">
-                  {status !== 'searching' && (
-                    <button onClick={onRetry} className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]">
-                      Retry
-                    </button>
-                  )}
-                  <button onClick={onClose} className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95">
-                    Close
+        <motion.div
+          key="esp-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Discover ESP"
+          initial={{ opacity: 0, y: 12, scale: 0.99 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.99 }}
+          transition={SHEET}
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3"
+        >
+          {/* ~+15% height */}
+          <div className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
+            {/* Title bar */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-[18px] font-semibold text-slate-900">Discover ESP</h3>
+              <div className="flex items-center gap-3">
+                {status !== 'searching' && (
+                  <button onClick={onRetry} className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]">
+                    Retry
                   </button>
-                </div>
-              </div>
-
-              {/* Status banner */}
-              <StatusBanner status={status} mac={mac} error={error} />
-
-              {/* Animation panel */}
-              <div className="px-6 pb-6">
-                <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                  <EspLinkAnimation searching={status === 'searching'} success={status === 'success'} big />
-
-                  {/* Centered TEST button (always perfectly centered) */}
-                  {status === 'success' && (
-                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
-                      <motion.div
-                        className="absolute h-64 w-64 rounded-full border-4 border-emerald-300"
-                        initial={{ scale: 0.95, opacity: 0.6 }}
-                        animate={{ scale: [0.95, 1.05, 0.95], opacity: [0.6, 0.25, 0.6] }}
-                        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-                      />
-                      <motion.button
-                        onClick={onTest}
-                        whileHover={{ scale: 1.03 }}
-                        whileTap={{ scale: 0.98 }}
-                        disabled={testStatus === 'calling'}
-                        className="group relative h-48 w-48 md:h-56 md:w-56 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.45)] bg-gradient-to-b from-emerald-400 to-emerald-600 disabled:opacity-70"
-                        aria-label="Run TEST"
-                      >
-                        <span className="pointer-events-none absolute inset-x-8 top-4 h-8 rounded-full bg-white/30 blur-[2px] opacity-70" />
-                        <span className="drop-shadow-sm">
-                          {testStatus === 'calling' ? 'Testing…' : testStatus === 'ok' ? 'AGAIN' : 'TEST'}
-                        </span>
-                      </motion.button>
-
-                      {!!testMsg && (
-                        <div
-                          className={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ${
-                            testStatus === 'ok'
-                              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-                              : testStatus === 'error'
-                              ? 'bg-red-50 text-red-700 ring-red-200'
-                              : 'bg-white text-slate-600 ring-slate-200'
-                          }`}
-                        >
-                          {testMsg}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                )}
+                <button onClick={onClose} className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95">
+                  Close
+                </button>
               </div>
             </div>
-          </motion.div>
 
-          {/* CSS keyframes for packet/glow animation */}
-          <style
-            dangerouslySetInnerHTML={{
-              __html: `
-              @keyframes packet {
-                0% { offset-distance: 0%; opacity: .0; }
-                6% { opacity: 1; }
-                94% { opacity: 1; }
-                100% { offset-distance: 100%; opacity: .0; }
-              }
-              @keyframes packetReverse {
-                0% { offset-distance: 100%; opacity: .0; }
-                6% { opacity: 1; }
-                94% { opacity: 1; }
-                100% { offset-distance: 0%; opacity: .0; }
-              }
-              @keyframes glider {
-                0% { offset-distance: 0%; opacity: .0; transform: scale(.9); }
-                8% { opacity: .95; }
-                92% { opacity: .95; }
-                100% { offset-distance: 100%; opacity: 0; transform: scale(1.05); }
-              }
-              @keyframes gliderReverse {
-                0% { offset-distance: 100%; opacity: .0; transform: scale(.9); }
-                8% { opacity: .95; }
-                92% { opacity: .95; }
-                100% { offset-distance: 0%; opacity: 0; transform: scale(1.05); }
-              }`,
-            }}
-          />
-        </>
+            {/* Status banner (top) */}
+            <StatusBanner status={status} mac={mac} error={error} />
+
+            {/* Diagram + TEST */}
+            <div className="px-6 pb-6">
+              <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <SimpleLinkAnimation searching={status === 'searching'} success={status === 'success'} big />
+
+                {/* Centered TEST button — no pulse */}
+                {status === 'success' && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+                    <button
+                      onClick={onTest}
+                      disabled={testStatus === 'calling'}
+                      className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.25)] bg-gradient-to-b from-emerald-400 to-emerald-600 disabled:opacity-70"
+                      aria-label="Run TEST"
+                    >
+                      {testStatus === 'calling' ? 'Testing…' : testStatus === 'ok' ? 'AGAIN' : 'TEST'}
+                    </button>
+
+                    {!!testMsg && (
+                      <div
+                        className={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ${
+                          testStatus === 'ok'
+                            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                            : testStatus === 'error'
+                            ? 'bg-red-50 text-red-700 ring-red-200'
+                            : 'bg-white text-slate-600 ring-slate-200'
+                        }`}
+                      >
+                        {testMsg}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* STATUS STRIP under the "board border" */}
+                <StatusStrip tone={stripTone} text={stripText} />
+              </div>
+            </div>
+          </div>
+        </motion.div>
       )}
     </AnimatePresence>
   );
 }
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * 1) Title banner (softer, iOS glass)
+ * ──────────────────────────────────────────────────────────────────────────── */
 function StatusBanner({
   status,
   mac,
@@ -1005,368 +981,280 @@ function StatusBanner({
   mac: string | null;
   error: string | null;
 }) {
+  const base =
+    'mx-6 mt-4 rounded-2xl backdrop-blur-xl ring-1 shadow-[0_10px_30px_rgba(2,6,23,.06)] px-5 py-4 text-center';
   if (status === 'success') {
     return (
-      <div className="mx-6 rounded-2xl bg-emerald-50 px-4 py-4 text-center ring-1 ring-emerald-200">
-        <div className="text-[13px] font-semibold uppercase tracking-widest text-emerald-600">Found ESP</div>
-        <div className="mt-1 text-2xl md:text-3xl font-mono font-bold text-emerald-700">{mac}</div>
+      <div className={`${base} bg-white/80 ring-emerald-200`}>
+        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-emerald-600">
+          Connected
+        </div>
+        <div className="mt-1 text-2xl md:text-[28px] font-semibold text-slate-800">
+          {mac}
+        </div>
       </div>
     );
   }
   if (status === 'error') {
     return (
-      <div className="mx-6 rounded-2xl bg-red-50 px-4 py-3 text-center text-[15px] font-medium text-red-700 ring-1 ring-red-200">
-        {error || 'Discovery failed.'}
+      <div className={`${base} bg-white/80 ring-red-200`}>
+        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-red-600">
+          Error
+        </div>
+        <div className="mt-1 text-[17px] text-red-700">{error || 'Discovery failed.'}</div>
       </div>
     );
   }
   return (
-    <div className="mx-6 rounded-2xl bg-white px-4 py-3 text-center text-[15px] font-medium text-slate-700 ring-1 ring-slate-200">
-      <div className="flex items-center justify-center gap-3">
+    <div className={`${base} bg-white/80 ring-slate-200`}>
+      <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-semibold text-slate-800">
+        <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
         <span>Connecting to ESP over Wi-Fi…</span>
-        <LoadingDots />
       </div>
     </div>
   );
 }
 
-function LoadingDots() {
+/* ────────────────────────────────────────────────────────────────────────────
+ * 2) iOS-style status strip (bottom widget)
+ * ──────────────────────────────────────────────────────────────────────────── */
+function StatusStrip({ tone, text }: { tone: 'indigo' | 'emerald' | 'sky' | 'slate'; text: string }) {
+  const toneMap = {
+    emerald: {
+      ring: 'ring-emerald-300/70',
+      text: 'text-emerald-700 dark:text-emerald-400',
+      dot: 'bg-emerald-500 shadow-[0_0_0_6px_rgba(16,185,129,.18)]',
+      gloss: 'from-white/70 to-transparent dark:from-white/10',
+      tint: 'from-emerald-50/80 to-emerald-100/30 dark:from-emerald-400/10 dark:to-transparent',
+    },
+    indigo: {
+      ring: 'ring-indigo-300/70',
+      text: 'text-indigo-700 dark:text-indigo-400',
+      dot: 'bg-indigo-500 shadow-[0_0_0_6px_rgba(99,102,241,.18)]',
+      gloss: 'from-white/70 to-transparent dark:from-white/10',
+      tint: 'from-indigo-50/70 to-indigo-100/25 dark:from-indigo-400/10 dark:to-transparent',
+    },
+    sky: {
+      ring: 'ring-sky-300/70',
+      text: 'text-sky-700 dark:text-sky-400',
+      dot: 'bg-sky-500 shadow-[0_0_0_6px_rgba(14,165,233,.18)]',
+      gloss: 'from-white/70 to-transparent dark:from-white/10',
+      tint: 'from-sky-50/70 to-sky-100/25 dark:from-sky-400/10 dark:to-transparent',
+    },
+    slate: {
+      ring: 'ring-slate-300/60',
+      text: 'text-slate-700 dark:text-slate-300',
+      dot: 'bg-slate-500 shadow-[0_0_0_6px_rgba(100,116,139,.18)]',
+      gloss: 'from-white/70 to-transparent dark:from-white/10',
+      tint: 'from-slate-50/70 to-slate-100/20 dark:from-white/5 dark:to-transparent',
+    },
+  }[tone];
+
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-200ms]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-100ms]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" />
-    </span>
+    <div
+      className={[
+        'relative mt-4 w-full overflow-hidden select-none',
+        'rounded-[22px] bg-white/85 dark:bg-[#121212]/85',
+        'backdrop-blur-xl ring-1', toneMap.ring,
+        'shadow-[0_8px_28px_rgba(2,6,23,.10)]',
+      ].join(' ')}
+    >
+      {/* soft gloss + tone tint */}
+      <div className={`pointer-events-none absolute inset-0 rounded-[22px] bg-gradient-to-b ${toneMap.gloss}`} />
+      <div className={`pointer-events-none absolute inset-0 rounded-[22px] bg-gradient-to-br ${toneMap.tint}`} />
+      {/* inner hairline */}
+      <div className="pointer-events-none absolute inset-0 rounded-[22px] ring-1 ring-white/60 dark:ring-white/5" />
+
+      <div className={['relative flex items-center justify-center gap-3 px-6 py-4 font-semibold text-2xl tracking-tight', toneMap.text].join(' ')}>
+        <span className={['h-3.5 w-3.5 rounded-full', toneMap.dot].join(' ')} />
+        <span className="leading-none">{text}</span>
+      </div>
+    </div>
   );
 }
 
-/* Diagram (taller boards, labels, richer Wi-Fi) */
-function EspLinkAnimation({ searching, success, big = false }: { searching: boolean; success: boolean; big?: boolean }) {
-  // Canvas
+
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 3) Calmer link + lighter grid (SVG)
+ * ──────────────────────────────────────────────────────────────────────────── */
+function SimpleLinkAnimation({ searching, success, big = false }: { searching: boolean; success: boolean; big?: boolean }) {
   const W = big ? 1400 : 760;
   const H = big ? 520 : 280;
-
-  // Board size (taller than before)
   const BOARD_W = big ? 240 : 170;
   const BOARD_H = big ? 300 : 210;
-
-  // Layout
-  const leftMargin = big ? 140 : 90;
-  const rightMargin = leftMargin; // keep symmetrical
+  const margin = big ? 120 : 80;
   const yMid = H / 2;
 
-  // Link path from board edges (so button sits exactly between)
-  const xStart = leftMargin + BOARD_W;
-  const xEnd = W - rightMargin - BOARD_W;
-  const arc = big ? 140 : 82;
-  const linkPath = `M ${xStart} ${yMid} C ${W / 2 - 200} ${yMid - arc}, ${W / 2 + 200} ${yMid - arc}, ${xEnd} ${yMid}`;
-  const linkColor = success ? 'rgba(16,185,129,.9)' : 'rgba(99,102,241,.85)';
+  const xStart = margin + BOARD_W;
+  const xEnd = W - margin - BOARD_W;
+  const arc = big ? 90 : 64;
+  const linkPath = `M ${xStart} ${yMid} C ${W / 2 - 160} ${yMid - arc}, ${W / 2 + 160} ${yMid - arc}, ${xEnd} ${yMid}`;
+
+  const idle = 'rgba(100,116,139,.85)';   // slate-500
+  const ok = 'rgba(16,185,129,.90)';      // emerald-500
 
   return (
     <div className="relative mx-auto w-full overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50">
       <svg viewBox={`0 0 ${W} ${H}`} className={`block w-full ${big ? 'h-[520px]' : 'h-[280px]'}`}>
         <defs>
-          <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
-            <path d="M 16 0 L 0 0 0 16" fill="none" stroke="rgba(2,6,23,.06)" strokeWidth="1" />
+          <pattern id="grid-lite" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(2,6,23,.045)" strokeWidth="1" />
           </pattern>
-          <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor={success ? 'rgba(16,185,129,.6)' : 'rgba(99,102,241,.55)'} />
-            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
-          </radialGradient>
-          <filter id="boardShadow" x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="rgba(2,6,23,.18)" />
+          <filter id="iosShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="10" stdDeviation="12" floodColor="rgba(2,6,23,.12)" />
           </filter>
         </defs>
 
-        <rect x="0" y="0" width={W} height={H} fill="url(#grid)" />
+        <rect x="0" y="0" width={W} height={H} fill="url(#grid-lite)" />
 
-        {/* Link */}
+        {/* cable */}
         <motion.path
           d={linkPath}
           fill="none"
-          stroke={linkColor}
+          stroke={success ? ok : idle}
           strokeWidth={big ? 6 : 4.5}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray={success ? '0 0' : '16 18'}
-          animate={searching ? { strokeDashoffset: [0, -72] } : { strokeDashoffset: 0 }}
-          transition={{ duration: searching ? 1.1 : 0.35, repeat: searching ? Infinity : 0, ease: 'linear' }}
+          strokeDasharray={searching ? '10 12' : '0 1'}
+          animate={searching ? { strokeDashoffset: [0, -44] } : { strokeDashoffset: 0 }}
+          transition={{ duration: 2.2, repeat: searching ? Infinity : 0, ease: 'linear' }}
         />
+        {/* endpoints */}
+        <circle cx={xStart} cy={yMid} r={big ? 7 : 5.5} fill="white" stroke="rgba(2,6,23,.15)" />
+        <circle cx={xEnd}   cy={yMid} r={big ? 7 : 5.5} fill="white" stroke="rgba(2,6,23,.15)" />
 
-        {/* Boards */}
-        <g transform={`translate(${leftMargin}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
-          <EspBoard big={big} active={searching || success} />
+        {/* boards */}
+        <g transform={`translate(${margin}, ${yMid - BOARD_H / 2})`} filter="url(#iosShadow)">
+          <MonoBoard w={BOARD_W} h={BOARD_H} label="STATION ESP32" active={searching || success} />
         </g>
-     <g transform={`translate(${W - rightMargin - BOARD_W}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
-        <EspBoard big={big} active={success} />
-      </g>
-        {/* Labels */}
-        <text
-          x={leftMargin + BOARD_W / 2}
-          y={yMid + BOARD_H / 2 + 48}
-          textAnchor="middle"
-          fontFamily="ui-sans-serif"
-          fontWeight={700}
-          fontSize={big ? 32 : 24}
-          fill="rgba(2,6,23,.65)"
-        >
-          STATION
-        </text>
-        <text
-          x={W - rightMargin - BOARD_W / 2}
-          y={yMid + BOARD_H / 2 + 48}
-          textAnchor="middle"
-          fontFamily="ui-sans-serif"
-          fontWeight={700}
-          fontSize={big ? 32 : 24}
-          fill="rgba(2,6,23,.65)"
-        >
-          KFB BOARD
-        </text>
-
-        {/* Wi-Fi pings near connectors */}
-        <WifiPulse x={xStart} y={yMid} searching={searching} success={success} />
-        <WifiPulse x={xEnd} y={yMid} right searching={searching} success={success} />
-
-        {/* endpoint glows */}
-        <circle cx={xStart} cy={yMid} r={big ? 36 : 24} fill="url(#glow)" />
-        <circle cx={xEnd} cy={yMid} r={big ? 36 : 24} fill="url(#glow)" />
+        <g transform={`translate(${W - margin - BOARD_W}, ${yMid - BOARD_H / 2})`} filter="url(#iosShadow)">
+          <MonoBoard w={BOARD_W} h={BOARD_H} label="KFB BOARD ESP32" active={success} />
+        </g>
       </svg>
-
-      {/* Moving glow */}
-      <MovingGlow path={linkPath} duration={2.4} size={big ? 22 : 16} color={linkColor} />
-      <MovingGlow path={linkPath} duration={2.7} size={big ? 18 : 14} color={linkColor} reverse />
-
-      {/* Dots only while searching */}
-      {searching && (
-        <>
-          <PacketStream path={linkPath} duration={2.6} count={4} />
-          <PacketStream path={linkPath} duration={2.8} count={4} reverse />
-        </>
-      )}
-
-{/* Bottom status chip */}
-<div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
-  <div
-    className={[
-      // shape + layout
-      'inline-flex items-center gap-2 md:gap-3 rounded-full',
-      'px-4 py-2 md:px-5 md:py-2.5',
-      'text-[20px] md:text-[26px] font-semibold leading-none',
-      // glass / shadow / ring
-      'backdrop-blur-md shadow-[0_8px_24px_rgba(2,6,23,.15)] ring-1',
-      // state colors
-      success
-        ? 'bg-emerald-50/90 text-emerald-700 ring-emerald-200'
-        : 'bg-indigo-50/90 text-indigo-700 ring-indigo-200',
-    ].join(' ')}
-  >
-    {success ? (
-      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
-    ) : (
-      <span className="inline-flex items-center gap-1">
-        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-200ms]" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-100ms]" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" />
-      </span>
-    )}
-
-    <span>{success ? 'Connected' : 'Searching the new KFB BOARD'}</span>
-  </div>
-</div>
-
     </div>
   );
 }
 
-/** Taller ESP32-style board */
-function EspBoard({ big = false, active = false }: { big?: boolean; active?: boolean }) {
-  const w = big ? 240 : 170;
-  const h = big ? 300 : 210; // << taller
+/** Dark mono ESP32 board (#22211d) with components */
+function MonoBoard({ w, h, label, active }: { w: number; h: number; label: string; active: boolean }) {
+  // Palette
+  const pcb = '#22211d';           // requested board color
+  const edge = '#2d2b26';          // subtle border
+  const silk = '#e5e7eb';          // light labels
+  const pin = '#9ca3af';           // metal pins
+  const ledOn = '#22c55e';
+  const ledOn2 = '#6366f1';
+  const ledOff = '#475569';
 
-  const pcb = '#0b1220';
-  const silk = 'rgba(255,255,255,.28)';
-  const pinGold = '#d4af37';
-
-  const holeR = big ? 5.5 : 4;
-  const headerPins = big ? 22 : 18;
+  // Shield gradient (light metal against dark pcb)
+  // USB gradient
+  const holeR = w > 200 ? 5.5 : 4;
+  const headerPins = w > 200 ? 20 : 16;
 
   const shieldW = w * 0.72;
-  const shieldH = h * 0.32;
+  const shieldH = h * 0.30;
   const shieldX = (w - shieldW) / 2;
-  const shieldY = h * 0.07;
+  const shieldY = h * 0.08;
 
-  const btnW = w * 0.11;
+  const btnW = w * 0.12;
   const btnH = h * 0.07;
-  const btnY = h * 0.58;
+  const btnY = h * 0.60;
 
   const usbW = w * 0.18;
   const usbH = h * 0.09;
 
-  const ledY = h * 0.63;
-  const ledR = big ? 5.2 : 4.2;
+  const ledY = h * 0.66;
+  const ledR = w > 200 ? 5 : 4;
+
+  const labelY = h + 40;
 
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-      {/* PCB */}
-      <rect x="2" y="2" width={w - 4} height={h - 4} rx="16" fill={pcb} stroke="rgba(255,255,255,.06)" strokeWidth="2" />
-
-      {/* Mounting holes */}
-      <circle cx="14" cy="14" r={holeR} fill="#cbd5e1" />
-      <circle cx={w - 14} cy="14" r={holeR} fill="#cbd5e1" />
-      <circle cx="14" cy={h - 14} r={holeR} fill="#cbd5e1" />
-      <circle cx={w - 14} cy={h - 14} r={holeR} fill="#cbd5e1" />
-
-      {/* Headers */}
-      {Array.from({ length: headerPins }).map((_, i) => {
-        const y = 20 + i * ((h - 40) / headerPins);
-        return <rect key={`lp-${i}`} x="8" y={y} width="6" height="6" rx="1.5" fill={pinGold} />;
-      })}
-      {Array.from({ length: headerPins }).map((_, i) => {
-        const y = 20 + i * ((h - 40) / headerPins);
-        return <rect key={`rp-${i}`} x={w - 14} y={y} width="6" height="6" rx="1.5" fill={pinGold} />;
-      })}
-
-      {/* Module shield */}
+    <svg width={w} height={h + 52} viewBox={`0 0 ${w} ${h + 52}`}>
       <defs>
-        <linearGradient id="shield" x1="0" x2="0" y1="0" y2="1">
+        <linearGradient id="shieldMetal" x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor="#e5e7eb" />
           <stop offset="100%" stopColor="#9ca3af" />
         </linearGradient>
-        <linearGradient id="usb" x1="0" x2="1" y1="0" y2="0">
+        <linearGradient id="usbGrad" x1="0" x2="1" y1="0" y2="0">
           <stop offset="0%" stopColor="#9ca3af" />
-          <stop offset="100%" stopColor="#e5e7eb" />
+          <stop offset="100%" stopColor="#d1d5db" />
         </linearGradient>
       </defs>
-      <rect x={shieldX} y={shieldY} width={shieldW} height={shieldH} rx="6" fill="url(#shield)" stroke="#6b7280" />
+
+      {/* PCB */}
+      <rect x="2" y="2" width={w - 4} height={h - 4} rx="16" fill={pcb} stroke={edge} strokeWidth="2" />
+
+      {/* Mounting holes */}
+      <circle cx="14" cy="14" r={holeR} fill="#0f172a" stroke="#475569" />
+      <circle cx={w - 14} cy="14" r={holeR} fill="#0f172a" stroke="#475569" />
+      <circle cx="14" cy={h - 14} r={holeR} fill="#0f172a" stroke="#475569" />
+      <circle cx={w - 14} cy={h - 14} r={holeR} fill="#0f172a" stroke="#475569" />
+
+      {/* Header pins */}
+      {Array.from({ length: headerPins }).map((_, i) => {
+        const y = 20 + i * ((h - 40) / headerPins);
+        return <rect key={`lp-${i}`} x="8" y={y} width="6" height="6" rx="1.5" fill={pin} />;
+      })}
+      {Array.from({ length: headerPins }).map((_, i) => {
+        const y = 20 + i * ((h - 40) / headerPins);
+        return <rect key={`rp-${i}`} x={w - 14} y={y} width="6" height="6" rx="1.5" fill={pin} />;
+      })}
+
+      {/* RF shield / module (light metal on dark) */}
+      <rect x={shieldX} y={shieldY} width={shieldW} height={shieldH} rx="6" fill="url(#shieldMetal)" stroke="#6b7280" />
+
       {/* Antenna meander */}
       <path
-        d={`M ${shieldX + 6} ${shieldY + 6} h ${shieldW * 0.34} v ${shieldH * 0.14} h -${shieldW * 0.08} v ${shieldH * 0.12} h ${shieldW * 0.08} v ${
-          shieldH * 0.15
-        } h -${shieldW * 0.08} v ${shieldH * 0.12} h ${shieldW * 0.08}`}
+        d={`M ${shieldX + 8} ${shieldY + 8}
+           h ${shieldW * 0.34}
+           v ${shieldH * 0.14}
+           h -${shieldW * 0.08}
+           v ${shieldH * 0.12}
+           h ${shieldW * 0.08}
+           v ${shieldH * 0.15}
+           h -${shieldW * 0.08}
+           v ${shieldH * 0.12}
+           h ${shieldW * 0.08}`}
         fill="none"
-        stroke="#384152"
-        strokeWidth={big ? 2.4 : 2}
+        stroke="#374151"
+        strokeOpacity="0.9"
+        strokeWidth={w > 200 ? 2.2 : 1.8}
       />
 
-      {/* EN / BOOT */}
-      <rect x={w * 0.12} y={btnY} width={btnW} height={btnH} rx="3" fill="#1f2937" stroke={silk} />
-      <rect x={w - w * 0.12 - btnW} y={btnY} width={btnW} height={btnH} rx="3" fill="#1f2937" stroke={silk} />
-      <text x={w * 0.12 + btnW / 2} y={btnY + btnH + (big ? 18 : 14)} fontSize={big ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
+      {/* EN / BOOT buttons (dark) */}
+      <rect x={w * 0.12} y={btnY} width={btnW} height={btnH} rx="3" fill="#0f172a" stroke="#475569" />
+      <rect x={w - w * 0.12 - btnW} y={btnY} width={btnW} height={btnH} rx="3" fill="#0f172a" stroke="#475569" />
+      <text x={w * 0.12 + btnW / 2} y={btnY + btnH + (w > 200 ? 18 : 14)} fontSize={w > 200 ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
         EN
       </text>
-      <text x={w - (w * 0.12 + btnW / 2)} y={btnY + btnH + (big ? 18 : 14)} fontSize={big ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
+      <text x={w - (w * 0.12 + btnW / 2)} y={btnY + btnH + (w > 200 ? 18 : 14)} fontSize={w > 200 ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
         BOOT
       </text>
 
-      {/* USB */}
-      <rect x={w / 2 - usbW / 2} y={h - usbH - 12} width={usbW} height={usbH} rx="3" fill="url(#usb)" stroke="#6b7280" />
-      <rect x={w / 2 - (usbW * 0.55) / 2} y={h - usbH / 2 - 9} width={usbW * 0.55} height={usbH * 0.3} rx="1" fill="#374151" />
+      {/* USB connector */}
+      <rect x={w / 2 - usbW / 2} y={h - usbH - 12} width={usbW} height={usbH} rx="3" fill="url(#usbGrad)" stroke="#6b7280" />
+      <rect x={w / 2 - (usbW * 0.55) / 2} y={h - usbH / 2 - 9} width={usbW * 0.55} height={usbH * 0.3} rx="1" fill="#111827" />
 
-      {/* LEDs */}
-      <circle cx={w * 0.36} cy={ledY} r={ledR} fill={active ? '#22c55e' : '#64748b'} />
-      <circle cx={w * 0.64} cy={ledY} r={ledR} fill={active ? '#818cf8' : '#64748b'} />
+      {/* Status LEDs (static) */}
+      <circle cx={w * 0.36} cy={ledY} r={ledR} fill={active ? ledOn : ledOff} />
+      <circle cx={w * 0.64} cy={ledY} r={ledR} fill={active ? ledOn2 : ledOff} />
 
-      {/* silk bar */}
-      <rect x={shieldX} y={h * 0.76} width={shieldW} height={big ? 6 : 4} rx="1.5" fill="rgba(255,255,255,.06)" />
+      {/* Silk line */}
+      <rect x={shieldX} y={h * 0.76} width={shieldW} height={w > 200 ? 6 : 4} rx="1.5" fill="#334155" />
+
+      {/* Label below (light text) */}
+      <text
+        x={w / 2}
+        y={labelY}
+        textAnchor="middle"
+        fontFamily="ui-sans-serif"
+        fontWeight={700}
+        fontSize={w > 200 ? 20 : 16}
+        fill="rgba(255,255,255,.85)"
+      >
+        {label}
+      </text>
     </svg>
-  );
-}
-
-function WifiPulse({
-  x,
-  y,
-  right = false,
-  searching,
-  success,
-}: {
-  x: number;
-  y: number;
-  right?: boolean;
-  searching: boolean;
-  success: boolean;
-}) {
-  const dir = right ? -1 : 1;
-  const color1 = success ? 'rgba(16,185,129,.55)' : 'rgba(99,102,241,.55)';
-  const color2 = success ? 'rgba(16,185,129,.40)' : 'rgba(99,102,241,.40)';
-  const color3 = success ? 'rgba(16,185,129,.25)' : 'rgba(99,102,241,.25)';
-  const base = `M ${x} ${y} q ${30 * dir} -20 ${60 * dir} 0`;
-  const mid = `M ${x} ${y} q ${48 * dir} -32 ${96 * dir} 0`;
-  const big = `M ${x} ${y} q ${66 * dir} -44 ${132 * dir} 0`;
-
-  const dur = searching ? 1.5 : 2.4;
-
-  return (
-    <>
-      <motion.path d={base} fill="none" stroke={color1} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity }} />
-      <motion.path d={mid} fill="none" stroke={color2} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity, delay: 0.18 }} />
-      <motion.path d={big} fill="none" stroke={color3} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity, delay: 0.36 }} />
-
-      {/* Soft expanding ping */}
-      <motion.circle
-        cx={x + (right ? -4 : 4)}
-        cy={y - 2}
-        r={6}
-        initial={{ r: 0, opacity: 0.4 }}
-        animate={{ r: [0, 18, 26], opacity: [0.4, 0.2, 0] }}
-        transition={{ duration: searching ? 1.6 : 2.8, repeat: Infinity, ease: 'easeOut' }}
-        fill={success ? 'rgba(16,185,129,.25)' : 'rgba(99,102,241,.25)'}
-      />
-    </>
-  );
-}
-
-function MovingGlow({
-  path,
-  duration = 2.4,
-  reverse = false,
-  size = 18,
-  color = 'rgba(99,102,241,1)',
-}: {
-  path: string;
-  duration?: number;
-  reverse?: boolean;
-  size?: number;
-  color?: string;
-}) {
-  return (
-    <span
-      className="pointer-events-none absolute"
-      style={
-        {
-          width: size,
-          height: size,
-          borderRadius: '9999px',
-          boxShadow: `0 0 ${size * 1.4}px ${Math.max(6, size * 0.3)}px ${color}`,
-          background: color,
-          // @ts-ignore
-          offsetPath: `path('${path}')`,
-          offsetRotate: '0deg',
-          animation: `${reverse ? 'gliderReverse' : 'glider'} ${duration}s linear 0s infinite`,
-        } as React.CSSProperties
-      }
-    />
-  );
-}
-
-function PacketStream({ path, duration = 2.6, count = 3, reverse = false }: { path: string; duration?: number; count?: number; reverse?: boolean }) {
-  return (
-    <div className="pointer-events-none absolute inset-0">
-      {Array.from({ length: count }).map((_, i) => (
-        <span
-          key={i}
-          className="absolute h-2 w-2 rounded-full shadow-[0_0_0_5px_rgba(99,102,241,.15)]"
-          style={
-            {
-              background: 'rgb(99 102 241)',
-              // @ts-ignore
-              offsetPath: `path('${path}')`,
-              offsetRotate: '0deg',
-              animation: `${reverse ? 'packetReverse' : 'packet'} ${duration}s linear ${i * (duration / count)}s infinite`,
-            } as React.CSSProperties
-          }
-        />
-      ))}
-    </div>
   );
 }

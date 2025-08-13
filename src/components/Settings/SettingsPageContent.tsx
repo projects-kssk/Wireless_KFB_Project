@@ -13,7 +13,8 @@ import { motion, AnimatePresence, type Transition } from 'framer-motion';
 
 import { BranchSelectorModal } from '@/components/Modals/BranchSelectorModal';
 import { Branch, EspPinMapping } from '@/types/types';
-import { SettingsCogIcon } from "@/components/Icons/Icons";
+import { SettingsCogIcon } from '@/components/Icons/Icons';
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Types
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -65,35 +66,44 @@ const cardSpring: Transition = { type: 'spring', stiffness: 520, damping: 45 };
 const fade: Transition = { type: 'tween', duration: 0.18 };
 
 /* Anchor rect (spotlights & hole) */
-
-function useAnchorRect<T extends HTMLElement>(
-  active: boolean,
-  ref: React.RefObject<T | null>
-) {
+function useAnchorRect<T extends HTMLElement>(active: boolean, ref: React.RefObject<T | null>) {
   const [rect, setRect] = useState<DOMRect | null>(null);
-
   useEffect(() => {
     if (!active) return;
-
     const calc = () => {
       const el = ref.current;
       if (!el) return setRect(null);
       setRect(el.getBoundingClientRect());
     };
-
     calc();
     window.addEventListener('resize', calc);
     window.addEventListener('scroll', calc, true);
     (window.visualViewport ?? window).addEventListener?.('resize', calc as any);
-
     return () => {
       window.removeEventListener('resize', calc);
       window.removeEventListener('scroll', calc, true);
       (window.visualViewport ?? window).removeEventListener?.('resize', calc as any);
     };
   }, [active, ref]);
-
   return rect;
+}
+
+  // Flash a field for `ms` when its value changes
+function useFlashOnChange<T>(value: T, ms = 1400) {
+  const [flash, setFlash] = React.useState(false);
+  const prev = React.useRef(value);
+
+  React.useEffect(() => {
+    // compare by value (works for strings, numbers, small arrays)
+    if (JSON.stringify(prev.current) !== JSON.stringify(value)) {
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), ms);
+      prev.current = value;
+      return () => clearTimeout(t);
+    }
+  }, [value, ms]);
+
+  return flash;
 }
 
 
@@ -104,15 +114,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   onNavigateBack,
   onShowProgramForConfig,
 }) => {
-  const [currentConfig, setCurrentConfig] =
-    useState<ConfigurationFormData>(initialFormState);
+  const [currentConfig, setCurrentConfig] = useState<ConfigurationFormData>(initialFormState);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [configurations, setConfigurations] = useState<Configuration[]>([]);
-  const [formNotification, setFormNotification] = useState<NotificationType>({
-    message: null,
-    type: null,
-  });
+  const [formNotification, setFormNotification] = useState<NotificationType>({ message: null, type: null });
   const [isLoading, setIsLoading] = useState(true);
   const [filterText, setFilterText] = useState('');
 
@@ -124,13 +130,16 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const [discoverStatus, setDiscoverStatus] = useState<'idle' | 'searching' | 'success' | 'error'>('idle');
   const [foundMac, setFoundMac] = useState<string | null>(null);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
-  const [autoCloseEnabled, setAutoCloseEnabled] = useState(true);
-  const [countdown, setCountdown] = useState<number | null>(null);
+
+  // TEST button call state
+  const [testStatus, setTestStatus] = useState<'idle' | 'calling' | 'ok' | 'error'>('idle');
+  const [testMsg, setTestMsg] = useState<string | null>(null);
 
   const [showEspBranchModal, setShowEspBranchModal] = useState(false);
   const [pinToAssign, setPinToAssign] = useState<string | null>(null);
   const [deleteAnchor, setDeleteAnchor] = useState<DOMRect | null>(null);
   const delModalRef = useRef<HTMLDivElement>(null);
+
   /* Fetch */
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -152,13 +161,13 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
 
   useEffect(() => {
     if (editingId !== null) {
-      const hit = configurations.find(c => c.id === editingId);
+      const hit = configurations.find((c) => c.id === editingId);
       if (hit) {
         setCurrentConfig({
           id: hit.id,
           kfb: hit.kfb,
           mac_address: hit.mac_address,
-          branchPins: hit.branchPins.map(b => b.name),
+          branchPins: hit.branchPins.map((b) => b.name),
           espPinMappings: { ...hit.espPinMappings },
           kfbInfo: hit.kfbInfo.length ? [...hit.kfbInfo] : [''],
         });
@@ -172,16 +181,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   }, [editingId, configurations]);
 
   /* Form handlers */
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setCurrentConfig(prev => ({ ...prev, [name]: value }));
+    setCurrentConfig((prev) => ({ ...prev, [name]: value }));
     setFormNotification({ message: null, type: null });
   };
 
   const handleKfbInfoChange = (index: number, value: string) => {
-    setCurrentConfig(prev => {
+    setCurrentConfig((prev) => {
       const next = [...prev.kfbInfo];
       next[index] = value;
       return { ...prev, kfbInfo: next };
@@ -189,12 +196,9 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     setFormNotification({ message: null, type: null });
   };
 
-  const handleAddKfbInfo = () => {
-    setCurrentConfig(prev => ({ ...prev, kfbInfo: [...prev.kfbInfo, ''] }));
-  };
-
+  const handleAddKfbInfo = () => setCurrentConfig((prev) => ({ ...prev, kfbInfo: [...prev.kfbInfo, ''] }));
   const handleRemoveKfbInfo = (index: number) => {
-    setCurrentConfig(prev => {
+    setCurrentConfig((prev) => {
       const next = prev.kfbInfo.filter((_, i) => i !== index);
       return { ...prev, kfbInfo: next.length ? next : [''] };
     });
@@ -205,7 +209,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     const payload = {
       kfb: currentConfig.kfb,
       mac_address: currentConfig.mac_address,
-      kfbInfo: currentConfig.kfbInfo.filter(s => s.trim() !== ''),
+      kfbInfo: currentConfig.kfbInfo.filter((s) => s.trim() !== ''),
       branchPins: currentConfig.branchPins,
       espPinMappings: currentConfig.espPinMappings,
     };
@@ -214,9 +218,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     setIsLoading(true);
 
     try {
-      const url = isEditing
-        ? `/api/configurations/${currentConfig.id}`
-        : '/api/configurations';
+      const url = isEditing ? `/api/configurations/${currentConfig.id}` : '/api/configurations';
       const method = isEditing ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -254,7 +256,6 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     setShowDeleteModal(true);
   };
 
-
   const confirmDelete = async () => {
     if (configToDelete == null) return;
     setFormNotification({ message: null, type: null });
@@ -278,10 +279,10 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   /* ESP mapping */
   const handleOpenEspBranchModal = (pinNumber: string) => { setPinToAssign(pinNumber); setShowEspBranchModal(true); };
   const handleAssignBranchToEspPin = (pin: string, branch: string) => {
-    setCurrentConfig(prev => ({ ...prev, espPinMappings: { ...(prev.espPinMappings || {}), [pin]: branch } }));
+    setCurrentConfig((prev) => ({ ...prev, espPinMappings: { ...(prev.espPinMappings || {}), [pin]: branch } }));
   };
   const handleUnassignBranchFromEspPin = (pin: string) => {
-    setCurrentConfig(prev => {
+    setCurrentConfig((prev) => {
       const next = { ...(prev.espPinMappings || {}) };
       delete next[pin];
       return { ...prev, espPinMappings: next };
@@ -293,28 +294,27 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     if (!filterText.trim()) return configurations;
     const q = filterText.toLowerCase();
     return configurations.filter(
-      c =>
+      (c) =>
         c.kfb.toLowerCase().includes(q) ||
         c.mac_address.toLowerCase().includes(q) ||
-        c.kfbInfo.some(info => info.toLowerCase().includes(q))
+        c.kfbInfo.some((info) => info.toLowerCase().includes(q)),
     );
   }, [configurations, filterText]);
 
-    /* Spotlights / hole */
-    const formRef = useRef<HTMLDivElement>(null);
-    const editRect = useAnchorRect(isEditing, formRef);
+  /* Spotlights / hole */
+  const formRef = useRef<HTMLDivElement>(null);
+  const editRect = useAnchorRect(isEditing, formRef);
 
-    const macWrapperRef = useRef<HTMLDivElement>(null);
-    const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
-
+  const macWrapperRef = useRef<HTMLDivElement>(null);
+  const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
 
   const startDiscover = async () => {
-    setAutoCloseEnabled(true);
-    setCountdown(null);
     setDiscoverOpen(true);
     setDiscoverStatus('searching');
     setDiscoverError(null);
     setFoundMac(null);
+    setTestStatus('idle');
+    setTestMsg(null);
     try {
       const res = await fetch('/api/esp/discover', {
         method: 'POST',
@@ -322,13 +322,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
-
       const raw = (await res.json()) as { macAddress?: string; error?: string };
-      const mac = raw.macAddress;                // <- take into a local
+      const mac = raw.macAddress;
       if (!mac) throw new Error(raw.error || 'No MAC returned');
-
       setFoundMac(mac);
-      setCurrentConfig(prev => ({ ...prev, mac_address: mac })); // <- mac is string
+      setCurrentConfig((prev) => ({ ...prev, mac_address: mac }));
       setDiscoverStatus('success');
     } catch (e: any) {
       setDiscoverStatus('error');
@@ -337,11 +335,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   };
 
   const retryDiscover = async () => {
-    setAutoCloseEnabled(false);
-    setCountdown(null);
     setDiscoverStatus('searching');
     setDiscoverError(null);
     setFoundMac(null);
+    setTestStatus('idle');
+    setTestMsg(null);
     try {
       const res = await fetch('/api/esp/discover', {
         method: 'POST',
@@ -349,13 +347,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
-
       const raw = (await res.json()) as { macAddress?: string; error?: string };
-      const mac = raw.macAddress;                // <- take into a local
+      const mac = raw.macAddress;
       if (!mac) throw new Error(raw.error || 'No MAC returned');
-
       setFoundMac(mac);
-      setCurrentConfig(prev => ({ ...prev, mac_address: mac })); // <- mac is string
+      setCurrentConfig((prev) => ({ ...prev, mac_address: mac }));
       setDiscoverStatus('success');
     } catch (e: any) {
       setDiscoverStatus('error');
@@ -363,51 +359,50 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     }
   };
 
-  // Auto-close when success + enabled
-  useEffect(() => {
-    if (!discoverOpen) return;
-    if (discoverStatus !== 'success' || !autoCloseEnabled) return;
-
-    setCountdown(3); // keep your current 3-second close
-    const id = setInterval(() => {
-      setCountdown(prev => {
-        if (prev == null) return null;
-        if (prev <= 1) {
-          clearInterval(id);
-          setDiscoverOpen(false);
-          return 0;
-        }
-        return prev - 1;
+  // TEST action (calls API)
+  const handleTest = async () => {
+    if (!foundMac) return;
+    try {
+      setTestStatus('calling');
+      setTestMsg(null);
+      const res = await fetch('/api/esp/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
       });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [discoverOpen, discoverStatus, autoCloseEnabled]);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Test failed');
+      setTestStatus('ok');
+      setTestMsg(data?.message || 'Test command sent.');
+    } catch (e: any) {
+      setTestStatus('error');
+      setTestMsg(e?.message ?? 'Failed to send test.');
+    }
+  };
+const macFlash = useFlashOnChange(currentConfig.mac_address, 1400);
 
   /* Loading screen */
   if (isLoading && configurations.length === 0 && !formNotification.message) {
     return (
       <div className="flex-grow w-full min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-10">
-        <motion.p
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={headerSpring}
-          className="text-slate-700 dark:text-slate-300 text-[22px] font-medium"
-        >
+        <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={headerSpring} className="text-slate-700 dark:text-slate-300 text-[22px] font-medium">
           Loading configurations…
         </motion.p>
       </div>
     );
   }
 
-  const needsKfb = isEditing && !currentConfig.kfb.trim();
-  const needsMac = isEditing && !currentConfig.mac_address.trim();
-  const needsInfo = isEditing && currentConfig.kfbInfo.every(s => !s.trim());
 
+
+
+
+  const needsKfb = isEditing && !currentConfig.kfb.trim();
+  const needsInfo = isEditing && currentConfig.kfbInfo.every((s) => !s.trim());
   const macPulseActive = discoverOpen && discoverStatus === 'success';
+
 
   return (
     <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900  p-4 flex flex-col">
-
       {/* Header */}
       <motion.header
         initial={{ y: -8, opacity: 0 }}
@@ -415,53 +410,33 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         transition={headerSpring}
         className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
       >
-  {/* Left: back */}
-<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-  {/* left: back */}
-  <div className="justify-self-start">
-    {onNavigateBack && (
-      <button
-        onClick={onNavigateBack}
-        className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
-      >
-        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-        </svg>
-        GO BACK TO MAIN
-      </button>
-    )}
-  </div>
-
-  {/* center: real H1 with icon */}
-  <h1
-    className="
-      justify-self-center flex items-center gap-3
-      text-xl md:text-xl lg:text-xl font-extrabold tracking-tight
-      text-slate-900 dark:text-white
-    "
-  >
-    <SettingsCogIcon
-      className="h-6 w-6 md:h-7 md:w-7 lg:h-8 lg:w-8 text-slate-700/90 dark:text-white/80"
-      aria-hidden
-    />
-    <span className="whitespace-nowrap">KFB CONFIG</span>
-  </h1>
-  <div className="justify-self-end" />
-  </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <div className="justify-self-start">
+            {onNavigateBack && (
+              <button
+                onClick={onNavigateBack}
+                className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
+              >
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                GO BACK TO MAIN
+              </button>
+            )}
+          </div>
+          <h1 className="justify-self-center flex items-center gap-3 text-xl md:text-xl lg:text-xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            <SettingsCogIcon className="h-6 w-6 md:h-7 md:w-7 lg:h-8 lg:w-8 text-slate-700/90 dark:text-white/80" aria-hidden />
+            <span className="whitespace-nowrap">KFB CONFIG</span>
+          </h1>
+          <div className="justify-self-end" />
+        </div>
       </motion.header>
 
       {/* Editing spotlight overlay */}
       <AnimatePresence>
         {isEditing && editRect && (
           <>
-            <motion.div
-              key="spot-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={fade}
-              className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-sm"
-            />
+            <motion.div key="spot-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-sm" />
             <motion.div
               key="spot-ring"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -519,38 +494,42 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         <div className="grid gap-5 md:grid-cols-2 mb-6">
           {/* KFB */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
-              KFB Number
-            </label>
+            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">KFB Number</label>
             <input
               type="text"
               name="kfb"
               id="kfb"
               value={currentConfig.kfb}
               onChange={handleInputChange}
-              className={`${inputBase} ${needsKfb ? 'ring-sky-400/80 focus:ring-sky-500' : ''}`}
+              className={`${inputBase}`}
               placeholder="IW12345678"
             />
           </div>
 
           {/* MAC + Discover */}
           <div ref={macWrapperRef} className="space-y-2 relative">
-            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">
-              MAC Address
-            </label>
+            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">MAC Address</label>
             <div className="flex items-center gap-2">
-              <input
-                type="text"
-                name="mac_address"
-                value={currentConfig.mac_address}
-                onChange={handleInputChange}
-                className={`${inputBase} ${
-                  macPulseActive
-                    ? 'bg-emerald-50 ring-emerald-400 shadow-[0_0_0_4px_rgba(16,185,129,.18)]'
-                    : ''
-                }`}
-                placeholder="XX:XX:XX:XX:XX:XX"
-              />
+           <input
+  type="text"
+  name="mac_address"
+  value={currentConfig.mac_address}
+  onChange={handleInputChange}
+  // expose a data attribute we can target with Tailwind variants
+  data-flash={macFlash || (discoverOpen && discoverStatus === 'success')}
+  className={[
+    inputBase,
+    // stronger, obvious highlight when data-flash="true"
+    'transition-[background-color,box-shadow,outline-color,ring-color,ring-width]',
+    'data-[flash=true]:bg-emerald-50',
+    'data-[flash=true]:ring-2 data-[flash=true]:ring-emerald-500',
+    'data-[flash=true]:outline data-[flash=true]:outline-2 data-[flash=true]:outline-emerald-200',
+    'data-[flash=true]:shadow-[0_0_0_6px_rgba(16,185,129,.22)]',
+    'data-[flash=true]:animate-pulse', // optional: quick pulse
+  ].join(' ')}
+  placeholder="XX:XX:XX:XX:XX:XX"
+/>
+
               <button
                 type="button"
                 onClick={startDiscover}
@@ -564,18 +543,10 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
 
         {/* KFB INFO */}
         <div className="mb-6">
-          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">
-            KFB Info
-          </label>
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">KFB Info</label>
           <div className="space-y-3">
             {currentConfig.kfbInfo.map((info, idx) => (
-              <motion.div
-                key={`kfb-${idx}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={cardSpring}
-                className="flex items-center gap-3"
-              >
+              <motion.div key={`kfb-${idx}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className="flex items-center gap-3">
                 <input
                   type="text"
                   value={info}
@@ -615,7 +586,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                 ? val.length > 0 && !(val.length === 1 && val[0] === '')
                 : typeof val === 'object' && val !== null
                 ? Object.keys(val).length > 0
-                : typeof val === 'string' && val !== ''
+                : typeof val === 'string' && val !== '',
             )) && (
             <button
               type="button"
@@ -641,28 +612,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         </div>
       </motion.section>
 
-      {/* Overview */}
-      <motion.section
-        initial={{ opacity: 0, y: 6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={cardSpring}
-        className={`${tileCard} rounded-3xl overflow-hidden`}
-      >
-       <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
-  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-      Overview
-    </h2>
-
-    <input
-      type="text"
-      value={filterText}
-      onChange={(e) => setFilterText(e.target.value)}
-      placeholder="Search KFB, MAC, info…"
-      className={`${inputBase} w-full sm:w-[28rem] max-w-full`}
-    />
-  </div>
-</div>
+      {/* Overview (unchanged) */}
+      <motion.section initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className={`${tileCard} rounded-3xl overflow-hidden`}>
+        <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Overview</h2>
+            <input type="text" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder="Search KFB, MAC, info…" className={`${inputBase} w-full sm:w-[28rem] max-w-full`} />
+          </div>
+        </div>
         <div className="max-h-[60vh] overflow-auto">
           <table className="min-w-full table-fixed text-[15px] border-separate border-spacing-0">
             <colgroup>
@@ -675,28 +632,20 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
             <thead className="sticky top-0 z-10">
               <tr>
                 {['KFB Number', 'MAC Address', 'KFB Info', 'Actions', 'Program'].map((h) => (
-                  <th
-                    key={h}
-                    className="bg-white/90 dark:bg-slate-900/70 backdrop-blur text-left text-slate-600 dark:text-slate-300 font-semibold px-6 py-3 border-b border-slate-200/80 dark:border-slate-700/60"
-                  >
+                  <th key={h} className="bg-white/90 dark:bg-slate-900/70 backdrop-blur text-left text-slate-600 dark:text-slate-300 font-semibold px-6 py-3 border-b border-slate-200/80 dark:border-slate-700/60">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-
             <tbody>
               {filteredConfigurations.length > 0 ? (
                 filteredConfigurations.map((config, idx) => {
                   const zebra = idx % 2 === 0 ? 'bg-white/70 dark:bg-slate-900/40' : 'bg-white/60 dark:bg-slate-900/30';
                   return (
                     <tr key={config.id} className={`${zebra} hover:bg-sky-50/70 dark:hover:bg-slate-800/70 transition-colors align-top`}>
-                      <td className="px-6 py-4 text-slate-800 dark:text-slate-100 border-b border-slate-200/70 dark:border-slate-700/60">
-                        {config.kfb}
-                      </td>
-                      <td className="px-6 py-4 text-slate-800 dark:text-slate-100 border-b border-slate-200/70 dark:border-slate-700/60">
-                        {config.mac_address || <span className="text-slate-400">—</span>}
-                      </td>
+                      <td className="px-6 py-4 text-slate-800 dark:text-slate-100 border-b border-slate-200/70 dark:border-slate-700/60">{config.kfb}</td>
+                      <td className="px-6 py-4 text-slate-800 dark:text-slate-100 border-b border-slate-200/70 dark:border-slate-700/60">{config.mac_address || <span className="text-slate-400">—</span>}</td>
                       <td className="px-6 py-3 border-b border-slate-200/70 dark:border-slate-700/60">
                         {config.kfbInfo?.length ? (
                           <div className="flex flex-wrap gap-2">
@@ -725,14 +674,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                             <PencilSquareIcon className="h-5 w-5" />
                             Edit
                           </button>
-                       <button
-                        onClick={(e) => requestDelete(config.id, e)}
-                        className="inline-flex items-center justify-center gap-2 rounded-full w-[120px] px-4 py-2.5 text-[14px] font-semibold text-white bg-red-600 ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99]"
-                        title="Delete"
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                        Delete
-                      </button>
+                          <button
+                            onClick={(e) => requestDelete(config.id, e)}
+                            className="inline-flex items-center justify-center gap-2 rounded-full w-[120px] px-4 py-2.5 text-[14px] font-semibold text-white bg-red-600 ring-1 ring-red-700/30 hover:bg-red-700 active:scale-[0.99]"
+                            title="Delete"
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                            Delete
+                          </button>
                         </div>
                       </td>
                       <td className="px-6 py-4 border-b border-slate-200/70 dark:border-slate-700/60">
@@ -760,63 +709,28 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         </div>
       </motion.section>
 
-      {/* Delete Confirmation Modal */}
-     {/* Delete Confirmation Popover (anchored) */}
-<AnimatePresence>
-  {showDeleteModal && deleteAnchor && (
-    <>
-      {/* Backdrop with a cutout around the popover */}
-      {(() => {
-        // popover layout
-        const POPOVER_W = 520;
-        const margin = 12;
-        const top = Math.min(
-          window.innerHeight - 16,
-          deleteAnchor.bottom + margin
-        );
-        const left = Math.max(
-          8,
-          Math.min(window.innerWidth - POPOVER_W - 8, deleteAnchor.right - POPOVER_W)
-        );
-
-        return (
+      {/* Delete Confirmation Modal (anchored) */}
+      <AnimatePresence>
+        {showDeleteModal && deleteAnchor && (
           <>
-            {/* Masked overlay (shadows everything except the popover rect) */}
-         <motion.svg
-          className="fixed inset-0 z-[80] w-screen h-screen"
-          width="100%"
-          height="100%"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={fade}
-          onClick={cancelDelete}
-        >
-          <defs>
-            <mask
-              id="del-cutout"
-              x="0" y="0" width="100%" height="100%"
-              maskUnits="userSpaceOnUse"
-              maskContentUnits="userSpaceOnUse"  // <-- important
-            >
-              <rect x="0" y="0" width="100%" height="100%" fill="white" />
-              <rect
-                x={left - 8}
-                y={top - 8}
-                width={POPOVER_W + 16}
-                height={220}
-                rx={16}
-                ry={16}
-                fill="black"
-              />
-            </mask>
-          </defs>
+            <motion.svg className="fixed inset-0 z-[80] w-screen h-screen" width="100%" height="100%" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={cancelDelete}>
+              <defs>
+                <mask id="del-cutout" x="0" y="0" width="100%" height="100%" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
+                  <rect x="0" y="0" width="100%" height="100%" fill="white" />
+                  <rect
+                    x={Math.max(8, Math.min(window.innerWidth - 520 - 8, deleteAnchor.right - 520)) - 8}
+                    y={Math.min(window.innerHeight - 16, deleteAnchor.bottom + 12) - 8}
+                    width={520 + 16}
+                    height={220}
+                    rx={16}
+                    ry={16}
+                    fill="black"
+                  />
+                </mask>
+              </defs>
+              <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,.6)" mask="url(#del-cutout)" />
+            </motion.svg>
 
-          <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,.6)" mask="url(#del-cutout)" />
-        </motion.svg>
-
-
-            {/* Popover card */}
             <motion.div
               ref={delModalRef}
               key="del-pop"
@@ -825,22 +739,21 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
               transition={cardSpring}
               className={`${sheetCard} fixed z-[90] rounded-2xl p-6 sm:p-7 shadow-2xl`}
-              style={{ top, left, width: POPOVER_W }}
+              style={{
+                top: Math.min(window.innerHeight - 16, deleteAnchor.bottom + 12),
+                left: Math.max(8, Math.min(window.innerWidth - 520 - 8, deleteAnchor.right - 520)),
+                width: 520,
+              }}
               role="dialog"
               aria-modal="true"
             >
-              {/* little caret */}
-              <div
-                className="absolute -top-2 right-8 h-4 w-4 rotate-45 bg-white dark:bg-slate-900 ring-1 ring-black/5"
-              />
+              <div className="absolute -top-2 right-8 h-4 w-4 rotate-45 bg-white dark:bg-slate-900 ring-1 ring-black/5" />
               <div className="flex items-start gap-4">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50">
                   <ExclamationTriangleIcon className="h-6 w-6 text-red-600 dark:text-red-400" />
                 </div>
                 <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                    Delete Configuration
-                  </h3>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Delete Configuration</h3>
                   <p className="mt-1 text-[14px] text-slate-600 dark:text-slate-300">
                     Are you sure you want to delete this configuration? This action cannot be undone.
                   </p>
@@ -848,11 +761,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               </div>
 
               <div className="mt-5 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={cancelDelete}
-                  className="rounded-full bg-white/90 px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-white active:scale-[0.99]"
-                >
+                <button type="button" onClick={cancelDelete} className="rounded-full bg-white/90 px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-white active:scale-[0.99]">
                   Cancel
                 </button>
                 <button
@@ -866,104 +775,46 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               </div>
             </motion.div>
           </>
-        );
-      })()}
-    </>
-  )}
-</AnimatePresence>
+        )}
+      </AnimatePresence>
 
-
-      {/* Discover ESP modal + rounded hole overlay */}
+      {/* Discover ESP modal + overlay */}
       <AnimatePresence>
         {discoverOpen && (
           <>
-            {/* Rounded HOLE overlay (no highlighted square corners) */}
-          {/* Blur + darken everything except the MAC field (4-strip cutout) */}
-{discoverRect ? (
-  <>
-    {/* top */}
-    <motion.div
-      className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
-      style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }}
-      onClick={() => setDiscoverOpen(false)}
-    />
-    {/* left */}
-    <motion.div
-      className="fixed top-0 z-[80] bg-black/60 backdrop-blur-md"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
-      style={{
-        top: Math.max(0, discoverRect.top - 12),
-        left: 0,
-        width: Math.max(0, discoverRect.left - 12),
-        height: discoverRect.height + 24,
-      }}
-      onClick={() => setDiscoverOpen(false)}
-    />
-    {/* right */}
-    <motion.div
-      className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
-      style={{
-        top: Math.max(0, discoverRect.top - 12),
-        left: discoverRect.left + discoverRect.width + 12,
-        height: discoverRect.height + 24,
-      }}
-      onClick={() => setDiscoverOpen(false)}
-    />
-    {/* bottom */}
-    <motion.div
-      className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-md"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
-      style={{ top: discoverRect.top + discoverRect.height + 12 }}
-      onClick={() => setDiscoverOpen(false)}
-    />
-  </>
-) : (
-  <motion.div
-    className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md"
-    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade}
-    onClick={() => setDiscoverOpen(false)}
-  />
-)}
-
-
-            {/* Highlight ring/pulse on success */}
-            {discoverRect && (
+            {discoverRect ? (
               <>
+                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={() => setDiscoverOpen(false)} />
                 <motion.div
-                  key="disc-ring"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={cardSpring}
-                  className={`pointer-events-none fixed z-[95] rounded-2xl ring-2 ${
-                    discoverStatus === 'success' ? 'ring-emerald-500' : 'ring-indigo-500'
-                  } ${discoverStatus === 'success' ? 'shadow-[0_0_0_10px_rgba(16,185,129,0.22)]' : 'shadow-[0_0_0_8px_rgba(99,102,241,0.25)]'}`}
-                  style={{
-                    top: Math.max(8, discoverRect.top - 8),
-                    left: Math.max(8, discoverRect.left - 8),
-                    width: discoverRect.width + 16,
-                    height: discoverRect.height + 16,
-                  }}
+                  className="fixed top-0 z-[80] bg-black/60 backdrop-blur-md"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={fade}
+                  style={{ top: Math.max(0, discoverRect.top - 12), left: 0, width: Math.max(0, discoverRect.left - 12), height: discoverRect.height + 24 }}
+                  onClick={() => setDiscoverOpen(false)}
                 />
-                {discoverStatus === 'success' && (
-                  <motion.div
-                    key="disc-ring-pulse"
-                    className="pointer-events-none fixed z-[94] rounded-3xl"
-                    style={{
-                      top: Math.max(8, discoverRect.top - 16),
-                      left: Math.max(8, discoverRect.left - 16),
-                      width: discoverRect.width + 32,
-                      height: discoverRect.height + 32,
-                      boxShadow: '0 0 0 0 rgba(16,185,129,0.18)',
-                    }}
-                    initial={{ scale: 0.98, opacity: 0.6 }}
-                    animate={{ scale: [0.98, 1.06, 0.98], opacity: [0.6, 0.18, 0.6] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-                  />
-                )}
+                <motion.div
+                  className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-md"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={fade}
+                  style={{ top: Math.max(0, discoverRect.top - 12), left: discoverRect.left + discoverRect.width + 12, height: discoverRect.height + 24 }}
+                  onClick={() => setDiscoverOpen(false)}
+                />
+                <motion.div
+                  className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-md"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={fade}
+                  style={{ top: discoverRect.top + discoverRect.height + 12 }}
+                  onClick={() => setDiscoverOpen(false)}
+                />
               </>
+            ) : (
+              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-md" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={() => setDiscoverOpen(false)} />
             )}
 
             <DiscoverEspModal
@@ -971,10 +822,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               status={discoverStatus}
               mac={foundMac}
               error={discoverError}
-              countdown={countdown}
-              autoCloseEnabled={autoCloseEnabled}
               onClose={() => setDiscoverOpen(false)}
               onRetry={retryDiscover}
+              onTest={handleTest}
+              testStatus={testStatus}
+              testMsg={testMsg}
             />
           </>
         )}
@@ -997,28 +849,31 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
 
 export default SettingsPageContent;
 
-/* ────────────────────────────────────────────────────────────────────────────
- * Discover ESP Modal (bigger MAC banner, improved countdown with ripples)
- * ──────────────────────────────────────────────────────────────────────────── */
 
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Discover ESP Modal (taller boards + labels + centered TEST)
+ * ──────────────────────────────────────────────────────────────────────────── */
 function DiscoverEspModal({
   open,
   onClose,
   onRetry,
+  onTest,
   status,
   mac,
   error,
-  countdown,
-  autoCloseEnabled,
+  testStatus,
+  testMsg,
 }: {
   open: boolean;
   onClose: () => void;
   onRetry: () => void;
+  onTest: () => void;
   status: 'idle' | 'searching' | 'success' | 'error';
   mac: string | null;
   error: string | null;
-  countdown: number | null;
-  autoCloseEnabled: boolean;
+  testStatus: 'idle' | 'calling' | 'ok' | 'error';
+  testMsg: string | null;
 }) {
   const SHEET: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.9 };
 
@@ -1037,80 +892,67 @@ function DiscoverEspModal({
             transition={SHEET}
             className="fixed inset-0 z-[100] flex items-center justify-center p-3"
           >
-            <div className="relative h-[min(88vh,820px)] w-[min(96vw,1400px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
+            {/* Bigger modal canvas */}
+            <div className="relative h-[min(80vh,750px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
               {/* Title bar */}
               <div className="flex items-center justify-between px-6 py-4">
                 <h3 className="text-[18px] font-semibold text-slate-900">Discover ESP</h3>
                 <div className="flex items-center gap-3">
                   {status !== 'searching' && (
-                    <button
-                      onClick={onRetry}
-                      className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]"
-                    >
+                    <button onClick={onRetry} className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]">
                       Retry
                     </button>
                   )}
-                  <button
-                    onClick={onClose}
-                    className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
-                  >
+                  <button onClick={onClose} className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95">
                     Close
                   </button>
                 </div>
               </div>
 
-              {/* Status: bigger MAC banner on success */}
+              {/* Status banner */}
               <StatusBanner status={status} mac={mac} error={error} />
 
               {/* Animation panel */}
               <div className="px-6 pb-6">
                 <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
-                  <EspLinkAnimation
-                    searching={status === 'searching'}
-                    success={status === 'success'}
-                    big
-                  />
+                  <EspLinkAnimation searching={status === 'searching'} success={status === 'success'} big />
 
-                  {/* Improved number-only countdown + CLOSING under it */}
-                  {status === 'success' && autoCloseEnabled && countdown !== null && (
-                    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                      <div className="relative -mt-2 flex flex-col items-center">
-                        {/* ripple ring burst each tick */}
-                        <motion.div
-                          key={`r1-${countdown}`}
-                          initial={{ scale: 0.7, opacity: 0.35 }}
-                          animate={{ scale: 1.5, opacity: 0 }}
-                          transition={{ duration: 0.9, ease: 'easeOut' }}
-                          className="absolute mx-auto -z-[1] h-[220px] w-[220px] rounded-full border-[6px] border-emerald-400/50 md:h-[300px] md:w-[300px] lg:h-[360px] lg:w-[360px]"
-                        />
-                        <motion.div
-                          key={`r2-${countdown}`}
-                          initial={{ scale: 0.5, opacity: 0.25 }}
-                          animate={{ scale: 1.8, opacity: 0 }}
-                          transition={{ duration: 1.1, ease: 'easeOut' }}
-                          className="absolute mx-auto -z-[1] h-[180px] w-[180px] rounded-full border-[4px] border-emerald-300/40 md:h-[240px] md:w-[240px] lg:h-[300px] lg:w-[300px]"
-                        />
+                  {/* Centered TEST button (always perfectly centered) */}
+                  {status === 'success' && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+                      <motion.div
+                        className="absolute h-64 w-64 rounded-full border-4 border-emerald-300"
+                        initial={{ scale: 0.95, opacity: 0.6 }}
+                        animate={{ scale: [0.95, 1.05, 0.95], opacity: [0.6, 0.25, 0.6] }}
+                        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                      />
+                      <motion.button
+                        onClick={onTest}
+                        whileHover={{ scale: 1.03 }}
+                        whileTap={{ scale: 0.98 }}
+                        disabled={testStatus === 'calling'}
+                        className="group relative h-48 w-48 md:h-56 md:w-56 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.45)] bg-gradient-to-b from-emerald-400 to-emerald-600 disabled:opacity-70"
+                        aria-label="Run TEST"
+                      >
+                        <span className="pointer-events-none absolute inset-x-8 top-4 h-8 rounded-full bg-white/30 blur-[2px] opacity-70" />
+                        <span className="drop-shadow-sm">
+                          {testStatus === 'calling' ? 'Testing…' : testStatus === 'ok' ? 'AGAIN' : 'TEST'}
+                        </span>
+                      </motion.button>
 
-                        <motion.span
-                          key={`count-${countdown}`}
-                          initial={{ y: 16, opacity: 0, scale: 0.9 }}
-                          animate={{ y: 0, opacity: 1, scale: 1 }}
-                          transition={{ type: 'spring', stiffness: 700, damping: 32 }}
-                          className="select-none text-[8rem] md:text-[11rem] lg:text-[12rem] font-black leading-none tracking-tight text-emerald-600 drop-shadow-[0_10px_30px_rgba(16,185,129,.25)]"
+                      {!!testMsg && (
+                        <div
+                          className={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ${
+                            testStatus === 'ok'
+                              ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                              : testStatus === 'error'
+                              ? 'bg-red-50 text-red-700 ring-red-200'
+                              : 'bg-white text-slate-600 ring-slate-200'
+                          }`}
                         >
-                          {countdown}
-                        </motion.span>
-
-                        <motion.div
-                          key={`closing-${countdown}`}
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                          className="mt-4 rounded-full bg-emerald-500/15 px-6 py-2 text-[14px] md:text-[16px] font-extrabold uppercase tracking-[0.24em] text-emerald-700 ring-1 ring-emerald-300"
-                        >
-                          Closing
-                        </motion.div>
-                      </div>
+                          {testMsg}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1118,23 +960,34 @@ function DiscoverEspModal({
             </div>
           </motion.div>
 
-          {/* CSS keyframes for packet animation */}
+          {/* CSS keyframes for packet/glow animation */}
           <style
             dangerouslySetInnerHTML={{
               __html: `
               @keyframes packet {
                 0% { offset-distance: 0%; opacity: .0; }
-                5% { opacity: 1; }
-                95% { opacity: 1; }
+                6% { opacity: 1; }
+                94% { opacity: 1; }
                 100% { offset-distance: 100%; opacity: .0; }
               }
               @keyframes packetReverse {
                 0% { offset-distance: 100%; opacity: .0; }
-                5% { opacity: 1; }
-                95% { opacity: 1; }
+                6% { opacity: 1; }
+                94% { opacity: 1; }
                 100% { offset-distance: 0%; opacity: .0; }
               }
-              `,
+              @keyframes glider {
+                0% { offset-distance: 0%; opacity: .0; transform: scale(.9); }
+                8% { opacity: .95; }
+                92% { opacity: .95; }
+                100% { offset-distance: 100%; opacity: 0; transform: scale(1.05); }
+              }
+              @keyframes gliderReverse {
+                0% { offset-distance: 100%; opacity: .0; transform: scale(.9); }
+                8% { opacity: .95; }
+                92% { opacity: .95; }
+                100% { offset-distance: 0%; opacity: 0; transform: scale(1.05); }
+              }`,
             }}
           />
         </>
@@ -1147,7 +1000,11 @@ function StatusBanner({
   status,
   mac,
   error,
-}: { status: 'idle' | 'searching' | 'success' | 'error'; mac: string | null; error: string | null }) {
+}: {
+  status: 'idle' | 'searching' | 'success' | 'error';
+  mac: string | null;
+  error: string | null;
+}) {
   if (status === 'success') {
     return (
       <div className="mx-6 rounded-2xl bg-emerald-50 px-4 py-4 text-center ring-1 ring-emerald-200">
@@ -1183,53 +1040,105 @@ function LoadingDots() {
   );
 }
 
-/* Diagram */
-function EspLinkAnimation({
-  searching,
-  success,
-  big = false,
-}: { searching: boolean; success: boolean; big?: boolean }) {
-  const W = big ? 1200 : 720;
-  const H = big ? 420 : 230;
+/* Diagram (taller boards, labels, richer Wi-Fi) */
+function EspLinkAnimation({ searching, success, big = false }: { searching: boolean; success: boolean; big?: boolean }) {
+  // Canvas
+  const W = big ? 1400 : 760;
+  const H = big ? 520 : 280;
 
-  const linkPath = `M 160 ${H / 2} C ${W / 2 - 120} ${H / 2 - (big ? 110 : 70)}, ${W / 2 + 120} ${H / 2 - (big ? 110 : 70)}, ${W - 160} ${H / 2}`;
+  // Board size (taller than before)
+  const BOARD_W = big ? 240 : 170;
+  const BOARD_H = big ? 300 : 210;
+
+  // Layout
+  const leftMargin = big ? 140 : 90;
+  const rightMargin = leftMargin; // keep symmetrical
+  const yMid = H / 2;
+
+  // Link path from board edges (so button sits exactly between)
+  const xStart = leftMargin + BOARD_W;
+  const xEnd = W - rightMargin - BOARD_W;
+  const arc = big ? 140 : 82;
+  const linkPath = `M ${xStart} ${yMid} C ${W / 2 - 200} ${yMid - arc}, ${W / 2 + 200} ${yMid - arc}, ${xEnd} ${yMid}`;
+  const linkColor = success ? 'rgba(16,185,129,.9)' : 'rgba(99,102,241,.85)';
 
   return (
     <div className="relative mx-auto w-full overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50">
-      <svg viewBox={`0 0 ${W} ${H}`} className={`block w-full ${big ? 'h-[420px] md:h-[420px]' : 'h-[230px]'}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} className={`block w-full ${big ? 'h-[520px]' : 'h-[280px]'}`}>
         <defs>
           <pattern id="grid" width="16" height="16" patternUnits="userSpaceOnUse">
             <path d="M 16 0 L 0 0 0 16" fill="none" stroke="rgba(2,6,23,.06)" strokeWidth="1" />
           </pattern>
           <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgba(99,102,241,.55)" />
-            <stop offset="100%" stopColor="rgba(99,102,241,0)" />
+            <stop offset="0%" stopColor={success ? 'rgba(16,185,129,.6)' : 'rgba(99,102,241,.55)'} />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
           </radialGradient>
+          <filter id="boardShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="rgba(2,6,23,.18)" />
+          </filter>
         </defs>
+
         <rect x="0" y="0" width={W} height={H} fill="url(#grid)" />
 
+        {/* Link */}
         <motion.path
           d={linkPath}
           fill="none"
-          stroke={success ? 'rgba(16,185,129,.8)' : 'rgba(99,102,241,.75)'}
-          strokeWidth={big ? 4 : 3}
+          stroke={linkColor}
+          strokeWidth={big ? 6 : 4.5}
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray="12 14"
-          animate={searching ? { strokeDashoffset: [0, -56] } : { strokeDashoffset: 0 }}
-          transition={{ duration: 1.2, repeat: searching ? Infinity : 0, ease: 'linear' }}
+          strokeDasharray={success ? '0 0' : '16 18'}
+          animate={searching ? { strokeDashoffset: [0, -72] } : { strokeDashoffset: 0 }}
+          transition={{ duration: searching ? 1.1 : 0.35, repeat: searching ? Infinity : 0, ease: 'linear' }}
         />
 
-        <g transform={`translate(80, ${H / 2 - (big ? 80 : 48)})`}><EspBoard big={big} /></g>
-        <g transform={`translate(${W - (big ? 200 : 60) - (big ? 160 : 120)}, ${H / 2 - (big ? 80 : 48)})`}><EspBoard big={big} /></g>
+        {/* Boards */}
+        <g transform={`translate(${leftMargin}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
+          <EspBoard big={big} active={searching || success} />
+        </g>
+        <g transform={`translate(${W - rightMargin - BOARD_W}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
+          <EspBoard big={big} active={success} right />
+        </g>
 
-        <WifiPulse x={big ? 200 : 120} y={H / 2 - (big ? 10 : 6)} />
-        <WifiPulse x={W - (big ? 200 : 120)} y={H / 2 - (big ? 10 : 6)} right />
+        {/* Labels */}
+        <text
+          x={leftMargin + BOARD_W / 2}
+          y={yMid + BOARD_H / 2 + 48}
+          textAnchor="middle"
+          fontFamily="ui-sans-serif"
+          fontWeight={700}
+          fontSize={big ? 32 : 24}
+          fill="rgba(2,6,23,.65)"
+        >
+          STATION
+        </text>
+        <text
+          x={W - rightMargin - BOARD_W / 2}
+          y={yMid + BOARD_H / 2 + 48}
+          textAnchor="middle"
+          fontFamily="ui-sans-serif"
+          fontWeight={700}
+          fontSize={big ? 32 : 24}
+          fill="rgba(2,6,23,.65)"
+        >
+          KFB BOARD
+        </text>
 
-        <circle cx={big ? 160 : 140} cy={H / 2} r={big ? 28 : 22} fill="url(#glow)" />
-        <circle cx={W - (big ? 160 : 140)} cy={H / 2} r={big ? 28 : 22} fill="url(#glow)" />
+        {/* Wi-Fi pings near connectors */}
+        <WifiPulse x={xStart} y={yMid} searching={searching} success={success} />
+        <WifiPulse x={xEnd} y={yMid} right searching={searching} success={success} />
+
+        {/* endpoint glows */}
+        <circle cx={xStart} cy={yMid} r={big ? 36 : 24} fill="url(#glow)" />
+        <circle cx={xEnd} cy={yMid} r={big ? 36 : 24} fill="url(#glow)" />
       </svg>
 
+      {/* Moving glow */}
+      <MovingGlow path={linkPath} duration={2.4} size={big ? 22 : 16} color={linkColor} />
+      <MovingGlow path={linkPath} duration={2.7} size={big ? 18 : 14} color={linkColor} reverse />
+
+      {/* Dots only while searching */}
       {searching && (
         <>
           <PacketStream path={linkPath} duration={2.6} count={4} />
@@ -1237,63 +1146,211 @@ function EspLinkAnimation({
         </>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[12px] text-slate-500">
-        {success ? 'Connected' : 'Searching nearby boards…'}
-      </div>
+{/* Bottom status chip */}
+<div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
+  <div
+    className={[
+      // shape + layout
+      'inline-flex items-center gap-2 md:gap-3 rounded-full',
+      'px-4 py-2 md:px-5 md:py-2.5',
+      'text-[20px] md:text-[26px] font-semibold leading-none',
+      // glass / shadow / ring
+      'backdrop-blur-md shadow-[0_8px_24px_rgba(2,6,23,.15)] ring-1',
+      // state colors
+      success
+        ? 'bg-emerald-50/90 text-emerald-700 ring-emerald-200'
+        : 'bg-indigo-50/90 text-indigo-700 ring-indigo-200',
+    ].join(' ')}
+  >
+    {success ? (
+      <span className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+    ) : (
+      <span className="inline-flex items-center gap-1">
+        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-200ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400 [animation-delay:-100ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-indigo-400" />
+      </span>
+    )}
+
+    <span>{success ? 'Connected' : 'Searching the new KFB BOARD'}</span>
+  </div>
+</div>
+
     </div>
   );
 }
 
-function EspBoard({ big = false }: { big?: boolean }) {
-  const w = big ? 160 : 120;
-  const h = big ? 128 : 96;
-  const pinCount = big ? 18 : 14;
+/** Taller ESP32-style board */
+function EspBoard({ big = false, active = false }: { big?: boolean; active?: boolean }) {
+  const w = big ? 240 : 170;
+  const h = big ? 300 : 210; // << taller
+
+  const pcb = '#0b1220';
+  const silk = 'rgba(255,255,255,.28)';
+  const pinGold = '#d4af37';
+
+  const holeR = big ? 5.5 : 4;
+  const headerPins = big ? 22 : 18;
+
+  const shieldW = w * 0.72;
+  const shieldH = h * 0.32;
+  const shieldX = (w - shieldW) / 2;
+  const shieldY = h * 0.07;
+
+  const btnW = w * 0.11;
+  const btnH = h * 0.07;
+  const btnY = h * 0.58;
+
+  const usbW = w * 0.18;
+  const usbH = h * 0.09;
+
+  const ledY = h * 0.63;
+  const ledR = big ? 5.2 : 4.2;
 
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
-      <rect x="2" y="2" width={w - 4} height={h - 4} rx="10" className="fill-white" />
-      <rect x="2" y="2" width={w - 4} height={h - 4} rx="10" className="fill-none" stroke="rgba(2,6,23,.12)" strokeWidth="2" />
-      <rect x="2" y="2" width={w - 4} height={big ? 20 : 16} rx="10" className="fill-slate-100" />
-      <rect x="12" y={big ? 28 : 24} width={big ? 72 : 52} height={big ? 68 : 48} rx="5" className="fill-slate-200" />
-      <rect x="12" y={big ? 28 : 24} width={big ? 72 : 52} height={big ? 68 : 48} rx="5" className="fill-none" stroke="rgba(2,6,23,.18)" />
-      <rect x={big ? 92 : 72} y={big ? 30 : 26} width={big ? 42 : 30} height={big ? 30 : 22} rx="4" className="fill-slate-300" />
-      <rect x={big ? 92 : 72} y={big ? 64 : 52} width={big ? 20 : 14} height={big ? 14 : 10} rx="3" className="fill-slate-300" />
-      <rect x={big ? 116 : 88} y={big ? 64 : 52} width={big ? 20 : 14} height={big ? 14 : 10} rx="3" className="fill-slate-300" />
-      <rect x={big ? 92 : 72} y={big ? 84 : 66} width={big ? 14 : 10} height={big ? 10 : 6} rx="3" className="fill-slate-300" />
-      <rect x={big ? 110 : 84} y={big ? 84 : 66} width={big ? 26 : 18} height={big ? 10 : 6} rx="3" className="fill-slate-300" />
-      {Array.from({ length: pinCount }).map((_, i) => (
-        <rect key={`l-${i}`} x="0" y={(big ? 22 : 18) + i * (big ? 6 : 5)} width="4" height={big ? 4 : 3} className="fill-slate-200" />
-      ))}
-      {Array.from({ length: pinCount }).map((_, i) => (
-        <rect key={`r-${i}`} x={w - 4} y={(big ? 22 : 18) + i * (big ? 6 : 5)} width="4" height={big ? 4 : 3} className="fill-slate-200" />
-      ))}
+      {/* PCB */}
+      <rect x="2" y="2" width={w - 4} height={h - 4} rx="16" fill={pcb} stroke="rgba(255,255,255,.06)" strokeWidth="2" />
+
+      {/* Mounting holes */}
+      <circle cx="14" cy="14" r={holeR} fill="#cbd5e1" />
+      <circle cx={w - 14} cy="14" r={holeR} fill="#cbd5e1" />
+      <circle cx="14" cy={h - 14} r={holeR} fill="#cbd5e1" />
+      <circle cx={w - 14} cy={h - 14} r={holeR} fill="#cbd5e1" />
+
+      {/* Headers */}
+      {Array.from({ length: headerPins }).map((_, i) => {
+        const y = 20 + i * ((h - 40) / headerPins);
+        return <rect key={`lp-${i}`} x="8" y={y} width="6" height="6" rx="1.5" fill={pinGold} />;
+      })}
+      {Array.from({ length: headerPins }).map((_, i) => {
+        const y = 20 + i * ((h - 40) / headerPins);
+        return <rect key={`rp-${i}`} x={w - 14} y={y} width="6" height="6" rx="1.5" fill={pinGold} />;
+      })}
+
+      {/* Module shield */}
+      <defs>
+        <linearGradient id="shield" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor="#e5e7eb" />
+          <stop offset="100%" stopColor="#9ca3af" />
+        </linearGradient>
+        <linearGradient id="usb" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#9ca3af" />
+          <stop offset="100%" stopColor="#e5e7eb" />
+        </linearGradient>
+      </defs>
+      <rect x={shieldX} y={shieldY} width={shieldW} height={shieldH} rx="6" fill="url(#shield)" stroke="#6b7280" />
+      {/* Antenna meander */}
+      <path
+        d={`M ${shieldX + 6} ${shieldY + 6} h ${shieldW * 0.34} v ${shieldH * 0.14} h -${shieldW * 0.08} v ${shieldH * 0.12} h ${shieldW * 0.08} v ${
+          shieldH * 0.15
+        } h -${shieldW * 0.08} v ${shieldH * 0.12} h ${shieldW * 0.08}`}
+        fill="none"
+        stroke="#384152"
+        strokeWidth={big ? 2.4 : 2}
+      />
+
+      {/* EN / BOOT */}
+      <rect x={w * 0.12} y={btnY} width={btnW} height={btnH} rx="3" fill="#1f2937" stroke={silk} />
+      <rect x={w - w * 0.12 - btnW} y={btnY} width={btnW} height={btnH} rx="3" fill="#1f2937" stroke={silk} />
+      <text x={w * 0.12 + btnW / 2} y={btnY + btnH + (big ? 18 : 14)} fontSize={big ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
+        EN
+      </text>
+      <text x={w - (w * 0.12 + btnW / 2)} y={btnY + btnH + (big ? 18 : 14)} fontSize={big ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
+        BOOT
+      </text>
+
+      {/* USB */}
+      <rect x={w / 2 - usbW / 2} y={h - usbH - 12} width={usbW} height={usbH} rx="3" fill="url(#usb)" stroke="#6b7280" />
+      <rect x={w / 2 - (usbW * 0.55) / 2} y={h - usbH / 2 - 9} width={usbW * 0.55} height={usbH * 0.3} rx="1" fill="#374151" />
+
+      {/* LEDs */}
+      <circle cx={w * 0.36} cy={ledY} r={ledR} fill={active ? '#22c55e' : '#64748b'} />
+      <circle cx={w * 0.64} cy={ledY} r={ledR} fill={active ? '#818cf8' : '#64748b'} />
+
+      {/* silk bar */}
+      <rect x={shieldX} y={h * 0.76} width={shieldW} height={big ? 6 : 4} rx="1.5" fill="rgba(255,255,255,.06)" />
     </svg>
   );
 }
 
-function WifiPulse({ x, y, right = false }: { x: number; y: number; right?: boolean }) {
+function WifiPulse({
+  x,
+  y,
+  right = false,
+  searching,
+  success,
+}: {
+  x: number;
+  y: number;
+  right?: boolean;
+  searching: boolean;
+  success: boolean;
+}) {
   const dir = right ? -1 : 1;
-  const base = `M ${x} ${y} q ${18 * dir} -14 ${36 * dir} 0`;
-  const mid = `M ${x} ${y} q ${26 * dir} -22 ${52 * dir} 0`;
-  const big = `M ${x} ${y} q ${34 * dir} -30 ${68 * dir} 0`;
+  const color1 = success ? 'rgba(16,185,129,.55)' : 'rgba(99,102,241,.55)';
+  const color2 = success ? 'rgba(16,185,129,.40)' : 'rgba(99,102,241,.40)';
+  const color3 = success ? 'rgba(16,185,129,.25)' : 'rgba(99,102,241,.25)';
+  const base = `M ${x} ${y} q ${30 * dir} -20 ${60 * dir} 0`;
+  const mid = `M ${x} ${y} q ${48 * dir} -32 ${96 * dir} 0`;
+  const big = `M ${x} ${y} q ${66 * dir} -44 ${132 * dir} 0`;
+
+  const dur = searching ? 1.5 : 2.4;
+
   return (
     <>
-      <motion.path d={base} fill="none" stroke="rgba(99,102,241,.55)" strokeWidth="2"
-        initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.6, repeat: Infinity }} />
-      <motion.path d={mid} fill="none" stroke="rgba(99,102,241,.4)" strokeWidth="2"
-        initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.6, repeat: Infinity, delay: .2 }} />
-      <motion.path d={big} fill="none" stroke="rgba(99,102,241,.25)" strokeWidth="2"
-        initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: 1.6, repeat: Infinity, delay: .4 }} />
+      <motion.path d={base} fill="none" stroke={color1} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity }} />
+      <motion.path d={mid} fill="none" stroke={color2} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity, delay: 0.18 }} />
+      <motion.path d={big} fill="none" stroke={color3} strokeWidth="2" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0] }} transition={{ duration: dur, repeat: Infinity, delay: 0.36 }} />
+
+      {/* Soft expanding ping */}
+      <motion.circle
+        cx={x + (right ? -4 : 4)}
+        cy={y - 2}
+        r={6}
+        initial={{ r: 0, opacity: 0.4 }}
+        animate={{ r: [0, 18, 26], opacity: [0.4, 0.2, 0] }}
+        transition={{ duration: searching ? 1.6 : 2.8, repeat: Infinity, ease: 'easeOut' }}
+        fill={success ? 'rgba(16,185,129,.25)' : 'rgba(99,102,241,.25)'}
+      />
     </>
   );
 }
 
-function PacketStream({
+function MovingGlow({
   path,
-  duration = 2.6,
-  count = 3,
-  reverse = false
-}: { path: string; duration?: number; count?: number; reverse?: boolean }) {
+  duration = 2.4,
+  reverse = false,
+  size = 18,
+  color = 'rgba(99,102,241,1)',
+}: {
+  path: string;
+  duration?: number;
+  reverse?: boolean;
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <span
+      className="pointer-events-none absolute"
+      style={
+        {
+          width: size,
+          height: size,
+          borderRadius: '9999px',
+          boxShadow: `0 0 ${size * 1.4}px ${Math.max(6, size * 0.3)}px ${color}`,
+          background: color,
+          // @ts-ignore
+          offsetPath: `path('${path}')`,
+          offsetRotate: '0deg',
+          animation: `${reverse ? 'gliderReverse' : 'glider'} ${duration}s linear 0s infinite`,
+        } as React.CSSProperties
+      }
+    />
+  );
+}
+
+function PacketStream({ path, duration = 2.6, count = 3, reverse = false }: { path: string; duration?: number; count?: number; reverse?: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-0">
       {Array.from({ length: count }).map((_, i) => (
@@ -1305,6 +1362,7 @@ function PacketStream({
               background: 'rgb(99 102 241)',
               // @ts-ignore
               offsetPath: `path('${path}')`,
+              offsetRotate: '0deg',
               animation: `${reverse ? 'packetReverse' : 'packet'} ${duration}s linear ${i * (duration / count)}s infinite`,
             } as React.CSSProperties
           }

@@ -126,7 +126,6 @@ export async function GET(
     client.release();
   }
 }
-
 /* PUT /api/configurations/[id] */
 export async function PUT(
   request: Request,
@@ -156,10 +155,14 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid request shape' }, { status: 400 });
   }
 
+  // Normalize + enforce uniqueness at the application layer to match DB constraint
   const infoValues = kfbInfo
     .filter((v: unknown): v is string => typeof v === 'string')
     .map(v => v.trim())
     .filter(v => v.length > 0);
+
+  // IMPORTANT: dedupe to satisfy UNIQUE(config_id, kfb_info_value)
+  const desiredValues = Array.from(new Set(infoValues));
 
   const unionBranchNames = Array.from(
     new Set<string>([
@@ -180,7 +183,7 @@ export async function PUT(
 
     const hasConfigId = await tableHasConfigIdOnEspPins(client);
 
-    // 1) Update base configuration
+    // 1) Update base config
     const upd = await client.query<CfgRow>(
       `UPDATE configurations
           SET kfb = $2,
@@ -191,7 +194,7 @@ export async function PUT(
     );
     if (upd.rows.length === 0) throw new Error('Configuration not found');
 
-    // 2) Current details
+    // 2) Fetch current detail ids
     const detRes = await client.query<DetailRow>(
       `SELECT id, config_id, kfb_info_value
          FROM kfb_info_details
@@ -202,52 +205,31 @@ export async function PUT(
     const currentDetails = detRes.rows;
     const currentIds = currentDetails.map(d => d.id);
 
-    // 3) Reconcile details
-    const keepCount = Math.min(currentDetails.length, infoValues.length);
-
-    for (let i = 0; i < keepCount; i++) {
-      const detailId = currentDetails[i].id;
-      const nextVal = infoValues[i];
-      if (nextVal !== currentDetails[i].kfb_info_value) {
-        await client.query(
-          `UPDATE kfb_info_details SET kfb_info_value = $1 WHERE id = $2`,
-          [nextVal, detailId]
-        );
-      }
+    // 3) Remove all existing links + details (avoid mid-update UNIQUE violations)
+    if (currentIds.length) {
+      await client.query(`DELETE FROM esp_pin_mappings WHERE kfb_info_detail_id = ANY($1)`, [currentIds]);
+      await client.query(`DELETE FROM config_branches   WHERE kfb_info_detail_id = ANY($1)`, [currentIds]);
+      await client.query(`DELETE FROM kfb_info_details  WHERE id                  = ANY($1)`, [currentIds]);
     }
 
-    let insertedIds: number[] = [];
-    if (infoValues.length > currentDetails.length) {
-      const toInsert = infoValues.slice(currentDetails.length);
+    // 4) Insert new details (deduped)
+    let finalDetailIds: number[] = [];
+    if (desiredValues.length) {
       const ins = await client.query<{ id: number }>(
         `INSERT INTO kfb_info_details(config_id, kfb_info_value)
          SELECT x.config_id, x.kfb_info_value
            FROM UNNEST($1::int[], $2::text[]) AS x(config_id, kfb_info_value)
          RETURNING id`,
-        [toInsert.map(() => id), toInsert]
+        [desiredValues.map(() => id), desiredValues]
       );
-      insertedIds = ins.rows.map(r => r.id);
+      finalDetailIds = ins.rows.map(r => r.id);
     }
 
-    if (infoValues.length < currentDetails.length) {
-      const toDeleteIds = currentIds.slice(infoValues.length);
-      if (toDeleteIds.length) {
-        await client.query(`DELETE FROM esp_pin_mappings WHERE kfb_info_detail_id = ANY($1)`, [toDeleteIds]);
-        await client.query(`DELETE FROM config_branches   WHERE kfb_info_detail_id = ANY($1)`, [toDeleteIds]);
-        await client.query(`DELETE FROM kfb_info_details  WHERE id                  = ANY($1)`, [toDeleteIds]);
-      }
-    }
-
-    const finalDetailIds = [...currentIds.slice(0, keepCount), ...insertedIds];
-
-    // 4) Branch ids
+    // 5) Upsert branches
     const branchIdMap = await upsertBranches(client, unionBranchNames);
 
-    // 5) Rebuild links per detail
+    // 6) Rebuild links for each detail
     for (const detailId of finalDetailIds) {
-      await client.query(`DELETE FROM config_branches   WHERE kfb_info_detail_id = $1`, [detailId]);
-      await client.query(`DELETE FROM esp_pin_mappings WHERE kfb_info_detail_id = $1`, [detailId]);
-
       // config_branches
       if (unionBranchNames.length) {
         const branchIds = unionBranchNames.map(n => branchIdMap.get(n)!).filter(Boolean);
@@ -295,6 +277,7 @@ export async function PUT(
     client.release();
   }
 }
+
 
 /* DELETE /api/configurations/[id] */
 export async function DELETE(

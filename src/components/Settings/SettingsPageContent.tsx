@@ -1097,10 +1097,9 @@ function EspLinkAnimation({ searching, success, big = false }: { searching: bool
         <g transform={`translate(${leftMargin}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
           <EspBoard big={big} active={searching || success} />
         </g>
-        <g transform={`translate(${W - rightMargin - BOARD_W}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
-          <EspBoard big={big} active={success} right />
-        </g>
-
+     <g transform={`translate(${W - rightMargin - BOARD_W}, ${yMid - BOARD_H / 2})`} filter="url(#boardShadow)">
+        <EspBoard big={big} active={success} />
+      </g>
         {/* Labels */}
         <text
           x={leftMargin + BOARD_W / 2}

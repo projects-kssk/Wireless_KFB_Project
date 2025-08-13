@@ -13,7 +13,7 @@ import { motion, AnimatePresence, type Transition } from 'framer-motion';
 
 import { BranchSelectorModal } from '@/components/Modals/BranchSelectorModal';
 import { Branch, EspPinMapping } from '@/types/types';
-
+import { SettingsCogIcon } from "@/components/Icons/Icons";
 /* ────────────────────────────────────────────────────────────────────────────
  * Types
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -406,7 +406,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const macPulseActive = discoverOpen && discoverStatus === 'success';
 
   return (
-    <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 sm:p-6 lg:p-6 flex flex-col">
+    <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900  p-4 flex flex-col">
 
       {/* Header */}
       <motion.header
@@ -415,23 +415,39 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         transition={headerSpring}
         className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {onNavigateBack && (
-              <button
-                onClick={onNavigateBack}
-                className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
-              >
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                Dashboard
-              </button>
-            )}
-            <h1 className="ml-1 text-lg font-semibold text-slate-900 dark:text-white">
-              KFB Configurations
-            </h1>
-          </div>
- 
-        </div>
+  {/* Left: back */}
+<div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+  {/* left: back */}
+  <div className="justify-self-start">
+    {onNavigateBack && (
+      <button
+        onClick={onNavigateBack}
+        className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
+      >
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        GO BACK TO MAIN
+      </button>
+    )}
+  </div>
+
+  {/* center: real H1 with icon */}
+  <h1
+    className="
+      justify-self-center flex items-center gap-3
+      text-xl md:text-xl lg:text-xl font-extrabold tracking-tight
+      text-slate-900 dark:text-white
+    "
+  >
+    <SettingsCogIcon
+      className="h-6 w-6 md:h-7 md:w-7 lg:h-8 lg:w-8 text-slate-700/90 dark:text-white/80"
+      aria-hidden
+    />
+    <span className="whitespace-nowrap">KFB CONFIG</span>
+  </h1>
+  <div className="justify-self-end" />
+  </div>
       </motion.header>
 
       {/* Editing spotlight overlay */}

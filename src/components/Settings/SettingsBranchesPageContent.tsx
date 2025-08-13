@@ -21,10 +21,10 @@ import {
   MagnifyingGlassIcon,
   CheckIcon,
   ChevronDownIcon,
-  ArrowLeftIcon,
 } from '@heroicons/react/24/solid'
 import { motion, AnimatePresence, PanInfo } from 'framer-motion'
 import type { Transition } from 'framer-motion'
+import { SettingsCubeIcon } from "@/components/Icons/Icons";
 
 /* ─────────────────────────────────────────────────────────────────────────────
  * Types
@@ -59,11 +59,10 @@ type SortKey = 'index' | 'name' | 'pin' | 'not' | 'loose'
 type SortDir = 'asc' | 'desc'
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * Display mode hook (talks to ViewportScaler via event + <html data-display>)
+ * Display mode hook
  * ──────────────────────────────────────────────────────────────────────────── */
 function useDisplayMode(): [DisplayMode, (m: DisplayMode) => void] {
   const [mode, setMode] = useState<DisplayMode>('auto')
-
   useEffect(() => {
     const sync = () => {
       const a = document.documentElement.getAttribute('data-display')
@@ -74,11 +73,9 @@ function useDisplayMode(): [DisplayMode, (m: DisplayMode) => void] {
     sync()
     return () => mo.disconnect()
   }, [])
-
   const set = (m: DisplayMode) => {
     window.dispatchEvent(new CustomEvent('display-mode-change', { detail: m }))
   }
-
   return [mode, set]
 }
 
@@ -110,10 +107,10 @@ const IOSwitch: React.FC<{ checked: boolean; onChange: (v: boolean) => void; dis
 
 const SHEET_SPRING: Transition = { type: 'spring', stiffness: 520, damping: 42, mass: 0.9 }
 const BACKDROP_SPRING: Transition = { type: 'spring', stiffness: 280, damping: 28 }
-const headerSpring: Transition = { type: 'spring', stiffness: 520, damping: 40 };
-
+const headerSpring: Transition = { type: 'spring', stiffness: 520, damping: 40 }
 const sheetCard =
-  'bg-white/80 dark:bg-slate-900/70 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.18)]';
+  'bg-white/80 dark:bg-slate-900/70 backdrop-blur-2xl ring-1 ring-white/60 dark:ring-white/10 shadow-[0_24px_60px_rgba(2,6,23,0.18)]'
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * BottomSheet (mobile)
  * ──────────────────────────────────────────────────────────────────────────── */
@@ -335,7 +332,7 @@ const AnchoredPopover: React.FC<{
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={SHEET_SPRING}
-            className="fixed z-[80] overflow-hidden rounded-2xl bg-white text-slate-900 shadow-2xl ring-1 ring-white/10"
+            className="fixed z-[90] overflow-hidden rounded-2xl bg-white text-slate-900 shadow-2xl ring-1 ring-white/10"
             style={{ top: coords.top, left: coords.left, width: coords.w }}
           >
             <div className="relative flex items-center justify-between px-4 py-3">
@@ -533,7 +530,7 @@ const PickerList: React.FC<{
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * Create Branch
+ * Create Branch (sheet)
  * ──────────────────────────────────────────────────────────────────────────── */
 type CreateDraft = { name: string; pinNumber: number | null; loose: boolean; not: boolean }
 
@@ -595,6 +592,8 @@ const CreateBranchPanel: React.FC<{
               className="w-full rounded-xl bg-slate-50 px-4 py-3 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none ring-1 ring-slate-200 focus:bg-white focus:ring-2 focus:ring-emerald-400/60 transition"
             />
           </div>
+
+          {/* Assign PIN (optional) */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700">Assign PIN (optional)</label>
             <div className="flex items-center gap-2">
@@ -615,7 +614,9 @@ const CreateBranchPanel: React.FC<{
                 aria-invalid={isPinTaken}
                 className={clsx(
                   "w-28 rounded-xl bg-slate-50 px-3 py-2.5 text-[15px] text-slate-900 placeholder:text-slate-400 outline-none ring-1 transition",
-                  isPinTaken ? "ring-red-300 focus:ring-2 focus:ring-red-400/70" : "ring-slate-200 focus:bg-white focus:ring-2 focus:ring-emerald-400/60"
+                  isPinTaken
+                    ? "ring-red-300 focus:ring-2 focus:ring-red-400/70"
+                    : "ring-slate-200 focus:bg-white focus:ring-2 focus:ring-emerald-400/60"
                 )}
               />
               <div className="flex items-center gap-1.5">
@@ -629,6 +630,27 @@ const CreateBranchPanel: React.FC<{
             {isPinTaken
               ? <p className="text-xs text-red-600">This PIN is already in use. Choose another.</p>
               : <p className="text-xs text-slate-500">Any value from {MIN_PIN} to {MAX_PIN}. Example: 39 or 40.</p>}
+
+            {/* Always show used pins */}
+            {usedPins.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5" aria-live="polite">
+                <span className="text-xs text-slate-500 mr-1">Pins in use:</span>
+                {usedPins.map(n => (
+                  <code
+                    key={n}
+                    className={clsx(
+                      "rounded-lg px-2 py-0.5 text-[12px] ring-1",
+                      isPinTaken && pin === n
+                        ? "bg-red-100 ring-red-300 text-red-700"
+                        : "bg-slate-100 ring-slate-200 text-slate-700"
+                    )}
+                    title={`PIN ${n} is taken`}
+                  >
+                    {n}
+                  </code>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -679,6 +701,7 @@ const SettingsBranchesPageContent: React.FC<{
 
   const [unifiedInput, setUnifiedInput] = useState('')
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [isSearchFocused, setIsSearchFocused] = useState(false) // spotlight toggle
 
   const [allBranches, setAllBranches] = useState<Branch[]>([])
   const [linkedBranches, setLinkedBranches] = useState<Branch[]>([])
@@ -712,8 +735,8 @@ const SettingsBranchesPageContent: React.FC<{
   const infoBtnRef = useRef<HTMLButtonElement | null>(null)
   const searchContainerRef = useRef<HTMLDivElement | null>(null)
 
-  // Display mode (for header switch)
-  const [displayMode, setDisplayMode] = useDisplayMode()
+  // Display mode
+  const [displayMode] = useDisplayMode()
 
   // EFFECTS: configs
   useEffect(() => {
@@ -1126,11 +1149,17 @@ const SettingsBranchesPageContent: React.FC<{
     const onDocClick = (e: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
         setShowSuggestions(false)
+        setIsSearchFocused(false)
       }
     }
     document.addEventListener('mousedown', onDocClick)
     return () => document.removeEventListener('mousedown', onDocClick)
   }, [])
+
+  // Spotlight logic
+  const term = unifiedInput.trim().toLowerCase()
+  const hasAnyMatch = term ? allBranches.some(b => b.name.toLowerCase().includes(term)) : false
+  const showCreateCTA = Boolean(term) && !hasAnyMatch // only when totally new (no partial matches)
 
   // RENDER
   if (loadingConfigs) {
@@ -1158,94 +1187,130 @@ const SettingsBranchesPageContent: React.FC<{
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  const showCreateCTA = Boolean(unifiedInput.trim()) && !exactMatchInAll
+  const isSpotlightOn = isSearchFocused || showSuggestions || Boolean(term)
 
   return (
     <div className="flex min-h-screen w-screen flex-col bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
-      {/* Sticky header */}
-  
 
-            {/* Header */}
-            <motion.header
-              initial={{ y: -8, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              transition={headerSpring}
-              className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {onNavigateBack && (
-                    <button
-                      onClick={onNavigateBack}
-                      className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
-                    >
-                      <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-                      Dashboard
-                    </button>
-                  )}
-              
-                </div>
-              
-              </div>
-            </motion.header>
-      
+  {/* Header */}
+       <motion.header
+         initial={{ y: -8, opacity: 0 }}
+         animate={{ y: 0, opacity: 1 }}
+         transition={headerSpring}
+         className={`sticky top-0 z-30 ${sheetCard} rounded-2xl px-4 sm:px-5 py-3 mb-4`}
+       >
+   {/* Left: back */}
+ <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+   {/* left: back */}
+   <div className="justify-self-start">
+     {onNavigateBack && (
+       <button
+         onClick={onNavigateBack}
+         className="inline-flex items-center gap-2 rounded-full bg-white/90 dark:bg-slate-800/70 px-4 py-2 text-[15px] font-semibold text-slate-800 dark:text-slate-100 ring-1 ring-slate-200 dark:ring-white/10 hover:bg-white shadow-sm active:scale-[0.99]"
+       >
+         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+         </svg>
+         GO BACK TO MAIN
+       </button>
+     )}
+   </div>
+ 
+   {/* center: real H1 with icon */}
+   <h1
+     className="
+       justify-self-center flex items-center gap-3
+       text-xl md:text-xl lg:text-xl font-extrabold tracking-tight
+       text-slate-900 dark:text-white
+     "
+   >
+     <SettingsCubeIcon
+       className="h-6 w-6 md:h-7 md:w-7 lg:h-8 lg:w-8 text-slate-700/90 dark:text-white/80"
+       aria-hidden
+     />
+     <span className="whitespace-nowrap">PROGRAM</span>
+   </h1>
+   <div className="justify-self-end" />
+   </div>
+       </motion.header>
+
+      {/* Global spotlight overlay */}
+      <AnimatePresence>
+        {isSpotlightOn && (
+          <motion.div
+            key="search-spotlight"
+            className="fixed inset-0 z-[30] bg-black/40 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => { setShowSuggestions(false); setIsSearchFocused(false) }}
+            transition={BACKDROP_SPRING}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Content */}
       <main className="mx-auto flex w-full flex-1 flex-col gap-4 px-4 py-4">
         {/* Pickers */}
         <div className="grid gap-3 sm:grid-cols-2">
-          <button
-            ref={kfbBtnRef}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setShowKfbSheet(true)}
-            aria-expanded={showKfbSheet}
-            data-open={showKfbSheet ? 'true' : 'false'}
-            className={clsx(
-              'group relative flex items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm transition active:scale-[0.997]',
-              selectedConfig
-                ? 'bg-white ring-1 ring-slate-200 hover:shadow hover:ring-2 hover:ring-blue-400 hover:ring-offset-2 hover:ring-offset-white'
-                : 'cursor-not-allowed bg-slate-100 ring-1 ring-slate-200/60',
-              'outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-              'data-[open=true]:z-[90] data-[open=true]:ring-2 data-[open=true]:ring-blue-500 data-[open=true]:ring-offset-2 data-[open=true]:ring-offset-white data-[open=true]:shadow-[0_8px_24px_-10px_rgba(59,130,246,0.45),0_0_0_1px_rgba(59,130,246,0.25)]'
-            )}
-          >
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">1. Select KFB Number</div>
-              <div className="truncate text-[16px] font-semibold text-slate-900">
-                {selectedConfig ? selectedConfig.kfb : 'Choose…'}
-              </div>
-            </div>
-            <ChevronDownIcon className="h-5 w-5 text-slate-500 transition group-hover:translate-y-0.5" />
-          </button>
+{/* STEP 1 (highlight when no KFB selected) */}
+<button
+  ref={kfbBtnRef}
+  onMouseDown={(e) => e.preventDefault()}
+  onClick={() => setShowKfbSheet(true)}
+  aria-expanded={showKfbSheet}
+  data-open={showKfbSheet ? 'true' : 'false'}
+  className={clsx(
+    'group relative overflow-hidden flex items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm transition active:scale-[0.997]',
+    !selectedConfig
+      ? 'bg-white ring-2 ring-emerald-500'
+      : 'bg-white ring-1 ring-slate-200 hover:shadow hover:ring-2 hover:ring-blue-400 hover:ring-offset-2 hover:ring-offset-white',
+    'outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+    showKfbSheet && 'z-[92]'
+  )}
+>
+  <div>
+    <div className="text-[11px] uppercase tracking-wider text-slate-500">1. Select KFB Number</div>
+    <div className="truncate text-[16px] font-semibold text-slate-900">
+      {selectedConfig ? selectedConfig.kfb : 'Choose…'}
+    </div>
+  </div>
+  <ChevronDownIcon className="h-5 w-5 text-slate-500 transition group-hover:translate-y-0.5" />
+</button>
 
-          <button
-            ref={infoBtnRef}
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => selectedConfig && setShowInfoSheet(true)}
-            aria-expanded={showInfoSheet}
-            data-open={showInfoSheet ? 'true' : 'false'}
-            className={clsx(
-              'group relative flex items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm transition active:scale-[0.997]',
-              selectedConfig
-                ? 'bg-white ring-1 ring-slate-200 hover:shadow hover:ring-2 hover:ring-blue-400 hover:ring-offset-2 hover:ring-offset-white'
-                : 'cursor-not-allowed bg-slate-100 ring-1 ring-slate-200/60',
-              'outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
-              'data-[open=true]:z-[75] data-[open=true]:ring-2 data-[open=true]:ring-blue-500 data-[open=true]:ring-offset-2 data-[open=true]:ring-offset-white data-[open=true]:shadow-[0_8px_24px_-10px_rgba(59,130,246,0.45),0_0_0_1px_rgba(59,130,246,0.25)]'
-            )}
-          >
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">2. Select KFB Info</div>
-              <div className="truncate text-[16px] font-semibold text-slate-900">
-                {selectedKfbInfo || (selectedConfig ? (kfbInfoDetails.length ? 'Choose…' : 'No info available') : 'Select KFB first')}
-              </div>
-            </div>
-            <ChevronDownIcon className="h-5 w-5 text-slate-500 transition group-hover:translate-y-0.5" />
-          </button>
+{/* STEP 2 (highlight when KFB chosen but Info not yet) */}
+<button
+  ref={infoBtnRef}
+  onMouseDown={(e) => e.preventDefault()}
+  onClick={() => selectedConfig && setShowInfoSheet(true)}
+  aria-expanded={showInfoSheet}
+  data-open={showInfoSheet ? 'true' : 'false'}
+  aria-disabled={!selectedConfig}
+  className={clsx(
+    'group relative overflow-hidden flex items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm transition active:scale-[0.997]',
+    selectedConfig && !selectedKfbInfo
+      ? 'bg-white ring-2 ring-emerald-500'
+      : selectedConfig
+        ? 'bg-white ring-1 ring-slate-200 hover:shadow hover:ring-2 hover:ring-blue-400 hover:ring-offset-2 hover:ring-offset-white'
+        : 'cursor-not-allowed bg-slate-100 ring-1 ring-slate-200/60',
+    'outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white',
+    showInfoSheet && 'z-[92]'
+  )}
+>
+  <div>
+    <div className="text-[11px] uppercase tracking-wider text-slate-500">2. Select KFB Info</div>
+    <div className="truncate text-[16px] font-semibold text-slate-900">
+      {selectedKfbInfo ||
+        (selectedConfig ? (kfbInfoDetails.length ? 'Choose…' : 'No info available') : 'Select KFB first')}
+    </div>
+  </div>
+  <ChevronDownIcon className="h-5 w-5 text-slate-500 transition group-hover:translate-y-0.5" />
+</button>
+
         </div>
 
         {error && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 z-[50]">
             <div className="flex items-start gap-2">
               <ExclamationTriangleIcon className="mt-0.5 h-5 w-5" />
               <div className="flex-1">
@@ -1260,7 +1325,7 @@ const SettingsBranchesPageContent: React.FC<{
         {/* Filter / Suggestions */}
         {selectedConfig && selectedKfbInfo ? (
           <section className="flex min-h-0 flex-1 flex-col">
-            <div className="relative mb-4 mx-auto w-full" ref={searchContainerRef}>
+            <div className={clsx("relative mb-4 mx-auto w-full", isSpotlightOn && "z-[40]")} ref={searchContainerRef}>
               <form
                 onSubmit={(e: FormEvent) => {
                   e.preventDefault()
@@ -1275,11 +1340,18 @@ const SettingsBranchesPageContent: React.FC<{
                     placeholder="Filter, link, or create branch…"
                     value={unifiedInput}
                     onChange={e => { setUnifiedInput(e.target.value); setShowSuggestions(true) }}
-                    onFocus={() => setShowSuggestions(true)}
+                    onFocus={() => { setShowSuggestions(true); setIsSearchFocused(true) }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowSuggestions(false)
+                        setIsSearchFocused(false)
+                      }
+                    }}
                   />
                 </div>
 
-                {showSuggestions && (
+                {/* Suggestions dropdown (hidden when create CTA is visible) */}
+                {showSuggestions && !showCreateCTA && (
                   <div
                     className="absolute top-full left-0 right-0 z-[60] mt-2 max-h-[60vh] overflow-auto rounded-2xl border border-slate-200 bg-white shadow-xl ring-1 ring-slate-200/60 p-2"
                     role="listbox"
@@ -1309,23 +1381,37 @@ const SettingsBranchesPageContent: React.FC<{
                       </button>
                     ))}
 
-                    {showCreateCTA && (
-                      <div className="border-t border-slate-200 bg-slate-50/60 px-4 py-3 text-center rounded-xl">
-                        <button
-                          type="submit"
-                          className="inline-flex items-center justify-center rounded-xl px-3 py-2 text-[15px] font-medium text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
-                        >
-                          Create new branch: “<strong className="ml-1">{unifiedInput}</strong>”
-                        </button>
-                      </div>
+                    {suggestionsUnlinked.length === 0 && (
+                      <div className="px-4 py-3 text-center text-sm text-slate-500">No linkable matches</div>
                     )}
                   </div>
                 )}
               </form>
             </div>
 
-            {/* Grid */}
-            <div className="relative min-h-0 flex-1 overflow-auto rounded-2xl border border-slate-200 bg-white">
+            {/* Big Create CTA (inside "excel" area). Shows only when name is totally new */}
+          {showCreateCTA && (
+       <div className="relative z-[60] mt-2 rounded-2xl bg-emerald-50/70 p-2 ring-1 ring-emerald-200">
+    <button
+      type="button"
+      onClick={createBranchViaSheet}
+      className="w-full flex flex-col items-center justify-center gap-2 rounded-[22px] bg-white px-6 py-6 text-[17px] font-semibold text-emerald-700 shadow-lg ring-2 ring-emerald-300 hover:bg-white active:scale-[0.99]"
+    >
+      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-white">
+        <PlusIcon className="h-7 w-7" />
+      </span>
+      <span className="truncate max-w-[90%]">Create “{unifiedInput}”</span>
+    </button>
+  </div>
+)}
+        
+
+
+            {/* Grid (kept above overlay only when not in create-CTA mode) */}
+            <div className={clsx(
+              "relative min-h-0 flex-1 overflow-auto rounded-2xl border border-slate-200 bg-white",
+              isSpotlightOn && !showCreateCTA && "z-[40]"
+            )}>
               <table className="min-w-full table-fixed">
                 <colgroup>
                   <col className="w-14" />
@@ -1503,11 +1589,23 @@ const SettingsBranchesPageContent: React.FC<{
             </div>
           </section>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <div className="text-center">
-              <p className="text-xl text-slate-600">Choose a KFB and KFB Info to manage branches.</p>
-            </div>
-          </div>
+<div className="w-full max-w-6xl mx-auto px-3">
+  {/* Row 1: Step 1 & Step 2 */}
+
+
+   
+
+  {/* Row 2: Step 3 area */}
+  <div className="mt-6">
+    <div className="rounded-3xl border-2 border-dashed border-slate-300 bg-white/80 p-8 text-center text-slate-600">
+      <div className="text-base font-semibold">3. Linked branches</div>
+      <div className="mt-1 text-sm">After completing steps 1 &amp; 2, your list will appear here.</div>
+    </div>
+  </div>
+</div>
+
+    
+
         )}
       </main>
 

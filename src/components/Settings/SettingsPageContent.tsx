@@ -136,6 +136,10 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const [deleteAnchor, setDeleteAnchor] = useState<DOMRect | null>(null);
   const delModalRef = useRef<HTMLDivElement>(null);
 
+  // Abort controllers for long-lived waits
+  const discoverAbortRef = useRef<AbortController | null>(null);
+  const readyAbortRef = useRef<AbortController | null>(null);
+
   /* Fetch */
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -304,6 +308,14 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const macWrapperRef = useRef<HTMLDivElement>(null);
   const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
 
+  // Close discover: also abort any in-flight waits
+  const closeDiscover = () => {
+    discoverAbortRef.current?.abort();
+    readyAbortRef.current?.abort();
+    setDiscoverOpen(false);
+  };
+
+  // Start discovery: wait indefinitely for "HELLO … <MAC>" over serial
   const startDiscover = async () => {
     setDiscoverOpen(true);
     setDiscoverStatus('searching');
@@ -311,11 +323,17 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     setFoundMac(null);
     setTestStatus('idle');
     setTestMsg(null);
+
+    discoverAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    discoverAbortRef.current = ctrl;
+
     try {
-      const res = await fetch('/api/esp/discover', {
+      const res = await fetch('/api/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
+        signal: ctrl.signal,
       });
       if (!res.ok) throw new Error(await res.text());
       const raw = (await res.json()) as { macAddress?: string; error?: string };
@@ -325,65 +343,60 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
       setCurrentConfig((prev) => ({ ...prev, mac_address: mac }));
       setDiscoverStatus('success');
     } catch (e: any) {
+      if (e?.name === 'AbortError') return;
       setDiscoverStatus('error');
       setDiscoverError(e?.message || 'Discovery failed');
     }
   };
 
   const retryDiscover = async () => {
-    setDiscoverStatus('searching');
-    setDiscoverError(null);
-    setFoundMac(null);
-    setTestStatus('idle');
-    setTestMsg(null);
-    try {
-      const res = await fetch('/api/esp/discover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kfb: currentConfig.kfb || undefined }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const raw = (await res.json()) as { macAddress?: string; error?: string };
-      const mac = raw.macAddress;
-      if (!mac) throw new Error(raw.error || 'No MAC returned');
-      setFoundMac(mac);
-      setCurrentConfig((prev) => ({ ...prev, mac_address: mac }));
-      setDiscoverStatus('success');
-    } catch (e: any) {
-      setDiscoverStatus('error');
-      setDiscoverError(e?.message || 'Discovery failed');
-    }
+    discoverAbortRef.current?.abort();
+    await startDiscover();
   };
 
-  // TEST action (robust to non-JSON responses)
+  // TEST: send WELCOME, then wait (indefinitely) for READY from hub
   const handleTest = async () => {
     if (!foundMac) return;
     try {
       setTestStatus('calling');
-      setTestMsg(null);
+      setTestMsg('Sending WELCOME…');
 
-      const res = await fetch('/api/esp/test', {
+      // 1) Send WELCOME to the hub targeting the found MAC
+      const res = await fetch('/api/test/welcome', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
       });
-
       const contentType = res.headers.get('content-type') || '';
-      let data: any = {};
       const raw = await res.text();
-      try {
-        data = contentType.includes('application/json') ? JSON.parse(raw) : (raw ? { message: raw } : {});
-      } catch {
-        data = { message: raw }; // tolerate bad JSON
-      }
-
+      const data = contentType.includes('application/json') ? JSON.parse(raw || '{}') : { message: raw };
       if (!res.ok) throw new Error(data?.error || raw || 'Test failed');
 
+      // 2) Wait for READY back from hub (serial)
+      readyAbortRef.current?.abort();
+      const ctrl = new AbortController();
+      readyAbortRef.current = ctrl;
+      setTestMsg('Waiting for READY from hub…');
+
+      // This route should return when a serial line containing the same MAC + "READY" is seen.
+      const waitRes = await fetch('/api/test/wait-ready', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac: foundMac }),
+        signal: ctrl.signal,
+      });
+
+      const waitCT = waitRes.headers.get('content-type') || '';
+      const waitRaw = await waitRes.text();
+      const waitData = waitCT.includes('application/json') ? JSON.parse(waitRaw || '{}') : { message: waitRaw };
+      if (!waitRes.ok) throw new Error(waitData?.error || waitRaw || 'READY wait failed');
+
       setTestStatus('ok');
-      setTestMsg(data?.message || 'Test command sent.');
+      setTestMsg('READY received. Test OK.');
     } catch (e: any) {
+      if (e?.name === 'AbortError') return; // closed modal
       setTestStatus('error');
-      setTestMsg(e?.message ?? 'Failed to send test.');
+      setTestMsg(e?.message ?? 'Failed to run test.');
     }
   };
 
@@ -780,7 +793,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
           <>
             {discoverRect ? (
               <>
-                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={() => setDiscoverOpen(false)} />
+                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={closeDiscover} />
                 <motion.div
                   className="fixed top-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
@@ -788,7 +801,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                   exit={{ opacity: 0 }}
                   transition={fade}
                   style={{ top: Math.max(0, discoverRect.top - 12), left: 0, width: Math.max(0, discoverRect.left - 12), height: discoverRect.height + 24 }}
-                  onClick={() => setDiscoverOpen(false)}
+                  onClick={closeDiscover}
                 />
                 <motion.div
                   className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-sm"
@@ -797,7 +810,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                   exit={{ opacity: 0 }}
                   transition={fade}
                   style={{ top: Math.max(0, discoverRect.top - 12), left: discoverRect.left + discoverRect.width + 12, height: discoverRect.height + 24 }}
-                  onClick={() => setDiscoverOpen(false)}
+                  onClick={closeDiscover}
                 />
                 <motion.div
                   className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-sm"
@@ -806,11 +819,11 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
                   exit={{ opacity: 0 }}
                   transition={fade}
                   style={{ top: discoverRect.top + discoverRect.height + 12 }}
-                  onClick={() => setDiscoverOpen(false)}
+                  onClick={closeDiscover}
                 />
               </>
             ) : (
-              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={() => setDiscoverOpen(false)} />
+              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={closeDiscover} />
             )}
 
             <DiscoverEspModal
@@ -818,7 +831,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
               status={discoverStatus}
               mac={foundMac}
               error={discoverError}
-              onClose={() => setDiscoverOpen(false)}
+              onClose={closeDiscover}
               onRetry={retryDiscover}
               onTest={handleTest}
               testStatus={testStatus}
@@ -875,7 +888,7 @@ function DiscoverEspModal({
   const showSuccess = status === 'success' && testStatus === 'ok';
   const stripText =
     status === 'searching'
-      ? 'WAITING FOR BUTTON PRESS ON BOARDS ESP32'
+      ? 'Waiting for BUTTON PRESS ON ESP…'
       : showSuccess
       ? 'SUCCESS'
       : status === 'success'
@@ -930,7 +943,7 @@ function DiscoverEspModal({
               <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
                 <SimpleLinkAnimation searching={status === 'searching'} success={status === 'success'} big />
 
-                {/* Centered TEST button — no pulse */}
+                {/* Centered TEST button */}
                 {status === 'success' && (
                   <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
                     <button
@@ -1009,7 +1022,7 @@ function StatusBanner({
     <div className={`${base} bg-white/80 ring-slate-200`}>
       <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-semibold text-slate-800">
         <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
-        <span>Connecting to ESP over Wi-Fi…</span>
+        <span>Waiting for ESP</span>
       </div>
     </div>
   );
@@ -1072,8 +1085,6 @@ function StatusStrip({ tone, text }: { tone: 'indigo' | 'emerald' | 'sky' | 'sla
     </div>
   );
 }
-
-
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 3) Calmer link + lighter grid (SVG)
@@ -1139,16 +1150,14 @@ function SimpleLinkAnimation({ searching, success, big = false }: { searching: b
 /** Dark mono ESP32 board (#22211d) with components */
 function MonoBoard({ w, h, label, active }: { w: number; h: number; label: string; active: boolean }) {
   // Palette
-  const pcb = '#22211d';           // requested board color
-  const edge = '#2d2b26';          // subtle border
-  const silk = '#e5e7eb';          // light labels
-  const pin = '#9ca3af';           // metal pins
+  const pcb = '#22211d';
+  const edge = '#2d2b26';
+  const silk = '#e5e7eb';
+  const pin = '#9ca3af';
   const ledOn = '#22c55e';
   const ledOn2 = '#6366f1';
   const ledOff = '#475569';
 
-  // Shield gradient (light metal against dark pcb)
-  // USB gradient
   const holeR = w > 200 ? 5.5 : 4;
   const headerPins = w > 200 ? 20 : 16;
 
@@ -1201,7 +1210,7 @@ function MonoBoard({ w, h, label, active }: { w: number; h: number; label: strin
         return <rect key={`rp-${i}`} x={w - 14} y={y} width="6" height="6" rx="1.5" fill={pin} />;
       })}
 
-      {/* RF shield / module (light metal on dark) */}
+      {/* RF shield / module */}
       <rect x={shieldX} y={shieldY} width={shieldW} height={shieldH} rx="6" fill="url(#shieldMetal)" stroke="#6b7280" />
 
       {/* Antenna meander */}
@@ -1222,7 +1231,7 @@ function MonoBoard({ w, h, label, active }: { w: number; h: number; label: strin
         strokeWidth={w > 200 ? 2.2 : 1.8}
       />
 
-      {/* EN / BOOT buttons (dark) */}
+      {/* EN / BOOT buttons */}
       <rect x={w * 0.12} y={btnY} width={btnW} height={btnH} rx="3" fill="#0f172a" stroke="#475569" />
       <rect x={w - w * 0.12 - btnW} y={btnY} width={btnW} height={btnH} rx="3" fill="#0f172a" stroke="#475569" />
       <text x={w * 0.12 + btnW / 2} y={btnY + btnH + (w > 200 ? 18 : 14)} fontSize={w > 200 ? 10.5 : 8.5} fill={silk} textAnchor="middle" fontFamily="ui-sans-serif">
@@ -1236,14 +1245,14 @@ function MonoBoard({ w, h, label, active }: { w: number; h: number; label: strin
       <rect x={w / 2 - usbW / 2} y={h - usbH - 12} width={usbW} height={usbH} rx="3" fill="url(#usbGrad)" stroke="#6b7280" />
       <rect x={w / 2 - (usbW * 0.55) / 2} y={h - usbH / 2 - 9} width={usbW * 0.55} height={usbH * 0.3} rx="1" fill="#111827" />
 
-      {/* Status LEDs (static) */}
+      {/* Status LEDs */}
       <circle cx={w * 0.36} cy={ledY} r={ledR} fill={active ? ledOn : ledOff} />
       <circle cx={w * 0.64} cy={ledY} r={ledR} fill={active ? ledOn2 : ledOff} />
 
       {/* Silk line */}
       <rect x={shieldX} y={h * 0.76} width={shieldW} height={w > 200 ? 6 : 4} rx="1.5" fill="#334155" />
 
-      {/* Label below (light text) */}
+      {/* Label */}
       <text
         x={w / 2}
         y={labelY}

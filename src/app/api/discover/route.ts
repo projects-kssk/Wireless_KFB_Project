@@ -10,22 +10,19 @@ function extractMac(line: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Wait forever until: (a) expected MAC + HELLO is seen, or (b) client aborts. */
-function waitForExactHelloAbortable(
-  expectedMac: string,
-  signal: AbortSignal
-): Promise<{ mac: string; raw: string }> {
+/** Wait indefinitely for any MAC + HELLO. Abort when client closes. */
+function waitForHelloAbortable(signal: AbortSignal): Promise<{ mac: string; raw: string }> {
   return new Promise((resolve, reject) => {
     const { parser } = getEspLineStream();
 
     const onData = (buf: Buffer | string) => {
       const raw = String(buf).trim();
       if (!raw) return;
-
       const upper = raw.toUpperCase();
-      if (!/\bHELLO\b/.test(upper)) return;            // ignore non-HELLO
+
+      if (!/\bHELLO\b/.test(upper)) return;           // ignore non-HELLO lines
       const mac = extractMac(upper);
-      if (!mac || mac !== expectedMac) return;         // ignore wrong MAC
+      if (!mac) return;                               // require a MAC in the line
 
       cleanup();
       resolve({ mac, raw: `serial:${raw}` });
@@ -47,26 +44,16 @@ function waitForExactHelloAbortable(
   });
 }
 
-type Body = { expectMac?: string };
-
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as Body;
-
-    const expectedMac = String(
-      body.expectMac ?? process.env.ESP_EXPECT_MAC ?? "08:3A:8D:15:27:54"
-    ).toUpperCase().trim();
-
     const present = await isEspPresent().catch(() => false);
     if (!present) throw new Error("serial-not-present");
 
-    const { mac, raw } = await waitForExactHelloAbortable(expectedMac, req.signal);
+    const { mac, raw } = await waitForHelloAbortable(req.signal);
 
     return NextResponse.json({
-      macAddress: mac,
+      macAddress: mac.toUpperCase(),
       channel: "serial",
-      unexpected: false,
-      expected: expectedMac,
       raw,
     });
   } catch (e: any) {

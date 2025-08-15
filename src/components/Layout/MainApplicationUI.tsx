@@ -197,10 +197,9 @@ const MainApplicationUI: React.FC = () => {
     setCheckFailures(null);
 
     try {
-      const pins = branchesData
-        .map(b => b.pinNumber)
-        .filter((p): p is number => typeof p === 'number');
-
+   const pins = branchesData
+  .filter(b => !b.notTested && typeof b.pinNumber === 'number')
+  .map(b => b.pinNumber);
       const res = await fetch('/api/serial/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

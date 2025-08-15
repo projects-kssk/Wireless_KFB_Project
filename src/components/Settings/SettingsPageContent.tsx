@@ -140,6 +140,16 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   const discoverAbortRef = useRef<AbortController | null>(null);
   const readyAbortRef = useRef<AbortController | null>(null);
 
+  // edit highlight + cancel
+  const [showEditHighlight, setShowEditHighlight] = useState(false);
+  const cancelEdit = useCallback(() => {
+    setCurrentConfig(initialFormState);
+    setIsEditing(false);
+    setEditingId(null);
+    setFormNotification({ message: null, type: null });
+    setShowEditHighlight(false);
+  }, []);
+
   /* Fetch */
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -156,9 +166,23 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
       setIsLoading(false);
     }
   }, []);
-
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  /* Refs used for outside-click and spotlights */
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // outside click to cancel edit
+  useEffect(() => {
+    if (!isEditing) return;
+    const onDown = (e: MouseEvent) => {
+      const el = formRef.current;
+      if (el && !el.contains(e.target as Node)) cancelEdit();
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, [isEditing, cancelEdit]);
+
+  // populate edit form
   useEffect(() => {
     if (editingId !== null) {
       const hit = configurations.find((c) => c.id === editingId);
@@ -172,13 +196,13 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
           kfbInfo: hit.kfbInfo.length ? [...hit.kfbInfo] : [''],
         });
         setIsEditing(true);
+        setShowEditHighlight(true);
         setFormNotification({ message: null, type: null });
       }
     } else {
-      setCurrentConfig(initialFormState);
-      setIsEditing(false);
+      cancelEdit();
     }
-  }, [editingId, configurations]);
+  }, [editingId, configurations, cancelEdit]);
 
   /* Form handlers */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -232,9 +256,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         message: `Configuration ${isEditing ? 'updated' : 'saved'}!`,
         type: 'success',
       });
-      setCurrentConfig(initialFormState);
-      setIsEditing(false);
-      setEditingId(null);
+      cancelEdit();
       await fetchData();
     } catch (err: any) {
       console.error(err);
@@ -302,9 +324,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
   }, [configurations, filterText]);
 
   /* Spotlights */
-  const formRef = useRef<HTMLDivElement>(null);
   const editRect = useAnchorRect(isEditing, formRef);
-
   const macWrapperRef = useRef<HTMLDivElement>(null);
   const discoverRect = useAnchorRect(discoverOpen, macWrapperRef);
 
@@ -354,51 +374,32 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
     await startDiscover();
   };
 
-  // TEST: send WELCOME, then wait (indefinitely) for READY from hub
-  const handleTest = async () => {
-    if (!foundMac) return;
-    try {
-      setTestStatus('calling');
-      setTestMsg('Sending WELCOME…');
+const handleTest = async () => {
+  if (!foundMac) return;
+  try {
+    setTestStatus('calling');
+    setTestMsg('Sending WELCOME and waiting for READY…');
 
-      // 1) Send WELCOME to the hub targeting the found MAC
-      const res = await fetch('/api/test/welcome', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
-      });
-      const contentType = res.headers.get('content-type') || '';
-      const raw = await res.text();
-      const data = contentType.includes('application/json') ? JSON.parse(raw || '{}') : { message: raw };
-      if (!res.ok) throw new Error(data?.error || raw || 'Test failed');
+    const res = await fetch('/api/welcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
+    });
 
-      // 2) Wait for READY back from hub (serial)
-      readyAbortRef.current?.abort();
-      const ctrl = new AbortController();
-      readyAbortRef.current = ctrl;
-      setTestMsg('Waiting for READY from hub…');
+    const raw = await res.text();
+    const data = res.headers.get('content-type')?.includes('application/json')
+      ? JSON.parse(raw || '{}')
+      : { message: raw };
 
-      // This route should return when a serial line containing the same MAC + "READY" is seen.
-      const waitRes = await fetch('/api/test/wait-ready', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac: foundMac }),
-        signal: ctrl.signal,
-      });
+    if (!res.ok) throw new Error(data?.error || raw || 'Test failed');
 
-      const waitCT = waitRes.headers.get('content-type') || '';
-      const waitRaw = await waitRes.text();
-      const waitData = waitCT.includes('application/json') ? JSON.parse(waitRaw || '{}') : { message: waitRaw };
-      if (!waitRes.ok) throw new Error(waitData?.error || waitRaw || 'READY wait failed');
-
-      setTestStatus('ok');
-      setTestMsg('READY received. Test OK.');
-    } catch (e: any) {
-      if (e?.name === 'AbortError') return; // closed modal
-      setTestStatus('error');
-      setTestMsg(e?.message ?? 'Failed to run test.');
-    }
-  };
+    setTestStatus('ok');
+    setTestMsg('READY received. Test OK.');
+  } catch (e: any) {
+    setTestStatus('error');
+    setTestMsg(e?.message ?? 'Failed to run test.');
+  }
+};
 
   const macFlash = useFlashOnChange(currentConfig.mac_address, 900);
 
@@ -446,11 +447,19 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         </div>
       </motion.header>
 
-      {/* Editing spotlight (subtle) */}
+      {/* Editing spotlight */}
       <AnimatePresence>
-        {isEditing && editRect && (
+        {isEditing && editRect && showEditHighlight && (
           <>
-            <motion.div key="spot-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 0.4 }} exit={{ opacity: 0 }} transition={fade} className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-[1px]" />
+            <motion.div
+              key="spot-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.4 }}
+              exit={{ opacity: 0 }}
+              transition={fade}
+              className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-[1px]"
+              onClick={cancelEdit}
+            />
             <motion.div
               key="spot-ring"
               initial={{ opacity: 0 }}
@@ -475,7 +484,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={cardSpring}
-        className={`${tileCard} relative z-[70] rounded-3xl p-6 sm:p-8 mb-6 ${isEditing ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-sky-50' : ''}`}
+        className={`${tileCard} relative z-[70] rounded-3xl p-6 sm:p-8 mb-6 ${showEditHighlight ? 'ring-2 ring-sky-400 ring-offset-2 ring-offset-sky-50' : ''}`}
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
@@ -599,12 +608,7 @@ export const SettingsPageContent: React.FC<SettingsPageContentProps> = ({
             )) && (
             <button
               type="button"
-              onClick={() => {
-                setCurrentConfig(initialFormState);
-                setIsEditing(false);
-                setEditingId(null);
-                setFormNotification({ message: null, type: null });
-              }}
+              onClick={cancelEdit}
               className="rounded-full bg-white/90 px-6 py-3 text-[15px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-white active:scale-[0.99]"
             >
               Cancel
@@ -1102,8 +1106,8 @@ function SimpleLinkAnimation({ searching, success, big = false }: { searching: b
   const arc = big ? 90 : 64;
   const linkPath = `M ${xStart} ${yMid} C ${W / 2 - 160} ${yMid - arc}, ${W / 2 + 160} ${yMid - arc}, ${xEnd} ${yMid}`;
 
-  const idle = 'rgba(100,116,139,.85)';   // slate-500
-  const ok = 'rgba(16,185,129,.90)';      // emerald-500
+  const idle = 'rgba(100,116,139,.85)';
+  const ok = 'rgba(16,185,129,.90)';
 
   return (
     <div className="relative mx-auto w-full overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50">
@@ -1149,7 +1153,6 @@ function SimpleLinkAnimation({ searching, success, big = false }: { searching: b
 
 /** Dark mono ESP32 board (#22211d) with components */
 function MonoBoard({ w, h, label, active }: { w: number; h: number; label: string; active: boolean }) {
-  // Palette
   const pcb = '#22211d';
   const edge = '#2d2b26';
   const silk = '#e5e7eb';

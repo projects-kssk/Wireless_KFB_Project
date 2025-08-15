@@ -1,3 +1,4 @@
+// app/api/wait-ready/route.ts
 import { NextResponse } from "next/server";
 import { getEspLineStream, isEspPresent } from "@/lib/serial";
 
@@ -11,9 +12,18 @@ function extractMac(upperLine: string): string | null {
   return m?.[1] ?? null;
 }
 
-function waitForReadyAbortable(signal: AbortSignal, wantMac: string): Promise<{ mac: string; raw: string }> {
+async function sendWelcomeLine(mac: string) {
+  // write "WELCOME <MAC>\n" to the station's serial port
+  const { port } = getEspLineStream() as any;
+  if (!port || typeof port.write !== "function") throw new Error("serial-port-not-writable");
+  await new Promise<void>((resolve, reject) =>
+    port.write(`WELCOME ${mac}\n`, (err: any) => (err ? reject(err) : resolve()))
+  );
+}
+
+function waitForReadyAbortable(signal: AbortSignal, wantMacUpper: string): Promise<{ mac: string; raw: string }> {
   return new Promise((resolve, reject) => {
-    const { parser } = getEspLineStream();
+    const { parser } = getEspLineStream() as any;
 
     const onData = (buf: Buffer | string) => {
       const raw = String(buf).trim();
@@ -21,11 +31,17 @@ function waitForReadyAbortable(signal: AbortSignal, wantMac: string): Promise<{ 
       const upper = raw.toUpperCase();
       if (!upper.includes("READY")) return;
       const mac = extractMac(upper);
-      if (!mac || mac !== wantMac) return;
-      cleanup(); resolve({ mac, raw });
+      if (!mac || mac !== wantMacUpper) return;
+      cleanup();
+      resolve({ mac, raw });
     };
+
     const onAbort = () => { cleanup(); reject(new Error("client-abort")); };
-    const cleanup = () => { try { parser.off("data", onData); } catch {} try { signal.removeEventListener("abort", onAbort); } catch {} };
+
+    const cleanup = () => {
+      try { parser.off("data", onData); } catch {}
+      try { signal.removeEventListener("abort", onAbort); } catch {}
+    };
 
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort);
@@ -35,18 +51,31 @@ function waitForReadyAbortable(signal: AbortSignal, wantMac: string): Promise<{ 
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as { mac?: string };
-    const mac = (body.mac || "").toUpperCase();
-    if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'Missing or invalid "mac".' }, { status: 400 });
+    const body = await req.json().catch(() => ({} as any));
+    const mac = String(body?.mac || "").toUpperCase();
+
+    if (!MAC_RE.test(mac)) {
+      return NextResponse.json({ error: 'Missing or invalid "mac".' }, { status: 400 });
+    }
 
     const present = await isEspPresent().catch(() => false);
-    if (!present) return NextResponse.json({ error: "serial-not-present" }, { status: 428 });
+    if (!present) {
+      return NextResponse.json({ error: "serial-not-present" }, { status: 428 });
+    }
+
+    // Optional trigger: send WELCOME to kick off the hub’s READY response
+    if (body?.sendWelcome !== false) {
+      await sendWelcomeLine(mac);
+    }
 
     const { raw } = await waitForReadyAbortable(req.signal, mac);
     return NextResponse.json({ ok: true, mac, raw, message: `READY received for ${mac}.` });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status = msg === "client-abort" ? 499 : 500;
-    return new NextResponse(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+    return new NextResponse(JSON.stringify({ error: msg }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }

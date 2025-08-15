@@ -11,7 +11,7 @@ import { broadcast, DeviceInfo } from "@/lib/bus";
 export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: process.env.ESP_TTY_PATH ?? "/dev/ttyUSB0",
+      path: process.env.ESP_TTY_PATH ?? "/dev/ttyUSB1",
       baudRate: 115200,
       lock: false,
       autoOpen: false,
@@ -62,7 +62,7 @@ export async function listSerialDevices(): Promise<DeviceInfo[]> {
 
 /** Presence check: treat server "online" if the ESP device node exists */
 export async function isEspPresent(
-  path = process.env.ESP_TTY_PATH ?? "/dev/ttyUSB0"
+  path = process.env.ESP_TTY_PATH ?? "/dev/ttyUSB1"
 ): Promise<boolean> {
   const list = await SerialPort.list();
   return list.some((d) => d.path === path);
@@ -102,7 +102,7 @@ export async function espHealth(): Promise<{ present: boolean; ok: boolean; raw:
 export async function sendToEsp(cmd: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const port = new SerialPort({
-      path: process.env.ESP_TTY_PATH ?? "/dev/ttyUSB0",
+      path: process.env.ESP_TTY_PATH ?? "/dev/ttyUSB1",
       baudRate: 115200,
       lock: false,
       autoOpen: false,
@@ -305,7 +305,7 @@ let espPort: SerialPort | null = null;
 let espParser: ReadlineParser | null = null;
 
 export function getEspLineStream(
-  path = process.env.ESP_TTY_PATH ?? "/dev/ttyUSB0",
+  path = process.env.ESP_TTY_PATH ?? "/dev/ttyUSB1",
   baudRate = 115200
 ): { port: SerialPort; parser: ReadlineParser } {
   if (espPort && espParser) return { port: espPort, parser: espParser };

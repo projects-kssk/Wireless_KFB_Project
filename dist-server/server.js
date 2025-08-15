@@ -22,7 +22,7 @@ app.prepare().then(() => {
         }
     });
     // single shared serial stream for all clients
-    const { parser } = getEspLineStream('/dev/ttyUSB0', 115200);
+    const { parser } = getEspLineStream('/dev/ttyUSB1', 115200);
     wss.on('connection', ws => {
         console.log('WS client connected');
         const onData = (raw) => {

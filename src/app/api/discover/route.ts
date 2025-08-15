@@ -10,28 +10,25 @@ function extractMac(line: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Wait indefinitely for any MAC + HELLO. Abort when client closes. */
+/** Wait for any "HELLO <MAC>" line from the hub. */
 function waitForHelloAbortable(signal: AbortSignal): Promise<{ mac: string; raw: string }> {
   return new Promise((resolve, reject) => {
-    const { parser } = getEspLineStream();
+    const { parser } = getEspLineStream() as any;
 
     const onData = (buf: Buffer | string) => {
       const raw = String(buf).trim();
       if (!raw) return;
       const upper = raw.toUpperCase();
+      if (!/\BHELLO\b/.test(upper) && !/\bHELLO\b/.test(upper)) return; // guard
 
-      if (!/\bHELLO\b/.test(upper)) return;           // ignore non-HELLO lines
       const mac = extractMac(upper);
-      if (!mac) return;                               // require a MAC in the line
+      if (!mac) return;
 
       cleanup();
       resolve({ mac, raw: `serial:${raw}` });
     };
 
-    const onAbort = () => {
-      cleanup();
-      reject(new Error("client-abort"));
-    };
+    const onAbort = () => { cleanup(); reject(new Error("client-abort")); };
 
     const cleanup = () => {
       try { parser.off("data", onData); } catch {}
@@ -47,22 +44,13 @@ function waitForHelloAbortable(signal: AbortSignal): Promise<{ mac: string; raw:
 export async function POST(req: Request) {
   try {
     const present = await isEspPresent().catch(() => false);
-    if (!present) throw new Error("serial-not-present");
+    if (!present) return NextResponse.json({ error: "serial-not-present" }, { status: 428 });
 
     const { mac, raw } = await waitForHelloAbortable(req.signal);
-
-    return NextResponse.json({
-      macAddress: mac.toUpperCase(),
-      channel: "serial",
-      raw,
-    });
+    return NextResponse.json({ macAddress: mac.toUpperCase(), channel: "serial", raw });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
-    const status =
-      msg === "client-abort" ? 499 :
-      msg.includes("serial-not-present") ? 428 :
-      500;
-
+    const status = msg === "client-abort" ? 499 : 500;
     return new NextResponse(JSON.stringify({ error: msg }), {
       status,
       headers: { "Content-Type": "application/json" },

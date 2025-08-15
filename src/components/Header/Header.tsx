@@ -24,28 +24,16 @@ type DeviceInfo = {
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Tokens
+   Strict header chrome
    ──────────────────────────────────────────────────────────────────────────── */
-const WidgetGlass = [
-  'bg-white/80 dark:bg-slate-900/55',
-  'backdrop-blur-2xl',
-  'border border-white/60 dark:border-white/10',
-  'ring-1 ring-white/50 dark:ring-white/10',
-  'shadow-[inset_0_1px_0_rgba(255,255,255,.75),_0_10px_26px_rgba(2,6,23,.10)]',
-  'rounded-2xl',
-].join(' ');
-
-const SoftChip = 'px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1';
-
-const HeaderChrome = [
-  "bg-[radial-gradient(140%_140%_at_0%_-20%,#f1f5ff_0%,#ffffff_52%,#fbfbff_90%)]",
-  "dark:bg-[radial-gradient(160%_160%_at_0%_-30%,#020617_0%,#0b1220_60%,#0b1220_100%)]",
-  'supports-[backdrop-filter]:bg-white/55',
-  'border-b border-white/60 dark:border-white/10',
+const StrictHeaderBg = [
+  "bg-[radial-gradient(140%_140%_at_0%_-20%,#f6f8ff_0%,#ffffff_60%,#fafafe_100%)]",
+  "dark:bg-[radial-gradient(160%_160%_at_0%_-30%,#0b1220_0%,#0b1220_70%,#070d19_100%)]",
+  'border-b border-slate-200/70 dark:border-slate-800',
 ].join(' ');
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Support CTA — compact
+   Support CTA — strict
    ──────────────────────────────────────────────────────────────────────────── */
 const SupportIcon: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 48 48" className={className} aria-hidden>
@@ -63,12 +51,15 @@ const SupportPillSM: React.FC<{
   supportNumber?: string | number;
   onCall?: () => void;
   className?: string;
-}> = ({ supportNumber = 621, onCall, className }) => {
+  labelsHidden?: boolean;
+}> = ({ supportNumber = 621, onCall, className, labelsHidden }) => {
   const reduce = useReducedMotion();
   const number = String(supportNumber ?? 621);
   const call = () => {
     if (onCall) return onCall();
-    try { window.location.href = `tel:${number}`; } catch {}
+    try {
+      window.location.href = `tel:${number}`;
+    } catch {}
   };
 
   return (
@@ -78,9 +69,8 @@ const SupportPillSM: React.FC<{
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       className={[
-        'relative inline-flex items-center w-full h-full',
-        'px-4 text-left group',
-        WidgetGlass,
+        'relative inline-flex items-center w-full h-full px-4 text-left group',
+        'bg-transparent',
         className ?? '',
       ].join(' ')}
       style={{ overflow: 'hidden' }}
@@ -92,31 +82,34 @@ const SupportPillSM: React.FC<{
             'h-10 w-10 2xl:h-12 2xl:w-12',
             'text-white',
             'bg-gradient-to-br from-violet-500 via-fuchsia-500 to-indigo-500',
-            'ring-1 ring-white/50 dark:ring-white/10',
           ].join(' ')}
         >
           <SupportIcon className="h-5 w-5 2xl:h-6 2xl:w-6 opacity-95" />
           {!reduce && (
             <motion.span
               className="pointer-events-none absolute inset-0 rounded-full"
-              style={{ boxShadow: '0 0 0 0 rgba(168,85,247,.45)' }}
-              animate={{ boxShadow: ['0 0 0 0 rgba(168,85,247,.45)', '0 0 0 12px rgba(168,85,247,0)'] }}
+              style={{ boxShadow: '0 0 0 0 rgba(168,85,247,.35)' }}
+              animate={{ boxShadow: ['0 0 0 0 rgba(168,85,247,.35)', '0 0 0 12px rgba(168,85,247,0)'] }}
               transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
             />
           )}
         </div>
       </div>
-      <div className="min-w-0">
-        <div className="text-[12px] font-semibold text-slate-600 dark:text-slate-300 leading-tight">Support</div>
-        <div className="flex items-baseline gap-2">
-          <span className="truncate text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
-            Call {number}
-          </span>
+
+      {labelsHidden ? (
+        <span className="text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
+          {number}
+        </span>
+      ) : (
+        <div className="min-w-0">
+          <div className="text-[12px] font-semibold text-slate-600 dark:text-slate-300 leading-tight">Support</div>
+          <div className="flex items-baseline gap-2">
+            <span className="truncate text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
+              Call {number}
+            </span>
+          </div>
         </div>
-      </div>
-      <svg viewBox="0 0 24 24" className="ml-auto h-5 w-5 opacity-70 group-hover:translate-x-0.5 transition-transform" aria-hidden>
-        <path fill="currentColor" d="M9 6l6 6-6 6" />
-      </svg>
+      )}
     </motion.button>
   );
 };
@@ -127,10 +120,10 @@ const SupportPillSM: React.FC<{
 type LedColor = 'green' | 'amber' | 'red';
 const ledCfg = (c: LedColor) =>
   c === 'green'
-    ? { a: '#34d399', b: '#10b981', rim: 'rgba(16,185,129,.5)', soft: 'bg-emerald-50 text-emerald-700 ring-emerald-200/70', strong: 'bg-emerald-600 text-white' }
+    ? { a: '#34d399', b: '#10b981', rim: 'rgba(16,185,129,.45)' }
     : c === 'amber'
-    ? { a: '#fbbf24', b: '#f59e0b', rim: 'rgba(245,158,11,.55)', soft: 'bg-amber-50 text-amber-800 ring-amber-200/70', strong: 'bg-amber-600 text-white' }
-    : { a: '#fb7185', b: '#ef4444', rim: 'rgba(244,63,94,.55)', soft: 'bg-rose-50 text-rose-700 ring-rose-200/70', strong: 'bg-rose-600 text-white' };
+    ? { a: '#fbbf24', b: '#f59e0b', rim: 'rgba(245,158,11,.45)' }
+    : { a: '#fb7185', b: '#ef4444', rim: 'rgba(244,63,94,.45)' };
 
 const LedBall: React.FC<{ color: LedColor; size?: number; title?: string }> = ({ color, size = 34, title }) => {
   const reduce = useReducedMotion();
@@ -142,8 +135,9 @@ const LedBall: React.FC<{ color: LedColor; size?: number; title?: string }> = ({
         aria-hidden
         className="block rounded-full"
         style={{
-          height: px, width: px,
-          boxShadow: `0 0 0 4px ${cfg.rim}, 0 8px 18px rgba(2,6,23,.10), inset 0 -2px 5px rgba(0,0,0,.10), inset 0 2px 3px rgba(255,255,255,.65)`,
+          height: px,
+          width: px,
+          boxShadow: `0 0 0 4px ${cfg.rim}`,
           background: `
             radial-gradient(120% 120% at 28% 24%, rgba(255,255,255,.92) 0%, rgba(255,255,255,0) 42%),
             radial-gradient(85% 85% at 50% 60%, ${cfg.a} 0%, ${cfg.b} 70%)
@@ -164,39 +158,150 @@ const LedBall: React.FC<{ color: LedColor; size?: number; title?: string }> = ({
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Status cells in a single row (Scanner 1 | Scanner 2 | Server)
+   Status cells
    ──────────────────────────────────────────────────────────────────────────── */
 type Row = { title: string; sub?: string | null; color: LedColor; suffix?: string | number };
 
-const StatusCell: React.FC<Row> = ({ title, sub, color, suffix }) => {
-  const cfg = ledCfg(color);
+const StatusCell: React.FC<Row & { labelsHidden?: boolean }> = ({ title, sub, color, suffix, labelsHidden }) => {
   return (
     <div className="flex items-center h-full px-3 py-2">
       <LedBall color={color} />
-      <div className="ml-3 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          {suffix !== undefined && <span className={[SoftChip, cfg.strong].join(' ')}>{suffix}</span>}
-          {sub && <span className={[SoftChip, cfg.soft].join(' ')}>{sub}</span>}
+      {!labelsHidden && (
+        <div className="ml-3 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            {suffix !== undefined && (
+              <span className="px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1 ring-slate-200 bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900">
+                {suffix}
+              </span>
+            )}
+            {sub && (
+              <span className="px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1 ring-slate-200 text-slate-700 bg-slate-50 dark:text-slate-200 dark:bg-slate-800">
+                {sub}
+              </span>
+            )}
+          </div>
+          <span className="truncate text-[15px] 2xl:text-[16px] font-extrabold tracking-tight text-slate-900 dark:text-white">
+            {title}
+          </span>
         </div>
-        <span className="truncate text-[15px] 2xl:text-[16px] font-extrabold tracking-tight text-slate-900 dark:text-white">
-          {title}
-        </span>
+      )}
+    </div>
+  );
+};
+
+const StatusRow: React.FC<{ cells: Row[]; className?: string; labelsHidden?: boolean }> = ({
+  cells,
+  className,
+  labelsHidden,
+}) => {
+  return (
+    <div className={['w-full h-full p-0', className ?? ''].join(' ')} style={{ overflow: 'hidden' }}>
+      <div className="grid grid-cols-3 gap-3 h-full">
+        {cells.slice(0, 3).map((c, i) => (
+          <div key={i} className="flex">
+            <StatusCell {...c} labelsHidden={labelsHidden} />
+          </div>
+        ))}
       </div>
     </div>
   );
 };
 
-const StatusRow: React.FC<{ cells: Row[]; className?: string }> = ({ cells, className }) => {
+/* ────────────────────────────────────────────────────────────────────────────
+   iOS-like Settings glyph (tight, layered rings + spokes)
+   ──────────────────────────────────────────────────────────────────────────── */
+const IOSSettingsGlyph: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Settings">
+    <defs>
+      <linearGradient id="g-alum" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#cfd4dc" />
+        <stop offset="100%" stopColor="#9aa3ae" />
+      </linearGradient>
+      <linearGradient id="g-dark" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#47515d" />
+        <stop offset="100%" stopColor="#1f2937" />
+      </linearGradient>
+      <linearGradient id="g-rim" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#a6adb7" />
+        <stop offset="100%" stopColor="#6b7280" />
+      </linearGradient>
+    </defs>
+
+    {/* outer rim */}
+    <circle cx="32" cy="32" r="24" fill="url(#g-alum)" />
+    <circle cx="32" cy="32" r="23.3" fill="none" stroke="url(#g-rim)" strokeWidth="1.4" />
+
+    {/* big tooth ring */}
+    <circle
+      cx="32"
+      cy="32"
+      r="20"
+      fill="none"
+      stroke="url(#g-alum)"
+      strokeWidth="5.8"
+      strokeLinecap="round"
+      strokeDasharray="1.35 2.9"
+      transform="rotate(-6 32 32)"
+      opacity="0.95"
+    />
+
+    {/* middle tooth ring */}
+    <circle
+      cx="32"
+      cy="32"
+      r="13.5"
+      fill="none"
+      stroke="url(#g-alum)"
+      strokeWidth="4.6"
+      strokeLinecap="round"
+      strokeDasharray="1.1 2.3"
+      transform="rotate(8 32 32)"
+      opacity="0.95"
+    />
+
+    {/* inner rim */}
+    <circle cx="32" cy="32" r="11.6" fill="none" stroke="url(#g-rim)" strokeWidth="2" opacity="0.9" />
+
+    {/* three spokes */}
+    <g stroke="url(#g-alum)" strokeWidth="3.1" strokeLinecap="round" strokeLinejoin="round" opacity="0.95">
+      <path d="M32 32 L32 17" />
+      <path d="M32 32 L46 40" transform="rotate(120 32 32)" />
+      <path d="M32 32 L46 40" transform="rotate(240 32 32)" />
+    </g>
+
+    {/* hub */}
+    <circle cx="32" cy="32" r="6.4" fill="url(#g-dark)" />
+    <circle cx="32" cy="32" r="3.6" fill="#e7e9ee" />
+  </svg>
+);
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Settings button
+   ──────────────────────────────────────────────────────────────────────────── */
+const SettingsIconButton: React.FC<{
+  size: number;
+  label: string;
+  onClick: () => void;
+  showLabel: boolean;
+}> = ({ size, label, onClick, showLabel }) => {
+  const fontPx = Math.round(Math.max(14, Math.min(size * 0.13, 22)));
   return (
-    <div className={[WidgetGlass, 'w-full h-full p-0', className ?? ''].join(' ')} style={{ overflow: 'hidden' }}>
-      <div className="grid grid-cols-3 gap-3 h-full">
-        {cells.slice(0, 3).map((c, i) => (
-          <div key={i} className="flex">
-            <StatusCell {...c} />
-          </div>
-        ))}
-      </div>
-    </div>
+    <motion.button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      className="hidden lg:flex flex-col items-center justify-center bg-transparent"
+      style={{ width: size, height: size }}
+    >
+      <IOSSettingsGlyph className="h-[72%] w-[72%]" />
+      {showLabel && (
+        <span className="mt-1 font-semibold tracking-tight text-slate-900 dark:text-slate-50" style={{ fontSize: fontPx }}>
+          {label}
+        </span>
+      )}
+    </motion.button>
   );
 };
 
@@ -207,13 +312,15 @@ const normHex = (s?: string | null) => (s ?? '').replace(/^0x/i, '').padStart(4,
 const pair = (vid?: string | null, pid?: string | null) => (vid && pid ? `${normHex(vid)}:${normHex(pid)}` : null);
 
 /* ────────────────────────────────────────────────────────────────────────────
-   Header (single row, fixed height from Settings cube)
+   Header
    ──────────────────────────────────────────────────────────────────────────── */
 interface HeaderProps {
   onSettingsClick: () => void;
   currentView: 'main' | 'settings';
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
+  /** Hide all text. Show only LEDs, settings icon, and call number. */
+  labelsHidden?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -221,15 +328,16 @@ export const Header: React.FC<HeaderProps> = ({
   currentView,
   isSidebarOpen,
   onToggleSidebar,
+  labelsHidden = false,
 }) => {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [settingsSize, setSettingsSize] = useState<number>(150);
   const lastScrollY = useRef(0);
 
-  const { devices, server, lastScan } = useSerialEvents();
+  const { devices, server } = useSerialEvents();
 
   const showSidebarToggle = Boolean(
-    (appConfig as any)?.showSidebarToggle ?? (appConfig as any)?.ui?.showSidebarToggle ?? false
+    (appConfig as any)?.showSidebarToggle ?? (appConfig as any)?.ui?.showSidebarToggle ?? false,
   );
 
   const scanners = useMemo(
@@ -237,7 +345,7 @@ export const Header: React.FC<HeaderProps> = ({
       (appConfig as any).scanners?.length
         ? (appConfig as any).scanners
         : [{ name: 'Scanner', path: '' }, { name: 'Scanner', path: '' }],
-    []
+    [],
   );
 
   const isPresentFor = (idx: number) => {
@@ -296,9 +404,6 @@ export const Header: React.FC<HeaderProps> = ({
     hidden: { y: -120, transition: { type: 'tween', duration: 0.25 } },
   };
 
-  const sidebarBtnOpenMods =
-    'ring-1 ring-white/70 dark:ring-white/10 translate-y-[-2px] -translate-x-[2px] shadow-[0_12px_24px_rgba(2,6,23,.18)]';
-
   return (
     <AnimatePresence initial={false}>
       <motion.header
@@ -306,7 +411,7 @@ export const Header: React.FC<HeaderProps> = ({
         variants={barVariants}
         initial="shown"
         animate={isHeaderVisible ? 'shown' : 'hidden'}
-        className={['w-full sticky top-0 z-30', HeaderChrome].join(' ')}
+        className={['w-full sticky top-0 z-30', StrictHeaderBg].join(' ')}
         style={{
           height: `calc(${settingsSize}px + env(safe-area-inset-top))`,
           minHeight: `calc(${BASE_HEADER_MIN_HEIGHT} + env(safe-area-inset-top))`,
@@ -316,23 +421,18 @@ export const Header: React.FC<HeaderProps> = ({
           className="flex items-center w-full h-full px-4 sm:px-6 2xl:px-10"
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
-          {/* Left cluster: Call + 3 status cells in one row */}
+          {/* Left cluster: Call + 3 LEDs */}
           <div className="flex items-stretch gap-3">
             <div style={{ width: 210, height: settingsSize }}>
               <SupportPillSM
                 className="h-full"
                 supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}
                 onCall={(appConfig as any).callSupportInfo?.onCta}
+                labelsHidden={labelsHidden}
               />
             </div>
 
-            {/* Three cells wide; ensure enough room so nothing wraps */}
-            <div
-              style={{
-                width: 'clamp(480px, 38vw, 720px)',
-                height: settingsSize,
-              }}
-            >
+            <div style={{ width: 'clamp(360px, 34vw, 720px)', height: settingsSize }}>
               <StatusRow
                 cells={[
                   { title: 'Scanner', suffix: 1, color: s1Color, sub: s1Sub },
@@ -340,6 +440,7 @@ export const Header: React.FC<HeaderProps> = ({
                   { title: 'Server', color: serverColor, sub: serverSub },
                 ]}
                 className="h-full"
+                labelsHidden={labelsHidden}
               />
             </div>
           </div>
@@ -351,71 +452,23 @@ export const Header: React.FC<HeaderProps> = ({
               aria-label={isSidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}
               whileTap={{ scale: 0.92 }}
               className={[
-                'ml-3 lg:hidden',
-                'h-[44px] w-[44px]',
-                'flex items-center justify-center',
-                'rounded-full border border-white/60 dark:border-white/10',
-                'bg-white/80 dark:bg-slate-800/55 backdrop-blur-xl',
-                'text-slate-700 dark:text-slate-100',
-                'shadow-[0_8px_18px_rgba(0,0,0,.08)] active:shadow-inner',
-                isSidebarOpen ? sidebarBtnOpenMods : '',
+                'ml-3 lg:hidden h-[44px] w-[44px] flex items-center justify-center rounded-full',
+                'bg-transparent text-slate-700 dark:text-slate-100',
               ].join(' ')}
             >
               {isSidebarOpen ? <XMarkIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
             </motion.button>
           )}
 
-          {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Right: Settings cube */}
-          <motion.button
-            type="button"
-            aria-label={mainButtonText}
+          {/* Right: Settings icon only, optional label */}
+          <SettingsIconButton
+            size={settingsSize}
+            label={mainButtonText}
             onClick={onSettingsClick}
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.98 }}
-            className={[
-              'hidden lg:flex flex-col items-center justify-center',
-              'font-semibold tracking-tight',
-              'text-slate-900 dark:text-slate-50',
-              WidgetGlass,
-            ].join(' ')}
-            style={{ width: settingsSize, height: settingsSize }}
-          >
-            <div
-              aria-hidden
-              className="flex items-center justify-center rounded-2xl h-[82%] w-[82%] bg-gradient-to-b from-slate-50 to-white ring-1 ring-slate-200/70 shadow-inner mb-1"
-            >
-              <svg viewBox="0 0 48 48" className="h-[72%] w-[72%]" role="img" aria-label="Settings">
-                <defs>
-                  <radialGradient id="gearBg" cx="50%" cy="45%" r="60%">
-                    <stop offset="0%" stopColor="#3f3f46" />
-                    <stop offset="100%" stopColor="#1f2937" />
-                  </radialGradient>
-                  <linearGradient id="tooth" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#d1d5db" />
-                    <stop offset="100%" stopColor="#9ca3af" />
-                  </linearGradient>
-                  <linearGradient id="rim" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#9ca3af" />
-                    <stop offset="100%" stopColor="#6b7280" />
-                  </linearGradient>
-                </defs>
-                <circle cx="24" cy="24" r="17.5" fill="url(#gearBg)" />
-                <circle cx="24" cy="24" r="17" fill="none" stroke="url(#rim)" strokeWidth="2" opacity="0.9" />
-                <circle cx="24" cy="24" r="16" fill="none" stroke="url(#tooth)" strokeWidth="5" strokeLinecap="round" strokeDasharray="1.4 3.1" transform="rotate(-8 24 24)" opacity="0.95" />
-                <circle cx="24" cy="24" r="9.5" fill="none" stroke="url(#rim)" strokeWidth="2.2" opacity="0.9" />
-                <g stroke="url(#tooth)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.95">
-                  <path d="M24 24 L24 12.5" />
-                  <path d="M24 24 L34.392 30.25" transform="rotate(120 24 24)" />
-                  <path d="M24 24 L34.392 30.25" transform="rotate(240 24 24)" />
-                </g>
-                <circle cx="24" cy="24" r="3.2" fill="#e5e7eb" />
-              </svg>
-            </div>
-            <span className="text-lg 2xl:text-xl">{mainButtonText}</span>
-          </motion.button>
+            showLabel={!labelsHidden}
+          />
         </div>
       </motion.header>
     </AnimatePresence>

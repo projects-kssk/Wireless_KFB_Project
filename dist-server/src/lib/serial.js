@@ -6,7 +6,7 @@ import { setLastScan } from './scannerMemory';
 export async function sendAndReceive(cmd, timeout = 10000) {
     return new Promise((resolve, reject) => {
         const port = new SerialPort({
-            path: '/dev/ttyUSB0',
+            path: '/dev/ttyUSB1',
             baudRate: 115200,
             lock: false,
             autoOpen: false,
@@ -49,7 +49,7 @@ export async function sendAndReceive(cmd, timeout = 10000) {
 export async function sendToEsp(cmd) {
     return new Promise((resolve, reject) => {
         const port = new SerialPort({
-            path: '/dev/ttyUSB0',
+            path: '/dev/ttyUSB1',
             baudRate: 115200,
             lock: false,
             autoOpen: false,
@@ -127,7 +127,7 @@ export function closeScanner() {
 /** ----------------- NEW: Singleton ESP line stream for WS broadcast ----------------- */
 let espPort = null;
 let espParser = null;
-export function getEspLineStream(path = '/dev/ttyUSB0', baudRate = 115200) {
+export function getEspLineStream(path = '/dev/ttyUSB1', baudRate = 115200) {
     if (espPort && espParser)
         return { port: espPort, parser: espParser };
     espPort = new SerialPort({ path, baudRate, autoOpen: true });

@@ -1,101 +1,178 @@
 // app/api/serial/check/route.ts
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import serial from '@/lib/serial';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const Body = z.object({ pins: z.array(z.number().int()), mac: z.string().min(1) });
+const Body = z.object({
+  pins: z.array(z.number().int()),
+  mac: z.string().min(1),
+});
 
-const RX_OK = /^\s*(?:>>\s*)?(?:RESULT\s+)?SUCCESS\s*$/i;
+// Fast turnaround. Scanner re-triggers checks, so don’t block long.
+const HANDSHAKE_TIMEOUT_MS = 1500;
+const RESULT_TIMEOUT_MS    = 1500;
 
-let inFlight = false;
+const locks = new Set<string>();
 
-function escMac(mac: string) { return mac.trim().toUpperCase().replace(/:/g, '\\:'); }
+const esc = (s: string) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+const normMac = (s: string) => s.trim().toUpperCase();
+const escMac = (s: string) => esc(normMac(s));
 
-async function waitFresh(
-  getEspLineStream: () => any,
-  matcher: (s: string) => boolean,
-  signal?: AbortSignal,
-  timeoutMs = 12_000
-): Promise<string> {
-  const { parser } = getEspLineStream() as any;
+function buildMatchers(macUp: string, pinsCsv: string) {
+  const MAC  = escMac(macUp);
+  const PINS = esc(pinsCsv);
 
-  return new Promise<string>((resolve, reject) => {
-    let timer: NodeJS.Timeout | null = null;
+  // This CHECK handshake
+  const SENT_RE = new RegExp(`Sent\\s+'CHECK\\s+${PINS}'\\s+to\\s+${MAC}\\b`, 'i');
 
-    const finish = (err?: any, val?: string) => {
-      try { parser.off('data', onData); } catch {}
-      if (signal) try { signal.removeEventListener('abort', onAbort); } catch {}
-      if (timer) clearTimeout(timer);
-      err ? reject(err) : resolve(val as string);
-    };
+  // Terminal results only
+  const RESULT_RE       = new RegExp(`\\bRESULT\\s+(SUCCESS|FAILURE[^\\n]*)\\b.*${MAC}\\b`, 'i');
+  const REPLY_RESULT_RE = new RegExp(`^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|FAILURE[^\\n]*)`, 'i');
 
-    const onData = (buf: Buffer | string) => {
-      const s = String(buf).trim();
-      if (s && matcher(s)) finish(undefined, s);
-    };
-    const onAbort = () => finish(new Error('client-abort'));
-    const onTimeout = () => finish(new Error('timeout'));
+  // Errors
+  const IGNORED_RE  = new RegExp(`ignored:\\s+unexpected\\s+MAC\\.?\\s*expected\\s*${MAC}\\s*got\\s*([0-9A-F:]{17})`, 'i');
+  const INVALID_RE  = /ERROR:\s*invalid\s*MAC/i;
+  const ADDPEER_RE  = /ERROR:\s*add_peer\s*failed/i;
+  const SENDFAIL_RE = /ERROR:\s*send\s*failed/i;
 
-    if (signal?.aborted) return onAbort();
-    signal?.addEventListener('abort', onAbort, { once: true });
+  const isResult = (s: string) => RESULT_RE.test(s) || REPLY_RESULT_RE.test(s);
 
-    // attach before we send
-    if (typeof (parser as any).prependListener === 'function') {
-      (parser as any).prependListener('data', onData);
-    } else {
-      parser.on('data', onData);
-    }
-    timer = setTimeout(onTimeout, timeoutMs);
-  });
+  return { SENT_RE, RESULT_RE, REPLY_RESULT_RE, IGNORED_RE, INVALID_RE, ADDPEER_RE, SENDFAIL_RE, isResult };
+}
+
+function parseFailuresFromLine(line: string, pins: number[]) {
+  const want = new Set<number>(pins);
+  const miss =
+    line.match(/MISSING\s+([0-9,\s]+)/i) ||
+    line.match(/FAILURES?\s*:\s*([0-9,\s]+)/i);
+
+  const failures = new Set<number>();
+  (miss?.[1] ?? '')
+    .split(/[,\s]+/)
+    .forEach((x) => {
+      const n = Number(x);
+      if (Number.isInteger(n) && want.has(n)) failures.add(n);
+    });
+
+  return Array.from(failures).sort((a, b) => a - b);
+}
+
+function getTail(): string[] {
+  try {
+    const s = (serial as any).getEspLineStream?.();
+    return Array.isArray(s?.ring) ? s.ring.slice(-200).map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function POST(request: Request) {
-  if (inFlight) return NextResponse.json({ error: 'busy' }, { status: 429 });
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: 'Expected { pins, mac }' }, { status: 400 });
 
-  inFlight = true;
+  const macUp = normMac(parsed.data.mac);
+  if (locks.has(macUp)) return NextResponse.json({ error: 'busy' }, { status: 429 });
+  locks.add(macUp);
+
   try {
-    const { pins, mac } = parsed.data;
-    const mod = await import('@/lib/serial');
-    const helper: any = (mod as any).default ?? mod;
-    const { sendToEsp, getEspLineStream } = helper;
-    if (typeof sendToEsp !== 'function' || typeof getEspLineStream !== 'function') {
+    const { pins } = parsed.data;
+    const pinsCsv = pins.join(',');
+
+    const { sendToEsp, waitForNextLine } = serial as any;
+    if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {
       throw new Error('serial-helpers-missing');
     }
 
-    const macUp = mac.toUpperCase();
-    const cmd = `CHECK ${pins.join(',')} ${macUp}`;
-    const RESULT_RE = new RegExp(`^\\s*RESULT\\s+(SUCCESS|FAILURE.*)\\s+${escMac(macUp)}\\s*$`, 'i');
+    const {
+      SENT_RE, RESULT_RE, REPLY_RESULT_RE,
+      IGNORED_RE, INVALID_RE, ADDPEER_RE, SENDFAIL_RE, isResult,
+    } = buildMatchers(macUp, pinsCsv);
 
-    const waiter = waitFresh(getEspLineStream, s => RESULT_RE.test(s) || RX_OK.test(s), (request as any).signal, 12_000);
-    await sendToEsp(cmd);
-    const line = (await waiter).trim();
+    const signal = (request as any).signal;
 
-    if (RX_OK.test(line) || /\bSUCCESS\b/i.test(line)) {
+    // Fire command
+    await sendToEsp(`CHECK ${pinsCsv} ${macUp}`);
+
+    // Sync to this transaction quickly
+    await waitForNextLine(SENT_RE, signal, HANDSHAKE_TIMEOUT_MS);
+
+    // Wait briefly for a terminal RESULT from this transaction
+    const pResult   = waitForNextLine(isResult,   signal, RESULT_TIMEOUT_MS);
+    const pIgnored  = waitForNextLine(IGNORED_RE, signal, RESULT_TIMEOUT_MS)
+      .then((s: string) => { const m = s.match(IGNORED_RE); throw new Error(`mac-mismatch expected ${macUp} got ${m?.[1] ?? '?'}`); });
+    const pInvalid  = waitForNextLine(INVALID_RE, signal, RESULT_TIMEOUT_MS)
+      .then(() => { throw new Error('station-invalid-mac'); });
+    const pAddPeer  = waitForNextLine(ADDPEER_RE, signal, RESULT_TIMEOUT_MS)
+      .then(() => { throw new Error('station-add-peer-failed'); });
+    const pSendFail = waitForNextLine(SENDFAIL_RE, signal, RESULT_TIMEOUT_MS)
+      .then(() => { throw new Error('station-send-failed'); });
+
+    let line: string | null = null;
+    try {
+      line = String(await Promise.race([pResult, pIgnored, pInvalid, pAddPeer, pSendFail])).trim();
+    } catch (e: any) {
+      // Timeout or non-fatal error: fall back to most recent failure line for this MAC from tail
+      if (String(e?.message ?? e) === 'timeout') {
+        const tail = getTail();
+        const MAC = escMac(macUp);
+        const RESULT_RE = new RegExp(`\\bRESULT\\s+(SUCCESS|FAILURE[^\\n]*)\\b.*${MAC}\\b`, 'i');
+        const REPLY_RESULT_RE = new RegExp(`^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|FAILURE[^\\n]*)`, 'i');
+        for (let i = tail.length - 1; i >= 0; i--) {
+          const ln = tail[i];
+          const m = ln.match(RESULT_RE) || ln.match(REPLY_RESULT_RE);
+          if (m && /^FAILURE/i.test(m[1])) { line = ln; break; }
+          if (m && /^SUCCESS/i.test(m[1])) { line = ln; break; }
+        }
+      } else {
+        throw e;
+      }
+    }
+
+    if (!line) {
+      // No signal yet. Return empty failures. Scanner will re-trigger.
       return NextResponse.json({ failures: [] });
     }
 
-    // Intersect with requested pins only; ignore EXTRA noise.
-    const want = new Set<number>(pins);
-    const out = new Set<number>();
-    const m = line.match(/MISSING\s+([0-9,\s]+)/i) || line.match(/FAILURES?\s*:\s*([0-9,\s]+)/i);
-    (m?.[1] ?? '')
-      .split(/[,\s]+/)
-      .map(x => parseInt(x, 10))
-      .filter(n => Number.isInteger(n) && want.has(n))
-      .forEach(n => out.add(n));
+    // Terminal parse
+    const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
+    if (m1 && /^SUCCESS/i.test(m1[1])) {
+      return NextResponse.json({ failures: [] });
+    }
 
-    return NextResponse.json({ failures: Array.from(out).sort((a, b) => a - b) });
+    // FAILURE → return pin list
+    const failures = parseFailuresFromLine(line, pins);
+    return NextResponse.json({ failures });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
-    const status = msg === 'client-abort' ? 499 : msg === 'timeout' ? 504 : 500;
-    return new NextResponse(JSON.stringify({ error: msg }), {
-      status, headers: { 'Content-Type': 'application/json' },
-    });
+    const status =
+      msg === 'client-abort' ? 499 :
+      msg === 'timeout' ? 504 :
+      /mac-mismatch/.test(msg) ? 502 :
+      /station-(invalid-mac|add-peer-failed|send-failed)/.test(msg) ? 502 :
+      500;
+
+    // Safe diagnostics
+    try {
+      const s = (serial as any).getEspLineStream?.();
+      if (Array.isArray(s?.ring)) {
+        const tail = s.ring.slice(-50);
+        console.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail });
+      } else {
+        console.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail: [] });
+      }
+    } catch (err) {
+      console.error('[serial/check tail] failed', {
+        mac: parsed.success ? normMac(parsed.data.mac) : 'n/a',
+        error: String(err)
+      });
+    }
+
+    console.error('[serial/check]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', msg, status });
+    return NextResponse.json({ error: msg }, { status });
   } finally {
-    inFlight = false;
+    locks.delete(macUp);
   }
 }

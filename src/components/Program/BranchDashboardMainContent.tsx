@@ -112,6 +112,7 @@ export interface BranchDashboardMainContentProps {
   kfbNumber: string;
   kfbInfo: KfbInfo | null;
   allowManualInput?: boolean;
+  showRemoveCable?: boolean; 
     onResetKfb?: () => void; // <-- add this
 }
 
@@ -124,7 +125,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   kfbNumber,
   kfbInfo,
   allowManualInput = true,
-    onResetKfb, // <-- Add this here!
+  showRemoveCable = false,
+    onResetKfb, 
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -144,10 +146,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       .slice(0, 40),
   [branchesData]);
 
-  const allOk = useMemo(
-    () => hasMounted && pending.length === 0 && branchesData.length > 0,
-    [hasMounted, pending, branchesData]
-  );
+ const allOk = useMemo(
+  () =>
+    hasMounted &&
+    !isScanning &&
+    branchesData.length > 0 &&
+    branchesData.every(b => b.testStatus === 'ok'),
+  [hasMounted, isScanning, branchesData]
+);
 
 useEffect(() => {
   if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -305,7 +311,26 @@ useEffect(() => {
           0%,100% { opacity: .2 }
           50% { opacity: .05 }
         }
+          
       `}</style>
+
+      {showRemoveCable && (
+  <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/60">
+    <div className="relative">
+      <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-yellow-100 dark:bg-yellow-700/30 rounded-full flex items-center justify-center plug-wiggle text-yellow-700 dark:text-yellow-300">
+        <svg width="180" height="120" viewBox="0 0 180 120" aria-hidden="true">
+          <rect x="10" y="45" width="70" height="30" rx="6" fill="currentColor"></rect>
+          <rect x="70" y="48" width="8" height="10" fill="currentColor"></rect>
+          <rect x="70" y="62" width="8" height="10" fill="currentColor"></rect>
+          <path d="M80 60 C110 60, 130 40, 170 20" stroke="currentColor" strokeWidth="6" fill="none"></path>
+        </svg>
+      </div>
+    </div>
+    <h3 className="p-10 font-black text-yellow-200 uppercase tracking-widest text-7xl sm:text-8xl drop-shadow">
+      REMOVE CABLE
+    </h3>
+  </div>
+)}
     </div>
   );
 };

@@ -6,13 +6,18 @@ import { broadcast, DeviceInfo } from "@/lib/bus";
 
 /* ────────────────────────────────────────────────────────────────────────────
    ESP line stream — singleton with ring buffer + subscriber fan-out
+   Adds cursoring so callers can fence reads to “future-only”.
    ──────────────────────────────────────────────────────────────────────────── */
+
+type SubFn = (s: string, id: number) => void;
 
 type EspLineStream = {
   port: SerialPort;
   parser: ReadlineParser;
-  ring: string[];
-  subs: Set<(s: string) => void>;
+  ring: string[];        // recent lines
+  ringIds: number[];     // monotonically increasing ids matching ring[]
+  nextId: number;        // next id to assign
+  subs: Set<SubFn>;      // fan-out subscribers
 };
 
 type G = typeof globalThis & { __ESP_STREAM?: EspLineStream };
@@ -37,9 +42,10 @@ function armEsp(): EspLineStream {
   const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
   const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
   const ring: string[] = [];
-  const subs = new Set<(s: string) => void>();
+  const ringIds: number[] = [];
+  let nextId = 1;
+  const subs = new Set<SubFn>();
 
-  // Single parser listener. Push to ring + notify current subscribers.
   parser.on("data", (buf: Buffer | string) => {
     const s = String(buf).trim();
     if (!s) return;
@@ -47,10 +53,14 @@ function armEsp(): EspLineStream {
     if (process.env.ESP_DEBUG) console.log(`[ESP:${path}] ${s}`);
 
     ring.push(s);
-    if (ring.length > 300) ring.shift();
+    ringIds.push(nextId++);
+    if (ring.length > 400) {
+      ring.shift();
+      ringIds.shift();
+    }
 
     subs.forEach((fn) => {
-      try { fn(s); } catch {}
+      try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
     });
   });
 
@@ -59,11 +69,10 @@ function armEsp(): EspLineStream {
   });
 
   port.on("close", () => {
-    // drop singleton so a future call can re-open
-    GBL.__ESP_STREAM = undefined;
+    GBL.__ESP_STREAM = undefined; // allow re-open later
   });
 
-  GBL.__ESP_STREAM = { port, parser, ring, subs };
+  GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs };
   return GBL.__ESP_STREAM;
 }
 
@@ -71,8 +80,18 @@ export function getEspLineStream(): EspLineStream {
   return armEsp();
 }
 
+/** Return the id of the latest line currently in the ring (0 if empty). */
+export function mark(): number {
+  const { ringIds } = armEsp();
+  return ringIds.length ? ringIds[ringIds.length - 1]! : 0;
+}
+
+/** Optional: advance to tail, effectively dropping history for future waits. */
+export function flushHistory(): number {
+  return mark();
+}
+
 async function waitUntilOpen(port: SerialPort): Promise<void> {
-  // @types/serialport exposes isOpen
   if ((port as any).isOpen) return;
   await new Promise<void>((resolve, reject) => {
     const onOpen = () => { cleanup(); resolve(); };
@@ -99,24 +118,30 @@ async function writeLine(line: string): Promise<void> {
   if (process.env.ESP_DEBUG) console.log(`⟶ [you] ${line}`);
 }
 
-/** Wait for a matching line. Uses a subscriber fan-out (no per-call parser.on). */
+/** Wait for a matching line.
+ *  By default scans history, then subscribes. Pass { since: mark() } for future-only.
+ */
 export function waitForLine(
   matcher: ((s: string) => boolean) | RegExp,
   signal?: AbortSignal,
-  timeoutMs = 12_000
+  timeoutMs = 12_000,
+  opts: { since?: number } = {}
 ): Promise<string> {
-  const { ring, subs } = armEsp();
+  const { ring, ringIds, subs } = armEsp();
   const isMatch = typeof matcher === "function"
     ? matcher
     : (s: string) => (matcher as RegExp).test(s);
+  const since = opts.since ?? undefined;
 
   return new Promise<string>((resolve, reject) => {
-    // Scan recent history first (defeat race).
+    // 1) Scan recent history first (unless caller fenced with since > tail)
     for (let i = ring.length - 1; i >= 0; i--) {
+      if (since && ringIds[i] <= since) break; // stop at the fence
       const s = ring[i];
       if (isMatch(s)) return resolve(s);
     }
 
+    // 2) Subscribe for future lines
     let done = false;
     let timer: NodeJS.Timeout | null = null;
 
@@ -129,7 +154,10 @@ export function waitForLine(
       err ? reject(err) : resolve(val as string);
     };
 
-    const onLine = (s: string) => { if (isMatch(s)) finish(undefined, s); };
+    const onLine: SubFn = (s, id) => {
+      if (since && id <= since) return;
+      if (isMatch(s)) finish(undefined, s);
+    };
     const onAbort = () => finish(new Error("client-abort"));
     const onTimeout = () => finish(new Error("timeout"));
 
@@ -142,7 +170,16 @@ export function waitForLine(
   });
 }
 
-/** Fire-and-forget. Do not attach extra listeners here (parser already wired). */
+/** Future-only helper. Does NOT scan history. */
+export function waitForNextLine(
+  matcher: ((s: string) => boolean) | RegExp,
+  signal?: AbortSignal,
+  timeoutMs = 12_000
+): Promise<string> {
+  return waitForLine(matcher, signal, timeoutMs, { since: mark() });
+}
+
+/** Fire-and-forget. */
 export async function sendToEsp(cmd: string): Promise<void> {
   await writeLine(cmd);
 }
@@ -158,7 +195,8 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
     return RX_OK_STRICT.test(line);
   };
 
-  const p = waitForLine(matcher, undefined, timeout);
+  const since = mark();
+  const p = waitForLine(matcher, undefined, timeout, { since });
   await writeLine(cmd);
   return p;
 }
@@ -262,8 +300,6 @@ function attachScannerHandlers(path: string, state: ScannerPerPath, retry: Retry
   parser.on("data", (raw) => {
     const code = String(raw).trim();
     if (!code) return;
-    // Keep logs low — they can be noisy
-    // console.log(`[serial:${path}] code="${code}"`);
     setLastScan(code);
     broadcast({ type: "scan", code });
   });
@@ -428,6 +464,7 @@ export default {
   // ESP core
   getEspLineStream,
   waitForLine,
+  waitForNextLine,
   sendAndReceive,
   sendToEsp,
   pingEsp,
@@ -435,6 +472,9 @@ export default {
   isEspPresent,
   listSerialDevices,
   listSerialDevicesRaw,
+  // history fencing helpers
+  mark,
+  flushHistory,
 
   // Scanner fleet
   ensureScanner,

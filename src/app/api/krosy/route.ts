@@ -1,33 +1,57 @@
-// app/krosy/route.ts  (runs on port 3002)
+// src/app/api/krosy/route.ts
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TEST_URL = process.env.KROSY_TEST_URL || "http://localhost:3001/test-visualcontrol";
+const TEST_VC = process.env.TEST_VC_URL || "http://localhost:3001/test-visualcontrol";
 
-const cors = {
-  "Access-Control-Allow-Origin": "http://localhost:3002",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Accept",
-};
-
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: cors });
+function cors(req: NextRequest) {
+  const origin = req.headers.get("origin") || "http://localhost:3001";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Accept",
+  };
 }
 
-export async function POST(req: NextRequest) {
-  // pass-through JSON from the page; if no targetUrl provided, the 3001 route will default to /visualcontrol
-  const body = await req.json().catch(() => ({}));
-  const accept = req.headers.get("accept") || "application/json";
+export async function OPTIONS(req: NextRequest) {
+  return new Response(null, { status: 204, headers: cors(req) });
+}
 
-  const resp = await fetch(TEST_URL, {
+// Quick liveness check: GET /api/krosy -> { alive: true }
+export async function GET(req: NextRequest) {
+  return new Response(JSON.stringify({ alive: true }), {
+    status: 200,
+    headers: { "Content-Type": "application/json", ...cors(req) },
+  });
+}
+
+// POST /api/krosy -> forwards to /test-visualcontrol (JSON or XML passthrough)
+export async function POST(req: NextRequest) {
+  const accept = req.headers.get("accept") || "application/json";
+  const body = await req.json().catch(() => ({} as any));
+  const payload = {
+    intksk: body.intksk ?? "950023158903",
+    device: body.device ?? "ksmiwct07",
+    scanned: body.scanned ?? new Date().toISOString().replace(/\.\d{3}Z$/, ""),
+    targetUrl: body.targetUrl ?? "http://localhost:3001/visualcontrol",
+  };
+
+  const upstream = await fetch(TEST_VC, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: accept },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   });
 
-  const text = await resp.text();
-  const type = resp.headers.get("content-type") || (accept.includes("xml") ? "application/xml" : "application/json");
-  return new Response(text, { status: resp.status, headers: { "Content-Type": type, ...cors } });
+  const text = await upstream.text();
+  const ct =
+    upstream.headers.get("content-type") ||
+    (accept.includes("xml") ? "application/xml" : "application/json");
+
+  return new Response(text, {
+    status: upstream.status,
+    headers: { "Content-Type": ct, ...cors(req) },
+  });
 }

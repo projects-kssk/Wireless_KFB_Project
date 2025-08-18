@@ -1,3 +1,4 @@
+// src/app/krosy/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -5,6 +6,8 @@ import { AnimatePresence, motion } from "framer-motion";
 
 type RunMode = "json" | "xml";
 type ViewTab = "body" | "xmlPreview";
+type Plugin = "visualcontrol" | "kroscada";
+type KrosAction = "request" | "io" | "nio" | "cancel";
 
 const ENDPOINT_PROXY =
   process.env.NEXT_PUBLIC_KROSY_ENDPOINT ?? "http://localhost:3002/api/krosy-offline";
@@ -43,10 +46,19 @@ export default function KrosyPage() {
   const [http, setHttp] = useState<string>("");
   const [duration, setDuration] = useState<number | null>(null);
 
-  // inputs
+  // plugin + action
+  const [plugin, setPlugin] = useState<Plugin>("visualcontrol");
+  const [krosAction, setKrosAction] = useState<KrosAction>("request");
+
+  // inputs common
   const [requestID, setRequestID] = useState<string>("1");
-  const [intksk, setIntksk] = useState("830577899396");
+  const [intksk, setIntksk] = useState("830577899396"); // VC only
   const [targetHostName, setTargetHostName] = useState("kssksun01");
+
+  // kroscada fields
+  const [scancode, setScancode] = useState("830569527900");
+  const [tident, setTident] = useState("P8378691");
+  const [sdistance, setSdistance] = useState("20");
 
   // auto
   const [sourceHostname, setSourceHostname] = useState("");
@@ -102,18 +114,35 @@ export default function KrosyPage() {
     setXmlPreview("");
     setTab("body");
 
+    const payload =
+      plugin === "visualcontrol"
+        ? {
+            action: "working",
+            requestID,
+            intksk,
+            targetHostName,
+            sourceHostname,
+          }
+        : {
+            action: krosAction,
+            requestID,
+            scancode,
+            tident,
+            sdistance,
+            targetHostName,
+            sourceHostname,
+          };
+
+    append(
+      `POST ${ENDPOINT_DIRECT} ${plugin === "visualcontrol" ? "[visualControl: working]" : `[kroscada: ${krosAction}]`}`,
+    );
+
     const started = performance.now();
     try {
-      append(`POST ${ENDPOINT_DIRECT} (direct)`);
       const res = await fetch(ENDPOINT_DIRECT, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: accept },
-        body: JSON.stringify({
-          requestID,
-          intksk,
-          targetHostName,
-          sourceHostname,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const ms = Math.round(performance.now() - started);
@@ -142,7 +171,7 @@ export default function KrosyPage() {
     } finally {
       setBusy(false);
     }
-  }, [accept, append, busy, requestID, intksk, targetHostName, sourceHostname]);
+  }, [accept, append, busy, plugin, krosAction, requestID, intksk, targetHostName, sourceHostname, scancode, tident, sdistance]);
 
   const clearLogs = () => setLogs([]);
 
@@ -157,39 +186,77 @@ export default function KrosyPage() {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}
           className="rounded-3xl border border-black/5 bg-white/90 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)] p-5">
 
-          <div className="mb-4 inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
-            {(["json", "xml"] as RunMode[]).map((m) => (
-              <motion.button key={m} onClick={() => setMode(m)} whileTap={{ scale: 0.98 }}
-                className={["px-4 py-2 text-sm font-medium rounded-xl min-w-[72px]",
-                  mode === m ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow" : "text-gray-600 dark:text-gray-300",
-                ].join(" ")}>{m.toUpperCase()}</motion.button>
-            ))}
+          {/* Mode + Plugin pickers */}
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
+              {(["json", "xml"] as RunMode[]).map((m) => (
+                <motion.button key={m} onClick={() => setMode(m)} whileTap={{ scale: 0.98 }}
+                  className={["px-4 py-2 text-sm font-medium rounded-xl min-w-[72px]",
+                    mode === m ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow" : "text-gray-600 dark:text-gray-300",
+                  ].join(" ")}>{m.toUpperCase()}</motion.button>
+              ))}
+            </div>
+
+            <div className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
+              {(["visualcontrol", "kroscada"] as Plugin[]).map((p) => (
+                <motion.button key={p} onClick={() => setPlugin(p)} whileTap={{ scale: 0.98 }}
+                  className={["px-3 py-2 text-sm font-medium rounded-xl",
+                    plugin === p ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow" : "text-gray-600 dark:text-gray-300",
+                  ].join(" ")}>
+                  {p === "visualcontrol" ? "VISUALCONTROL" : "KROSCADA"}
+                </motion.button>
+              ))}
+            </div>
           </div>
 
+          {/* Common inputs */}
           <div className="space-y-3">
             <Field label="requestID"><Input value={requestID} onValueChange={setRequestID} /></Field>
-            <Field label="intksk"><Input value={intksk} onValueChange={setIntksk} /></Field>
             <Field label="targetHostName"><Input value={targetHostName} onValueChange={setTargetHostName} /></Field>
 
-{/* stacked + wider MAC */}
-<div className="space-y-3">
-  <Field label="sourceHostname">
-    <Input value={sourceHostname} onValueChange={setSourceHostname} />
-  </Field>
+            {/* VisualControl-only */}
+            {plugin === "visualcontrol" && (
+              <Field label="intksk"><Input value={intksk} onValueChange={setIntksk} /></Field>
+            )}
 
-  <Field label="ip">
-    <Input value={sourceIp} disabled />
-  </Field>
+            {/* KROSCADA-only */}
+            {plugin === "kroscada" && (
+              <>
+                <div>
+                  <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Action</label>
+                  <div className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
+                    {(["request", "io", "nio", "cancel"] as KrosAction[]).map((act) => (
+                      <motion.button key={act} onClick={() => setKrosAction(act)} whileTap={{ scale: 0.98 }}
+                        className={["px-3 py-2 text-xs font-medium rounded-xl",
+                          krosAction === act ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow" : "text-gray-600 dark:text-gray-300",
+                        ].join(" ")}>
+                        {act.toUpperCase()}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+                <Field label="scancode"><Input value={scancode} onValueChange={setScancode} /></Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Field label="tident"><Input value={tident} onValueChange={setTident} /></Field>
+                  <Field label="sdistance"><Input value={sdistance} onValueChange={setSdistance} /></Field>
+                </div>
+              </>
+            )}
 
-  <Field label="mac">
-    {/* wide, monospaced for readability */}
-    <Input
-      value={sourceMac}
-      disabled
-      className="font-mono tracking-wider w-full"
-    />
-  </Field>
-</div>
+            {/* Host identity stacked */}
+            <div className="space-y-3 pt-2">
+              <Field label="sourceHostname">
+                <Input value={sourceHostname} onValueChange={setSourceHostname} />
+              </Field>
+
+              <Field label="ip">
+                <Input value={sourceIp} disabled />
+              </Field>
+
+              <Field label="mac">
+                <Input value={sourceMac} disabled className="font-mono tracking-wider w-full" />
+              </Field>
+            </div>
 
             <div className="flex gap-3 pt-2">
               <motion.button onClick={run} whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }} disabled={busy}
@@ -249,7 +316,6 @@ type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> 
   onValueChange?: (v: string) => void;
   className?: string;
 };
-
 function Input({ onValueChange, className = "", disabled, ...rest }: InputProps) {
   return (
     <input
@@ -276,7 +342,6 @@ function Input({ onValueChange, className = "", disabled, ...rest }: InputProps)
     />
   );
 }
-
 function SmallButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button onClick={onClick}

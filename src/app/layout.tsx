@@ -1,14 +1,6 @@
 import './globals.css'
 import { ThemeProvider } from './theme-provider'
-import { Poppins } from 'next/font/google'
 
-const poppins = Poppins({
-  weight: ['100','200','300','400','500','600','700','800','900'],
-  subsets: ['latin'],
-  display: 'swap',
-})
-
-// Optional (Next.js app router): explicitly allow zooming
 export const viewport = {
   width: 'device-width',
   initialScale: 1,
@@ -28,10 +20,9 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${poppins.className} bg-gray-100 min-h-screen`}>
+      <body className="font-sans bg-gray-100 min-h-screen">
         <ThemeProvider attribute="class" defaultTheme="light">
-            {/* no overflow-hidden here; we’ll control it via [data-tv="1"] in CSS */}
-            <main className="h-full">{children}</main>
+          <main className="h-full">{children}</main>
         </ThemeProvider>
       </body>
     </html>

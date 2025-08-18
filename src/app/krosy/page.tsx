@@ -1,4 +1,3 @@
-// src/app/krosy/page.tsx
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -8,11 +7,9 @@ type RunMode = "json" | "xml";
 type ViewTab = "body" | "xmlPreview";
 
 const ENDPOINT_PROXY =
-  process.env.NEXT_PUBLIC_KROSY_ENDPOINT ?? "http://localhost:3001/api/krosy";
+  process.env.NEXT_PUBLIC_KROSY_ENDPOINT ?? "http://localhost:3002/api/krosy-offline";
 const ENDPOINT_DIRECT =
-  process.env.NEXT_PUBLIC_KROSY_DIRECT ?? "http://localhost:3001/api/krosy-direct";
-const PROXY_VC =
-  process.env.NEXT_PUBLIC_KROSY_FALLBACK ?? "http://localhost:3001/api/visualcontrol";
+  process.env.NEXT_PUBLIC_KROSY_DIRECT ?? "http://localhost:3002/api/krosy";
 
 function isoNoMs(d = new Date()) {
   return d.toISOString().replace(/\.\d{3}Z$/, "");
@@ -48,12 +45,10 @@ export default function KrosyPage() {
 
   // inputs
   const [requestID, setRequestID] = useState<string>("1");
-  const [intksk, setIntksk] = useState("950023158903");
+  const [intksk, setIntksk] = useState("830577899396");
   const [targetHostName, setTargetHostName] = useState("kssksun01");
-  const [onlineDevice, setOnlineDevice] = useState(true);
-  const [deviceUrl, setDeviceUrl] = useState("http://172.26.202.248/visualcontrol");
 
-  // auto (disabled)
+  // auto
   const [sourceHostname, setSourceHostname] = useState("");
   const [sourceIp, setSourceIp] = useState("");
   const [sourceMac, setSourceMac] = useState("");
@@ -81,19 +76,21 @@ export default function KrosyPage() {
     });
   }, []);
 
-  // pull hostname/ip/mac (ensures MAC visible)
+  // bootstrap IP + MAC + hostname
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch(ENDPOINT_DIRECT, { headers: { Accept: "application/json" } });
+        if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
         const j = await r.json();
         setSourceHostname(j.hostname || "");
         setSourceIp(j.ip || "");
         setSourceMac(j.mac || "");
-        if (j.defaultDeviceUrl) setDeviceUrl(j.defaultDeviceUrl);
-      } catch {}
+      } catch (e: any) {
+        append(`bootstrap failed: ${e?.message || e}`);
+      }
     })();
-  }, []);
+  }, [append]);
 
   const run = useCallback(async () => {
     if (busy) return;
@@ -107,34 +104,17 @@ export default function KrosyPage() {
 
     const started = performance.now();
     try {
-      let res: Response;
-
-      if (onlineDevice) {
-        append(`POST ${ENDPOINT_DIRECT} (direct)`);
-        res = await fetch(ENDPOINT_DIRECT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: accept },
-          body: JSON.stringify({
-            requestID,
-            intksk,
-            targetHostName,
-            deviceUrl,
-            sourceHostname,
-          }),
-        });
-      } else {
-        append(`POST ${ENDPOINT_PROXY} (proxy fallback)`);
-        res = await fetch(ENDPOINT_PROXY, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: accept },
-          body: JSON.stringify({
-            intksk,
-            device: sourceHostname,
-            scanned: isoNoMs(),
-            targetUrl: PROXY_VC, // no UI field; internal default
-          }),
-        });
-      }
+      append(`POST ${ENDPOINT_DIRECT} (direct)`);
+      const res = await fetch(ENDPOINT_DIRECT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: accept },
+        body: JSON.stringify({
+          requestID,
+          intksk,
+          targetHostName,
+          sourceHostname,
+        }),
+      });
 
       const ms = Math.round(performance.now() - started);
       setDuration(ms);
@@ -162,7 +142,7 @@ export default function KrosyPage() {
     } finally {
       setBusy(false);
     }
-  }, [accept, append, busy, requestID, intksk, targetHostName, deviceUrl, onlineDevice, sourceHostname]);
+  }, [accept, append, busy, requestID, intksk, targetHostName, sourceHostname]);
 
   const clearLogs = () => setLogs([]);
 
@@ -186,28 +166,30 @@ export default function KrosyPage() {
             ))}
           </div>
 
-          <div className="flex items-center justify-between rounded-2xl border border-black/10 dark:border-white/10 p-3 mb-2">
-            <div className="text-sm">
-              <div className="font-medium text-gray-900 dark:text-gray-100">Online device (direct)</div>
-              <div className="text-gray-600 dark:text-gray-400 text-xs">If ON, send XML straight to device and skip localhost.</div>
-            </div>
-            <button onClick={() => setOnlineDevice((v) => !v)}
-              className={["relative h-7 w-12 rounded-full transition", onlineDevice ? "bg-green-500" : "bg-gray-300 dark:bg-gray-700"].join(" ")} aria-pressed={onlineDevice}>
-              <span className={["absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white transition", onlineDevice ? "translate-x-5" : "translate-x-0"].join(" ")} />
-            </button>
-          </div>
-
           <div className="space-y-3">
-            <Field label="requestID"><Input value={requestID} onChange={setRequestID} /></Field>
-            <Field label="intksk"><Input value={intksk} onChange={setIntksk} /></Field>
-            <Field label="targetHostName"><Input value={targetHostName} onChange={setTargetHostName} /></Field>
-            <Field label="deviceUrl"><Input value={deviceUrl} onChange={setDeviceUrl} inputMode="url" /></Field>
+            <Field label="requestID"><Input value={requestID} onValueChange={setRequestID} /></Field>
+            <Field label="intksk"><Input value={intksk} onValueChange={setIntksk} /></Field>
+            <Field label="targetHostName"><Input value={targetHostName} onValueChange={setTargetHostName} /></Field>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="sourceHostname"><Input value={sourceHostname} onChange={setSourceHostname} /></Field>
-              <Field label="ip"><Input value={sourceIp} onChange={setSourceIp} disabled /></Field>
-              <Field label="mac"><Input value={sourceMac} onChange={setSourceMac} disabled /></Field>
-            </div>
+{/* stacked + wider MAC */}
+<div className="space-y-3">
+  <Field label="sourceHostname">
+    <Input value={sourceHostname} onValueChange={setSourceHostname} />
+  </Field>
+
+  <Field label="ip">
+    <Input value={sourceIp} disabled />
+  </Field>
+
+  <Field label="mac">
+    {/* wide, monospaced for readability */}
+    <Input
+      value={sourceMac}
+      disabled
+      className="font-mono tracking-wider w-full"
+    />
+  </Field>
+</div>
 
             <div className="flex gap-3 pt-2">
               <motion.button onClick={run} whileHover={{ y: -1 }} whileTap={{ scale: 0.98 }} disabled={busy}
@@ -263,11 +245,17 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
-function Input(props: React.InputHTMLAttributes<HTMLInputElement> & { onChange?: (v: string) => void }) {
-  const { onChange, ...rest } = props;
+type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
+  onValueChange?: (v: string) => void;
+  className?: string;
+};
+
+function Input({ onValueChange, className = "", disabled, ...rest }: InputProps) {
   return (
-    <input {...rest}
-      onChange={(e) => onChange?.(e.target.value)}
+    <input
+      {...rest}
+      disabled={disabled}
+      onChange={(e) => onValueChange?.(e.target.value)}
       className={[
         "w-full rounded-2xl px-3 py-3 text-sm",
         "bg-white dark:bg-gray-800",
@@ -276,10 +264,19 @@ function Input(props: React.InputHTMLAttributes<HTMLInputElement> & { onChange?:
         "border border-black/10 dark:border-white/10",
         "shadow-inner outline-none caret-indigo-600",
         "focus:ring-4 focus:ring-indigo-200/60 dark:focus:ring-indigo-500/30",
+        // disabled look + cursor behavior
+        "disabled:bg-gray-100 dark:disabled:bg-gray-800/60",
+        "disabled:text-gray-500",
+        "disabled:border-black/5",
+        "disabled:shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]",
+        "cursor-auto hover:cursor-text",
+        "disabled:cursor-not-allowed hover:disabled:cursor-not-allowed",
+        className,
       ].join(" ")}
     />
   );
 }
+
 function SmallButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button onClick={onClick}

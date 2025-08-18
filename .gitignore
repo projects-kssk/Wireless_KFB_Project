@@ -39,3 +39,4 @@ dist
 .env
 db-socket/.s.PGSQL.5432.lock
 db-socket/
+.krosy-logs

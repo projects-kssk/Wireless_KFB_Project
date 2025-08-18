@@ -3,7 +3,7 @@ import path from 'node:path'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
 
-const PORT = parseInt(process.env.PORT || '3001', 10)
+const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
 
 function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000) {

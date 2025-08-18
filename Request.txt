@@ -1,0 +1,19 @@
+
+<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <header>
+        <requestID>1</requestID>
+        <sourceHost>
+            <hostname>ksmiwct07</hostname>
+            <ipAddress>172.27.234.97</ipAddress>
+            <macAddress>C8-D9-D2-24-E7-08</macAddress>
+        </sourceHost>
+        <targetHost>
+            <hostname>ksmisun01</hostname>
+        </targetHost>
+    </header>
+    <body>
+        <visualControl>
+            <workingRequest intksk="950023158903" scanned="2025-08-15T09:38:50" device="ksmiwct07"/>
+        </visualControl>
+    </body>
+</krosy>

@@ -8,7 +8,7 @@ import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
 const dev = process.env.NODE_ENV !== 'production'
 const app = next({ dev })
 const handle = app.getRequestHandler()
-const PORT = parseInt(process.env.PORT || '3001', 10)
+const PORT = parseInt(process.env.PORT || '3003', 10)
 
 app.prepare().then(() => {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => handle(req, res))

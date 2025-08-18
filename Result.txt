@@ -1,0 +1,459 @@
+ <header>
+        <requestID>1</requestID>
+        <responseID>1</responseID>
+        <sourceHost>
+            <hostname>ksmisun01</hostname>
+            <ipAddress>0.0.0.0</ipAddress>
+        </sourceHost>
+        <targetHost>
+            <hostname>ksmiwct07</hostname>
+        </targetHost>
+        <embeddedBinaries allowed="false" encoding="Base64"/>
+    </header>
+    <body>
+        <visualControl>
+            <workingData device="ksmiwct07" intksk="950023120297" kfb="" scanned="2025-08-15T09:47:33" setup="U25_DPT_HLS_RL" projekt="U2BK" ksknr="3726306" kskidx="0" lfdnr="0" modbez="HLS_RL" modjahr="" band="0953I3" ident="658998C" status="true">
+                <sequencer>
+                    <segmentList count="1">
+                        <segment index="1" name="1">
+                            <sequenceList count="82">
+                                <sequence index="1" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A573*1B</objPos>
+                                </sequence>
+                                <sequence index="2" compType="clip" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C002_FW1</objPos>
+                                </sequence>
+                                <sequence index="3" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C019_SLS</objPos>
+                                </sequence>
+                                <sequence index="4" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>S-5</objPos>
+                                </sequence>
+                                <sequence index="5" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>S-6</objPos>
+                                </sequence>
+                                <sequence index="6" compType="elecComp" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>Z10*3B</objPos>
+                                </sequence>
+                                <sequence index="7" compType="elecComp" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>Z10*4B</objPos>
+                                </sequence>
+                                <sequence index="8" compType="elecComp" reference="2" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>Z10*5B</objPos>
+                                </sequence>
+                                <sequence index="9" compType="elecComp" reference="2" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>Z10*6B</objPos>
+                                </sequence>
+                                <sequence index="10" compType="housing" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*9B</objPos>
+                                </sequence>
+                                <sequence index="11" compType="housing" reference="2" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*1B</objPos>
+                                </sequence>
+                                <sequence index="12" compType="clip" reference="2" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C018_IN2</objPos>
+                                </sequence>
+                                <sequence index="13" compType="housing" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*2B</objPos>
+                                </sequence>
+                                <sequence index="14" compType="housing" reference="4" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*3B</objPos>
+                                </sequence>
+                                <sequence index="15" compType="housing" reference="5" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*4B</objPos>
+                                </sequence>
+                                <sequence index="16" compType="housing" reference="6" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*5B</objPos>
+                                </sequence>
+                                <sequence index="17" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*6B</objPos>
+                                </sequence>
+                                <sequence index="18" compType="housing" reference="7" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*8B</objPos>
+                                </sequence>
+                                <sequence index="19" compType="housing" reference="8" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A528*9B</objPos>
+                                </sequence>
+                                <sequence index="20" compType="housing" reference="9" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*2B</objPos>
+                                </sequence>
+                                <sequence index="21" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*8B</objPos>
+                                </sequence>
+                                <sequence index="22" compType="housing" reference="10" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*3B</objPos>
+                                </sequence>
+                                <sequence index="23" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*10B</objPos>
+                                </sequence>
+                                <sequence index="24" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*7B</objPos>
+                                </sequence>
+                                <sequence index="25" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*13B</objPos>
+                                </sequence>
+                                <sequence index="26" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A665*12B</objPos>
+                                </sequence>
+                                <sequence index="27" compType="clip" reference="2" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C026_IN2</objPos>
+                                </sequence>
+                                <sequence index="28" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C020_SLS</objPos>
+                                </sequence>
+                                <sequence index="29" compType="housing" reference="11" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>D004_IN2</objPos>
+                                </sequence>
+                                <sequence index="30" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C008_SLS</objPos>
+                                </sequence>
+                                <sequence index="31" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C007_SLS</objPos>
+                                </sequence>
+                                <sequence index="32" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C013_SLS</objPos>
+                                </sequence>
+                                <sequence index="33" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C021_SLS</objPos>
+                                </sequence>
+                                <sequence index="34" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C025_SLS</objPos>
+                                </sequence>
+                                <sequence index="35" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C002_SLS</objPos>
+                                </sequence>
+                                <sequence index="36" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C003_SLS</objPos>
+                                </sequence>
+                                <sequence index="37" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C003_IN2</objPos>
+                                </sequence>
+                                <sequence index="38" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C004_SLS</objPos>
+                                </sequence>
+                                <sequence index="39" compType="clip" reference="4" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C007_IN2</objPos>
+                                </sequence>
+                                <sequence index="40" compType="clip" reference="5" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C009_IN2</objPos>
+                                </sequence>
+                                <sequence index="41" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C008_INX</objPos>
+                                </sequence>
+                                <sequence index="42" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C007_INX</objPos>
+                                </sequence>
+                                <sequence index="43" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C009_INX</objPos>
+                                </sequence>
+                                <sequence index="44" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C006_INX</objPos>
+                                </sequence>
+                                <sequence index="45" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C004_INX</objPos>
+                                </sequence>
+                                <sequence index="46" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C038_IN1</objPos>
+                                </sequence>
+                                <sequence index="47" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C037_IN1</objPos>
+                                </sequence>
+                                <sequence index="48" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C039_IN1</objPos>
+                                </sequence>
+                                <sequence index="49" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C036_IN1</objPos>
+                                </sequence>
+                                <sequence index="50" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C035_IN1</objPos>
+                                </sequence>
+                                <sequence index="51" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C006_SLS</objPos>
+                                </sequence>
+                                <sequence index="52" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C050_SLS</objPos>
+                                </sequence>
+                                <sequence index="53" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C001_SLS</objPos>
+                                </sequence>
+                                <sequence index="54" compType="clip" reference="5" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C012_IN2</objPos>
+                                </sequence>
+                                <sequence index="55" compType="clip" reference="4" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C005_IN2</objPos>
+                                </sequence>
+                                <sequence index="56" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C024_IN2</objPos>
+                                </sequence>
+                                <sequence index="57" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C026_SLS</objPos>
+                                </sequence>
+                                <sequence index="58" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C022_SLS</objPos>
+                                </sequence>
+                                <sequence index="59" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C015_SLS</objPos>
+                                </sequence>
+                                <sequence index="60" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C014_SLS</objPos>
+                                </sequence>
+                                <sequence index="61" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C018_SLS</objPos>
+                                </sequence>
+                                <sequence index="62" compType="housing" reference="12" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>D003_IN2</objPos>
+                                </sequence>
+                                <sequence index="63" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>B63*1B</objPos>
+                                </sequence>
+                                <sequence index="64" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A588*3B</objPos>
+                                </sequence>
+                                <sequence index="65" compType="clip" reference="6" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C001_FWB</objPos>
+                                </sequence>
+                                <sequence index="66" compType="clip" reference="7" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C002_FWB</objPos>
+                                </sequence>
+                                <sequence index="67" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C016_SLS</objPos>
+                                </sequence>
+                                <sequence index="68" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C017_SLS</objPos>
+                                </sequence>
+                                <sequence index="69" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C024_SLS</objPos>
+                                </sequence>
+                                <sequence index="70" compType="clip" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C027_SLS</objPos>
+                                </sequence>
+                                <sequence index="71" compType="clip" reference="3" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C034_IN1</objPos>
+                                </sequence>
+                                <sequence index="72" compType="housing" reference="13" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>S001_FWH</objPos>
+                                </sequence>
+                                <sequence index="73" compType="housing" reference="14" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>S002_FWH</objPos>
+                                </sequence>
+                                <sequence index="74" compType="housing" reference="0" measType="no_check">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>B64*1B</objPos>
+                                </sequence>
+                                <sequence index="75" compType="housing" reference="15" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>A630*1B</objPos>
+                                </sequence>
+                                <sequence index="76" compType="housing" reference="16" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>D001_IN1</objPos>
+                                </sequence>
+                                <sequence index="77" compType="housing" reference="17" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>D002_IN1</objPos>
+                                </sequence>
+                                <sequence index="78" compType="clip" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C003_FW1</objPos>
+                                </sequence>
+                                <sequence index="79" compType="clip" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C001_FW1</objPos>
+                                </sequence>
+                                <sequence index="80" compType="clip" reference="1" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>C004_FW1</objPos>
+                                </sequence>
+                                <sequence index="81" compType="housing" reference="18" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>B63_1B</objPos>
+                                </sequence>
+                                <sequence index="82" compType="housing" reference="18" measType="default">
+                                    <objGroup>DPT</objGroup>
+                                    <objPos>B64_1B</objPos>
+                                </sequence>
+                            </sequenceList>
+                        </segment>
+                    </segmentList>
+                </sequencer>
+                <component>
+                    <clipList count="7">
+                        <clip index="1" ident="021383">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="2" ident="020283">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="3" ident="080017">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="4" ident="058330">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="5" ident="062632">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="6" ident="01010807">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="7" ident="082823">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                    </clipList>
+                    <housingList count="18">
+                        <housing index="1" ident="094727">
+                            <abgrif>A665*9B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="2" ident="052026">
+                            <abgrif>A665*1B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="3" ident="048783">
+                            <abgrif>A528*2B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="4" ident="048787">
+                            <abgrif>A528*3B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="5" ident="048788">
+                            <abgrif>A528*4B</abgrif>
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="6" ident="048784">
+                            <abgrif>A528*5B</abgrif>
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="7" ident="048785">
+                            <abgrif>A528*8B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="8" ident="048786">
+                            <abgrif>A528*9B</abgrif>
+                            <color type="kroschu">bl</color>
+                        </housing>
+                        <housing index="9" ident="01012645">
+                            <abgrif>A665*2B</abgrif>
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="10" ident="004954">
+                            <abgrif>A665*3B</abgrif>
+                            <color type="kroschu">vi</color>
+                        </housing>
+                        <housing index="11" ident="111129">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="12" ident="111130">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="13" ident="111020">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="14" ident="111022">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="15" ident="01021755">
+                            <abgrif>A630*1B</abgrif>
+                            <color type="kroschu">sw</color>
+                        </housing>
+                        <housing index="16" ident="01025040">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="17" ident="01025039">
+                            <color type="kroschu">nt</color>
+                        </housing>
+                        <housing index="18" ident="085244">
+                            <abgrif>B63*1B.A</abgrif>
+                            <color type="kroschu">bl</color>
+                        </housing>
+                    </housingList>
+                    <elecCompList count="2">
+                        <elecComp index="1" ident="063404"/>
+                        <elecComp index="2" ident="063406"/>
+                    </elecCompList>
+                </component>
+            </workingData>
+        </visualControl>
+    </body>
+</krosy>'

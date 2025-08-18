@@ -6,7 +6,7 @@
             <macAddress>C8-D9-D2-24-E7-08</macAddress>
         </sourceHost>
         <targetHost>
-            <hostname>ksmisun01</hostname>
+            <hostname>ksmisun01</hostname> //kssksun01
         </targetHost>
     </header>
     <body>

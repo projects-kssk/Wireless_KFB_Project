@@ -22,7 +22,7 @@ export default function KrosyPage() {
   const [intksk, setIntksk] = useState("950023158903");
   const [device, setDevice] = useState("ksmiwct07");
   const [scanned, setScanned] = useState(isoNoMs());
-  const [targetUrl, setTargetUrl] = useState("http://localhost:3002/visualcontrol");
+  const [targetUrl, setTargetUrl] = useState("http://localhost:3001/api/visualcontrol");
 
   const [logs, setLogs] = useState<string[]>([]);
   const [respBody, setRespBody] = useState<string>("Run the test to see response payload…");

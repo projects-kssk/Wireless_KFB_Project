@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 
 type RunMode = "json" | "xml";
 
-const ENDPOINT = "http://localhost:3001/krosy";
+const ENDPOINT = "http://localhost:3001/api/krosy";
 
 function isoNoMs(d = new Date()) {
   return d.toISOString().replace(/\.\d{3}Z$/, "");
@@ -162,7 +162,7 @@ export default function KrosyPage() {
                 onClick={clearLogs}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                className="rounded-2xl px-4 py-2 text-sm font-medium bg-white dark:bg-gray-900 border border-black/10"
+                className="rounded-2xl px-4 py-2 text-sm font-medium bg-white text-gray-800  dark:bg-gray-900 border border-black/10"
               >
                 Clear logs
               </motion.button>

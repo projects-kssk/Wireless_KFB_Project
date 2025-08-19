@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { MenuIcon, XMarkIcon } from '@/components/Icons/Icons';
@@ -73,7 +73,7 @@ const SupportPillSM: React.FC<{
         'bg-transparent',
         className ?? '',
       ].join(' ')}
-      style={{ overflow: 'hidden' }}
+      style={{ overflow: 'hidden', willChange: 'transform,opacity' }}
     >
       <div className="mr-3 shrink-0">
         <div
@@ -85,12 +85,15 @@ const SupportPillSM: React.FC<{
           ].join(' ')}
         >
           <SupportIcon className="h-5 w-5 2xl:h-6 2xl:w-6 opacity-95" />
+
+          {/* GPU-friendly pulse: scale + fade, not box-shadow */}
           {!reduce && (
             <motion.span
               className="pointer-events-none absolute inset-0 rounded-full"
-              style={{ boxShadow: '0 0 0 0 rgba(168,85,247,.35)' }}
-              animate={{ boxShadow: ['0 0 0 0 rgba(168,85,247,.35)', '0 0 0 12px rgba(168,85,247,0)'] }}
-              transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+              style={{ border: '2px solid rgba(168,85,247,.35)' }}
+              initial={{ scale: 1, opacity: 0.7 }}
+              animate={{ scale: [1, 1.35], opacity: [0.7, 0] }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
             />
           )}
         </div>
@@ -125,7 +128,7 @@ const ledCfg = (c: LedColor) =>
     ? { a: '#fbbf24', b: '#f59e0b', rim: 'rgba(245,158,11,.45)' }
     : { a: '#fb7185', b: '#ef4444', rim: 'rgba(244,63,94,.45)' };
 
-const LedBall: React.FC<{ color: LedColor; size?: number; title?: string }> = ({ color, size = 34, title }) => {
+const LedBallBase: React.FC<{ color: LedColor; size?: number; title?: string }> = ({ color, size = 34, title }) => {
   const reduce = useReducedMotion();
   const cfg = ledCfg(color);
   const px = `${size}px`;
@@ -137,32 +140,35 @@ const LedBall: React.FC<{ color: LedColor; size?: number; title?: string }> = ({
         style={{
           height: px,
           width: px,
-          boxShadow: `0 0 0 4px ${cfg.rim}`,
+          boxShadow: `0 0 0 4px ${cfg.rim}`, // static, cheap
           background: `
             radial-gradient(120% 120% at 28% 24%, rgba(255,255,255,.92) 0%, rgba(255,255,255,0) 42%),
             radial-gradient(85% 85% at 50% 60%, ${cfg.a} 0%, ${cfg.b} 70%)
           `,
         }}
       />
+      {/* GPU-friendly halo instead of animated box-shadow */}
       {!reduce && (
         <motion.span
           aria-hidden
           className="absolute inset-0 rounded-full"
-          style={{ boxShadow: `0 0 0 0 ${cfg.rim}` }}
-          animate={{ boxShadow: [`0 0 0 0 ${cfg.rim}`, `0 0 0 12px transparent`] }}
-          transition={{ duration: 2.0, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ border: `2px solid ${cfg.rim}`, willChange: 'transform,opacity' }}
+          initial={{ scale: 1, opacity: 0.6 }}
+          animate={{ scale: [1, 1.4], opacity: [0.6, 0] }}
+          transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
         />
       )}
     </div>
   );
 };
+const LedBall = memo(LedBallBase);
 
 /* ────────────────────────────────────────────────────────────────────────────
    Status cells
    ──────────────────────────────────────────────────────────────────────────── */
 type Row = { title: string; sub?: string | null; color: LedColor; suffix?: string | number };
 
-const StatusCell: React.FC<Row & { labelsHidden?: boolean }> = ({ title, sub, color, suffix, labelsHidden }) => {
+const StatusCellBase: React.FC<Row & { labelsHidden?: boolean }> = ({ title, sub, color, suffix, labelsHidden }) => {
   return (
     <div className="flex items-center h-full px-3 py-2">
       <LedBall color={color} />
@@ -188,6 +194,7 @@ const StatusCell: React.FC<Row & { labelsHidden?: boolean }> = ({ title, sub, co
     </div>
   );
 };
+const StatusCell = memo(StatusCellBase);
 
 const StatusRow: React.FC<{ cells: Row[]; className?: string; labelsHidden?: boolean }> = ({
   cells,
@@ -278,7 +285,7 @@ const IOSSettingsGlyph: React.FC<{ className?: string }> = ({ className }) => (
 /* ────────────────────────────────────────────────────────────────────────────
    Settings button
    ──────────────────────────────────────────────────────────────────────────── */
-const SettingsIconButton: React.FC<{
+const SettingsIconButtonBase: React.FC<{
   size: number;
   label: string;
   onClick: () => void;
@@ -293,7 +300,7 @@ const SettingsIconButton: React.FC<{
       whileHover={{ y: -2 }}
       whileTap={{ scale: 0.98 }}
       className="hidden lg:flex flex-col items-center justify-center bg-transparent"
-      style={{ width: size, height: size }}
+      style={{ width: size, height: size, willChange: 'transform' }}
     >
       <IOSSettingsGlyph className="h-[72%] w-[72%]" />
       {showLabel && (
@@ -304,6 +311,7 @@ const SettingsIconButton: React.FC<{
     </motion.button>
   );
 };
+const SettingsIconButton = memo(SettingsIconButtonBase);
 
 /* ────────────────────────────────────────────────────────────────────────────
    Helpers
@@ -332,7 +340,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [settingsSize, setSettingsSize] = useState<number>(150);
+
+  // rAF-throttled scroll/resize
   const lastScrollY = useRef(0);
+  const isHeaderVisibleRef = useRef(true);
+  const rafId = useRef<number | null>(null);
+  const resizeRafId = useRef<number | null>(null);
 
   const { devices, server } = useSerialEvents();
 
@@ -374,24 +387,46 @@ export const Header: React.FC<HeaderProps> = ({
   const serverSub = server === 'connected' ? 'Online' : 'Offline';
 
   useEffect(() => {
-    const handleScroll = () => {
-      const y = window.scrollY;
-      setIsHeaderVisible(y < lastScrollY.current || y <= 10);
-      lastScrollY.current = y;
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
+    const threshold = 8; // dampen flicker
+    const onScroll = () => {
+      if (rafId.current != null) return;
+      rafId.current = window.requestAnimationFrame(() => {
+        rafId.current = null;
+        const y = window.scrollY || 0;
 
-    const handleResize = () => {
-      const vw = typeof window !== 'undefined' ? window.innerWidth : 1600;
-      const size = Math.max(120, Math.min(vw * 0.09, 160)); // clamp(120px, 9vw, 160px)
-      setSettingsSize(Math.round(size));
+        const scrolledUp = y < lastScrollY.current - threshold;
+        const nearTop = y <= 10;
+        const nextVisible = scrolledUp || nearTop;
+
+        if (nextVisible !== isHeaderVisibleRef.current) {
+          isHeaderVisibleRef.current = nextVisible;
+          setIsHeaderVisible(nextVisible);
+        }
+        lastScrollY.current = y;
+      });
     };
-    handleResize();
-    window.addEventListener('resize', handleResize);
+
+    const onResize = () => {
+      if (resizeRafId.current != null) return;
+      resizeRafId.current = window.requestAnimationFrame(() => {
+        resizeRafId.current = null;
+        const vw = typeof window !== 'undefined' ? window.innerWidth : 1600;
+        const size = Math.max(120, Math.min(vw * 0.09, 160)); // clamp(120px, 9vw, 160px)
+        setSettingsSize(Math.round(size));
+      });
+    };
+
+    // init
+    onResize();
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
 
     return () => {
-      window.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+      if (rafId.current) cancelAnimationFrame(rafId.current);
+      if (resizeRafId.current) cancelAnimationFrame(resizeRafId.current);
     };
   }, []);
 
@@ -400,8 +435,14 @@ export const Header: React.FC<HeaderProps> = ({
   const mainButtonText = currentView === 'settings' ? 'Dashboard' : 'Settings';
 
   const barVariants: Variants = {
-    shown: { y: 0, transition: { type: 'spring', stiffness: 650, damping: 40 } },
-    hidden: { y: -120, transition: { type: 'tween', duration: 0.25 } },
+    shown: {
+      y: 0,
+      transition: { type: 'spring', stiffness: 420, damping: 42, mass: 0.8 },
+    },
+    hidden: {
+      y: -120,
+      transition: { type: 'tween', duration: 0.18, ease: [0.22, 1, 0.36, 1] },
+    },
   };
 
   return (
@@ -415,6 +456,9 @@ export const Header: React.FC<HeaderProps> = ({
         style={{
           height: `calc(${settingsSize}px + env(safe-area-inset-top))`,
           minHeight: `calc(${BASE_HEADER_MIN_HEIGHT} + env(safe-area-inset-top))`,
+          willChange: 'transform',
+          backfaceVisibility: 'hidden',
+          transform: 'translateZ(0)',
         }}
       >
         <div
@@ -455,6 +499,7 @@ export const Header: React.FC<HeaderProps> = ({
                 'ml-3 lg:hidden h-[44px] w-[44px] flex items-center justify-center rounded-full',
                 'bg-transparent text-slate-700 dark:text-slate-100',
               ].join(' ')}
+              style={{ willChange: 'transform' }}
             >
               {isSidebarOpen ? <XMarkIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
             </motion.button>

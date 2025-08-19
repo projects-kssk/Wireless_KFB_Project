@@ -1,4 +1,3 @@
-// app/api/krosy/route.ts
 import { NextRequest } from "next/server";
 import os from "node:os";
 import fs from "node:fs/promises";
@@ -15,17 +14,17 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim());
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
+const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
+/** newline | fin | null | none */
+const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
 
-const TRANSPORT = (process.env.KROSY_TRANSPORT || "tcp").toLowerCase(); // "tcp" | "http"
-const KROSY_HOST = (process.env.KROSY_HOST || "").trim(); // e.g. "ksmisun01" or "10.0.0.5:8080"
+/** Default connect target per your requirement */
+const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim();
+/** Fallback TCP port if host has no :port */
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 
-const HTTP_SCHEME = process.env.KROSY_SCHEME || "http://";
-const HTTP_PATH = process.env.KROSY_DEVICE_PATH || "/krosy/visualcontrol/V_0_1/working";
-
-const DEFAULT_ACTION = (process.env.KROSY_DEFAULT_ACTION || "working").toLowerCase(); // "working" = visualControl
-
-/* ===== Namespaces ===== */
+/* ===== VisualControl namespace ===== */
 const VC_NS = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 
 /* ===== CORS ===== */
@@ -44,14 +43,11 @@ function cors(req: NextRequest) {
 const isoNoMs = (d = new Date()) => d.toISOString().replace(/\.\d{3}Z$/, "");
 const nowStamp = () => isoNoMs().replace(/[:T]/g, "-");
 
-async function ensureDir(p: string) {
-  await fs.mkdir(p, { recursive: true });
-}
+async function ensureDir(p: string) { await fs.mkdir(p, { recursive: true }); }
 async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
-
 function pickIpAndMac() {
   const want = (process.env.KROSY_NET_IFACE || "").trim();
   const ifs = os.networkInterfaces();
@@ -66,313 +62,83 @@ function pickIpAndMac() {
   const mac = (chosen?.mac || "00:00:00:00:00:00").toUpperCase().replace(/:/g, "-");
   return { ip: addr, mac };
 }
-
-/* ===== HTTP target url ===== */
-function httpUrl(host: string) {
-  if (/^https?:\/\//i.test(host)) return `${host}${HTTP_PATH}`;
-  return `${HTTP_SCHEME}${host}${HTTP_PATH}`;
+function parseHostPort(raw: string, defPort: number) {
+  let host = raw, port = defPort;
+  const m = raw.match(/^\[?([^\]]+)\]:(\d+)$/);
+  if (m) { host = m[1]; port = Number(m[2]); }
+  return { host, port };
 }
 
-/* ===== XML builders ===== */
+/* ===== VisualControl XML (working only) ===== */
 function buildVisualControlWorkingXML(args: {
-  requestID: string;
-  srcHost: string;
-  targetHost: string;
-  scanned: string;
-  ip: string;
-  mac: string;
-  intksk: string;
+  requestID: string; srcHost: string; targetHost: string; scanned: string; ip: string; mac: string; intksk: string;
 }) {
   const { requestID, srcHost, targetHost, scanned, ip, mac, intksk } = args;
   return (
     `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="${VC_NS}" xmlns:xsd="http://www.w3.org/2001/XMLSchema">` +
-    `<header>` +
-    `<requestID>${requestID}</requestID>` +
-    `<sourceHost>` +
-    `<hostname>${srcHost}</hostname>` +
-    `<ipAddress>${ip}</ipAddress>` +
-    `<macAddress>${mac}</macAddress>` +
-    `</sourceHost>` +
-    `<targetHost><hostname>${targetHost}</hostname></targetHost>` +
-    `</header>` +
-    `<body>` +
-    `<visualControl>` +
-    `<workingRequest intksk="${intksk}" scanned="${scanned}" device="${srcHost}"/>` +
-    `</visualControl>` +
-    `</body>` +
+      `<header>` +
+        `<requestID>${requestID}</requestID>` +
+        `<sourceHost>` +
+          `<hostname>${srcHost}</hostname>` +
+          `<ipAddress>${ip}</ipAddress>` +
+          `<macAddress>${mac}</macAddress>` +
+        `</sourceHost>` +
+        `<targetHost><hostname>${targetHost}</hostname></targetHost>` +
+      `</header>` +
+      `<body>` +
+        `<visualControl>` +
+          `<workingRequest intksk="${intksk}" scanned="${scanned}" device="${srcHost}"/>` +
+        `</visualControl>` +
+      `</body>` +
     `</krosy>`
   );
 }
 
-// legacy plugin
-function xmlHeaderLegacy(requestID: string, srcHost: string, targetHost: string, ip: string, mac: string) {
-  return (
-    `<header>` +
-    `<sourcehost><requestid>${requestID}</requestid><hostname>${srcHost}</hostname><ip>${ip}</ip><macaddress>${mac}</macaddress></sourcehost>` +
-    `<targethost><hostname>${targetHost}</hostname></targethost>` +
-    `</header>`
-  );
-}
-function buildRequestXML(a: {
-  requestID: string;
-  srcHost: string;
-  targetHost: string;
-  scanned: string;
-  ip: string;
-  mac: string;
-  scancode: string;
-}) {
-  const { requestID, srcHost, targetHost, scanned, ip, mac, scancode } = a;
-  return `<krosy>${xmlHeaderLegacy(requestID, srcHost, targetHost, ip, mac)}<body device="${srcHost}" ordercount="1"><order id="1" scancode="${scancode}" type="1" state="1" timestamp="${scanned}"/></body></krosy>`;
-}
-function buildIoXML(a: {
-  requestID: string;
-  srcHost: string;
-  targetHost: string;
-  scanned: string;
-  ip: string;
-  mac: string;
-  scancode: string;
-  tident: string;
-  sdistance: string;
-}) {
-  const { requestID, srcHost, targetHost, scanned, ip, mac, scancode, tident, sdistance } = a;
-  return `<krosy>${xmlHeaderLegacy(
-    requestID,
-    srcHost,
-    targetHost,
-    ip,
-    mac
-  )}<body device="${srcHost}" ordercount="1"><order id="1" type="2" state="3" scancode="${scancode}" timestamp="${scanned}" amountok="1"><result><objects objectcount="1"><object id="1" state="3"><terminal ident="${tident}" distance="${sdistance}"></terminal></object></objects></result></order></body></krosy>`;
-}
-function buildCancelXML(a: {
-  requestID: string;
-  srcHost: string;
-  targetHost: string;
-  scanned: string;
-  ip: string;
-  mac: string;
-  scancode: string;
-  tident: string;
-  sdistance: string;
-}) {
-  const { requestID, srcHost, targetHost, scanned, ip, mac, scancode, tident, sdistance } = a;
-  return `<krosy>${xmlHeaderLegacy(
-    requestID,
-    srcHost,
-    targetHost,
-    ip,
-    mac
-  )}<body device="${srcHost}" ordercount="1"><order id="1" type="2" state="-1" scancode="${scancode}" timestamp="${scanned}" amountok="0"><errors errorcount="1" langu="en"><error id="1" message="Wrong parameter"/></errors><result><objects objectcount="1"><object id="1" state="0"><terminal ident="${tident}" distance="${sdistance}"></terminal></object></objects></result></order></body></krosy>`;
-}
-function buildNioXML(a: {
-  requestID: string;
-  srcHost: string;
-  targetHost: string;
-  scanned: string;
-  ip: string;
-  mac: string;
-  scancode: string;
-  tident: string;
-  sdistance: string;
-}) {
-  const { requestID, srcHost, targetHost, scanned, ip, mac, scancode, tident, sdistance } = a;
-  return `<krosy>${xmlHeaderLegacy(
-    requestID,
-    srcHost,
-    targetHost,
-    ip,
-    mac
-  )}<body device="${srcHost}" ordercount="1"><order id="1" type="2" state="-101" scancode="${scancode}" timestamp="${scanned}" amountok="0"><errors errorcount="1" langu="en"><error id="1" message="Process with failure"/></errors><result><objects objectcount="1"><object id="1" state="-135"><errors errorcount="1" langu="en"><error id="1" message="motor has an error"/></errors><terminal ident="${tident}" distance="${sdistance}"></terminal></object></objects></result></order></body></krosy>`;
-}
-
-/* ===== Namespace-agnostic parser ===== */
-function pick(el: Element | Document | null, name: string): Element | null {
-  if (!el) return null;
-  // @ts-ignore
-  const ns = (el as any).getElementsByTagNameNS?.bind(el);
-  const a = ns ? ns("*", name) : null;
-  if (a && a.length) return a[0] as Element;
-  // @ts-ignore
-  const b = (el as any).getElementsByTagName?.(name);
-  return b && b.length ? (b[0] as Element) : null;
-}
-function pickAll(el: Element | Document | null, name: string): Element[] {
-  if (!el) return [];
-  // @ts-ignore
-  const ns = (el as any).getElementsByTagNameNS?.bind(el);
-  const a = ns ? ns("*", name) : null;
-  if (a && a.length) return Array.from(a) as Element[];
-  // @ts-ignore
-  const b = (el as any).getElementsByTagName?.(name);
-  return b && b.length ? (Array.from(b) as Element[]) : [];
-}
-function attr(el: Element | null, name: string, d: string | null = null) {
-  return el?.getAttribute(name) ?? d ?? "";
-}
-function text(el: Element | null, name: string, d: string | null = null) {
-  const n = pick(el, name);
-  return n?.textContent?.trim() ?? d ?? "";
-}
 function prettyXml(xml: string) {
-  return xml.replace(/>\s*</g, ">\n<").trim();
-}
-function parseVisualControl(xml: string) {
-  const doc = new Xmldom().parseFromString(xml, "application/xml");
-
-  const header = pick(doc, "header");
-  const sourceHost = pick(header, "sourceHost");
-  const targetHost = pick(header, "targetHost");
-  const body = pick(doc, "body");
-  const visual = pick(body, "visualControl");
-  const workingData = pick(visual, "workingData");
-  const workingRequest = pick(visual, "workingRequest");
-  const wd = workingData || workingRequest;
-
-  const meta = {
-    requestID: text(header, "requestID"),
-    responseID: text(header, "responseID"),
-    src: {
-      hostname: text(sourceHost, "hostname"),
-      ip: text(sourceHost, "ipAddress"),
-      mac: text(sourceHost, "macAddress"),
-    },
-    dst: { hostname: text(targetHost, "hostname") },
-  };
-
-  const working = {
-    device: attr(wd, "device", ""),
-    intksk: attr(wd, "intksk", ""),
-    scanned: attr(wd, "scanned", ""),
-    setup: attr(wd, "setup", ""),
-    projekt: attr(wd, "projekt", ""),
-    ksknr: attr(wd, "ksknr", ""),
-    kskidx: attr(wd, "kskidx", ""),
-    lfdnr: attr(wd, "lfdnr", ""),
-    modbez: attr(wd, "modbez", ""),
-    modjahr: attr(wd, "modjahr", ""),
-    band: attr(wd, "band", ""),
-    ident: attr(wd, "ident", ""),
-    status: attr(wd, "status", ""),
-  };
-
-  const seqRoot = pick(pick(pick(pick(workingData, "sequencer"), "segmentList"), "segment"), "sequenceList");
-  const sequences = seqRoot
-    ? pickAll(seqRoot, "sequence").map((s) => ({
-        index: Number(attr(s, "index", "0")),
-        compType: attr(s, "compType", ""),
-        reference: attr(s, "reference", ""),
-        measType: attr(s, "measType", ""),
-        objGroup: text(s, "objGroup", ""),
-        objPos: text(s, "objPos", ""),
-      }))
-    : [];
-
-  const component = pick(workingData, "component");
-  const clipList = pick(component, "clipList");
-  const housingList = pick(component, "housingList");
-  const elecCompList = pick(component, "elecCompList");
-
-  const clips = clipList
-    ? pickAll(clipList, "clip").map((c) => ({
-        index: Number(attr(c, "index", "0")),
-        ident: attr(c, "ident", ""),
-        angle: text(c, "angle", ""),
-        fbzko: text(c, "fbzko", ""),
-      }))
-    : [];
-  const housings = housingList
-    ? pickAll(housingList, "housing").map((h) => ({
-        index: Number(attr(h, "index", "0")),
-        ident: attr(h, "ident", ""),
-        abgrif: text(h, "abgrif", ""),
-        color: text(h, "color", ""),
-        colorType: pick(h, "color")?.getAttribute("type") || "",
-      }))
-    : [];
-  const elecComps = elecCompList
-    ? pickAll(elecCompList, "elecComp").map((e) => ({
-        index: Number(attr(e, "index", "0")),
-        ident: attr(e, "ident", ""),
-      }))
-    : [];
-
-  return {
-    meta,
-    working,
-    counts: {
-      sequences: sequences.length,
-      clips: clips.length,
-      housings: housings.length,
-      elecComps: elecComps.length,
-    },
-    sequences,
-    components: { clips, housings, elecComps },
-    rawVersionHint: (doc.documentElement.getAttribute("xmlns") || "").toString(),
-  };
-}
-
-/* ===== Transport ===== */
-async function sendHttp(host: string, xml: string) {
-  const url = httpUrl(host);
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), Number(process.env.KROSY_HTTP_TIMEOUT_MS || 30000));
   try {
-    const r = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/xml",
-        Accept: "application/xml,text/xml,*/*;q=0.1",
-      },
-      body: xml,
-      signal: ctrl.signal,
-    });
-    return { ok: r.ok, status: r.status, text: await r.text(), error: null as string | null, used: url };
-  } catch (e: any) {
-    const err = e?.name === "AbortError" ? "http timeout" : e?.message || "network error";
-    return { ok: false, status: 0, text: "", error: err, used: url };
-  } finally {
-    clearTimeout(t);
-  }
+    const compact = xml.replace(/\r?\n/g, "").replace(/>\s+</g, "><").trim();
+    const withNl = compact.replace(/(>)(<)(\/*)/g, "$1\n$2$3");
+    let indent = 0; const out: string[] = [];
+    for (const raw of withNl.split("\n")) {
+      const line = raw.trim();
+      if (line.startsWith("</")) indent = Math.max(indent - 1, 0);
+      out.push("  ".repeat(indent) + line);
+      if (/^<[^!?\/][^>]*[^\/]>$/.test(line)) indent++;
+    }
+    return out.join("\n");
+  } catch { return xml; }
 }
 
+/* ===== TCP ===== */
 function sendTcp(host: string, port: number, xml: string) {
   return new Promise<{ ok: boolean; status: number; text: string; error: string | null; used: string }>((resolve) => {
     const socket = new net.Socket();
-    let buf = "";
-    let done = false;
+    let buf = ""; let done = false;
     const used = `tcp://${host}:${port}`;
-    const TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 30000);
-    const TERM = (process.env.KROSY_TCP_TERMINATOR || "fin").toLowerCase(); // "fin" | "newline" | "null" | "none"
-    const payload = TERM === "newline" ? xml + "\n" : TERM === "null" ? xml + "\0" : xml;
+    const payload =
+      TCP_TERMINATOR === "newline" ? xml + "\n" :
+      TCP_TERMINATOR === "null"    ? xml + "\0" : xml;
 
     const finish = (ok: boolean, status = 200, err: string | null = null) => {
-      if (done) return;
-      done = true;
-      try {
-        socket.destroy();
-      } catch {}
+      if (done) return; done = true;
+      try { socket.destroy(); } catch {}
       resolve({ ok, status, text: buf, error: err, used });
     };
 
     socket.setNoDelay(true);
-    socket.setTimeout(TIMEOUT_MS);
+    socket.setTimeout(TCP_TIMEOUT_MS);
 
     socket.connect(port, host, () => {
       socket.write(payload);
-      if (TERM === "fin") socket.end();
+      if (TCP_TERMINATOR === "fin") socket.end();
     });
 
     socket.on("data", (c) => {
       buf += c.toString("utf8");
       const s = buf.trim().toLowerCase();
-      if (s === "ack" || s === "io" || s === "nio" || s.endsWith("</krosy>")) finish(true, 200, null);
+      if (s === "ack" || s.endsWith("</krosy>")) finish(true, 200, null);
     });
-
-    socket.on("end", () => {
-      if (buf.length) finish(true);
-      else finish(false, 0, "no data");
-    });
+    socket.on("end", () => { if (buf.length) finish(true); else finish(false, 0, "no data"); });
     socket.on("timeout", () => finish(false, 0, "tcp timeout"));
     socket.on("error", (e) => finish(false, 0, e?.message || "tcp error"));
   });
@@ -386,76 +152,47 @@ export async function OPTIONS(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const { ip, mac } = pickIpAndMac();
   return new Response(JSON.stringify({ hostname: os.hostname(), ip, mac }), {
-    status: 200,
-    headers: { "Content-Type": "application/json", ...cors(req) },
+    status: 200, headers: { "Content-Type": "application/json", ...cors(req) },
   });
 }
 
 /**
  * POST JSON:
  * {
- *   action?: "working" | "request" | "io" | "nio" | "cancel",  // default "working" = visualControl
- *   intksk?: "950023158903",                                    // used in "working"
- *   scancode?: "830569527900",                                  // legacy actions
- *   tident?: "P8378691", sdistance?: "20",                      // legacy io/nio/cancel
- *   requestID?: "1", sourceHostname?: "ksmiwct07", targetHostName?: "ksmisun01"
+ *   intksk?: "950023158903",
+ *   requestID?: "1",
+ *   sourceHostname?: "ksskkfb01",
+ *   targetHostName?: "kssksun01",
+ *   targetAddress?: "172.26.192.1:10080"
  * }
  */
 export async function POST(req: NextRequest) {
   const accept = req.headers.get("accept") || "application/json";
   const body = (await req.json().catch(() => ({}))) as any;
 
-  const action = String(body.action || DEFAULT_ACTION).toLowerCase() as "working" | "request" | "io" | "nio" | "cancel";
-  const intksk = String(body.intksk || "950023158903");
-  const scancode = String(body.scancode || "000000000000");
-  const tident = String(body.tident || "TIDENT");
-  const sdistance = String(body.sdistance || "0");
-
+  const intksk = String(body.intksk || "830569527900");
   const requestID = String(body.requestID || Date.now());
   const sourceHostname = String(body.sourceHostname || os.hostname());
-  const host = String(body.targetHostName || KROSY_HOST || "localhost");
+  const xmlTargetHost = String(body.targetHostName || XML_TARGET).trim();
+
+  const connectRaw = String(body.targetAddress || DEFAULT_CONNECT).trim();
+  const { host: connectHost, port: tcpPort } = parseHostPort(connectRaw, TCP_PORT);
 
   const { ip, mac } = pickIpAndMac();
   const scanned = isoNoMs();
 
-  // Build XML
-  let xml = "";
-  if (action === "working") {
-    xml = buildVisualControlWorkingXML({
-      requestID,
-      srcHost: sourceHostname,
-      targetHost: host,
-      scanned,
-      ip,
-      mac,
-      intksk,
-    });
-  } else if (action === "io") {
-    xml = buildIoXML({ requestID, srcHost: sourceHostname, targetHost: host, scanned, ip, mac, scancode, tident, sdistance });
-  } else if (action === "nio") {
-    xml = buildNioXML({ requestID, srcHost: sourceHostname, targetHost: host, scanned, ip, mac, scancode, tident, sdistance });
-  } else if (action === "cancel") {
-    xml = buildCancelXML({ requestID, srcHost: sourceHostname, targetHost: host, scanned, ip, mac, scancode, tident, sdistance });
-  } else {
-    xml = buildRequestXML({ requestID, srcHost: sourceHostname, targetHost: host, scanned, ip, mac, scancode });
-  }
+  const xml = buildVisualControlWorkingXML({
+    requestID, srcHost: sourceHostname, targetHost: xmlTargetHost, scanned, ip, mac, intksk,
+  });
+  const prettyReq = prettyXml(xml);
 
-  // Send
   const started = Date.now();
-  const out = TRANSPORT === "tcp" ? await sendTcp(host, TCP_PORT, xml) : await sendHttp(host, xml);
+  const out = await sendTcp(connectHost, tcpPort, xml);
   const durationMs = Date.now() - started;
 
-  // Parse response if XML-like
-  let parsed: any = null;
-  let pretty: string | null = null;
-  try {
-    if (out.text && out.text.trim().startsWith("<")) {
-      parsed = parseVisualControl(out.text);
-      pretty = prettyXml(out.text);
-    }
-  } catch {
-    // tolerate terse TCP responses
-  }
+  // Pretty-print XML response when present
+  let prettyResp: string | null = null;
+  try { if (out.text && out.text.trim().startsWith("<")) prettyResp = prettyXml(out.text); } catch {}
 
   // Logs
   try {
@@ -463,65 +200,37 @@ export async function POST(req: NextRequest) {
     const base = path.join(LOG_DIR, `${stamp}_${requestID}`);
     await Promise.all([
       writeLog(base, "request.xml", xml),
+      writeLog(base, "request.pretty.xml", prettyReq),
       writeLog(base, "response.xml", out.text || ""),
-      writeLog(base, "response.pretty.xml", pretty || (out.text || "")),
-      writeLog(base, "parsed.json", JSON.stringify(parsed ?? {}, null, 2)),
-      writeLog(
-        base,
-        "meta.json",
-        JSON.stringify(
-          {
-            action,
-            intksk,
-            scancode,
-            tident,
-            sdistance,
-            requestID,
-            device: sourceHostname,
-            host,
-            transport: TRANSPORT,
-            used: out.used,
-            httpStatus: out.status,
-            durationMs,
-            ok: out.ok,
-            error: out.error,
-          },
-          null,
-          2
-        )
-      ),
+      writeLog(base, "response.pretty.xml", prettyResp || (out.text || "")),
+      writeLog(base, "meta.json", JSON.stringify({
+        mode: "visualControl.working",
+        requestID,
+        device: sourceHostname,
+        xmlTargetHost,
+        intksk,
+        connect: { host: connectHost, tcpPort, used: out.used },
+        durationMs, ok: out.ok, error: out.error, status: out.status,
+        terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS,
+      }, null, 2)),
     ]);
-  } catch {
-    // ignore log failures
-  }
+  } catch {}
 
-  // Response passthrough if XML requested
   if ((accept.includes("xml") || accept === "*/*") && out.text && out.text.trim().startsWith("<")) {
-    return new Response(pretty || out.text, {
+    return new Response(prettyResp || out.text, {
       status: out.ok ? 200 : 502,
       headers: { "Content-Type": "application/xml; charset=utf-8", "X-Krosy-Used-Url": out.used, ...cors(req) },
     });
   }
 
-  // Compact JSON view
-  return new Response(
-    JSON.stringify(
-      {
-        ok: out.ok,
-        requestID,
-        usedUrl: out.used,
-        httpStatus: out.status,
-        durationMs,
-        error: out.error,
-        working: parsed?.working ?? null,
-        counts: parsed?.counts ?? null,
-        sampleSequences: parsed?.sequences?.slice(0, 10) ?? [],
-        sentXmlPreview: xml.slice(0, 2000),
-        responseXmlPreview: (pretty || out.text || "").slice(0, 2000),
-      },
-      null,
-      2
-    ),
-    { status: out.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } }
-  );
+  return new Response(JSON.stringify({
+    ok: out.ok,
+    requestID,
+    usedUrl: out.used,
+    status: out.status,
+    durationMs,
+    error: out.error,
+    sentXmlPreview: prettyReq.slice(0, 2000),
+    responseXmlPreview: (prettyResp || out.text || "").slice(0, 2000),
+  }, null, 2), { status: out.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } });
 }

@@ -1,44 +1,43 @@
 // src/app/setup/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
+import { useEffect, useState, useCallback, type CSSProperties } from "react";
 import { m, AnimatePresence } from "framer-motion"; // KEEP THIS
+import TableSwap from "@/components/Tables/TableSwap";
 
 type StepKey = "kssk" | "kfb";
 type ScanState = "idle" | "valid" | "invalid";
 
 const KSSK_REGEX = /^KSK\d{10}$/; // e.g. KSK9866358756
-const KFB_REGEX  = /^[A-Z0-9]{9}$/;  // e.g. 83AUD8722
+const KFB_REGEX = /^[A-Z0-9]{4}$/; // e.g. ABC1
 const OK_DISPLAY_MS = 3000;
 
 export default function SetupPage() {
-  // feature toggles
   const allowManual = true;
 
   // data
   const [kssk, setKssk] = useState<string | null>(null);
-  const [kfb,  setKfb]  = useState<string | null>(null);
+  const [kfb, setKfb] = useState<string | null>(null);
 
   // status
   const [ksskStatus, setKsskStatus] = useState<ScanState>("idle");
-  const [kfbStatus,  setKfbStatus]  = useState<ScanState>("idle");
+  const [kfbStatus, setKfbStatus] = useState<ScanState>("idle");
   const [activeStep, setActiveStep] = useState<StepKey>("kssk");
   const [showManualFor, setShowManualFor] = useState<Partial<Record<StepKey, boolean>>>({});
 
-  // overlay
-  const [overlay, setOverlay] = useState<{open: boolean; kind: "success" | "error"; code: string}>({
+  // per-scan overlay (dim only, iOS-like large text, no modal box)
+  const [overlay, setOverlay] = useState<{ open: boolean; kind: "success" | "error"; code: string }>({
     open: false,
     kind: "success",
     code: "",
   });
 
-  // cycle banners
-  const [showCycleOk, setShowCycleOk]   = useState(false);
-  const [waitingNext, setWaitingNext]   = useState(false);
-  const okTimer = useRef<number | null>(null);
+  // drives OK+swap inside TableSwap
+  const [tableCycle, setTableCycle] = useState(0);
 
-  // fake keyboard wedge to simulate a scanner
+  // keyboard wedge (scanner)
   const [kbdBuffer, setKbdBuffer] = useState("");
+
   const handleScanned = useCallback(
     (raw: string) => {
       const { step, code } = classify(raw);
@@ -55,7 +54,6 @@ export default function SetupPage() {
         setKfbStatus("valid");
         if (!kssk) setActiveStep("kssk");
       }
-      setWaitingNext(false); // new cycle begins
       setOverlay({ open: true, kind: "success", code });
     },
     [kssk, kfb]
@@ -78,12 +76,12 @@ export default function SetupPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [kbdBuffer, handleScanned]);
 
-  // order-agnostic classification
+  // helpers
   const normalize = (s: string) => s.trim().toUpperCase();
   const classify = (raw: string): { step: StepKey | null; code: string } => {
     const code = normalize(raw);
     if (KSSK_REGEX.test(code)) return { step: "kssk", code };
-    if (KFB_REGEX.test(code))  return { step: "kfb",  code };
+    if (KFB_REGEX.test(code)) return { step: "kfb", code };
     return { step: null, code };
   };
 
@@ -104,68 +102,158 @@ export default function SetupPage() {
         setKfbStatus("valid");
         if (!kssk) setActiveStep("kssk");
       }
-      setWaitingNext(false);
       setOverlay({ open: true, kind: "success", code });
       setShowManualFor((s) => ({ ...s, [_step]: false }));
     },
     [kssk, kfb]
   );
 
-  // when both valid → show OK 3s → reset → show “scan next table”
+  // both valid → trigger TableSwap OK cycle → reset inputs
   useEffect(() => {
-    const bothValid = ksskStatus === "valid" && kfbStatus === "valid";
-    if (!bothValid) return;
-    if (okTimer.current) window.clearTimeout(okTimer.current);
-    setShowCycleOk(true);
-    okTimer.current = window.setTimeout(() => {
-      setShowCycleOk(false);
-      // reset to defaults
+    if (!(ksskStatus === "valid" && kfbStatus === "valid")) return;
+    setTableCycle((n) => n + 1);
+    const t = setTimeout(() => {
       setKssk(null);
       setKfb(null);
       setKsskStatus("idle");
       setKfbStatus("idle");
       setActiveStep("kssk");
       setShowManualFor({});
-      setWaitingNext(true);
     }, OK_DISPLAY_MS);
-    return () => {
-      if (okTimer.current) window.clearTimeout(okTimer.current);
-    };
+    return () => clearTimeout(t);
   }, [ksskStatus, kfbStatus]);
 
-  // styles
-  const page: CSSProperties = { minHeight: "100vh", display: "grid", gap: 32, alignContent: "start", background: "#f6f8fb", padding: "40px 24px 64px" };
-  const topBar: CSSProperties = { width: "min(1200px, 100%)", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20 };
-  const statusCardBase: CSSProperties = { borderRadius: 16, background: "#ffffff", padding: 20, display: "flex", alignItems: "center", gap: 16, minHeight: 100, boxShadow: "0 4px 10px rgba(16,24,40,0.06)", border: "2px solid transparent" };
-  const statusLabel: CSSProperties = { fontSize: 16, color: "#334155" };
-  const codeText: CSSProperties = { fontWeight: 800, color: "#0f172a", fontSize: 22, wordBreak: "break-all" };
+  // design tokens
+  const fontStack =
+    'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
-  const grid: CSSProperties = { width: "min(1200px, 100%)", display: "grid", gap: 28, gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", margin: "0 auto" };
-  const card: CSSProperties = { border: "2px dashed #9aa7b6", borderRadius: 20, background: "#ffffff", padding: "48px 32px 40px", display: "flex", flexDirection: "column", gap: 22, boxShadow: "0 4px 12px rgba(16,24,40,0.08)" };
-  const titleRow: CSSProperties = { display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" };
-  const stepNum: CSSProperties = { fontSize: 64, fontWeight: 900, color: "#64748b", lineHeight: 1 };
-  const heading: CSSProperties = { fontSize: 52, fontWeight: 900, letterSpacing: "0.06em", color: "#334155", textTransform: "uppercase" };
-  const scanBox: CSSProperties = { width: "100%", height: 220, borderRadius: 14, background: "#eef2f6", display: "grid", placeItems: "center" };
-  const barcode: CSSProperties = { width: 360, height: 108, borderRadius: 12, background: "repeating-linear-gradient(90deg,#94a3b8 0 7px,transparent 7px 16px)", opacity: 0.8 };
-  const hint: CSSProperties = { fontSize: 16, color: "#475569", textDecoration: "underline", cursor: "pointer" };
-  const input: CSSProperties = { width: "100%", height: 56, borderRadius: 12, border: "2px solid #cbd5e1", padding: "0 16px", fontSize: 20, outline: "none", background: "#ffffff", color: "#0f172a", caretColor: "#0f172a" };
+  // styles
+  const page: CSSProperties = {
+    minHeight: "100vh",
+    display: "grid",
+    gap: 28,
+    alignContent: "start",
+    background: "#f7f9fc",
+    padding: "36px 20px 60px",
+    fontFamily: fontStack,
+  };
+  const containerWide: CSSProperties = { width: "min(1320px, 100%)", margin: "0 auto" };
+  const topBar: CSSProperties = {
+    ...containerWide,
+    display: "grid",
+    gridTemplateColumns: "repeat(2, 1fr)",
+    gap: 16,
+  };
+  const statusCardBase: CSSProperties = {
+    borderRadius: 16,
+    background: "#ffffff",
+    padding: 16,
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    minHeight: 88,
+    boxShadow: "0 6px 14px rgba(2,6,23,0.06)",
+    border: "1px solid #e2e8f0",
+  };
+  const statusLabel: CSSProperties = { fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase", color: "#64748b", fontWeight: 700 };
+  const codeText: CSSProperties = { fontWeight: 800, color: "#0f172a", fontSize: 20, wordBreak: "break-all" };
+
+  const grid: CSSProperties = {
+    ...containerWide,
+    display: "grid",
+    gap: 22,
+    gridTemplateColumns: "repeat(auto-fit, minmax(480px, 1fr))",
+  };
+  const card: CSSProperties = {
+    border: "1px solid #e2e8f0",
+    borderRadius: 24,
+    background: "#ffffff",
+    padding: "40px 28px 36px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 22,
+    boxShadow: "0 10px 24px rgba(2,6,23,0.06)",
+  };
+  const titleRow: CSSProperties = { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" };
+  const stepBadge: CSSProperties = {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    display: "grid",
+    placeItems: "center",
+    fontWeight: 900,
+    fontSize: 18,
+    color: "#0b1220",
+    background: "#e5f0ff",
+    border: "1px solid #bfd7ff",
+  };
+  const eyebrow: CSSProperties = { fontSize: 12, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", fontWeight: 800 };
+  const heading: CSSProperties = { fontSize: 40, fontWeight: 900, letterSpacing: "0.01em", color: "#0f172a" };
+  const scanBox: CSSProperties = {
+    width: "100%",
+    height: 220,
+    borderRadius: 16,
+    background: "linear-gradient(180deg,#f3f6fb 0%, #eef3f9 100%)",
+    border: "1px dashed #c7d2e5",
+    display: "grid",
+    placeItems: "center",
+  };
+  const barcode: CSSProperties = {
+    width: 420,
+    height: 120,
+    borderRadius: 12,
+    background: "repeating-linear-gradient(90deg,#8aa0b8 0 7px,transparent 7px 16px)",
+    opacity: 0.8,
+  };
+  const hint: CSSProperties = {
+    fontSize: 14,
+    color: "#2563eb",
+    textDecoration: "underline",
+    cursor: "pointer",
+    fontWeight: 600,
+  };
+  const input: CSSProperties = {
+    width: "100%",
+    height: 56,
+    borderRadius: 12,
+    border: "1px solid #cbd5e1",
+    padding: "0 16px",
+    fontSize: 20,
+    outline: "none",
+    background: "#ffffff",
+    color: "#0f172a",
+    caretColor: "#0f172a",
+    boxShadow: "0 1px 0 rgba(2,6,23,0.03)",
+  };
 
   return (
     <main style={page}>
       {/* Top status */}
       <div style={topBar}>
-        <StatusField label="KSSK"    code={kssk} state={ksskStatus} />
-        <StatusField label="KFB INFO" code={kfb}  state={kfbStatus} />
+        <StatusField label="KSSK" code={kssk} state={ksskStatus} />
+        <StatusField label="KFB INFO" code={kfb} state={kfbStatus} />
       </div>
 
       {/* Steps */}
       <div style={grid}>
         <section style={card} aria-live="polite" aria-busy={activeStep === "kssk" && !kssk}>
-          <div style={titleRow}><div style={stepNum}>1.</div><h2 style={heading}>Please scan KSSK</h2></div>
-          <div style={scanBox} aria-label="KSSK scan zone"><div style={barcode} /></div>
+          <div style={titleRow}>
+            <div style={{ ...stepBadge, background: activeStep === "kssk" ? "#dbeafe" : "#e5f0ff", borderColor: activeStep === "kssk" ? "#93c5fd" : "#bfd7ff" }}>1</div>
+            <div style={{ display: "grid", gap: 2 }}>
+              <span style={eyebrow}>Step 1</span>
+              <h2 style={heading}>Scan KSSK</h2>
+            </div>
+          </div>
+          <div style={scanBox} aria-label="KSSK scan zone">
+            <div style={barcode} />
+          </div>
           {allowManual && (
-            <button type="button" style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }} onClick={() => setShowManualFor((s) => ({ ...s, kssk: !s.kssk }))}>
-              Or enter number manually
+            <button
+              type="button"
+              style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }}
+              onClick={() => setShowManualFor((s) => ({ ...s, kssk: !s.kssk }))}
+            >
+              Enter manually
             </button>
           )}
           <AnimatePresence initial={false}>
@@ -178,96 +266,57 @@ export default function SetupPage() {
         </section>
 
         <section style={card} aria-live="polite" aria-busy={activeStep === "kfb" && !kfb}>
-          <div style={titleRow}><div style={stepNum}>2.</div><h2 style={heading}>Please scan KFB info</h2></div>
-          <div style={scanBox} aria-label="KFB scan zone"><div style={barcode} /></div>
+          <div style={titleRow}>
+            <div style={{ ...stepBadge, background: activeStep === "kfb" ? "#dbeafe" : "#e5f0ff", borderColor: activeStep === "kfb" ? "#93c5fd" : "#bfd7ff" }}>2</div>
+            <div style={{ display: "grid", gap: 2 }}>
+              <span style={eyebrow}>Step 2</span>
+              <h2 style={heading}>Scan KFB Info</h2>
+            </div>
+          </div>
+          <div style={scanBox} aria-label="KFB scan zone">
+            <div style={barcode} />
+          </div>
           {allowManual && (
-            <button type="button" style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }} onClick={() => setShowManualFor((s) => ({ ...s, kfb: !s.kfb }))}>
-              Or enter number manually
+            <button
+              type="button"
+              style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }}
+              onClick={() => setShowManualFor((s) => ({ ...s, kfb: !s.kfb }))}
+            >
+              Enter manually
             </button>
           )}
           <AnimatePresence initial={false}>
             {showManualFor.kfb && allowManual && (
               <m.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ type: "tween", duration: 0.2 }}>
-                <ManualInput placeholder="Type KFB info code" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
+                <ManualInput placeholder="Type KFB code" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
               </m.div>
             )}
           </AnimatePresence>
         </section>
       </div>
 
-      {/* Cycle banner: OK → reset → prompt next */}
-      <div style={{ width: "min(1200px, 100%)", margin: "8px auto 0" }}>
-        <AnimatePresence initial={false}>
-          {showCycleOk && (
-            <m.div
-              key="ok"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                padding: "18px 20px",
-                borderRadius: 14,
-                background: "#ecfdf5",
-                color: "#065f46",
-                fontWeight: 900,
-                fontSize: 42,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                boxShadow: "0 8px 24px rgba(16,185,129,0.25)",
-              }}
-            >
-              OK
-            </m.div>
-          )}
-          {!showCycleOk && waitingNext && (
-            <m.div
-              key="next"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              style={{
-                display: "grid",
-                placeItems: "center",
-                padding: "14px 18px",
-                borderRadius: 12,
-                background: "#e2e8f0",
-                color: "#0f172a",
-                fontWeight: 800,
-                fontSize: 28,
-                letterSpacing: "0.06em",
-                textTransform: "uppercase",
-              }}
-            >
-              Please scan the next table
-            </m.div>
-          )}
-        </AnimatePresence>
+      {/* Table cycle banner + swap animation */}
+      <div style={{ ...containerWide, marginTop: 8 }}>
+        <TableSwap cycleKey={tableCycle} queues={["KFB 83AUDAU40X02-61-001", "KFB 83AUDAU40X02-70-004", "IWO16029"]} okMs={OK_DISPLAY_MS} />
       </div>
 
-      {/* Center success/error overlay with dimmed backdrop */}
-      <ResultOverlay
-        open={overlay.open}
-        kind={overlay.kind}
-        code={overlay.code}
-        onClose={() => setOverlay((o) => ({ ...o, open: false }))}
-      />
+      {/* Per-scan success/error overlay (dim only, no card) */}
+      <ResultOverlay open={overlay.open} kind={overlay.kind} code={overlay.code} onClose={() => setOverlay((o) => ({ ...o, open: false }))} />
     </main>
   );
 
   // ---------- inner components ----------
   function StatusField({ label, code, state }: { label: string; code: string | null; state: ScanState }) {
     const palette =
-      state === "valid"   ? { border: "#10b981", bg: "#ecfdf5" } :
-      state === "invalid" ? { border: "#ef4444", bg: "#fef2f2" } :
-                            { border: "#cbd5e1", bg: "#ffffff" };
+      state === "valid"
+        ? { border: "#10b981", bg: "#ecfdf5" }
+        : state === "invalid"
+        ? { border: "#ef4444", bg: "#fef2f2" }
+        : { border: "#e2e8f0", bg: "#ffffff" };
     return (
       <div style={{ ...statusCardBase, background: palette.bg, borderColor: palette.border }}>
         <StateIcon state={state} size={48} />
-        <div style={{ display: "grid" }}>
+        <div style={{ display: "grid", gap: 2 }}>
           <span style={statusLabel}>{label}</span>
           <span style={codeText}>{code ?? "—"}</span>
         </div>
@@ -340,16 +389,14 @@ function ResultOverlay({
   code: string;
   onClose: () => void;
 }) {
-  const size = 220;
-  const stroke = 16;
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-
+  // auto-dismiss quickly
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(onClose, 1400);
+    const t = setTimeout(onClose, 1200);
     return () => clearTimeout(t);
   }, [open, onClose]);
+
+  const label = kind === "success" ? "OK" : "CANCEL";
 
   return (
     <AnimatePresence>
@@ -358,81 +405,56 @@ function ResultOverlay({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center" }}
+          transition={{ duration: 0.18 }}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(2,6,23,0.48)",
+            backdropFilter: "blur(3px)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 50,
+          }}
           aria-live="assertive"
+          aria-label={label}
         >
-          {/* iOS-like dim/backdrop */}
           <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", backdropFilter: "blur(2px)" }}
-          />
-          <m.div
-            initial={{ scale: 0.92, opacity: 0 }}
+            initial={{ scale: 0.98, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.96, opacity: 0 }}
+            exit={{ scale: 0.98, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 20 }}
-            style={{
-              background: "white",
-              borderRadius: 28,
-              padding: 28,
-              boxShadow: "0 16px 40px rgba(0,0,0,.18)",
-              display: "grid",
-              justifyItems: "center",
-              gap: 14,
-              minWidth: 360,
-              zIndex: 1,
-            }}
-            role="dialog"
-            aria-label={kind === "success" ? "Success" : "Invalid code"}
+            style={{ display: "grid", justifyItems: "center", gap: 8 }}
           >
-            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-              <circle cx={size / 2} cy={size / 2} r={r} stroke="#e2e8f0" strokeWidth={stroke} fill="none" />
-              <m.circle
-                cx={size / 2}
-                cy={size / 2}
-                r={r}
-                stroke={kind === "success" ? "#10b981" : "#ef4444"}
-                strokeWidth={stroke}
-                strokeLinecap="round"
-                fill="none"
-                style={{ rotate: -90, transformOrigin: "50% 50%" }}
-                initial={{ strokeDasharray: c, strokeDashoffset: c }}
-                animate={{ strokeDashoffset: 0 }}
-                transition={{ duration: 0.6, ease: "easeOut" }}
-              />
-              {kind === "success" ? (
-                <m.path
-                  d={`M ${size * 0.30} ${size * 0.54} L ${size * 0.45} ${size * 0.68} L ${size * 0.74} ${size * 0.38}`}
-                  fill="none"
-                  stroke="#10b981"
-                  strokeWidth={16}
-                  strokeLinecap="round"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 1 }}
-                  transition={{ delay: 0.45, duration: 0.35, ease: "easeOut" }}
-                />
-              ) : (
-                <m.path
-                  d={`M ${size * 0.34} ${size * 0.34} L ${size * 0.66} ${size * 0.66} M ${size * 0.66} ${size * 0.34} L ${size * 0.34} ${size * 0.66}`}
-                  fill="none"
-                  stroke="#ef4444"
-                  strokeWidth={16}
-                  strokeLinecap="round"
-                  initial={{ pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: 1 }}
-                  transition={{ delay: 0.45, duration: 0.35, ease: "easeOut" }}
-                />
-              )}
-            </svg>
-            <m.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} style={{ fontWeight: 900, color: "#0f172a", fontSize: 22, textAlign: "center", maxWidth: 320 }}>
-              {kind === "success" ? "Success" : "Invalid code"}
+            <m.div
+              initial={{ y: 6, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.22 }}
+              style={{
+                fontSize: 96,
+                fontWeight: 900,
+                letterSpacing: "0.02em",
+                color: kind === "success" ? "#10b981" : "#ef4444",
+                textShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                fontFamily:
+                  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+              }}
+            >
+              {label}
             </m.div>
             {code && (
-              <m.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }} style={{ fontSize: 16, color: "#334155", wordBreak: "break-all", textAlign: "center" }}>
+              <m.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.05 }}
+                style={{
+                  fontSize: 16,
+                  color: "#e5e7eb",
+                  opacity: 0.95,
+                  wordBreak: "break-all",
+                  textAlign: "center",
+                  maxWidth: 640,
+                }}
+              >
                 {code}
               </m.div>
             )}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { MenuIcon, XMarkIcon } from '@/components/Icons/Icons';
@@ -222,14 +222,13 @@ type Props = {
   size?: number | string;
   className?: string;
   title?: string;
-  animate?: boolean; // true = slow spin on hover
+  animate?: boolean;
 };
 
 export const IOSSettingsIconPro: React.FC<Props> = ({
   size = 64,
   className,
   title = "Settings",
-  animate = true,
 }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -239,21 +238,20 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
     className={className}
     role="img"
     aria-label={title}
-    data-animate={animate}
   >
     <defs>
-      {/* background */}
+      {/* iOS squircle background */}
       <radialGradient id="bg" cx="28%" cy="20%" r="85%">
         <stop offset="0%" stopColor="#eef1f6" />
         <stop offset="55%" stopColor="#cfd5de" />
         <stop offset="100%" stopColor="#9aa3ae" />
       </radialGradient>
       <linearGradient id="bg-stroke" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.7" />
+        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.8" />
         <stop offset="100%" stopColor="#6b7280" stopOpacity="0.7" />
       </linearGradient>
 
-      {/* metal */}
+      {/* metallic system */}
       <linearGradient id="metal" x1="0" x2="0" y1="0" y2="1">
         <stop offset="0%" stopColor="#cfd4dc" />
         <stop offset="100%" stopColor="#9aa3ae" />
@@ -271,7 +269,7 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
         <stop offset="100%" stopColor="#bfc5cf" />
       </radialGradient>
 
-      {/* shadows */}
+      {/* subtle depth */}
       <filter id="innerShadow" x="-20%" y="-20%" width="140%" height="140%">
         <feOffset dx="0" dy="1" />
         <feGaussianBlur stdDeviation="1.2" result="b" />
@@ -282,24 +280,14 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
           0 0 0 0 0
           0 0 0 .35 0" />
       </filter>
-
       <filter id="softDrop" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" floodOpacity="0.35" />
       </filter>
 
-      {/* mask for rounded square */}
       <mask id="squircleMask">
         <rect x="2" y="2" width="60" height="60" rx="14" fill="#fff" />
       </mask>
     </defs>
-
-    <style>
-      {`
-      svg[data-animate="true"] .spin:hover { animation: spin 8s linear infinite; }
-      @keyframes spin { to { transform: rotate(360deg); } }
-      .spin { transform-origin: 32px 32px; }
-    `}
-    </style>
 
     {/* Background squircle */}
     <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" />
@@ -307,15 +295,14 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
 
     {/* Clip gear system to squircle */}
     <g mask="url(#squircleMask)">
-
-      {/* Dial */}
+      {/* Back dial */}
       <circle cx="32" cy="32" r="23.5" fill="url(#dial)" filter="url(#innerShadow)" />
 
       {/* Outer rim bevel */}
       <circle cx="32" cy="32" r="22.8" fill="none" stroke="url(#rim)" strokeWidth="1.6" opacity="0.9" />
 
-      {/* Gear stack */}
-      <g className="spin" filter="url(#softDrop)">
+      {/* Gear stack (static) */}
+      <g filter="url(#softDrop)">
         {/* Large tooth ring */}
         <circle
           cx="32" cy="32" r="19.2"
@@ -324,7 +311,6 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
           transform="rotate(-8 32 32)"
           opacity="0.96"
         />
-
         {/* Mid tooth ring */}
         <circle
           cx="32" cy="32" r="13.2"
@@ -333,7 +319,6 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
           transform="rotate(10 32 32)"
           opacity="0.96"
         />
-
         {/* Inner rim */}
         <circle cx="32" cy="32" r="11.2" fill="none" stroke="url(#rim)" strokeWidth="1.9" opacity="0.92" />
 
@@ -355,7 +340,6 @@ export const IOSSettingsIconPro: React.FC<Props> = ({
     </g>
   </svg>
 );
-
 
 /* ────────────────────────────────────────────────────────────────────────────
    Settings button

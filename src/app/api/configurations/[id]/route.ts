@@ -22,13 +22,13 @@ async function tableHasConfigIdOnEspPins(client: any): Promise<boolean> {
   );
   return rows.length > 0;
 }
-export async function upsertBranches(
-  client: Pool | PoolClient,   // <-- not `any`
+// was: export async function upsertBranches(
+async function upsertBranches(
+  client: Pool | PoolClient,
   names: string[]
 ): Promise<Map<string, number>> {
   const uniq = Array.from(new Set(names.map(n => n.trim()).filter(Boolean)));
   const map = new Map<string, number>();
-
   for (const name of uniq) {
     const res = await client.query<BranchRow>(
       `INSERT INTO branches(name)

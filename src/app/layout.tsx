@@ -1,5 +1,6 @@
+// app/layout.tsx
 import './globals.css'
-import { ThemeProvider } from './theme-provider'
+import ClientProviders from './client-providers'
 
 export const viewport = {
   width: 'device-width',
@@ -21,9 +22,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans bg-gray-100 min-h-screen">
-        <ThemeProvider attribute="class" defaultTheme="light">
+        <ClientProviders>
           <main className="h-full">{children}</main>
-        </ThemeProvider>
+        </ClientProviders>
       </body>
     </html>
   )

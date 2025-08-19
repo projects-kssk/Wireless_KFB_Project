@@ -1,3 +1,4 @@
+"use client"
 // src/components/Header/useSerialEvents.ts
 import { useEffect, useState } from "react";
 import type { SimpleStatus } from "@/components/Header/StatusIndicatorCard";

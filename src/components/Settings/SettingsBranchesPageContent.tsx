@@ -22,7 +22,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
 } from '@heroicons/react/24/solid'
-import { motion, AnimatePresence, PanInfo } from 'framer-motion'
+import { m, AnimatePresence, PanInfo } from 'framer-motion'
 import type { Transition } from 'framer-motion'
 import { SettingsCubeIcon } from "@/components/Icons/Icons";
 
@@ -152,7 +152,7 @@ const BottomSheet: React.FC<{
     <AnimatePresence>
       {isOpen && (
         <>
-          <motion.div
+          <m.div
             key="backdrop"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -161,7 +161,7 @@ const BottomSheet: React.FC<{
             onClick={onClose}
             className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-md md:backdrop-blur-lg saturate-125"
           />
-          <motion.div
+          <m.div
             key="sheet"
             role="dialog"
             aria-modal="true"
@@ -203,7 +203,7 @@ const BottomSheet: React.FC<{
             <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
               {children}
             </div>
-          </motion.div>
+          </m.div>
         </>
       )}
     </AnimatePresence>
@@ -267,7 +267,7 @@ const SpotHighlightBackdrop: React.FC<{
   return (
     <>
       <div onClick={onClick} className={`fixed inset-0 z-[70] ${backdropCls}`} />
-      <motion.div
+      <m.div
         className="pointer-events-none fixed z-[95]"
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -324,7 +324,7 @@ const AnchoredPopover: React.FC<{
       {isOpen && rect && (
         <>
           <SpotHighlightBackdrop rect={rect} onClick={onClose} />
-          <motion.div
+          <m.div
             key="panel"
             role="dialog"
             aria-modal="true"
@@ -350,7 +350,7 @@ const AnchoredPopover: React.FC<{
               </button>
             </div>
             <div className="max-h-[70vh] overflow-auto px-4 pb-4">{children}</div>
-          </motion.div>
+          </m.div>
         </>
       )}
     </AnimatePresence>
@@ -367,7 +367,7 @@ const DesktopFullscreenOverlay: React.FC<{
   <AnimatePresence>
     {isOpen && (
       <>
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -375,7 +375,7 @@ const DesktopFullscreenOverlay: React.FC<{
           onClick={onClose}
           className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-md md:backdrop-blur-lg saturate-125"
         />
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
@@ -407,7 +407,7 @@ const DesktopFullscreenOverlay: React.FC<{
               {children}
             </div>
           </div>
-        </motion.div>
+        </m.div>
       </>
     )}
   </AnimatePresence>
@@ -500,7 +500,7 @@ const PickerList: React.FC<{
                 <span className="truncate font-semibold text-slate-900">{opt}</span>
                 <AnimatePresence initial={false}>
                   {isSel && (
-                    <motion.span
+                    <m.span
                       key="tick"
                       initial={{ scale: 0.6, opacity: 0 }}
                       animate={{ scale: 1, opacity: 1 }}
@@ -509,7 +509,7 @@ const PickerList: React.FC<{
                       className="absolute right-4 top-1/35 -translate-y-1/2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-white ring-1 ring-emerald-300/60"
                     >
                       <CheckIcon className="h-4 w-4" />
-                    </motion.span>
+                    </m.span>
                   )}
                 </AnimatePresence>
               </button>
@@ -1193,7 +1193,7 @@ const SettingsBranchesPageContent: React.FC<{
     <div className="flex min-h-screen w-screen flex-col bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900">
 
   {/* Header */}
-       <motion.header
+       <m.header
          initial={{ y: -8, opacity: 0 }}
          animate={{ y: 0, opacity: 1 }}
          transition={headerSpring}
@@ -1232,12 +1232,12 @@ const SettingsBranchesPageContent: React.FC<{
    </h1>
    <div className="justify-self-end" />
    </div>
-       </motion.header>
+       </m.header>
 
       {/* Global spotlight overlay */}
       <AnimatePresence>
         {isSpotlightOn && (
-          <motion.div
+          <m.div
             key="search-spotlight"
             className="fixed inset-0 z-[30] bg-black/40 backdrop-blur-[2px]"
             initial={{ opacity: 0 }}

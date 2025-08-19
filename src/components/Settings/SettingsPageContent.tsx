@@ -9,7 +9,7 @@ import {
   XMarkIcon,
   PlayIcon,
 } from '@heroicons/react/24/outline';
-import { motion, AnimatePresence, type Transition } from 'framer-motion';
+import { m, AnimatePresence, type Transition } from 'framer-motion';
 
 import { BranchSelectorModal } from '@/components/Modals/BranchSelectorModal';
 import { Branch, EspPinMapping } from '@/types/types';
@@ -407,9 +407,9 @@ const handleTest = async () => {
   if (isLoading && configurations.length === 0 && !formNotification.message) {
     return (
       <div className="flex-grow w-full min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-10">
-        <motion.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={headerSpring} className="text-slate-700 dark:text-slate-300 text-[22px] font-medium">
+        <m.p initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={headerSpring} className="text-slate-700 dark:text-slate-300 text-[22px] font-medium">
           Loading configurations…
-        </motion.p>
+        </m.p>
       </div>
     );
   }
@@ -419,7 +419,7 @@ const handleTest = async () => {
   return (
     <div className="flex-grow w-full min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4 flex flex-col">
       {/* Header */}
-      <motion.header
+      <m.header
         initial={{ y: -6, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={headerSpring}
@@ -445,13 +445,13 @@ const handleTest = async () => {
           </h1>
           <div className="justify-self-end" />
         </div>
-      </motion.header>
+      </m.header>
 
       {/* Editing spotlight */}
       <AnimatePresence>
         {isEditing && editRect && showEditHighlight && (
           <>
-            <motion.div
+            <m.div
               key="spot-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.4 }}
@@ -460,7 +460,7 @@ const handleTest = async () => {
               className="fixed inset-0 z-[35] bg-black/50 backdrop-blur-[1px]"
               onClick={cancelEdit}
             />
-            <motion.div
+            <m.div
               key="spot-ring"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -479,7 +479,7 @@ const handleTest = async () => {
       </AnimatePresence>
 
       {/* Form */}
-      <motion.section
+      <m.section
         ref={formRef}
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
@@ -494,7 +494,7 @@ const handleTest = async () => {
 
         <AnimatePresence>
           {formNotification.message && (
-            <motion.div
+            <m.div
               key="notice"
               initial={{ opacity: 0, y: -4 }}
               animate={{ opacity: 1, y: 0 }}
@@ -510,7 +510,7 @@ const handleTest = async () => {
               ].join(' ')}
             >
               {formNotification.message}
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
 
@@ -564,7 +564,7 @@ const handleTest = async () => {
           <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-3">KFB Info</label>
           <div className="space-y-3">
             {currentConfig.kfbInfo.map((info, idx) => (
-              <motion.div key={`kfb-${idx}`} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className="flex items-center gap-3">
+              <m.div key={`kfb-${idx}`} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className="flex items-center gap-3">
                 <input
                   type="text"
                   value={info}
@@ -582,7 +582,7 @@ const handleTest = async () => {
                     <XMarkIcon className="w-6 h-6" />
                   </button>
                 )}
-              </motion.div>
+              </m.div>
             ))}
           </div>
 
@@ -623,10 +623,10 @@ const handleTest = async () => {
             {isLoading && isEditing ? 'Updating…' : isLoading ? 'Saving…' : isEditing ? 'Update' : 'Save'}
           </button>
         </div>
-      </motion.section>
+      </m.section>
 
       {/* Overview */}
-      <motion.section initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className={`${tileCard} rounded-3xl overflow-hidden`}>
+      <m.section initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={cardSpring} className={`${tileCard} rounded-3xl overflow-hidden`}>
         <div className="bg-white/80 dark:bg-slate-900/60 backdrop-blur border-b border-slate-200/70 dark:border-slate-700/60 px-6 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Overview</h2>
@@ -720,13 +720,13 @@ const handleTest = async () => {
             </tbody>
           </table>
         </div>
-      </motion.section>
+      </m.section>
 
       {/* Delete Confirmation Modal (anchored) */}
       <AnimatePresence>
         {showDeleteModal && deleteAnchor && (
           <>
-            <motion.svg className="fixed inset-0 z-[80] w-screen h-screen" width="100%" height="100%" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={cancelDelete}>
+            <m.svg className="fixed inset-0 z-[80] w-screen h-screen" width="100%" height="100%" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={cancelDelete}>
               <defs>
                 <mask id="del-cutout" x="0" y="0" width="100%" height="100%" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse">
                   <rect x="0" y="0" width="100%" height="100%" fill="white" />
@@ -742,9 +742,9 @@ const handleTest = async () => {
                 </mask>
               </defs>
               <rect x="0" y="0" width="100%" height="100%" fill="rgba(0,0,0,.6)" mask="url(#del-cutout)" />
-            </motion.svg>
+            </m.svg>
 
-            <motion.div
+            <m.div
               ref={delModalRef}
               key="del-pop"
               initial={{ opacity: 0, y: 6, scale: 0.98 }}
@@ -786,7 +786,7 @@ const handleTest = async () => {
                   {isLoading ? 'Deleting…' : 'Delete'}
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           </>
         )}
       </AnimatePresence>
@@ -797,8 +797,8 @@ const handleTest = async () => {
           <>
             {discoverRect ? (
               <>
-                <motion.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={closeDiscover} />
-                <motion.div
+                <m.div className="fixed left-0 right-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} style={{ top: 0, height: Math.max(0, discoverRect.top - 12) }} onClick={closeDiscover} />
+                <m.div
                   className="fixed top-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -807,7 +807,7 @@ const handleTest = async () => {
                   style={{ top: Math.max(0, discoverRect.top - 12), left: 0, width: Math.max(0, discoverRect.left - 12), height: discoverRect.height + 24 }}
                   onClick={closeDiscover}
                 />
-                <motion.div
+                <m.div
                   className="fixed top-0 right-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -816,7 +816,7 @@ const handleTest = async () => {
                   style={{ top: Math.max(0, discoverRect.top - 12), left: discoverRect.left + discoverRect.width + 12, height: discoverRect.height + 24 }}
                   onClick={closeDiscover}
                 />
-                <motion.div
+                <m.div
                   className="fixed left-0 right-0 bottom-0 z-[80] bg-black/60 backdrop-blur-sm"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -827,7 +827,7 @@ const handleTest = async () => {
                 />
               </>
             ) : (
-              <motion.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={closeDiscover} />
+              <m.div className="fixed inset-0 z-[80] bg-black/60 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={fade} onClick={closeDiscover} />
             )}
 
             <DiscoverEspModal
@@ -911,7 +911,7 @@ function DiscoverEspModal({
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
+        <m.div
           key="esp-sheet"
           role="dialog"
           aria-modal="true"
@@ -980,7 +980,7 @@ function DiscoverEspModal({
               </div>
             </div>
           </div>
-        </motion.div>
+        </m.div>
       )}
     </AnimatePresence>
   );
@@ -1124,7 +1124,7 @@ function SimpleLinkAnimation({ searching, success, big = false }: { searching: b
         <rect x="0" y="0" width={W} height={H} fill="url(#grid-lite)" />
 
         {/* cable */}
-        <motion.path
+        <m.path
           d={linkPath}
           fill="none"
           stroke={success ? ok : idle}

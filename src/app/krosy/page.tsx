@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, m } from "framer-motion";
 
 type RunMode = "json" | "xml";
 type ViewTab = "body" | "xmlPreview";
@@ -196,7 +196,7 @@ export default function KrosyPage() {
 
       {/* Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
@@ -249,7 +249,7 @@ export default function KrosyPage() {
             </div>
 
             <div className="flex gap-3 pt-2">
-              <motion.button
+              <m.button
                 onClick={run}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
@@ -259,8 +259,8 @@ export default function KrosyPage() {
               >
                 <Spinner visible={busy} />
                 {busy ? "Sending…" : "Send"}
-              </motion.button>
-              <motion.button
+              </m.button>
+              <m.button
                 onClick={clearLogs}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
@@ -268,12 +268,12 @@ export default function KrosyPage() {
                 aria-label="Clear logs"
               >
                 Clear logs
-              </motion.button>
+              </m.button>
             </div>
           </div>
-        </motion.div>
+        </m.div>
 
-        <motion.div
+        <m.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, delay: 0.05 }}
@@ -299,11 +299,11 @@ export default function KrosyPage() {
               ))
             )}
           </div>
-        </motion.div>
+        </m.div>
       </div>
 
       {/* Response */}
-      <motion.div
+      <m.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, delay: 0.1 }}
@@ -341,7 +341,7 @@ export default function KrosyPage() {
           />
         </div>
         <CodeBlock text={tab === "xmlPreview" && xmlPreview ? xmlPreview : respBody} />
-      </motion.div>
+      </m.div>
     </div>
   );
 }
@@ -375,7 +375,7 @@ function Segmented<T extends string>({
             ? "bg-white dark:bg-gray-900 text-red-700 dark:text-red-400"
             : "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100";
         return (
-          <motion.button
+          <m.button
             key={opt.id}
             whileTap={{ scale: 0.98 }}
             onClick={() => onChange(opt.id)}
@@ -387,7 +387,7 @@ function Segmented<T extends string>({
             role="tab"
           >
             {opt.label}
-          </motion.button>
+          </m.button>
         );
       })}
     </div>
@@ -472,7 +472,7 @@ function Spinner({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence initial={false}>
       {visible ? (
-        <motion.span
+        <m.span
           className="inline-block h-4 w-4 rounded-full border-2 border-white/70 border-t-transparent"
           style={{ borderRightColor: "transparent" }}
           animate={{ rotate: 360 }}
@@ -500,7 +500,7 @@ function StatusPill({
   };
   const s = map[status];
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
       className={`inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-sm ${s.cls}`}
@@ -508,7 +508,7 @@ function StatusPill({
       <span>{s.label}</span>
       {http && <span className="text-xs opacity-70">{http}</span>}
       {duration != null && <span className="text-xs opacity-70">{duration} ms</span>}
-    </motion.div>
+    </m.div>
   );
 }
 

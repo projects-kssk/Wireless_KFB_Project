@@ -1,6 +1,5 @@
 import React from "react";
-import { motion } from "framer-motion";
-
+import { m } from 'framer-motion'
 type Size = "md" | "lg" | "xl";
 type Variant = "pill" | "card";
 
@@ -68,7 +67,7 @@ export const SupportContactCard: React.FC<{
   ].join(" ");
 
   return (
-    <motion.div
+    <m.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
@@ -118,6 +117,6 @@ export const SupportContactCard: React.FC<{
           </button>
         )}
       </div>
-    </motion.div>
+    </m.div>
   );
 };

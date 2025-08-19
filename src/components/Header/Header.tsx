@@ -1,7 +1,7 @@
 'use client';
 
 import React, { memo, useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import type { Variants } from 'framer-motion';
 import { MenuIcon, XMarkIcon } from '@/components/Icons/Icons';
 import { appConfig } from '@/components/config/appConfig';
@@ -63,7 +63,7 @@ const SupportPillSM: React.FC<{
   };
 
   return (
-    <motion.button
+    <m.button
       type="button"
       onClick={call}
       initial={{ opacity: 0, y: 6 }}
@@ -88,7 +88,7 @@ const SupportPillSM: React.FC<{
 
           {/* GPU-friendly pulse: scale + fade, not box-shadow */}
           {!reduce && (
-            <motion.span
+            <m.span
               className="pointer-events-none absolute inset-0 rounded-full"
               style={{ border: '2px solid rgba(168,85,247,.35)' }}
               initial={{ scale: 1, opacity: 0.7 }}
@@ -113,7 +113,7 @@ const SupportPillSM: React.FC<{
           </div>
         </div>
       )}
-    </motion.button>
+    </m.button>
   );
 };
 
@@ -149,7 +149,7 @@ const LedBallBase: React.FC<{ color: LedColor; size?: number; title?: string }> 
       />
       {/* GPU-friendly halo instead of animated box-shadow */}
       {!reduce && (
-        <motion.span
+        <m.span
           aria-hidden
           className="absolute inset-0 rounded-full"
           style={{ border: `2px solid ${cfg.rim}`, willChange: 'transform,opacity' }}
@@ -354,7 +354,7 @@ const SettingsIconButtonBase: React.FC<{
 }> = ({ size, label, onClick, showLabel }) => {
   const fontPx = Math.round(Math.max(14, Math.min(size * 0.13, 22)));
   return (
-    <motion.button
+    <m.button
       type="button"
       aria-label={label}
       onClick={onClick}
@@ -377,7 +377,7 @@ const SettingsIconButtonBase: React.FC<{
           {label}
         </span>
       )}
-    </motion.button>
+    </m.button>
   );
 };
 const SettingsIconButton = memo(SettingsIconButtonBase);
@@ -516,7 +516,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <AnimatePresence initial={false}>
-      <motion.header
+      <m.header
         key="single-row-header"
         variants={barVariants}
         initial="shown"
@@ -560,7 +560,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Optional hamburger for small screens */}
           {currentView === 'main' && showSidebarToggle && (
-            <motion.button
+            <m.button
               onClick={onToggleSidebar}
               aria-label={isSidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}
               whileTap={{ scale: 0.92 }}
@@ -571,7 +571,7 @@ export const Header: React.FC<HeaderProps> = ({
               style={{ willChange: 'transform' }}
             >
               {isSidebarOpen ? <XMarkIcon className="h-6 w-6" /> : <MenuIcon className="h-6 w-6" />}
-            </motion.button>
+            </m.button>
           )}
 
           <div className="flex-1" />
@@ -584,7 +584,7 @@ export const Header: React.FC<HeaderProps> = ({
             showLabel={!labelsHidden}
           />
         </div>
-      </motion.header>
+      </m.header>
     </AnimatePresence>
   );
 };

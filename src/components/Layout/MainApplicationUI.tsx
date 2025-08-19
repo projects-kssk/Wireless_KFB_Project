@@ -5,10 +5,11 @@ import { BranchDisplayData, KfbInfo, TestStatus } from '@/types/types';
 
 import { Header } from '@/components/Header/Header';
 import { BranchControlSidebar } from '@/components/Program/BranchControlSidebar';
-import { SettingsRightSidebar } from '@/components/Settings/SettingsRightSidebar';
 import { SettingsPageContent } from '@/components/Settings/SettingsPageContent';
 import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranchesPageContent';
 import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent';
+
+import dynamic from 'next/dynamic';
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
@@ -18,7 +19,11 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-
+  // IMPORTANT: default import + no SSR to avoid Flight mismatch
+  const SettingsRightSidebar = dynamic(
+    () => import('@/components/Settings/SettingsRightSidebar'),
+    { ssr: false }
+  );
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
   const [kfbNumber, setKfbNumber] = useState('');

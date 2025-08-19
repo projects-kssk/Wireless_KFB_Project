@@ -1,4 +1,4 @@
-// src/app/api/krosy-ogglien/route.ts
+// src/app/api/krosy-offline/route.ts
 import { NextRequest } from "next/server";
 import os from "node:os";
 import fs from "node:fs/promises";

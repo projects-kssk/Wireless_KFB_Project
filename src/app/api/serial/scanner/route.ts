@@ -36,47 +36,42 @@ function normalizeStatuses(st: unknown): ScannerStatus[] {
   return [];
 }
 
+// 5s server-side soft rate limit (global)
+let NEXT_OK_AT = 0;
+const MIN_INTERVAL_MS = 5_000;
+
+
 export async function GET() {
   try {
-    const statuses = normalizeStatuses(getScannerStatus());
+    // throttle
+    const now = Date.now();
+    if (now < NEXT_OK_AT) {
+      const retryInMs = NEXT_OK_AT - now;
+      return NextResponse.json({ code: null, error: "poll-too-soon", retryInMs }, { status: 200 });
+    }
+    NEXT_OK_AT = now + MIN_INTERVAL_MS;
 
+    const statuses = normalizeStatuses(getScannerStatus());
     const anyOpen = statuses.some((s) => s.open);
     const anyCooldown = statuses.some((s) => s.inCooldown);
-    const lastError =
-      statuses.map((s) => s.lastError).find((e) => !!e) ?? null;
+    const lastError = statuses.map((s) => s.lastError).find(Boolean) ?? null;
 
-    // earliest nextAttemptAt across scanners
-    const nexts = statuses
-      .map((s) => Number(s.nextAttemptAt))
-      .filter((n) => Number.isFinite(n) && n > 0);
+    const nexts = statuses.map((s) => Number(s.nextAttemptAt)).filter((n) => Number.isFinite(n) && n > 0);
     const earliestNext = nexts.length ? Math.min(...nexts) : 0;
-    const retryInMs =
-      earliestNext > 0 ? Math.max(0, earliestNext - Date.now()) : 0;
+    const retryInMs = earliestNext > 0 ? Math.max(0, earliestNext - Date.now()) : 0;
 
     if (!anyOpen && anyCooldown) {
-      // Respect cooldown; don't hammer ports
-      return NextResponse.json(
-        {
-          code: null,
-          error: lastError ?? "cooldown",
-          retryInMs,
-        },
-        { status: 200 }
-      );
+      return NextResponse.json({ code: null, error: lastError ?? "cooldown", retryInMs }, { status: 200 });
     }
 
-    // Try to (re)open all configured scanners (internally guarded/cooldown-aware)
     await ensureScanners();
 
     const code = getLastScanAndClear();
     if (code) console.log(`[SCANNER] Scanned code: ${code}`);
 
-    return NextResponse.json({ code });
+    return NextResponse.json({ code, retryInMs: MIN_INTERVAL_MS });
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
-
-    // 503 only for transient/busy; otherwise 200 with error to reduce log noise
+    const message = err instanceof Error ? err.message : typeof err === "string" ? err : String(err);
     const isBusy = /BUSY|lock|COOLDOWN/i.test(message);
     const status = isBusy ? 503 : 200;
     return NextResponse.json({ code: null, error: message }, { status });

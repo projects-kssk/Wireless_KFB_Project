@@ -217,74 +217,151 @@ const StatusRow: React.FC<{ cells: Row[]; className?: string; labelsHidden?: boo
 /* ────────────────────────────────────────────────────────────────────────────
    iOS-like Settings glyph (tight, layered rings + spokes)
    ──────────────────────────────────────────────────────────────────────────── */
-const IOSSettingsGlyph: React.FC<{ className?: string }> = ({ className }) => (
-  <svg viewBox="0 0 64 64" className={className} role="img" aria-label="Settings">
+
+type Props = {
+  size?: number | string;
+  className?: string;
+  title?: string;
+  animate?: boolean; // true = slow spin on hover
+};
+
+export const IOSSettingsIconPro: React.FC<Props> = ({
+  size = 64,
+  className,
+  title = "Settings",
+  animate = true,
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 64 64"
+    width={size}
+    height={size}
+    className={className}
+    role="img"
+    aria-label={title}
+    data-animate={animate}
+  >
     <defs>
-      <linearGradient id="g-alum" x1="0" x2="0" y1="0" y2="1">
+      {/* background */}
+      <radialGradient id="bg" cx="28%" cy="20%" r="85%">
+        <stop offset="0%" stopColor="#eef1f6" />
+        <stop offset="55%" stopColor="#cfd5de" />
+        <stop offset="100%" stopColor="#9aa3ae" />
+      </radialGradient>
+      <linearGradient id="bg-stroke" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.7" />
+        <stop offset="100%" stopColor="#6b7280" stopOpacity="0.7" />
+      </linearGradient>
+
+      {/* metal */}
+      <linearGradient id="metal" x1="0" x2="0" y1="0" y2="1">
         <stop offset="0%" stopColor="#cfd4dc" />
         <stop offset="100%" stopColor="#9aa3ae" />
       </linearGradient>
-      <linearGradient id="g-dark" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" stopColor="#47515d" />
-        <stop offset="100%" stopColor="#1f2937" />
+      <linearGradient id="rim" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#a7aeb9" />
+        <stop offset="100%" stopColor="#68707e" />
       </linearGradient>
-      <linearGradient id="g-rim" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" stopColor="#a6adb7" />
-        <stop offset="100%" stopColor="#6b7280" />
+      <linearGradient id="dial" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#4a5563" />
+        <stop offset="100%" stopColor="#111827" />
       </linearGradient>
+      <radialGradient id="hub" cx="50%" cy="40%" r="65%">
+        <stop offset="0%" stopColor="#f2f4f8" />
+        <stop offset="100%" stopColor="#bfc5cf" />
+      </radialGradient>
+
+      {/* shadows */}
+      <filter id="innerShadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feOffset dx="0" dy="1" />
+        <feGaussianBlur stdDeviation="1.2" result="b" />
+        <feComposite in="SourceGraphic" in2="b" operator="arithmetic" k2="-1" k3="1" />
+        <feColorMatrix type="matrix" values="
+          0 0 0 0 0
+          0 0 0 0 0
+          0 0 0 0 0
+          0 0 0 .35 0" />
+      </filter>
+
+      <filter id="softDrop" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="1.2" stdDeviation="1.2" floodOpacity="0.35" />
+      </filter>
+
+      {/* mask for rounded square */}
+      <mask id="squircleMask">
+        <rect x="2" y="2" width="60" height="60" rx="14" fill="#fff" />
+      </mask>
     </defs>
 
-    {/* outer rim */}
-    <circle cx="32" cy="32" r="24" fill="url(#g-alum)" />
-    <circle cx="32" cy="32" r="23.3" fill="none" stroke="url(#g-rim)" strokeWidth="1.4" />
+    <style>
+      {`
+      svg[data-animate="true"] .spin:hover { animation: spin 8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .spin { transform-origin: 32px 32px; }
+    `}
+    </style>
 
-    {/* big tooth ring */}
-    <circle
-      cx="32"
-      cy="32"
-      r="20"
-      fill="none"
-      stroke="url(#g-alum)"
-      strokeWidth="5.8"
-      strokeLinecap="round"
-      strokeDasharray="1.35 2.9"
-      transform="rotate(-6 32 32)"
-      opacity="0.95"
-    />
+    {/* Background squircle */}
+    <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#bg)" />
+    <rect x="2.5" y="2.5" width="59" height="59" rx="13.5" fill="none" stroke="url(#bg-stroke)" />
 
-    {/* middle tooth ring */}
-    <circle
-      cx="32"
-      cy="32"
-      r="13.5"
-      fill="none"
-      stroke="url(#g-alum)"
-      strokeWidth="4.6"
-      strokeLinecap="round"
-      strokeDasharray="1.1 2.3"
-      transform="rotate(8 32 32)"
-      opacity="0.95"
-    />
+    {/* Clip gear system to squircle */}
+    <g mask="url(#squircleMask)">
 
-    {/* inner rim */}
-    <circle cx="32" cy="32" r="11.6" fill="none" stroke="url(#g-rim)" strokeWidth="2" opacity="0.9" />
+      {/* Dial */}
+      <circle cx="32" cy="32" r="23.5" fill="url(#dial)" filter="url(#innerShadow)" />
 
-    {/* three spokes */}
-    <g stroke="url(#g-alum)" strokeWidth="3.1" strokeLinecap="round" strokeLinejoin="round" opacity="0.95">
-      <path d="M32 32 L32 17" />
-      <path d="M32 32 L46 40" transform="rotate(120 32 32)" />
-      <path d="M32 32 L46 40" transform="rotate(240 32 32)" />
+      {/* Outer rim bevel */}
+      <circle cx="32" cy="32" r="22.8" fill="none" stroke="url(#rim)" strokeWidth="1.6" opacity="0.9" />
+
+      {/* Gear stack */}
+      <g className="spin" filter="url(#softDrop)">
+        {/* Large tooth ring */}
+        <circle
+          cx="32" cy="32" r="19.2"
+          fill="none" stroke="url(#metal)" strokeWidth="5.6"
+          strokeLinecap="round" strokeDasharray="1.25 2.6"
+          transform="rotate(-8 32 32)"
+          opacity="0.96"
+        />
+
+        {/* Mid tooth ring */}
+        <circle
+          cx="32" cy="32" r="13.2"
+          fill="none" stroke="url(#metal)" strokeWidth="4.4"
+          strokeLinecap="round" strokeDasharray="1.05 2.15"
+          transform="rotate(10 32 32)"
+          opacity="0.96"
+        />
+
+        {/* Inner rim */}
+        <circle cx="32" cy="32" r="11.2" fill="none" stroke="url(#rim)" strokeWidth="1.9" opacity="0.92" />
+
+        {/* Spokes */}
+        <g stroke="url(#metal)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.96">
+          <path d="M32 32 L32 17.2" />
+          <path d="M32 32 L46 40" transform="rotate(120 32 32)" />
+          <path d="M32 32 L46 40" transform="rotate(240 32 32)" />
+        </g>
+
+        {/* Hub */}
+        <circle cx="32" cy="32" r="6.6" fill="url(#dial)" />
+        <circle cx="32" cy="32" r="3.8" fill="url(#hub)" />
+
+        {/* Specular highlights */}
+        <path d="M18 20 A20 20 0 0 1 28 12" fill="none" stroke="#fff" strokeOpacity="0.35" strokeWidth="1.2"/>
+        <path d="M40 52 A20 20 0 0 0 50 42" fill="none" stroke="#000" strokeOpacity="0.15" strokeWidth="1.2"/>
+      </g>
     </g>
-
-    {/* hub */}
-    <circle cx="32" cy="32" r="6.4" fill="url(#g-dark)" />
-    <circle cx="32" cy="32" r="3.6" fill="#e7e9ee" />
   </svg>
 );
+
 
 /* ────────────────────────────────────────────────────────────────────────────
    Settings button
    ──────────────────────────────────────────────────────────────────────────── */
+
+
 const SettingsIconButtonBase: React.FC<{
   size: number;
   label: string;
@@ -300,11 +377,19 @@ const SettingsIconButtonBase: React.FC<{
       whileHover={{ y: -2 }}
       whileTap={{ scale: 0.98 }}
       className="hidden lg:flex flex-col items-center justify-center bg-transparent"
-      style={{ width: size, height: size, willChange: 'transform' }}
+      style={{ width: size, height: size, willChange: "transform" }}
     >
-      <IOSSettingsGlyph className="h-[72%] w-[72%]" />
+      <IOSSettingsIconPro
+        className="h-[72%] w-[72%]"
+        size="100%"          // lets Tailwind control size %
+        title={label}
+        animate              // set false to disable hover spin
+      />
       {showLabel && (
-        <span className="mt-1 font-semibold tracking-tight text-slate-900 dark:text-slate-50" style={{ fontSize: fontPx }}>
+        <span
+          className="mt-1 font-semibold tracking-tight text-slate-900 dark:text-slate-50"
+          style={{ fontSize: fontPx }}
+        >
           {label}
         </span>
       )}
@@ -481,7 +566,7 @@ export const Header: React.FC<HeaderProps> = ({
                 cells={[
                   { title: 'Scanner', suffix: 1, color: s1Color, sub: s1Sub },
                   { title: 'Scanner', suffix: 2, color: s2Color, sub: s2Sub },
-                  { title: 'Server', color: serverColor, sub: serverSub },
+                  { title: 'KROSY Server', color: serverColor, sub: serverSub },
                 ]}
                 className="h-full"
                 labelsHidden={labelsHidden}

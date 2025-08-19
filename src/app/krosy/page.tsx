@@ -9,10 +9,19 @@ type RunMode = "json" | "xml";
 type ViewTab = "body" | "xmlPreview";
 type ApiMode = "online" | "offline";
 
-const ENDPOINT_OFFLINE =
-  process.env.NEXT_PUBLIC_KROSY_ENDPOINT ?? "http://localhost:3000/api/krosy-offline";
+const DEFAULT_API_MODE: ApiMode =
+  process.env.NEXT_PUBLIC_KROSY_ONLINE === "true" ? "online" : "offline";
+
 const ENDPOINT_ONLINE =
-  process.env.NEXT_PUBLIC_KROSY_DIRECT ?? "http://localhost:3000/api/krosy";
+  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://localhost:3000/api/krosy";
+
+const ENDPOINT_OFFLINE =
+  process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline"; // local offline handler
+
+const IDENTITY_ENDPOINT =
+  process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ?? "/api/krosy-offline"; // always safe to GET
+
+const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
 
 function formatXml(xml: string) {
   try {
@@ -37,7 +46,7 @@ function formatXml(xml: string) {
 
 export default function KrosyPage() {
   const [mode, setMode] = useState<RunMode>("json");
-  const [apiMode, setApiMode] = useState<ApiMode>("online");
+  const [apiMode, setApiMode] = useState<ApiMode>(DEFAULT_API_MODE);
   const [tab, setTab] = useState<ViewTab>("body");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"idle" | "ok" | "err" | "run">("idle");
@@ -47,7 +56,7 @@ export default function KrosyPage() {
   // inputs
   const [requestID, setRequestID] = useState<string>("1");
   const [intksk, setIntksk] = useState("830577899396");
-  const [targetHostName, setTargetHostName] = useState("kssksun01");
+  const [targetHostName, setTargetHostName] = useState("ksskkfb01"); // default stays
 
   // auto from backend
   const [sourceHostname, setSourceHostname] = useState("");
@@ -66,6 +75,16 @@ export default function KrosyPage() {
     [mode],
   );
 
+  const withTimeout = async (input: RequestInfo, init?: RequestInit) => {
+    const c = new AbortController();
+    const id = setTimeout(() => c.abort(), HTTP_TIMEOUT);
+    try {
+      return await fetch(input, { ...init, signal: c.signal });
+    } finally {
+      clearTimeout(id);
+    }
+  };
+
   const append = useCallback((line: string) => {
     const now = new Date();
     const t = `${String(now.getHours()).padStart(2, "0")}:${String(
@@ -78,20 +97,22 @@ export default function KrosyPage() {
     });
   }, []);
 
+  // Always read identity from the local endpoint so offline still resolves IP/MAC
+
   const bootstrap = useCallback(async () => {
     try {
-      append(`bootstrap: GET ${endpoint}`);
-      const r = await fetch(endpoint, { headers: { Accept: "application/json" } });
+      append(`bootstrap: GET ${IDENTITY_ENDPOINT}`);
+      const r = await withTimeout(IDENTITY_ENDPOINT, { headers: { Accept: "application/json" } });
       if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
       const j = await r.json();
       setSourceHostname(j.hostname || "");
       setSourceIp(j.ip || "");
       setSourceMac(j.mac || "");
-      append(`bootstrap ok (${apiMode.toUpperCase()})`);
+      append(`bootstrap ok (IDENTITY)`);
     } catch (e: any) {
-      append(`bootstrap failed (${apiMode.toUpperCase()}): ${e?.message || e}`);
+      append(`bootstrap failed (IDENTITY): ${e?.name === "AbortError" ? `timeout ${HTTP_TIMEOUT}ms` : e?.message || e}`);
     }
-  }, [endpoint, apiMode, append]);
+  }, [append]);
 
   useEffect(() => {
     bootstrap();
@@ -108,7 +129,7 @@ export default function KrosyPage() {
     setTab("body");
 
     const payload = {
-      action: "working", // visualControl only
+      action: "working",
       requestID,
       intksk,
       targetHostName,
@@ -119,7 +140,7 @@ export default function KrosyPage() {
 
     const started = performance.now();
     try {
-      const res = await fetch(endpoint, {
+      const res = await withTimeout(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: accept },
         body: JSON.stringify(payload),
@@ -162,57 +183,44 @@ export default function KrosyPage() {
         paddingBottom: "max(env(safe-area-inset-bottom),1rem)",
       }}
     >
+      {/* Header */}
       <div className="mb-5 flex items-center justify-between">
-        <h1 className="text-[20px] sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">
-          Krosy Test Console
-        </h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-[20px] sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">
+            Krosy Test Console
+          </h1>
+          <ConnectivityPill apiMode={apiMode} endpoint={endpoint} />
+        </div>
         <StatusPill status={status} http={http} duration={duration} />
       </div>
 
+      {/* Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
-          className="rounded-3xl border border-black/5 bg-white/90 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)] p-5"
+          className="rounded-3xl border border-black/5 bg-white/95 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)] p-5"
         >
-          {/* Mode + API pickers */}
+          {/* Segmented controls */}
           <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-            <div className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
-              {(["json", "xml"] as RunMode[]).map((m) => (
-                <motion.button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  whileTap={{ scale: 0.98 }}
-                  className={[
-                    "px-4 py-2 text-sm font-medium rounded-xl min-w-[72px]",
-                    mode === m
-                      ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow"
-                      : "text-gray-600 dark:text-gray-300",
-                  ].join(" ")}
-                >
-                  {m.toUpperCase()}
-                </motion.button>
-              ))}
-            </div>
-
-            <div className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1">
-              {(["online", "offline"] as ApiMode[]).map((m) => (
-                <motion.button
-                  key={m}
-                  onClick={() => setApiMode(m)}
-                  whileTap={{ scale: 0.98 }}
-                  className={[
-                    "px-3 py-2 text-sm font-medium rounded-xl",
-                    apiMode === m
-                      ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow"
-                      : "text-gray-600 dark:text-gray-300",
-                  ].join(" ")}
-                >
-                  {m.toUpperCase()}
-                </motion.button>
-              ))}
-            </div>
+            <Segmented
+              value={mode}
+              options={[
+                { id: "json", label: "JSON" },
+                { id: "xml", label: "XML" },
+              ]}
+              onChange={(v) => setMode(v as RunMode)}
+            />
+            <Segmented
+              value={apiMode}
+              options={[
+                { id: "online", label: "ONLINE" },
+                { id: "offline", label: "OFFLINE" },
+              ]}
+              onChange={(v) => setApiMode(v as ApiMode)}
+              intentById={{ online: "success", offline: "danger" }}
+            />
           </div>
 
           {/* Inputs */}
@@ -247,6 +255,7 @@ export default function KrosyPage() {
                 whileTap={{ scale: 0.98 }}
                 disabled={busy}
                 className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 shadow"
+                aria-label="Send request"
               >
                 <Spinner visible={busy} />
                 {busy ? "Sending…" : "Send"}
@@ -256,6 +265,7 @@ export default function KrosyPage() {
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
                 className="rounded-2xl px-4 py-3 text-sm font-medium bg-white text-gray-800 dark:bg-gray-900 border border-black/10"
+                aria-label="Clear logs"
               >
                 Clear logs
               </motion.button>
@@ -267,10 +277,13 @@ export default function KrosyPage() {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, delay: 0.05 }}
-          className="rounded-3xl border border-black/5 bg-white/90 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+          className="rounded-3xl border border-black/5 bg-white/95 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
         >
-          <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 border-b border-black/5">
-            Terminal
+          <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 border-b border-black/5 flex items-center justify-between">
+            <span>Terminal</span>
+            <span className="text-[10px] text-gray-500 dark:text-gray-400">
+              POST → {endpoint} · GET(identity) → {IDENTITY_ENDPOINT}
+            </span>
           </div>
           <div
             ref={termRef}
@@ -289,11 +302,12 @@ export default function KrosyPage() {
         </motion.div>
       </div>
 
+      {/* Response */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, delay: 0.1 }}
-        className="mt-6 rounded-3xl border border-black/5 bg-white/90 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+        className="mt-6 rounded-3xl border border-black/5 bg-white/95 dark:bg-gray-900/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
       >
         <div className="flex items-center justify-between px-4 py-2 text-xs text-gray-600 dark:text-gray-300 border-b border-black/5">
           <div className="flex items-center gap-2">
@@ -305,7 +319,7 @@ export default function KrosyPage() {
                     key={t}
                     onClick={() => setTab(t)}
                     className={[
-                      "px-2.5 py-1 rounded-lg text-[11px]",
+                      "px-2.5 py-1 rounded-lg text-[11px] transition",
                       tab === t
                         ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow"
                         : "text-gray-600 dark:text-gray-300",
@@ -333,6 +347,75 @@ export default function KrosyPage() {
 }
 
 /* UI bits */
+
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+  intentById,
+}: {
+  value: T;
+  options: { id: T; label: string }[];
+  onChange: (v: T) => void;
+  intentById?: Partial<Record<T, "neutral" | "success" | "danger">>;
+}) {
+  return (
+    <div
+      className="inline-flex rounded-2xl bg-gray-100 dark:bg-gray-800 p-1 shadow-inner"
+      role="tablist"
+      aria-label="segmented control"
+    >
+      {options.map((opt) => {
+        const active = value === opt.id;
+        const intent = intentById?.[opt.id] ?? "neutral";
+        const activeCls =
+          intent === "success"
+            ? "bg-white dark:bg-gray-900 text-emerald-700 dark:text-emerald-400"
+            : intent === "danger"
+            ? "bg-white dark:bg-gray-900 text-red-700 dark:text-red-400"
+            : "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100";
+        return (
+          <motion.button
+            key={opt.id}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => onChange(opt.id)}
+            className={[
+              "px-3.5 py-2 text-sm font-medium rounded-xl min-w-[84px] transition",
+              active ? `${activeCls} shadow` : "text-gray-600 dark:text-gray-300",
+            ].join(" ")}
+            aria-pressed={active}
+            role="tab"
+          >
+            {opt.label}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ConnectivityPill({ apiMode, endpoint }: { apiMode: ApiMode; endpoint: string }) {
+  const online = apiMode === "online";
+  return (
+    <div
+      className={[
+        "inline-flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-xs font-medium",
+        online ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800",
+      ].join(" ")}
+      title={endpoint}
+    >
+      <span
+        className={[
+          "inline-block h-2.5 w-2.5 rounded-full",
+          online ? "bg-emerald-500" : "bg-red-500",
+        ].join(" ")}
+        aria-hidden
+      />
+      <span className="tracking-wide">{online ? "ONLINE" : "OFFLINE"}</span>
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
@@ -343,6 +426,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </div>
   );
 }
+
 type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> & {
   onValueChange?: (v: string) => void;
   className?: string;
@@ -372,6 +456,7 @@ function Input({ onValueChange, className = "", disabled, ...rest }: InputProps)
     />
   );
 }
+
 function SmallButton({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button
@@ -382,6 +467,7 @@ function SmallButton({ onClick, label }: { onClick: () => void; label: string })
     </button>
   );
 }
+
 function Spinner({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence initial={false}>
@@ -396,6 +482,7 @@ function Spinner({ visible }: { visible: boolean }) {
     </AnimatePresence>
   );
 }
+
 function StatusPill({
   status,
   http,
@@ -424,6 +511,7 @@ function StatusPill({
     </motion.div>
   );
 }
+
 function CodeBlock({ text }: { text: string }) {
   return (
     <div className="p-0">

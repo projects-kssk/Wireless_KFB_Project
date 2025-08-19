@@ -1,44 +1,51 @@
 // src/app/setup/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback, type CSSProperties } from "react";
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
 import { m, AnimatePresence } from "framer-motion"; // KEEP THIS
 
 type StepKey = "kssk" | "kfb";
 type ScanState = "idle" | "valid" | "invalid";
 
 const KSSK_REGEX = /^KSK\d{10}$/; // e.g. KSK9866358756
-const KFB_REGEX = /^[A-Z0-9]{9}$/; // e.g. 83AUD8722
+const KFB_REGEX  = /^[A-Z0-9]{9}$/;  // e.g. 83AUD8722
+const OK_DISPLAY_MS = 3000;
 
 export default function SetupPage() {
+  // feature toggles
   const allowManual = true;
 
   // data
   const [kssk, setKssk] = useState<string | null>(null);
-  const [kfb, setKfb] = useState<string | null>(null);
+  const [kfb,  setKfb]  = useState<string | null>(null);
 
   // status
   const [ksskStatus, setKsskStatus] = useState<ScanState>("idle");
-  const [kfbStatus, setKfbStatus] = useState<ScanState>("idle");
+  const [kfbStatus,  setKfbStatus]  = useState<ScanState>("idle");
   const [activeStep, setActiveStep] = useState<StepKey>("kssk");
   const [showManualFor, setShowManualFor] = useState<Partial<Record<StepKey, boolean>>>({});
 
   // overlay
-  const [overlay, setOverlay] = useState<{ open: boolean; kind: "success" | "error"; code: string }>({
+  const [overlay, setOverlay] = useState<{open: boolean; kind: "success" | "error"; code: string}>({
     open: false,
     kind: "success",
     code: "",
   });
 
+  // cycle banners
+  const [showCycleOk, setShowCycleOk]   = useState(false);
+  const [waitingNext, setWaitingNext]   = useState(false);
+  const okTimer = useRef<number | null>(null);
+
+  // fake keyboard wedge to simulate a scanner
+  const [kbdBuffer, setKbdBuffer] = useState("");
   const handleScanned = useCallback(
     (raw: string) => {
       const { step, code } = classify(raw);
-
       if (!step) {
         setOverlay({ open: true, kind: "error", code });
         return;
       }
-
       if (step === "kssk") {
         setKssk(code);
         setKsskStatus("valid");
@@ -48,14 +55,12 @@ export default function SetupPage() {
         setKfbStatus("valid");
         if (!kssk) setActiveStep("kssk");
       }
+      setWaitingNext(false); // new cycle begins
       setOverlay({ open: true, kind: "success", code });
     },
     [kssk, kfb]
   );
 
-
-  // wedge keyboard buffer
-  const [kbdBuffer, setKbdBuffer] = useState("");
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -73,27 +78,23 @@ export default function SetupPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [kbdBuffer, handleScanned]);
 
-  // --- core helpers: order-agnostic by regex ---
-  const normalize = (raw: string) => raw.trim().toUpperCase();
+  // order-agnostic classification
+  const normalize = (s: string) => s.trim().toUpperCase();
   const classify = (raw: string): { step: StepKey | null; code: string } => {
     const code = normalize(raw);
     if (KSSK_REGEX.test(code)) return { step: "kssk", code };
-    if (KFB_REGEX.test(code)) return { step: "kfb", code };
+    if (KFB_REGEX.test(code))  return { step: "kfb",  code };
     return { step: null, code };
   };
-
 
   const handleManualSubmit = useCallback(
     (_step: StepKey, raw: string) => {
       if (!raw.trim()) return;
       const { step, code } = classify(raw);
-
       if (!step) {
-        // do not guess; just flag error
         setOverlay({ open: true, kind: "error", code });
         return;
       }
-
       if (step === "kssk") {
         setKssk(code);
         setKsskStatus("valid");
@@ -103,196 +104,151 @@ export default function SetupPage() {
         setKfbStatus("valid");
         if (!kssk) setActiveStep("kssk");
       }
+      setWaitingNext(false);
       setOverlay({ open: true, kind: "success", code });
       setShowManualFor((s) => ({ ...s, [_step]: false }));
     },
     [kssk, kfb]
   );
 
-  // styles (expanded sizing)
-  const page: CSSProperties = {
-    minHeight: "100vh",
-    display: "grid",
-    gap: 32,
-    alignContent: "start",
-    background: "#f6f8fb",
-    padding: "40px 24px 64px",
-  };
-  const topBar: CSSProperties = {
-    width: "min(1200px, 100%)",
-    margin: "0 auto",
-    display: "grid",
-    gridTemplateColumns: "repeat(2, 1fr)",
-    gap: 20,
-  };
-  const statusCardBase: CSSProperties = {
-    borderRadius: 16,
-    background: "#ffffff",
-    padding: 20,
-    display: "flex",
-    alignItems: "center",
-    gap: 16,
-    minHeight: 100,
-    boxShadow: "0 4px 10px rgba(16,24,40,0.06)",
-    border: "2px solid transparent",
-  };
-  const statusLabel: CSSProperties = { fontSize: 16, color: "#334155", letterSpacing: "0.02em" };
-  const codeText: CSSProperties = {
-    fontWeight: 800,
-    color: "#0f172a",
-    fontSize: 22,
-    wordBreak: "break-all",
-    letterSpacing: "0.01em",
-  };
+  // when both valid → show OK 3s → reset → show “scan next table”
+  useEffect(() => {
+    const bothValid = ksskStatus === "valid" && kfbStatus === "valid";
+    if (!bothValid) return;
+    if (okTimer.current) window.clearTimeout(okTimer.current);
+    setShowCycleOk(true);
+    okTimer.current = window.setTimeout(() => {
+      setShowCycleOk(false);
+      // reset to defaults
+      setKssk(null);
+      setKfb(null);
+      setKsskStatus("idle");
+      setKfbStatus("idle");
+      setActiveStep("kssk");
+      setShowManualFor({});
+      setWaitingNext(true);
+    }, OK_DISPLAY_MS);
+    return () => {
+      if (okTimer.current) window.clearTimeout(okTimer.current);
+    };
+  }, [ksskStatus, kfbStatus]);
 
-  const grid: CSSProperties = {
-    width: "min(1200px, 100%)",
-    display: "grid",
-    gap: 28,
-    gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))",
-    margin: "0 auto",
-  };
-  const card: CSSProperties = {
-    border: "2px dashed #9aa7b6",
-    borderRadius: 20,
-    background: "#ffffff",
-    padding: "48px 32px 40px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 22,
-    boxShadow: "0 4px 12px rgba(16,24,40,0.08)",
-  };
+  // styles
+  const page: CSSProperties = { minHeight: "100vh", display: "grid", gap: 32, alignContent: "start", background: "#f6f8fb", padding: "40px 24px 64px" };
+  const topBar: CSSProperties = { width: "min(1200px, 100%)", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20 };
+  const statusCardBase: CSSProperties = { borderRadius: 16, background: "#ffffff", padding: 20, display: "flex", alignItems: "center", gap: 16, minHeight: 100, boxShadow: "0 4px 10px rgba(16,24,40,0.06)", border: "2px solid transparent" };
+  const statusLabel: CSSProperties = { fontSize: 16, color: "#334155" };
+  const codeText: CSSProperties = { fontWeight: 800, color: "#0f172a", fontSize: 22, wordBreak: "break-all" };
+
+  const grid: CSSProperties = { width: "min(1200px, 100%)", display: "grid", gap: 28, gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", margin: "0 auto" };
+  const card: CSSProperties = { border: "2px dashed #9aa7b6", borderRadius: 20, background: "#ffffff", padding: "48px 32px 40px", display: "flex", flexDirection: "column", gap: 22, boxShadow: "0 4px 12px rgba(16,24,40,0.08)" };
   const titleRow: CSSProperties = { display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap" };
   const stepNum: CSSProperties = { fontSize: 64, fontWeight: 900, color: "#64748b", lineHeight: 1 };
-  const heading: CSSProperties = {
-    fontSize: 52,
-    fontWeight: 900,
-    letterSpacing: "0.06em",
-    color: "#334155",
-    textTransform: "uppercase",
-  };
-  const scanBox: CSSProperties = {
-    width: "100%",
-    height: 220,
-    borderRadius: 14,
-    background: "#eef2f6",
-    display: "grid",
-    placeItems: "center",
-  };
-  const barcode: CSSProperties = {
-    width: 360,
-    height: 108,
-    borderRadius: 12,
-    background: "repeating-linear-gradient(90deg,#94a3b8 0 7px,transparent 7px 16px)",
-    opacity: 0.8,
-  };
-  const hint: CSSProperties = {
-    fontSize: 16,
-    color: "#475569",
-    textDecoration: "underline",
-    cursor: "pointer",
-  };
-  // visibility hardening for input text
-  const input: CSSProperties = {
-    width: "100%",
-    height: 56,
-    borderRadius: 12,
-    border: "2px solid #cbd5e1",
-    padding: "0 16px",
-    fontSize: 20,
-    outline: "none",
-    background: "#ffffff",
-    color: "#0f172a",
-    caretColor: "#0f172a",
-  };
+  const heading: CSSProperties = { fontSize: 52, fontWeight: 900, letterSpacing: "0.06em", color: "#334155", textTransform: "uppercase" };
+  const scanBox: CSSProperties = { width: "100%", height: 220, borderRadius: 14, background: "#eef2f6", display: "grid", placeItems: "center" };
+  const barcode: CSSProperties = { width: 360, height: 108, borderRadius: 12, background: "repeating-linear-gradient(90deg,#94a3b8 0 7px,transparent 7px 16px)", opacity: 0.8 };
+  const hint: CSSProperties = { fontSize: 16, color: "#475569", textDecoration: "underline", cursor: "pointer" };
+  const input: CSSProperties = { width: "100%", height: 56, borderRadius: 12, border: "2px solid #cbd5e1", padding: "0 16px", fontSize: 20, outline: "none", background: "#ffffff", color: "#0f172a", caretColor: "#0f172a" };
 
   return (
     <main style={page}>
+      {/* Top status */}
       <div style={topBar}>
-        <StatusField label="KSSK" code={kssk} state={ksskStatus} />
-        <StatusField label="KFB INFO" code={kfb} state={kfbStatus} />
+        <StatusField label="KSSK"    code={kssk} state={ksskStatus} />
+        <StatusField label="KFB INFO" code={kfb}  state={kfbStatus} />
       </div>
 
+      {/* Steps */}
       <div style={grid}>
-        {/* Step 1 — KSSK */}
         <section style={card} aria-live="polite" aria-busy={activeStep === "kssk" && !kssk}>
-          <div style={titleRow}>
-            <div style={stepNum}>1.</div>
-            <h2 style={heading}>Please scan KSSK</h2>
-          </div>
-
-          <div style={scanBox} aria-label="KSSK scan zone">
-            <div style={barcode} />
-          </div>
-
+          <div style={titleRow}><div style={stepNum}>1.</div><h2 style={heading}>Please scan KSSK</h2></div>
+          <div style={scanBox} aria-label="KSSK scan zone"><div style={barcode} /></div>
           {allowManual && (
-            <button
-              type="button"
-              style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }}
-              onClick={() => setShowManualFor((s) => ({ ...s, kssk: !s.kssk }))}
-            >
+            <button type="button" style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }} onClick={() => setShowManualFor((s) => ({ ...s, kssk: !s.kssk }))}>
               Or enter number manually
             </button>
           )}
-
           <AnimatePresence initial={false}>
             {showManualFor.kssk && allowManual && (
-              <m.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ type: "tween", duration: 0.2 }}
-              >
-                <ManualInput
-                  placeholder="Type KSSK code"
-                  onSubmit={(v) => handleManualSubmit("kssk", v)}
-                  inputStyle={input}
-                />
+              <m.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ type: "tween", duration: 0.2 }}>
+                <ManualInput placeholder="Type KSSK code" onSubmit={(v) => handleManualSubmit("kssk", v)} inputStyle={input} />
               </m.div>
             )}
           </AnimatePresence>
         </section>
 
-        {/* Step 2 — KFB INFO */}
         <section style={card} aria-live="polite" aria-busy={activeStep === "kfb" && !kfb}>
-          <div style={titleRow}>
-            <div style={stepNum}>2.</div>
-            <h2 style={heading}>Please scan KFB info</h2>
-          </div>
-
-          <div style={scanBox} aria-label="KFB scan zone">
-            <div style={barcode} />
-          </div>
-
+          <div style={titleRow}><div style={stepNum}>2.</div><h2 style={heading}>Please scan KFB info</h2></div>
+          <div style={scanBox} aria-label="KFB scan zone"><div style={barcode} /></div>
           {allowManual && (
-            <button
-              type="button"
-              style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }}
-              onClick={() => setShowManualFor((s) => ({ ...s, kfb: !s.kfb }))}
-            >
+            <button type="button" style={{ ...hint, alignSelf: "center", background: "transparent", border: 0 }} onClick={() => setShowManualFor((s) => ({ ...s, kfb: !s.kfb }))}>
               Or enter number manually
             </button>
           )}
-
           <AnimatePresence initial={false}>
             {showManualFor.kfb && allowManual && (
-              <m.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ type: "tween", duration: 0.2 }}
-              >
-                <ManualInput
-                  placeholder="Type KFB info code"
-                  onSubmit={(v) => handleManualSubmit("kfb", v)}
-                  inputStyle={input}
-                />
+              <m.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ type: "tween", duration: 0.2 }}>
+                <ManualInput placeholder="Type KFB info code" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
               </m.div>
             )}
           </AnimatePresence>
         </section>
       </div>
 
+      {/* Cycle banner: OK → reset → prompt next */}
+      <div style={{ width: "min(1200px, 100%)", margin: "8px auto 0" }}>
+        <AnimatePresence initial={false}>
+          {showCycleOk && (
+            <m.div
+              key="ok"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                display: "grid",
+                placeItems: "center",
+                padding: "18px 20px",
+                borderRadius: 14,
+                background: "#ecfdf5",
+                color: "#065f46",
+                fontWeight: 900,
+                fontSize: 42,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                boxShadow: "0 8px 24px rgba(16,185,129,0.25)",
+              }}
+            >
+              OK
+            </m.div>
+          )}
+          {!showCycleOk && waitingNext && (
+            <m.div
+              key="next"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              style={{
+                display: "grid",
+                placeItems: "center",
+                padding: "14px 18px",
+                borderRadius: 12,
+                background: "#e2e8f0",
+                color: "#0f172a",
+                fontWeight: 800,
+                fontSize: 28,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+              }}
+            >
+              Please scan the next table
+            </m.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Center success/error overlay with dimmed backdrop */}
       <ResultOverlay
         open={overlay.open}
         kind={overlay.kind}
@@ -302,13 +258,12 @@ export default function SetupPage() {
     </main>
   );
 
+  // ---------- inner components ----------
   function StatusField({ label, code, state }: { label: string; code: string | null; state: ScanState }) {
     const palette =
-      state === "valid"
-        ? { border: "#10b981", bg: "#ecfdf5" }
-        : state === "invalid"
-        ? { border: "#ef4444", bg: "#fef2f2" }
-        : { border: "#cbd5e1", bg: "#ffffff" };
+      state === "valid"   ? { border: "#10b981", bg: "#ecfdf5" } :
+      state === "invalid" ? { border: "#ef4444", bg: "#fef2f2" } :
+                            { border: "#cbd5e1", bg: "#ffffff" };
     return (
       <div style={{ ...statusCardBase, background: palette.bg, borderColor: palette.border }}>
         <StateIcon state={state} size={48} />
@@ -404,11 +359,17 @@ function ResultOverlay({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none" }}
-          role="dialog"
+          style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center" }}
           aria-live="assertive"
-          aria-label={kind === "success" ? "Success" : "Invalid code"}
         >
+          {/* iOS-like dim/backdrop */}
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.35)", backdropFilter: "blur(2px)" }}
+          />
           <m.div
             initial={{ scale: 0.92, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -423,7 +384,10 @@ function ResultOverlay({
               justifyItems: "center",
               gap: 14,
               minWidth: 360,
+              zIndex: 1,
             }}
+            role="dialog"
+            aria-label={kind === "success" ? "Success" : "Invalid code"}
           >
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
               <circle cx={size / 2} cy={size / 2} r={r} stroke="#e2e8f0" strokeWidth={stroke} fill="none" />
@@ -464,21 +428,11 @@ function ResultOverlay({
                 />
               )}
             </svg>
-            <m.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
-              style={{ fontWeight: 900, color: "#0f172a", fontSize: 22, textAlign: "center", maxWidth: 320 }}
-            >
+            <m.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} style={{ fontWeight: 900, color: "#0f172a", fontSize: 22, textAlign: "center", maxWidth: 320 }}>
               {kind === "success" ? "Success" : "Invalid code"}
             </m.div>
             {code && (
-              <m.div
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.45 }}
-                style={{ fontSize: 16, color: "#334155", wordBreak: "break-all", textAlign: "center" }}
-              >
+              <m.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 }} style={{ fontSize: 16, color: "#334155", wordBreak: "break-all", textAlign: "center" }}>
                 {code}
               </m.div>
             )}

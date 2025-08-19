@@ -1,6 +1,5 @@
+"use client"
 // src/components/Header/useSerialEvents.ts
-"use client";
-
 import { useEffect, useState } from "react";
 import type { SimpleStatus } from "@/components/Header/StatusIndicatorCard";
 
@@ -20,18 +19,16 @@ type SerialEvent =
   | { type: "scanner/close" }
   | { type: "scanner/error"; error: string };
 
+const SSE_PATH = "/api/serial/events";
+
 export function useSerialEvents() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [lastScan, setLastScan] = useState<string | null>(null);
-  const [connected, setConnected] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
 
   useEffect(() => {
-    const url = `${window.location.origin}/api/serial/sse`;
-    const es = new EventSource(url);
-
-    es.onopen = () => setConnected(true);
-    es.onerror = () => setConnected(false);
+    const es = new EventSource(SSE_PATH);
 
     es.onmessage = (ev) => {
       try {
@@ -46,12 +43,21 @@ export function useSerialEvents() {
           case "scan":
             setLastScan(String(msg.code));
             break;
+          case "scanner/error":
+            setScannerError(String(msg.error || "Scanner error"));
+            break;
         }
-      } catch {}
+      } catch {
+        /* ignore */
+      }
+    };
+
+    es.onerror = () => {
+      // keep UI calm; EventSource will retry automatically
     };
 
     return () => es.close();
   }, []);
 
-  return { devices, server, lastScan, sseConnected: connected };
+  return { devices, server, lastScan, scannerError };
 }

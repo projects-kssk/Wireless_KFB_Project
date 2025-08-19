@@ -18,8 +18,8 @@ export const appConfig = {
         statusChangeIntervals: { scanner1: 5000, scanner2: 6000, server: 7000 },
     },
     indicatorLabels: {
-        scanner1: "Scanner 1",
-        scanner2: "Scanner 2",
+        scanner1: "Scanner CHECK",
+        scanner2: "Scanner SETUP",
         server: "Server Status",
     },
     callSupportInfo: {

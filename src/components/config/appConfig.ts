@@ -77,7 +77,7 @@ export const appConfig: AppConfig = {
   },
 
   indicatorLabels: {
-    scanner1: "Scanner 1",
+    scanner1: "SCANNER 1",
     scanner2: "Scanner 2",
     server: "Server Status",
   },

@@ -548,8 +548,8 @@ export const Header: React.FC<HeaderProps> = ({
             <div style={{ width: 'clamp(360px, 34vw, 720px)', height: settingsSize }}>
               <StatusRow
                 cells={[
-                  { title: 'Scanner', suffix: 1, color: s1Color, sub: s1Sub },
-                  { title: 'Scanner', suffix: 2, color: s2Color, sub: s2Sub },
+                  { title: 'Scanner Check', suffix: 1, color: s1Color, sub: s1Sub },
+                  { title: 'Scanner Setup', suffix: 2, color: s2Color, sub: s2Sub },
                   { title: 'KROSY Server', color: serverColor, sub: serverSub },
                 ]}
                 className="h-full"

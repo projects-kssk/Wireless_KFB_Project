@@ -297,7 +297,72 @@ export default function SetupPage() {
 
       {/* Table cycle banner + swap animation */}
       <div style={{ ...containerWide, marginTop: 8 }}>
-        <TableSwap cycleKey={tableCycle} queues={["KFB 83AUDAU40X02-61-001", "KFB 83AUDAU40X02-70-004", "IWO16029"]} okMs={OK_DISPLAY_MS} />
+        <TableSwap
+  cycleKey={tableCycle}
+  queues={["KFB 83AUDAU40X02-61-001", "KFB 83AUDAU40X02-70-004", "IWO16029"]}
+  clsXml={`<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_1_2">
+    <header>
+        <requestID>1</requestID>
+        <responseID>4</responseID>
+        <sourceHost>
+            <hostname>kssksun01</hostname>
+            <ipAddress>0.0.0.0</ipAddress>
+        </sourceHost>
+        <targetHost>
+            <hostname>ksskkfb01</hostname>
+        </targetHost>
+        <embeddedBinaries allowed="true" encoding="Base64"/>
+    </header>
+    <body>
+        <visualControl>
+            <workingData device="ksskkfb01" intksk="830577899396" kfb="" scanned="2025-08-19T12:41:42" setup="A56N_KFB_WIRELESS" projekt="A56N" ksknr="830577899396" kskidx="4" lfdnr="0" modbez="OTHERS" modjahr="" band="083112" ident="637055" status="true">
+                <sequencer>
+                    <segmentList count="1">
+                        <segment index="1" name="1">
+                            <sequenceList count="4">
+                                <sequence index="1" compType="clip" reference="1" measType="default">
+                                    <objGroup>1</objGroup>
+                                    <objPos>CL_1301</objPos>
+                                </sequence>
+                                <sequence index="2" compType="clip" reference="2" measType="default">
+                                    <objGroup>1</objGroup>
+                                    <objPos>CL_1302</objPos>
+                                </sequence>
+                                <sequence index="3" compType="clip" reference="3" measType="default">
+                                    <objGroup>1</objGroup>
+                                    <objPos>CL_1304</objPos>
+                                </sequence>
+                                <sequence index="4" compType="clip" reference="3" measType="default">
+                                    <objGroup>1</objGroup>
+                                    <objPos>CL_1305</objPos>
+                                </sequence>
+                            </sequenceList>
+                        </segment>
+                    </segmentList>
+                </sequencer>
+                <component>
+                    <clipList count="3">
+                        <clip index="1" ident="036101">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="2" ident="034801">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                        <clip index="3" ident="093853">
+                            <angle>0</angle>
+                            <fbzko/>
+                        </clip>
+                    </clipList>
+                </component>
+            </workingData>
+        </visualControl>
+    </body>
+</krosy>`}
+/>
+
+The sample XML y
       </div>
 
       {/* Per-scan success/error overlay (dim only, no card) */}
@@ -396,7 +461,7 @@ function ResultOverlay({
     return () => clearTimeout(t);
   }, [open, onClose]);
 
-  const label = kind === "success" ? "OK" : "CANCEL";
+  const label = kind === "success" ? "OK" : "ERROR";
 
   return (
     <AnimatePresence>
@@ -409,11 +474,12 @@ function ResultOverlay({
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(2,6,23,0.48)",
-            backdropFilter: "blur(3px)",
+            // darker shadow-out and a bit more blur
+            background: "rgba(2,6,23,0.64)",
+            backdropFilter: "blur(4px)",
             display: "grid",
             placeItems: "center",
-            zIndex: 50,
+            zIndex: 60,
           }}
           aria-live="assertive"
           aria-label={label}
@@ -430,11 +496,13 @@ function ResultOverlay({
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.22 }}
               style={{
-                fontSize: 96,
+                // bigger label
+                fontSize: 128,
                 fontWeight: 900,
                 letterSpacing: "0.02em",
                 color: kind === "success" ? "#10b981" : "#ef4444",
-                textShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                // stronger glow for readability on darker scrim
+                textShadow: "0 8px 24px rgba(0,0,0,0.45)",
                 fontFamily:
                   'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
               }}
@@ -448,7 +516,7 @@ function ResultOverlay({
                 transition={{ delay: 0.05 }}
                 style={{
                   fontSize: 16,
-                  color: "#e5e7eb",
+                  color: "#f1f5f9",
                   opacity: 0.95,
                   wordBreak: "break-all",
                   textAlign: "center",

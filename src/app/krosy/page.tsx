@@ -14,12 +14,16 @@ const DEFAULT_API_MODE: ApiMode =
 
 const ENDPOINT_ONLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://localhost:3000/api/krosy";
-
 const ENDPOINT_OFFLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline"; // local offline handler
-
 const IDENTITY_ENDPOINT =
   process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ?? "/api/krosy-offline"; // always safe to GET
+
+// Checkpoint endpoints
+const ENDPOINT_CHECKPOINT_ONLINE =
+  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ?? "http://localhost:3000/api/krosy-checkpoint";
+const ENDPOINT_CHECKPOINT_OFFLINE =
+  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ?? "/api/krosy-offline";
 
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
 
@@ -43,20 +47,26 @@ function formatXml(xml: string) {
     return xml;
   }
 }
+const isCompleteKrosy = (xml: string) =>
+  xml.trim().startsWith("<krosy") && /<\/krosy>\s*$/.test(xml);
 
 export default function KrosyPage() {
   const [mode, setMode] = useState<RunMode>("json");
   const [apiMode, setApiMode] = useState<ApiMode>(DEFAULT_API_MODE);
   const [tab, setTab] = useState<ViewTab>("body");
-  const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<"idle" | "ok" | "err" | "run">("idle");
   const [http, setHttp] = useState<string>("");
   const [duration, setDuration] = useState<number | null>(null);
 
+  // per-button busy flags
+  const [busyReq, setBusyReq] = useState(false);
+  const [busyChk, setBusyChk] = useState(false);
+  const busyAny = busyReq || busyChk;
+
   // inputs
   const [requestID, setRequestID] = useState<string>("1");
   const [intksk, setIntksk] = useState("830577899396");
-  const [targetHostName, setTargetHostName] = useState("ksskkfb01"); // default stays
+  const [targetHostName, setTargetHostName] = useState("ksskkfb01");
 
   // auto from backend
   const [sourceHostname, setSourceHostname] = useState("");
@@ -69,7 +79,17 @@ export default function KrosyPage() {
   const [xmlPreview, setXmlPreview] = useState<string>("");
   const termRef = useRef<HTMLDivElement | null>(null);
 
+  // checkpoint gate
+  const [hasWorkingData, setHasWorkingData] = useState(false);
+  const [workingDataXml, setWorkingDataXml] = useState<string | null>(null);
+
+  // hard lock to prevent concurrent calls
+  const inFlightRef = useRef(false);
+
   const endpoint = apiMode === "offline" ? ENDPOINT_OFFLINE : ENDPOINT_ONLINE;
+  const endpointCheckpoint =
+    apiMode === "offline" ? ENDPOINT_CHECKPOINT_OFFLINE : ENDPOINT_CHECKPOINT_ONLINE;
+
   const accept = useMemo(
     () => (mode === "json" ? "application/json" : "application/xml"),
     [mode],
@@ -98,7 +118,6 @@ export default function KrosyPage() {
   }, []);
 
   // Always read identity from the local endpoint so offline still resolves IP/MAC
-
   const bootstrap = useCallback(async () => {
     try {
       append(`bootstrap: GET ${IDENTITY_ENDPOINT}`);
@@ -118,15 +137,29 @@ export default function KrosyPage() {
     bootstrap();
   }, [bootstrap]);
 
+  const extractXmlFromResponse = (ct: string, payload: any) => {
+    if ((ct || "").includes("json")) {
+      const j = payload as any;
+      return String(
+        j.responseXmlRaw || j.responseXml || j.responseXmlPreview || j.responsePreview || j.sentXmlPreview || "",
+      );
+    }
+    return String(payload || "");
+  };
+
+  // SEND working request
   const run = useCallback(async () => {
-    if (busy) return;
-    setBusy(true);
+    if (inFlightRef.current || busyAny) return;
+    inFlightRef.current = true;
+    setBusyReq(true);
     setStatus("run");
     setHttp("");
     setDuration(null);
     setRespBody("");
     setXmlPreview("");
     setTab("body");
+    setHasWorkingData(false);
+    setWorkingDataXml(null);
 
     const payload = {
       action: "working",
@@ -155,7 +188,89 @@ export default function KrosyPage() {
       if (ct.includes("json")) {
         const j = await res.json();
         setRespBody(JSON.stringify(j, null, 2));
-        if (j.responseXmlPreview) setXmlPreview(formatXml(String(j.responseXmlPreview)));
+        const xml = extractXmlFromResponse(ct, j);
+        if (xml.trim().startsWith("<")) setXmlPreview(formatXml(xml));
+        if (j.usedUrl) append(`used: ${j.usedUrl}`);
+
+        const complete = isCompleteKrosy(xml);
+        const hasWD = /<workingData[\s>]/i.test(xml);
+        if (complete && hasWD) {
+          setHasWorkingData(true);
+          setWorkingDataXml(xml);
+          append("workingData detected (complete XML) → checkpoint enabled");
+        } else if (hasWD) {
+          append("workingData detected but XML is preview/truncated → checkpoint disabled");
+        } else {
+          append("no <workingData> in response → checkpoint disabled");
+        }
+      } else {
+        const t = await res.text();
+        setRespBody(formatXml(t));
+        const used = res.headers.get("x-krosy-used-url");
+        if (used) append(`used: ${used}`);
+        if ((t || "").trim().startsWith("<")) setXmlPreview(formatXml(t));
+
+        const complete = isCompleteKrosy(t);
+        const hasWD = /<workingData[\s>]/i.test(t);
+        if (complete && hasWD) {
+          setHasWorkingData(true);
+          setWorkingDataXml(t);
+          append("workingData detected (complete XML) → checkpoint enabled");
+        } else if (hasWD) {
+          append("workingData detected but XML is preview/truncated → checkpoint disabled");
+        } else {
+          append("no <workingData> in response → checkpoint disabled");
+        }
+      }
+
+      setStatus(res.ok ? "ok" : "err");
+    } catch (e: any) {
+      setRespBody(e?.message || "network error");
+      setStatus("err");
+    } finally {
+      setBusyReq(false);
+      inFlightRef.current = false;
+    }
+  }, [accept, append, endpoint, apiMode, requestID, intksk, targetHostName, sourceHostname, busyAny]);
+
+  // SEND checkpoint
+  const runCheckpoint = useCallback(async () => {
+    if (inFlightRef.current || busyAny) return;
+    if (!hasWorkingData || !workingDataXml || !isCompleteKrosy(workingDataXml)) {
+      append("checkpoint aborted: need complete <krosy>…</krosy> with <workingData>");
+      return;
+    }
+    inFlightRef.current = true;
+    setBusyChk(true);
+    setStatus("run");
+    setHttp("");
+    setDuration(null);
+    setRespBody("");
+    setTab("body");
+
+    const payload = { workingDataXml, requestID };
+
+    append(`POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`);
+
+    const started = performance.now();
+    try {
+      const res = await withTimeout(endpointCheckpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: accept },
+        body: JSON.stringify(payload),
+      });
+
+      const ms = Math.round(performance.now() - started);
+      setDuration(ms);
+      setHttp(`HTTP ${res.status}`);
+      append(`→ HTTP ${res.status} in ${ms} ms`);
+
+      const ct = res.headers.get("content-type") || "";
+      if (ct.includes("json")) {
+        const j = await res.json();
+        setRespBody(JSON.stringify(j, null, 2));
+        const xml = extractXmlFromResponse(ct, j);
+        if (xml.trim()) setXmlPreview(formatXml(xml));
         if (j.usedUrl) append(`used: ${j.usedUrl}`);
       } else {
         const t = await res.text();
@@ -169,11 +284,17 @@ export default function KrosyPage() {
       setRespBody(e?.message || "network error");
       setStatus("err");
     } finally {
-      setBusy(false);
+      setBusyChk(false);
+      inFlightRef.current = false;
     }
-  }, [accept, append, busy, endpoint, apiMode, requestID, intksk, targetHostName, sourceHostname]);
+  }, [accept, append, apiMode, endpointCheckpoint, hasWorkingData, workingDataXml, requestID, busyAny]);
 
   const clearLogs = () => setLogs([]);
+
+  const canCheckpoint = useMemo(
+    () => hasWorkingData && !!workingDataXml && isCompleteKrosy(workingDataXml),
+    [hasWorkingData, workingDataXml],
+  );
 
   return (
     <div
@@ -248,18 +369,36 @@ export default function KrosyPage() {
               </Field>
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-2 flex-wrap">
               <m.button
                 onClick={run}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={busy}
+                disabled={busyAny}
                 className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 shadow"
                 aria-label="Send request"
               >
-                <Spinner visible={busy} />
-                {busy ? "Sending…" : "Send"}
+                <Spinner visible={busyReq} />
+                {busyReq ? "Sending…" : "Send"}
               </m.button>
+
+              <m.button
+                onClick={runCheckpoint}
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                disabled={busyAny || !canCheckpoint}
+                className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 shadow"
+                aria-label="Send checkpoint from response XML"
+                title={
+                  canCheckpoint
+                    ? "Build and send workingResult from current workingData XML"
+                    : "Run a request and ensure full XML"
+                }
+              >
+                <Spinner visible={busyChk} />
+                {busyChk ? "Processing…" : "Send Checkpoint"}
+              </m.button>
+
               <m.button
                 onClick={clearLogs}
                 whileHover={{ y: -1 }}
@@ -282,7 +421,7 @@ export default function KrosyPage() {
           <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 border-b border-black/5 flex items-center justify-between">
             <span>Terminal</span>
             <span className="text-[10px] text-gray-500 dark:text-gray-400">
-              POST → {endpoint} · GET(identity) → {IDENTITY_ENDPOINT}
+              POST → {endpoint} · POST(checkpoint) → {endpointCheckpoint} · GET(identity) → {IDENTITY_ENDPOINT}
             </span>
           </div>
           <div

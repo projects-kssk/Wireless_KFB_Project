@@ -2,15 +2,27 @@
 "use client";
 
 import { useEffect, useState, useCallback, type CSSProperties } from "react";
-import { m, AnimatePresence } from "framer-motion"; // KEEP THIS
+import { m, AnimatePresence } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
 
 type StepKey = "kssk" | "kfb";
 type ScanState = "idle" | "valid" | "invalid";
 
-const KSSK_REGEX = /^KSK\d{10}$/; // e.g. KSK9866358756
-const KFB_REGEX = /^[A-Z0-9]{4}$/; // e.g. ABC1
 const OK_DISPLAY_MS = 3000;
+
+/** Compile regex from NEXT_PUBLIC_* env var with robust fallback */
+function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
+  if (!src) return fallback;
+  try {
+    const m = src.match(/^\/(.+)\/([gimsuy]*)$/);
+    return m ? new RegExp(m[1], m[2]) : new RegExp(src);
+  } catch {
+    return fallback;
+  }
+}
+
+const KSSK_REGEX = compileRegex(process.env.NEXT_PUBLIC_KSSK_REGEX, /^KSK\d{10}$/); // e.g. KSK9866358756
+const KFB_REGEX  = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX,  /^[A-Z0-9]{4}$/); // e.g. ABC1
 
 export default function SetupPage() {
   const allowManual = true;
@@ -25,7 +37,7 @@ export default function SetupPage() {
   const [activeStep, setActiveStep] = useState<StepKey>("kssk");
   const [showManualFor, setShowManualFor] = useState<Partial<Record<StepKey, boolean>>>({});
 
-  // per-scan overlay (dim only, iOS-like large text, no modal box)
+  // per-scan overlay
   const [overlay, setOverlay] = useState<{ open: boolean; kind: "success" | "error"; code: string }>({
     open: false,
     kind: "success",
@@ -34,6 +46,34 @@ export default function SetupPage() {
 
   // drives OK+swap inside TableSwap
   const [tableCycle, setTableCycle] = useState(0);
+// Place inside SetupPage(), above the JSX where it's used
+const handleManualSubmit = useCallback(
+  (panel: StepKey, raw: string) => {
+    const input = raw.trim();
+    if (!input) return;
+
+    const { step, code } = classify(input);
+
+    if (!step) {
+      setOverlay({ open: true, kind: "error", code: input });
+      return;
+    }
+
+    if (step === "kssk") {
+      setKssk(code);
+      setKsskStatus("valid");
+      if (!kfb) setActiveStep("kfb");
+    } else {
+      setKfb(code);
+      setKfbStatus("valid");
+      if (!kssk) setActiveStep("kssk");
+    }
+
+    setOverlay({ open: true, kind: "success", code });
+    setShowManualFor((s) => ({ ...s, [panel]: false }));
+  },
+  [kssk, kfb]
+);
 
   // keyboard wedge (scanner)
   const [kbdBuffer, setKbdBuffer] = useState("");
@@ -84,29 +124,6 @@ export default function SetupPage() {
     if (KFB_REGEX.test(code)) return { step: "kfb", code };
     return { step: null, code };
   };
-
-  const handleManualSubmit = useCallback(
-    (_step: StepKey, raw: string) => {
-      if (!raw.trim()) return;
-      const { step, code } = classify(raw);
-      if (!step) {
-        setOverlay({ open: true, kind: "error", code });
-        return;
-      }
-      if (step === "kssk") {
-        setKssk(code);
-        setKsskStatus("valid");
-        if (!kfb) setActiveStep("kfb");
-      } else {
-        setKfb(code);
-        setKfbStatus("valid");
-        if (!kssk) setActiveStep("kssk");
-      }
-      setOverlay({ open: true, kind: "success", code });
-      setShowManualFor((s) => ({ ...s, [_step]: false }));
-    },
-    [kssk, kfb]
-  );
 
   // both valid → trigger TableSwap OK cycle → reset inputs
   useEffect(() => {
@@ -176,22 +193,24 @@ export default function SetupPage() {
   };
   const titleRow: CSSProperties = { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" };
   const stepBadge: CSSProperties = {
-    width: 40,
-    height: 40,
+    width: 48,
+    height: 48,
     borderRadius: 999,
     display: "grid",
     placeItems: "center",
     fontWeight: 900,
-    fontSize: 18,
+    fontSize: 20,
     color: "#0b1220",
     background: "#e5f0ff",
     border: "1px solid #bfd7ff",
   };
   const eyebrow: CSSProperties = { fontSize: 12, letterSpacing: "0.08em", color: "#64748b", textTransform: "uppercase", fontWeight: 800 };
-  const heading: CSSProperties = { fontSize: 40, fontWeight: 900, letterSpacing: "0.01em", color: "#0f172a" };
+  const heading: CSSProperties = { fontSize: 44, fontWeight: 900, letterSpacing: "0.01em", color: "#0f172a" };
+
+  // Bigger scan zones
   const scanBox: CSSProperties = {
     width: "100%",
-    height: 220,
+    height: 320, // was 220
     borderRadius: 16,
     background: "linear-gradient(180deg,#f3f6fb 0%, #eef3f9 100%)",
     border: "1px dashed #c7d2e5",
@@ -199,11 +218,11 @@ export default function SetupPage() {
     placeItems: "center",
   };
   const barcode: CSSProperties = {
-    width: 420,
-    height: 120,
+    width: 560,  // was 420
+    height: 160, // was 120
     borderRadius: 12,
     background: "repeating-linear-gradient(90deg,#8aa0b8 0 7px,transparent 7px 16px)",
-    opacity: 0.8,
+    opacity: 0.85,
   };
   const hint: CSSProperties = {
     fontSize: 14,
@@ -214,11 +233,11 @@ export default function SetupPage() {
   };
   const input: CSSProperties = {
     width: "100%",
-    height: 56,
+    height: 64, // taller input
     borderRadius: 12,
     border: "1px solid #cbd5e1",
     padding: "0 16px",
-    fontSize: 20,
+    fontSize: 22,
     outline: "none",
     background: "#ffffff",
     color: "#0f172a",
@@ -270,7 +289,7 @@ export default function SetupPage() {
             <div style={{ ...stepBadge, background: activeStep === "kfb" ? "#dbeafe" : "#e5f0ff", borderColor: activeStep === "kfb" ? "#93c5fd" : "#bfd7ff" }}>2</div>
             <div style={{ display: "grid", gap: 2 }}>
               <span style={eyebrow}>Step 2</span>
-              <h2 style={heading}>Scan KFB Info</h2>
+              <h2 style={heading}>Scan KFB Number</h2>
             </div>
           </div>
           <div style={scanBox} aria-label="KFB scan zone">
@@ -298,74 +317,15 @@ export default function SetupPage() {
       {/* Table cycle banner + swap animation */}
       <div style={{ ...containerWide, marginTop: 8 }}>
         <TableSwap
-  cycleKey={tableCycle}
-  queues={["KFB 83AUDAU40X02-61-001", "KFB 83AUDAU40X02-70-004", "IWO16029"]}
-  clsXml={`<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_1_2">
-    <header>
-        <requestID>1</requestID>
-        <responseID>4</responseID>
-        <sourceHost>
-            <hostname>kssksun01</hostname>
-            <ipAddress>0.0.0.0</ipAddress>
-        </sourceHost>
-        <targetHost>
-            <hostname>ksskkfb01</hostname>
-        </targetHost>
-        <embeddedBinaries allowed="true" encoding="Base64"/>
-    </header>
-    <body>
-        <visualControl>
-            <workingData device="ksskkfb01" intksk="830577899396" kfb="" scanned="2025-08-19T12:41:42" setup="A56N_KFB_WIRELESS" projekt="A56N" ksknr="830577899396" kskidx="4" lfdnr="0" modbez="OTHERS" modjahr="" band="083112" ident="637055" status="true">
-                <sequencer>
-                    <segmentList count="1">
-                        <segment index="1" name="1">
-                            <sequenceList count="4">
-                                <sequence index="1" compType="clip" reference="1" measType="default">
-                                    <objGroup>1</objGroup>
-                                    <objPos>CL_1301</objPos>
-                                </sequence>
-                                <sequence index="2" compType="clip" reference="2" measType="default">
-                                    <objGroup>1</objGroup>
-                                    <objPos>CL_1302</objPos>
-                                </sequence>
-                                <sequence index="3" compType="clip" reference="3" measType="default">
-                                    <objGroup>1</objGroup>
-                                    <objPos>CL_1304</objPos>
-                                </sequence>
-                                <sequence index="4" compType="clip" reference="3" measType="default">
-                                    <objGroup>1</objGroup>
-                                    <objPos>CL_1305</objPos>
-                                </sequence>
-                            </sequenceList>
-                        </segment>
-                    </segmentList>
-                </sequencer>
-                <component>
-                    <clipList count="3">
-                        <clip index="1" ident="036101">
-                            <angle>0</angle>
-                            <fbzko/>
-                        </clip>
-                        <clip index="2" ident="034801">
-                            <angle>0</angle>
-                            <fbzko/>
-                        </clip>
-                        <clip index="3" ident="093853">
-                            <angle>0</angle>
-                            <fbzko/>
-                        </clip>
-                    </clipList>
-                </component>
-            </workingData>
-        </visualControl>
-    </body>
-</krosy>`}
-/>
-
-The sample XML y
+          cycleKey={tableCycle}
+          okMs={OK_DISPLAY_MS}               // align with page timer
+          queues={["KFB 83AUDAU40X02-61-001", "KFB 83AUDAU40X02-70-004", "IWO16029"]}
+          // XML can be present; TableSwap must not show OK until cycleKey increments
+          clsXml={`<krosy><body><visualControl><workingData scanned="2025-08-19T12:41:42"/></visualControl></body></krosy>`}
+        />
       </div>
 
-      {/* Per-scan success/error overlay (dim only, no card) */}
+      {/* Per-scan success/error overlay */}
       <ResultOverlay open={overlay.open} kind={overlay.kind} code={overlay.code} onClose={() => setOverlay((o) => ({ ...o, open: false }))} />
     </main>
   );
@@ -380,7 +340,7 @@ The sample XML y
         : { border: "#e2e8f0", bg: "#ffffff" };
     return (
       <div style={{ ...statusCardBase, background: palette.bg, borderColor: palette.border }}>
-        <StateIcon state={state} size={48} />
+        <StateIcon state={state} size={52} />
         <div style={{ display: "grid", gap: 2 }}>
           <span style={statusLabel}>{label}</span>
           <span style={codeText}>{code ?? "—"}</span>
@@ -454,7 +414,6 @@ function ResultOverlay({
   code: string;
   onClose: () => void;
 }) {
-  // auto-dismiss quickly
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(onClose, 1200);
@@ -474,7 +433,6 @@ function ResultOverlay({
           style={{
             position: "fixed",
             inset: 0,
-            // darker shadow-out and a bit more blur
             background: "rgba(2,6,23,0.64)",
             backdropFilter: "blur(4px)",
             display: "grid",
@@ -496,12 +454,10 @@ function ResultOverlay({
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.22 }}
               style={{
-                // bigger label
                 fontSize: 128,
                 fontWeight: 900,
                 letterSpacing: "0.02em",
                 color: kind === "success" ? "#10b981" : "#ef4444",
-                // stronger glow for readability on darker scrim
                 textShadow: "0 8px 24px rgba(0,0,0,0.45)",
                 fontFamily:
                   'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',

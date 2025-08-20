@@ -582,12 +582,14 @@ useEffect(() => {
           <div className="flex-1" />
 
           {/* Right: Settings icon only, optional label */}
-          <SettingsIconButton
-            size={settingsSize}
-            label={mainButtonText}
-            onClick={onSettingsClick}
-            showLabel={!labelsHidden}
-          />
+        {!process.env.NEXT_PUBLIC_HIDE_SETTINGS && (
+        <SettingsIconButton
+          size={settingsSize}
+          label={mainButtonText}
+          onClick={onSettingsClick}
+          showLabel={!labelsHidden}
+        />
+      )}
         </div>
       </m.header>
     </AnimatePresence>

@@ -12,10 +12,7 @@ import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranc
 import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent';
 import { useSerialEvents } from '@/components/Header/useSerialEvents';
 
-const SettingsRightSidebar = dynamic(
-  () => import('@/components/Settings/SettingsRightSidebar'),
-  { ssr: false }
-);
+import SettingsRightSidebar from '@/components/Settings/SettingsRightSidebar';
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';

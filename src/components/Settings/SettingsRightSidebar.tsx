@@ -1,8 +1,10 @@
+
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { XMarkIcon, SettingsHomeIcon, SettingsCogIcon, SettingsCubeIcon } from '@/components/Icons/Icons';
 import { appConfig } from '@/components/config/appConfig';
+
 
 /* ────────────────────────────────────────────────────────────────────────────
    Types
@@ -54,18 +56,18 @@ function fmtClock(ms: number) {
 /* ────────────────────────────────────────────────────────────────────────────
    Component
    ──────────────────────────────────────────────────────────────────────────── */
-export const SettingsRightSidebar: React.FC<SettingsRightSidebarProps> = ({
+export default function SettingsRightSidebar({
   isOpen,
   onClose,
-  appHeaderHeight, // eslint-disable-line @typescript-eslint/no-unused-vars
+  appHeaderHeight: _appHeaderHeight, // API compatibility
   onShowConfigurationInMain,
   onShowBranchesSettingsInMain,
-}) => {
+}: SettingsRightSidebarProps) {
   if (!isOpen) return null;
 
   const otpLength = appConfig?.otpLength ?? 4;
-
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('MAIN_S');
+
 
   // Locks
   const [locks, setLocks] = useState<LockMap>({ MAIN_S: null, CONFIG_S: null, BRANCHES_S: null });
@@ -602,4 +604,4 @@ const PinForm: React.FC<PinFormProps> = React.memo(
 );
 PinForm.displayName = 'PinForm';
 
-export default SettingsRightSidebar;
+

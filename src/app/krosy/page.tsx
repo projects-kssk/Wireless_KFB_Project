@@ -15,9 +15,9 @@ const DEFAULT_API_MODE: ApiMode =
 const ENDPOINT_ONLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://localhost:3000/api/krosy";
 const ENDPOINT_OFFLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline"; // local offline handler
+  process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
 const IDENTITY_ENDPOINT =
-  process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ?? "/api/krosy-offline"; // always safe to GET
+  process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ?? "/api/krosy-offline";
 
 // Checkpoint endpoints
 const ENDPOINT_CHECKPOINT_ONLINE =
@@ -27,6 +27,7 @@ const ENDPOINT_CHECKPOINT_OFFLINE =
 
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
 
+/* ===== utils ===== */
 function formatXml(xml: string) {
   try {
     const reg = /(>)(<)(\/*)/g;
@@ -50,6 +51,7 @@ function formatXml(xml: string) {
 const isCompleteKrosy = (xml: string) =>
   xml.trim().startsWith("<krosy") && /<\/krosy>\s*$/.test(xml);
 
+/* ===== component ===== */
 export default function KrosyPage() {
   const [mode, setMode] = useState<RunMode>("json");
   const [apiMode, setApiMode] = useState<ApiMode>(DEFAULT_API_MODE);
@@ -83,7 +85,7 @@ export default function KrosyPage() {
   const [hasWorkingData, setHasWorkingData] = useState(false);
   const [workingDataXml, setWorkingDataXml] = useState<string | null>(null);
 
-  // hard lock to prevent concurrent calls
+  // concurrency lock
   const inFlightRef = useRef(false);
 
   const endpoint = apiMode === "offline" ? ENDPOINT_OFFLINE : ENDPOINT_ONLINE;
@@ -117,25 +119,27 @@ export default function KrosyPage() {
     });
   }, []);
 
-  // Always read identity from the local endpoint so offline still resolves IP/MAC
-  const bootstrap = useCallback(async () => {
-    try {
-      append(`bootstrap: GET ${IDENTITY_ENDPOINT}`);
-      const r = await withTimeout(IDENTITY_ENDPOINT, { headers: { Accept: "application/json" } });
-      if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
-      const j = await r.json();
-      setSourceHostname(j.hostname || "");
-      setSourceIp(j.ip || "");
-      setSourceMac(j.mac || "");
-      append(`bootstrap ok (IDENTITY)`);
-    } catch (e: any) {
-      append(`bootstrap failed (IDENTITY): ${e?.name === "AbortError" ? `timeout ${HTTP_TIMEOUT}ms` : e?.message || e}`);
-    }
-  }, [append]);
-
+  /* identity bootstrap */
   useEffect(() => {
-    bootstrap();
-  }, [bootstrap]);
+    (async () => {
+      try {
+        append(`bootstrap: GET ${IDENTITY_ENDPOINT}`);
+        const r = await withTimeout(IDENTITY_ENDPOINT, { headers: { Accept: "application/json" } });
+        if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
+        const j = await r.json();
+        setSourceHostname(j.hostname || "");
+        setSourceIp(j.ip || "");
+        setSourceMac(j.mac || "");
+        append(`bootstrap ok (IDENTITY)`);
+      } catch (e: any) {
+        append(
+          `bootstrap failed (IDENTITY): ${
+            e?.name === "AbortError" ? `timeout ${HTTP_TIMEOUT}ms` : e?.message || e
+          }`,
+        );
+      }
+    })();
+  }, [append]);
 
   const extractXmlFromResponse = (ct: string, payload: any) => {
     if ((ct || "").includes("json")) {
@@ -147,7 +151,7 @@ export default function KrosyPage() {
     return String(payload || "");
   };
 
-  // SEND working request
+  /* RUN: request workingData, then lock Send and enable Checkpoint */
   const run = useCallback(async () => {
     if (inFlightRef.current || busyAny) return;
     inFlightRef.current = true;
@@ -158,6 +162,7 @@ export default function KrosyPage() {
     setRespBody("");
     setXmlPreview("");
     setTab("body");
+    // reset gate
     setHasWorkingData(false);
     setWorkingDataXml(null);
 
@@ -195,11 +200,11 @@ export default function KrosyPage() {
         const complete = isCompleteKrosy(xml);
         const hasWD = /<workingData[\s>]/i.test(xml);
         if (complete && hasWD) {
-          setHasWorkingData(true);
-          setWorkingDataXml(xml);
-          append("workingData detected (complete XML) → checkpoint enabled");
+          setHasWorkingData(true);              // enable checkpoint
+          setWorkingDataXml(xml);               // pass exact response to checkpoint API
+          append("workingData detected (complete XML) → checkpoint enabled, send disabled");
         } else if (hasWD) {
-          append("workingData detected but XML is preview/truncated → checkpoint disabled");
+          append("workingData detected but XML is preview/truncated → checkpoint stays disabled");
         } else {
           append("no <workingData> in response → checkpoint disabled");
         }
@@ -215,9 +220,9 @@ export default function KrosyPage() {
         if (complete && hasWD) {
           setHasWorkingData(true);
           setWorkingDataXml(t);
-          append("workingData detected (complete XML) → checkpoint enabled");
+          append("workingData detected (complete XML) → checkpoint enabled, send disabled");
         } else if (hasWD) {
-          append("workingData detected but XML is preview/truncated → checkpoint disabled");
+          append("workingData detected but XML is preview/truncated → checkpoint stays disabled");
         } else {
           append("no <workingData> in response → checkpoint disabled");
         }
@@ -233,7 +238,7 @@ export default function KrosyPage() {
     }
   }, [accept, append, endpoint, apiMode, requestID, intksk, targetHostName, sourceHostname, busyAny]);
 
-  // SEND checkpoint
+  /* RUN CHECKPOINT: uses values from the response XML */
   const runCheckpoint = useCallback(async () => {
     if (inFlightRef.current || busyAny) return;
     if (!hasWorkingData || !workingDataXml || !isCompleteKrosy(workingDataXml)) {
@@ -248,6 +253,7 @@ export default function KrosyPage() {
     setRespBody("");
     setTab("body");
 
+    // Pass the exact workingData XML to API, which derives all fields
     const payload = { workingDataXml, requestID };
 
     append(`POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`);
@@ -289,12 +295,26 @@ export default function KrosyPage() {
     }
   }, [accept, append, apiMode, endpointCheckpoint, hasWorkingData, workingDataXml, requestID, busyAny]);
 
-  const clearLogs = () => setLogs([]);
+  // Reset flow so Send becomes active again
+  const resetFlow = () => {
+    setHasWorkingData(false);
+    setWorkingDataXml(null);
+    setXmlPreview("");
+    setRespBody("Ready");
+    setStatus("idle");
+    setHttp("");
+    setDuration(null);
+  };
 
   const canCheckpoint = useMemo(
     () => hasWorkingData && !!workingDataXml && isCompleteKrosy(workingDataXml),
     [hasWorkingData, workingDataXml],
   );
+
+  const endpointLabel =
+    apiMode === "offline" ? ENDPOINT_OFFLINE : ENDPOINT_ONLINE;
+  const checkpointLabel =
+    apiMode === "offline" ? ENDPOINT_CHECKPOINT_OFFLINE : ENDPOINT_CHECKPOINT_ONLINE;
 
   return (
     <div
@@ -310,7 +330,7 @@ export default function KrosyPage() {
           <h1 className="text-[20px] sm:text-2xl font-semibold text-gray-900 dark:text-gray-100">
             Krosy Test Console
           </h1>
-          <ConnectivityPill apiMode={apiMode} endpoint={endpoint} />
+          <ConnectivityPill apiMode={apiMode} endpoint={endpointLabel} />
         </div>
         <StatusPill status={status} http={http} duration={duration} />
       </div>
@@ -374,7 +394,7 @@ export default function KrosyPage() {
                 onClick={run}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={busyAny}
+                disabled={busyAny || hasWorkingData} // disable after response with workingData
                 className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 shadow"
                 aria-label="Send request"
               >
@@ -386,7 +406,7 @@ export default function KrosyPage() {
                 onClick={runCheckpoint}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={busyAny || !canCheckpoint}
+                disabled={busyAny || !canCheckpoint} // enable only after valid workingData XML
                 className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 shadow"
                 aria-label="Send checkpoint from response XML"
                 title={
@@ -400,7 +420,17 @@ export default function KrosyPage() {
               </m.button>
 
               <m.button
-                onClick={clearLogs}
+                onClick={resetFlow}
+                whileHover={{ y: -1 }}
+                whileTap={{ scale: 0.98 }}
+                className="rounded-2xl px-4 py-3 text-sm font-medium bg-white text-gray-800 dark:bg-gray-900 border border-black/10"
+                aria-label="Reset flow"
+              >
+                Reset
+              </m.button>
+
+              <m.button
+                onClick={() => setLogs([])}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
                 className="rounded-2xl px-4 py-3 text-sm font-medium bg-white text-gray-800 dark:bg-gray-900 border border-black/10"
@@ -421,7 +451,7 @@ export default function KrosyPage() {
           <div className="px-4 py-2 text-xs text-gray-600 dark:text-gray-300 border-b border-black/5 flex items-center justify-between">
             <span>Terminal</span>
             <span className="text-[10px] text-gray-500 dark:text-gray-400">
-              POST → {endpoint} · POST(checkpoint) → {endpointCheckpoint} · GET(identity) → {IDENTITY_ENDPOINT}
+              POST → {endpointLabel} · POST(checkpoint) → {checkpointLabel} · GET(identity) → {IDENTITY_ENDPOINT}
             </span>
           </div>
           <div
@@ -486,7 +516,6 @@ export default function KrosyPage() {
 }
 
 /* UI bits */
-
 function Segmented<T extends string>({
   value,
   options,

@@ -22,8 +22,8 @@ type SerialEvent =
   | { type: "scanner/paths"; paths: string[] };
 
 type ScannerPortState = {
-  present: boolean;          // enumerated by SerialPort.list()
-  open: boolean;             // scanner runtime opened
+  present: boolean;          // from SerialPort.list()
+  open: boolean;             // runtime opened
   lastError: string | null;  // last error for this path
   lastScanTs: number | null; // last scan ts
 };
@@ -33,20 +33,30 @@ const SSE_PATH = "/api/serial/events";
 export function useSerialEvents() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
+
   const [lastScan, setLastScan] = useState<string | null>(null);
+  const [lastScanPath, setLastScanPath] = useState<string | null>(null);
+  const [lastScanTick, setLastScanTick] = useState(0);     // ← increments every scan (even same code)
+  const [lastScanAt, setLastScanAt] = useState<number | null>(null);
+
   const [scannerError, setScannerError] = useState<string | null>(null);
-const [lastScanPath, setLastScanPath] = useState<string | null>(null);
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
 
-  // server = esp OK (or present) OR net up
-  const [espOk, setEspOk] = useState(false);
-  const [netUp, setNetUp] = useState(false);
-  useEffect(() => {
-    setServer(espOk || netUp ? "connected" : "offline");
-  }, [espOk, netUp]);
+  const [sseConnected, setSseConnected] = useState<boolean>(false);
 
-  // upsert a port record
+  // internal refs
+  const tickRef = useRef(0);
+  const esRef = useRef<EventSource | null>(null);
+  const espOkRef = useRef(false);
+  const netUpRef = useRef(false);
+
+  // derive server status from esp/net
+  useEffect(() => {
+    setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+  }, []); // initial
+
+  // helper: upsert a port record
   const up = (p: string, patch: Partial<ScannerPortState>) =>
     setPorts((prev) => {
       const cur: ScannerPortState =
@@ -54,7 +64,7 @@ const [lastScanPath, setLastScanPath] = useState<string | null>(null);
       return { ...prev, [p]: { ...cur, ...patch } };
     });
 
-  // update presence from device list for the paths we care about
+  // sync presence for configured paths when device list changes
   useEffect(() => {
     if (!paths.length) return;
     const present = new Set(devices.map((d) => d.path));
@@ -69,85 +79,121 @@ const [lastScanPath, setLastScanPath] = useState<string | null>(null);
     });
   }, [devices, paths]);
 
-  // SSE wire-up
+  // SSE wire-up (guard against StrictMode double-mounts)
   useEffect(() => {
+    // close any existing (should be null normally)
+    if (esRef.current) {
+      try { esRef.current.close(); } catch {}
+      esRef.current = null;
+    }
+
     const es = new EventSource(SSE_PATH);
+    esRef.current = es;
+
+    es.onopen = () => setSseConnected(true);
 
     es.onmessage = (ev) => {
+      let msg: SerialEvent | null = null;
       try {
-        const msg: SerialEvent = JSON.parse(ev.data);
-        switch (msg.type) {
-          case "devices":
-            setDevices(Array.isArray(msg.devices) ? msg.devices : []);
-            break;
-
-          case "esp":
-            // consider present=true as OK too, so unplugged NET can still show server OK via ESP
-            setEspOk(Boolean((msg as any).ok) || Boolean((msg as any).present));
-            break;
-
-          case "net":
-            setNetUp(Boolean(msg.up));
-            break;
-
-          case "scanner/paths": {
-            const list = Array.isArray(msg.paths) ? msg.paths.filter(Boolean) : [];
-            setPaths((prev) => {
-              const uniq = Array.from(new Set([...prev, ...list]));
-              for (const p of uniq) up(p, {});
-              return uniq;
-            });
-            break;
-          }
-
-          case "scanner/open": {
-            if (msg.path) {
-              up(msg.path, { open: true, lastError: null });
-            } else {
-              // Fallback: mark the first present-but-closed port as open
-              setPorts(prev => {
-                const next = { ...prev };
-                const key = Object.keys(next).find(k => next[k].present && !next[k].open);
-                if (key) next[key] = { ...next[key], open: true, lastError: null };
-                return next;
-              });
-            }
-            break;
-          }
-
-          case "scanner/close": {
-            if (msg.path) {
-              up(msg.path, { open: false });
-            } else {
-              // Fallback: mark all as closed
-              setPorts(prev => {
-                const next = { ...prev };
-                for (const k of Object.keys(next)) next[k] = { ...next[k], open: false };
-                return next;
-              });
-            }
-            break;
-          }
-
-          case "scanner/error":
-            setScannerError(String(msg.error || "Scanner error"));
-            if ((msg as any).path) up((msg as any).path!, { lastError: String(msg.error || "error") });
-            break;
-
-          case "scan":
-            setLastScan(String(msg.code));
-            setLastScanPath(msg.path ?? null);
-            if (msg.path) up(msg.path, { lastScanTs: Date.now(), open: true });
-            break;
-
-        }
+        msg = JSON.parse(ev.data);
       } catch {
-        /* ignore malformed frames */
+        return;
+      }
+      if (!msg || typeof msg !== "object" || !("type" in msg)) return;
+
+      switch (msg.type) {
+        case "devices":
+          setDevices(Array.isArray(msg.devices) ? msg.devices : []);
+          break;
+
+        case "esp": {
+          const ok = Boolean((msg as any).ok) || Boolean((msg as any).present);
+          espOkRef.current = ok;
+          setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+          break;
+        }
+
+        case "net": {
+          const upNow = Boolean(msg.up);
+          netUpRef.current = upNow;
+          setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+          break;
+        }
+
+        case "scanner/paths": {
+          const list = Array.isArray(msg.paths) ? msg.paths.filter(Boolean) : [];
+          setPaths((prev) => {
+            const uniq = Array.from(new Set([...prev, ...list]));
+            // ensure we have entries for each
+            for (const p of uniq) up(p, {});
+            return uniq;
+          });
+          break;
+        }
+
+        case "scanner/open": {
+          if (msg.path) {
+            up(msg.path, { open: true, lastError: null });
+          } else {
+            // mark first present-but-closed as open if path omitted
+            setPorts((prev) => {
+              const next = { ...prev };
+              const key = Object.keys(next).find((k) => next[k].present && !next[k].open);
+              if (key) next[key] = { ...next[key], open: true, lastError: null };
+              return next;
+            });
+          }
+          break;
+        }
+
+        case "scanner/close": {
+          if (msg.path) {
+            up(msg.path, { open: false });
+          } else {
+            // mark all closed if path omitted
+            setPorts((prev) => {
+              const next = { ...prev };
+              for (const k of Object.keys(next)) next[k] = { ...next[k], open: false };
+              return next;
+            });
+          }
+          break;
+        }
+
+        case "scanner/error": {
+          const err = String(msg.error || "Scanner error");
+          setScannerError(err);
+          if ((msg as any).path) up((msg as any).path!, { lastError: err });
+          break;
+        }
+
+        case "scan": {
+          // always advance tick so identical codes still trigger UI effects
+          tickRef.current += 1;
+          setLastScan(String(msg.code));
+          setLastScanPath(msg.path ?? null);
+          setLastScanAt(Date.now());
+          setLastScanTick(tickRef.current);
+          if (msg.path) up(msg.path, { lastScanTs: Date.now(), open: true, lastError: null });
+          break;
+        }
+
+        default:
+          // ignore
+          break;
       }
     };
 
-    es.onerror = () => { /* EventSource auto-retries */ };
-    return () => es.close();
+    es.onerror = () => {
+      setSseConnected(false);
+      // EventSource will auto-retry; we keep the instance open.
+    };
+
+    return () => {
+      try { es.close(); } catch {}
+      esRef.current = null;
+      setSseConnected(false);
+    };
   }, []);
 
   // roll-ups
@@ -160,15 +206,30 @@ const [lastScanPath, setLastScanPath] = useState<string | null>(null);
     [paths, ports]
   );
 
+  // small helper if caller wants to clear the last scan manually
+  const clearLastScan = () => {
+    setLastScan(null);
+    setLastScanPath(null);
+    setLastScanAt(null);
+  };
+
   return {
     devices,
     server,
+    sseConnected,
+
     lastScan,
-     lastScanPath,  
+    lastScanPath,
+    lastScanTick,  // ← use this in effects to react to every scan
+    lastScanAt,
+
     scannerError,
+
     scannerPaths: paths,
-    scannerPorts: ports, // map[path] -> state
+    scannerPorts: ports, // map[path] -> ScannerPortState
     scannersDetected,
     scannersOpen,
+
+    clearLastScan,
   };
 }

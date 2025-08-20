@@ -1,35 +1,43 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
-import { BranchDisplayData, KfbInfo, TestStatus } from '@/types/types';
+import dynamic from 'next/dynamic';
+import { m, AnimatePresence } from 'framer-motion';
 
+import { BranchDisplayData, KfbInfo, TestStatus } from '@/types/types';
 import { Header } from '@/components/Header/Header';
 import { BranchControlSidebar } from '@/components/Program/BranchControlSidebar';
 import { SettingsPageContent } from '@/components/Settings/SettingsPageContent';
 import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranchesPageContent';
 import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent';
-
-import dynamic from 'next/dynamic';
-import { m, AnimatePresence } from 'framer-motion';
 import { useSerialEvents } from '@/components/Header/useSerialEvents';
+
+const SettingsRightSidebar = dynamic(
+  () => import('@/components/Settings/SettingsRightSidebar'),
+  { ssr: false }
+);
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
 type OverlayKind = 'success' | 'error' | 'scanning';
-const ACM_ONLY = '/dev/ttyACM0';
-const isAcm0Path = (p?: string | null) =>
-  !p // if server didn’t include path, accept (single scanner mode)
-  || p === ACM_ONLY
-  || /(^|\/)ttyACM0$/.test(p)
-  || /(^|\/)ACM0($|[^0-9])/.test(p)
-  || /\/by-id\/.*ACM0/i.test(p);
+
+// Accept any ttyACM<N> and common by-id variants
+const isAcmPath = (p?: string | null) =>
+  !p
+  || /(^|\/)ttyACM\d+$/.test(p)
+  || /(^|\/)ACM\d+($|[^0-9])/.test(p)
+  || /\/by-id\/.*ACM\d+/i.test(p);
 
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
   try {
-    const m = src.match(/^\/(.+)\/([gimsuy]*)$/);
-    return m ? new RegExp(m[1], m[2]) : new RegExp(src);
-  } catch {
+    if (src.startsWith('/') && src.lastIndexOf('/') > 0) {
+      const i = src.lastIndexOf('/');
+      return new RegExp(src.slice(1, i), src.slice(i + 1));
+    }
+    return new RegExp(src);
+  } catch (e) {
+    console.warn('Invalid NEXT_PUBLIC_KFB_REGEX. Using fallback.', e);
     return fallback;
   }
 }
@@ -42,7 +50,6 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-  const SettingsRightSidebar = dynamic(() => import('@/components/Settings/SettingsRightSidebar'), { ssr: false });
 
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
@@ -154,8 +161,9 @@ const MainApplicationUI: React.FC = () => {
 
     const normalized = kfbRaw.toUpperCase();
     if (!KFB_REGEX.test(normalized)) {
-      showOverlay('error', normalized);
-      hideOverlaySoon();
+       showOverlay('error', `Invalid code: ${normalized} (pattern: ${KFB_REGEX.source})`);
+      console.warn('[SCAN] rejected by KFB_REGEX', { normalized, pattern: KFB_REGEX.source });
+       hideOverlaySoon();
       return;
     }
 
@@ -224,7 +232,7 @@ const MainApplicationUI: React.FC = () => {
 
     // De-bounce identical value while idle, but allow new scan once previous finished
     if (normalized === lastHandledScanRef.current && !isScanningRef.current) {
-      // still allow if you want re-checks; otherwise keep this guard
+      // allow manual re-check by clearing lastHandledScanRef if desired
     }
     lastHandledScanRef.current = normalized;
 
@@ -244,16 +252,25 @@ const MainApplicationUI: React.FC = () => {
     await loadBranchesData(normalized);
   }, [loadBranchesData]);
 
-  // SSE → handle scans (only ACM0 if path is available)
-  useEffect(() => {
-    if (!lastScan) return;
-    if (lastScanPath && !isAcm0Path(lastScanPath)) return;
-    void handleScan(lastScan);
-  }, [lastScan, lastScanPath, handleScan]);
+  // SSE → handle scans (gate by view and settings sidebar)
+ useEffect(() => {
+   if (mainView !== 'dashboard') return;
+   if (isSettingsSidebarOpen) return;
+   if (!serial.lastScanTick) return;              // no event yet
+   if (lastScanPath && !isAcmPath(lastScanPath)) return;
+   const code = serial.lastScan;                   // the latest payload
+   if (!code) return;
+   void handleScan(code);
+   // optional: echo code for visibility
+   // console.debug('[SSE scan]', { code, path: lastScanPath, tick: serial.lastScanTick });
+ // depend on the tick, not the string
+ }, [serial.lastScanTick, lastScanPath, handleScan, mainView, isSettingsSidebarOpen]);
 
-  // Polling fallback (filters to ACM0 via returned path)
+  // Polling fallback (filters to ACM via returned path and gates by view + settings)
   useEffect(() => {
     if (mainView !== 'dashboard') return;
+    if (isSettingsSidebarOpen) return;
+
     let stopped = false;
     let timer: number | null = null;
     let ctrl: AbortController | null = null;
@@ -265,15 +282,18 @@ const MainApplicationUI: React.FC = () => {
           return;
         }
         ctrl = new AbortController();
-        const res = await fetch('/api/serial/scanner', { cache: 'no-store', signal: ctrl.signal });
+       const res = await fetch('/api/serial/scanner', { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
-          const { code, path } = await res.json();
+           const { code, path, error } = await res.json();
           const raw = typeof code === 'string' ? code.trim() : '';
-        if (raw) {
-          if (path && !isAcm0Path(path)) return;   // use the robust matcher
-          await handleScan(raw);
-        }
-
+          if (raw) {
+            if (path && !isAcmPath(path)) return;
+            await handleScan(raw);
+          }
+              else if (error) {
+     setErrorMsg(String(error));
+     console.warn('[SCANNER] poll error', error);
+              }
         }
       } catch (e) {
         if (!(e instanceof DOMException && e.name === 'AbortError')) {
@@ -290,7 +310,7 @@ const MainApplicationUI: React.FC = () => {
       if (timer) window.clearTimeout(timer);
       if (ctrl) ctrl.abort();
     };
-  }, [mainView, handleScan]);
+  }, [mainView, isSettingsSidebarOpen, handleScan]);
 
   // Listen for UI cues + SUCCESS after a CHECK until release
   useEffect(() => {
@@ -416,6 +436,9 @@ const MainApplicationUI: React.FC = () => {
                 isScanning={isScanning}
                 onResetKfb={handleResetKfb}
               />
+
+              {/* Hidden form target if you submit manually elsewhere */}
+              <form onSubmit={handleKfbSubmit} className="hidden" />
             </>
           ) : mainView === 'settingsConfiguration' ? (
             <SettingsPageContent onNavigateBack={showDashboard} onShowProgramForConfig={showBranchesSettings} />
@@ -460,9 +483,6 @@ const MainApplicationUI: React.FC = () => {
               overlay.kind === 'success' ? 'OK' :
               overlay.kind === 'error' ? 'ERROR' : 'SCANNING'
             }
-            onAnimationStart={() => {
-              if (overlay.kind !== 'scanning') hideOverlaySoon();
-            }}
           >
             <m.div
               initial={{ scale: 0.98, opacity: 0 }}

@@ -1,7 +1,6 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
 
-import { setLastScanFor, recordScan } from "@/lib/scannerMemory";
 import { broadcast, DeviceInfo } from "@/lib/bus";
 import { Transform } from "stream";
 import { ReadlineParser } from "@serialport/parser-readline";
@@ -252,8 +251,7 @@ function attachScannerHandlers(
   parser.on("data", (raw) => {
     const code = String(raw).trim();
     if (!code) return;
-    setLastScanFor(path, code);
-    recordScan(code, path); 
+
     broadcast({ type: "scan", code, path });
   });
 

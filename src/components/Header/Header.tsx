@@ -416,7 +416,7 @@ export const Header: React.FC<HeaderProps> = ({
   const rafId = useRef<number | null>(null);
   const resizeRafId = useRef<number | null>(null);
 
-  const { devices, server } = useSerialEvents();
+  const { devices, server, scannersDetected, scannersOpen } = useSerialEvents();
 
   const showSidebarToggle = Boolean(
     (appConfig as any)?.showSidebarToggle ?? (appConfig as any)?.ui?.showSidebarToggle ?? false,
@@ -446,14 +446,20 @@ export const Header: React.FC<HeaderProps> = ({
 
   const s1 = isPresentFor(0);
   const s2 = isPresentFor(1);
+const s1Color: LedColor =
+  scannersOpen >= 1 ? 'green' : scannersDetected >= 1 ? 'green' : 'red';
+const s1Sub =
+  scannersOpen >= 1 ? 'Ready' : scannersDetected >= 1 ? 'Detected' : 'Not detected';
 
-  const s1Color: LedColor = s1 ? 'green' : 'red';
-  const s2Color: LedColor = s2 ? 'green' : 'red';
-  const s1Sub = s1 ? 'Ready' : 'Not detected';
-  const s2Sub = s2 ? 'Ready' : 'Not detected';
+// Scanner #2 (setup)
+const s2Color: LedColor =
+  scannersOpen >= 2 ? 'green' : scannersDetected >= 2 ? 'green' : 'red';
+const s2Sub =
+  scannersOpen >= 2 ? 'Ready' : scannersDetected >= 2 ? 'Detected' : 'Not detected';
 
-  const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
-  const serverSub = server === 'connected' ? 'Online' : 'Offline';
+const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
+const serverSub = server === 'connected' ? 'Online' : 'Offline';
+
 
   useEffect(() => {
     const threshold = 8; // dampen flicker

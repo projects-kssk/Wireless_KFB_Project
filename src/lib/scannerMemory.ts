@@ -3,10 +3,17 @@
 type ScanMem = { last: string | null; ts: number };
 type ScanMap = Map<string, ScanMem>;
 
-const GG = globalThis as unknown as { __scanMemV2?: ScanMap };
-if (!GG.__scanMemV2) GG.__scanMemV2 = new Map<string, ScanMem>();
+type LastScanObj = { code: string; path: string | null } | null;
 
-const DEFAULT_KEY = 'default';
+const GG = globalThis as unknown as {
+  __scanMemV2?: ScanMap;
+  __lastScanObj?: LastScanObj;
+};
+
+if (!GG.__scanMemV2) GG.__scanMemV2 = new Map<string, ScanMem>();
+if (GG.__lastScanObj === undefined) GG.__lastScanObj = null;
+
+const DEFAULT_KEY = "default";
 
 /** Internal: get or init entry */
 function slot(key: string): ScanMem {
@@ -19,10 +26,23 @@ function slot(key: string): ScanMem {
   return v;
 }
 
-/** Per-port API */
+/** New unified object API (code + path) */
+export function recordScan(code: string, path?: string | null) {
+  const clean = String(code ?? "").trim();
+  if (!clean) return;
+  GG.__lastScanObj = { code: clean, path: path ?? null };
+}
+
+export function getLastScanAndClear(): { code: string; path: string | null } | null {
+  const v = GG.__lastScanObj ?? null;
+  GG.__lastScanObj = null;
+  return v;
+}
+
+/** Per-port string-only ring buffer (multi-source helpers) */
 export function setLastScanFor(source: string, code: string) {
   const s = slot(source);
-  s.last = (code ?? '').trim() || null;
+  s.last = (code ?? "").trim() || null;
   s.ts = Date.now();
 }
 
@@ -55,7 +75,9 @@ export function sweep(ttlMs = 0) {
   }
 }
 
-/** Back-compat single-scanner API */
-export const setLastScan = (code: string) => setLastScanFor(DEFAULT_KEY, code);
-export const getLastScanAndClear = () => getLastScanAndClearFor(DEFAULT_KEY);
-export const peekLastScan = () => peekLastScanFor(DEFAULT_KEY);
+/** Legacy single-scanner aliases (string-only). Kept for back-compat.
+ *  NOTE: names are *different* so they DON'T SHADOW the object API above.
+ */
+export const setLastScanLegacy = (code: string) => setLastScanFor(DEFAULT_KEY, code);
+export const getLastScanAndClearLegacy = () => getLastScanAndClearFor(DEFAULT_KEY);
+export const peekLastScanLegacy = () => peekLastScanFor(DEFAULT_KEY);

@@ -70,6 +70,7 @@ export const appConfig: AppConfig = {
     server: "default",
   },
 
+
   demoMode: {
     enabled: true,
     initialDelay: { scanner1: 1000, scanner2: 1500, server: 2000 },
@@ -84,11 +85,11 @@ export const appConfig: AppConfig = {
 
   // If you only have one API route now, keep endpoints;
   // add 'path' later if you want precise USB presence mapping.
-  scanners: [
-    { name: "Scanner 1", endpoint: "/api/serial/scanner?device=1", path: "ttyACM0" },
-    { name: "Scanner 2", endpoint: "/api/serial/scanner?device=2", path: "ttyACM1" },
-  ],
 
+scanners: [{ name: 'Scanner', path: '/dev/ttyACM0' },
+           { name: 'Scanner', path: '/dev/ttyACM1' }],
+
+           
   callSupportInfo: {
     count: 621,
 

@@ -11,7 +11,7 @@ import { useSerialEvents } from './useSerialEvents';
    Config
    ──────────────────────────────────────────────────────────────────────────── */
 const BASE_HEADER_MIN_HEIGHT = '5.25rem';
-
+const scanners = appConfig.scanners; 
 /* ────────────────────────────────────────────────────────────────────────────
    Types
    ──────────────────────────────────────────────────────────────────────────── */
@@ -416,52 +416,51 @@ export const Header: React.FC<HeaderProps> = ({
   const rafId = useRef<number | null>(null);
   const resizeRafId = useRef<number | null>(null);
 
-  const { devices, server, scannersDetected, scannersOpen } = useSerialEvents();
 
-  const showSidebarToggle = Boolean(
-    (appConfig as any)?.showSidebarToggle ?? (appConfig as any)?.ui?.showSidebarToggle ?? false,
-  );
+  const { devices, server, scannerPorts: ports } = useSerialEvents();
 
-  const scanners = useMemo(
-    () =>
-      (appConfig as any).scanners?.length
-        ? (appConfig as any).scanners
-        : [{ name: 'Scanner', path: '' }, { name: 'Scanner', path: '' }],
-    [],
-  );
+type SlotState = { present: boolean; open: boolean };
 
-  const isPresentFor = (idx: number) => {
-    const cfg = (scanners as any)[idx] ?? {};
-    const usbAllow = Array.isArray(cfg.usb) ? (cfg.usb as string[]).map((p) => p.toLowerCase()) : null;
+const slotState = (idx: number): SlotState => {
+  const cfg = (scanners as any)[idx] ?? {};
+  const wantPath = String(cfg.path ?? "").trim();
+  const usbAllow = Array.isArray(cfg.usb) ? (cfg.usb as string[]).map(p => p.toLowerCase()) : null;
 
-    return devices.some((d: DeviceInfo) => {
-      if (cfg.path && !String(d.path).includes(String(cfg.path))) return false;
-      if (usbAllow) {
-        const p = pair(d.vendorId, d.productId);
-        if (!p || !usbAllow.includes(p)) return false;
-      }
-      return true;
-    });
+  const matchDevice = (d: DeviceInfo) => {
+    if (wantPath) {
+      // strict path equality avoids cross-matching
+      if (String(d.path).trim() !== wantPath) return false;
+    }
+    if (usbAllow) {
+      const p = pair(d.vendorId, d.productId);
+      if (!p || !usbAllow.includes(p)) return false;
+    }
+    return true;
   };
 
-  const s1 = isPresentFor(0);
-  const s2 = isPresentFor(1);
-const s1Color: LedColor =
-  scannersOpen >= 1 ? 'green' : scannersDetected >= 1 ? 'green' : 'red';
-const s1Sub =
-  scannersOpen >= 1 ? 'Ready' : scannersDetected >= 1 ? 'Detected' : 'Not detected';
+  const present = devices.some(matchDevice);
 
-// Scanner #2 (setup)
-const s2Color: LedColor =
-  scannersOpen >= 2 ? 'green' : scannersDetected >= 2 ? 'green' : 'red';
-const s2Sub =
-  scannersOpen >= 2 ? 'Ready' : scannersDetected >= 2 ? 'Detected' : 'Not detected';
+  // "open" comes from the exact port when configured, otherwise false
+  let open = false;
+  if (wantPath && ports[wantPath]) open = !!ports[wantPath].open;
 
-const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
-const serverSub = server === 'connected' ? 'Online' : 'Offline';
+  return { present, open };
+};
+
+const s1 = slotState(0);
+const s2 = slotState(1);
+
+const s1Color: LedColor = s1.open ? 'green' : s1.present ? 'green' : 'red';
+const s1Sub             = s1.open ? 'Ready' : s1.present ? 'Detected' : 'Not detected';
+
+const s2Color: LedColor = s2.open ? 'green' : s2.present ? 'green' : 'red';
+const s2Sub             = s2.open ? 'Ready' : s2.present ? 'Detected' : 'Not detected';
 
 
-  useEffect(() => {
+const serverColor: LedColor = server === "connected" ? "green" : "red";
+const serverSub             = server === "connected" ? "Online" : "Offline";
+  
+useEffect(() => {
     const threshold = 8; // dampen flicker
     const onScroll = () => {
       if (rafId.current != null) return;
@@ -556,7 +555,7 @@ const serverSub = server === 'connected' ? 'Online' : 'Offline';
                 cells={[
                   { title: 'Scanner Check', suffix: 1, color: s1Color, sub: s1Sub },
                   { title: 'Scanner Setup', suffix: 2, color: s2Color, sub: s2Sub },
-                  { title: 'KROSY Server', color: serverColor, sub: serverSub },
+                  { title: 'Server', color: serverColor, sub: serverSub },
                 ]}
                 className="h-full"
                 labelsHidden={labelsHidden}
@@ -565,7 +564,7 @@ const serverSub = server === 'connected' ? 'Online' : 'Offline';
           </div>
 
           {/* Optional hamburger for small screens */}
-          {currentView === 'main' && showSidebarToggle && (
+          {currentView === 'main'  && (
             <m.button
               onClick={onToggleSidebar}
               aria-label={isSidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}

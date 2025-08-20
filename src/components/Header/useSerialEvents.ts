@@ -1,7 +1,6 @@
-// src/components/Header/useSerialEvents.ts
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimpleStatus } from "@/components/Header/StatusIndicatorCard";
 
 type DeviceInfo = {
@@ -14,7 +13,8 @@ type DeviceInfo = {
 
 type SerialEvent =
   | { type: "devices"; devices: DeviceInfo[] }
-  | { type: "esp"; ok: boolean; raw?: string; error?: string }
+  | { type: "esp"; ok: boolean; raw?: string; error?: string; present?: boolean }
+  | { type: "net"; iface: string; present: boolean; up: boolean; ip?: string | null; oper?: string | null }
   | { type: "scan"; code: string; path?: string }
   | { type: "scanner/open"; path?: string }
   | { type: "scanner/close"; path?: string }
@@ -35,9 +35,16 @@ export function useSerialEvents() {
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [scannerError, setScannerError] = useState<string | null>(null);
-
+const [lastScanPath, setLastScanPath] = useState<string | null>(null);
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
+
+  // server = esp OK (or present) OR net up
+  const [espOk, setEspOk] = useState(false);
+  const [netUp, setNetUp] = useState(false);
+  useEffect(() => {
+    setServer(espOk || netUp ? "connected" : "offline");
+  }, [espOk, netUp]);
 
   // upsert a port record
   const up = (p: string, patch: Partial<ScannerPortState>) =>
@@ -47,7 +54,7 @@ export function useSerialEvents() {
       return { ...prev, [p]: { ...cur, ...patch } };
     });
 
-  // update presence from device list
+  // update presence from device list for the paths we care about
   useEffect(() => {
     if (!paths.length) return;
     const present = new Set(devices.map((d) => d.path));
@@ -75,7 +82,12 @@ export function useSerialEvents() {
             break;
 
           case "esp":
-            setServer(msg.ok ? "connected" : "offline");
+            // consider present=true as OK too, so unplugged NET can still show server OK via ESP
+            setEspOk(Boolean((msg as any).ok) || Boolean((msg as any).present));
+            break;
+
+          case "net":
+            setNetUp(Boolean(msg.up));
             break;
 
           case "scanner/paths": {
@@ -88,33 +100,53 @@ export function useSerialEvents() {
             break;
           }
 
-          case "scanner/open":
-            if (msg.path) up(msg.path, { open: true, lastError: null });
+          case "scanner/open": {
+            if (msg.path) {
+              up(msg.path, { open: true, lastError: null });
+            } else {
+              // Fallback: mark the first present-but-closed port as open
+              setPorts(prev => {
+                const next = { ...prev };
+                const key = Object.keys(next).find(k => next[k].present && !next[k].open);
+                if (key) next[key] = { ...next[key], open: true, lastError: null };
+                return next;
+              });
+            }
             break;
+          }
 
-          case "scanner/close":
-            if (msg.path) up(msg.path, { open: false });
+          case "scanner/close": {
+            if (msg.path) {
+              up(msg.path, { open: false });
+            } else {
+              // Fallback: mark all as closed
+              setPorts(prev => {
+                const next = { ...prev };
+                for (const k of Object.keys(next)) next[k] = { ...next[k], open: false };
+                return next;
+              });
+            }
             break;
+          }
 
           case "scanner/error":
             setScannerError(String(msg.error || "Scanner error"));
-            if (msg.path) up(msg.path, { lastError: String(msg.error || "error") });
+            if ((msg as any).path) up((msg as any).path!, { lastError: String(msg.error || "error") });
             break;
 
           case "scan":
             setLastScan(String(msg.code));
+            setLastScanPath(msg.path ?? null);
             if (msg.path) up(msg.path, { lastScanTs: Date.now(), open: true });
             break;
+
         }
       } catch {
         /* ignore malformed frames */
       }
     };
 
-    es.onerror = () => {
-      /* EventSource will retry */
-    };
-
+    es.onerror = () => { /* EventSource auto-retries */ };
     return () => es.close();
   }, []);
 
@@ -132,6 +164,7 @@ export function useSerialEvents() {
     devices,
     server,
     lastScan,
+     lastScanPath,  
     scannerError,
     scannerPaths: paths,
     scannerPorts: ports, // map[path] -> state

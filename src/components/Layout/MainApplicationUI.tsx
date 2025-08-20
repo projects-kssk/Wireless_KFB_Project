@@ -11,10 +11,18 @@ import BranchDashboardMainContent from '@/components/Program/BranchDashboardMain
 
 import dynamic from 'next/dynamic';
 import { m, AnimatePresence } from 'framer-motion';
+import { useSerialEvents } from '@/components/Header/useSerialEvents';
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
 type OverlayKind = 'success' | 'error' | 'scanning';
+const ACM_ONLY = '/dev/ttyACM0';
+const isAcm0Path = (p?: string | null) =>
+  !p // if server didn’t include path, accept (single scanner mode)
+  || p === ACM_ONLY
+  || /(^|\/)ttyACM0$/.test(p)
+  || /(^|\/)ACM0($|[^0-9])/.test(p)
+  || /\/by-id\/.*ACM0/i.test(p);
 
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -34,10 +42,7 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-  const SettingsRightSidebar = dynamic(
-    () => import('@/components/Settings/SettingsRightSidebar'),
-    { ssr: false }
-  );
+  const SettingsRightSidebar = dynamic(() => import('@/components/Settings/SettingsRightSidebar'), { ssr: false });
 
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
@@ -67,13 +72,17 @@ const MainApplicationUI: React.FC = () => {
   const [overlay, setOverlay] = useState<{ open: boolean; kind: OverlayKind; code: string }>({
     open: false, kind: 'success', code: ''
   });
-  const showOverlay = (kind: OverlayKind, code: string) =>
-    setOverlay({ open: true, kind, code });
-  const hideOverlaySoon = () => {
-    const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), 1200);
-    return () => clearTimeout(t);
-  };
+  const showOverlay = (kind: OverlayKind, code: string) => setOverlay({ open: true, kind, code });
+  const hideOverlaySoon = () => { const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), 1200); return () => clearTimeout(t); };
   const lastScanRef = useRef('');
+
+  // Serial events (SSE)
+  const serial = useSerialEvents();
+  const lastScan = serial.lastScan;
+  const lastScanPath = (serial as any).lastScanPath as string | null | undefined;
+
+  // De-bounce duplicate scans
+  const lastHandledScanRef = useRef<string>('');
 
   const handleResetKfb = () => {
     setKfbNumber('');
@@ -83,9 +92,7 @@ const MainApplicationUI: React.FC = () => {
   };
 
   // Narrowing guard
-  const isTestablePin = (
-    b: BranchDisplayData
-  ): b is BranchDisplayData & { pinNumber: number } =>
+  const isTestablePin = (b: BranchDisplayData): b is BranchDisplayData & { pinNumber: number } =>
     !b.notTested && typeof b.pinNumber === 'number';
 
   // ----- RUN CHECK ON DEMAND OR AFTER EACH SCAN -----
@@ -197,10 +204,7 @@ const MainApplicationUI: React.FC = () => {
 
       // e) AUTO-CHECK on every scan
       await runCheck(pins, mac_address);
-
-      setIsScanning(false);
     } catch (e) {
-      setIsScanning(false);
       setKfbNumber('');
       setKfbInfo(null);
       setMacAddress('');
@@ -208,14 +212,51 @@ const MainApplicationUI: React.FC = () => {
       console.error('Load/MONITOR error:', e);
       showOverlay('error', 'Load failed');
       hideOverlaySoon();
+    } finally {
+      setIsScanning(false);
     }
   }, [runCheck]);
 
-  // Scanner polling
+  // Single entry for new scans (used by SSE + polling)
+  const handleScan = useCallback(async (raw: string) => {
+    const normalized = (raw || '').trim().toUpperCase();
+    if (!normalized) return;
+
+    // De-bounce identical value while idle, but allow new scan once previous finished
+    if (normalized === lastHandledScanRef.current && !isScanningRef.current) {
+      // still allow if you want re-checks; otherwise keep this guard
+    }
+    lastHandledScanRef.current = normalized;
+
+    // keep fields in sync
+    if (normalized !== kfbInputRef.current) {
+      setKfbInput(normalized);
+      setKfbNumber(normalized);
+    }
+
+    if (!KFB_REGEX.test(normalized)) {
+      showOverlay('error', normalized);
+      hideOverlaySoon();
+      return;
+    }
+
+    if (isScanningRef.current) return; // avoid overlapping flows
+    await loadBranchesData(normalized);
+  }, [loadBranchesData]);
+
+  // SSE → handle scans (only ACM0 if path is available)
+  useEffect(() => {
+    if (!lastScan) return;
+    if (lastScanPath && !isAcm0Path(lastScanPath)) return;
+    void handleScan(lastScan);
+  }, [lastScan, lastScanPath, handleScan]);
+
+  // Polling fallback (filters to ACM0 via returned path)
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     let stopped = false;
     let timer: number | null = null;
+    let ctrl: AbortController | null = null;
 
     const tick = async () => {
       try {
@@ -223,35 +264,33 @@ const MainApplicationUI: React.FC = () => {
           if (!stopped) timer = window.setTimeout(tick, 250);
           return;
         }
-        const res = await fetch('/api/serial/scanner', { cache: 'no-store' });
+        ctrl = new AbortController();
+        const res = await fetch('/api/serial/scanner', { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
-          const { code } = await res.json();
+          const { code, path } = await res.json();
           const raw = typeof code === 'string' ? code.trim() : '';
-          if (raw) {
-          const normalized = raw.toUpperCase();
-          // keep fields in sync but do not gate on equality
-          if (normalized !== kfbInputRef.current) {
-            setKfbInput(normalized);
-            setKfbNumber(normalized);
-          }
-          if (!KFB_REGEX.test(normalized)) {
-            showOverlay('error', normalized);
-            hideOverlaySoon();
-          } else {
-            await loadBranchesData(normalized); // this calls showOverlay('scanning', ...)
-          }
+        if (raw) {
+          if (path && !isAcm0Path(path)) return;   // use the robust matcher
+          await handleScan(raw);
         }
+
         }
       } catch (e) {
-        console.error('[SCANNER] poll error', e);
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          console.error('[SCANNER] poll error', e);
+        }
       } finally {
         if (!stopped) timer = window.setTimeout(tick, 250);
       }
     };
 
     tick();
-    return () => { stopped = true; if (timer) window.clearTimeout(timer); };
-  }, [mainView, loadBranchesData]);
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      if (ctrl) ctrl.abort();
+    };
+  }, [mainView, handleScan]);
 
   // Listen for UI cues + SUCCESS after a CHECK until release
   useEffect(() => {
@@ -289,14 +328,14 @@ const MainApplicationUI: React.FC = () => {
       }
     };
 
-    loop();
+    void loop();
     return () => { cancel = true; };
   }, [awaitingRelease, macAddress]);
 
   // Manual submit from a form/input
   const handleKfbSubmit = (e: FormEvent) => {
     e.preventDefault();
-    loadBranchesData(kfbInputRef.current);
+    void loadBranchesData(kfbInputRef.current);
   };
 
   const handleManualSubmit = (submittedNumber: string) => {
@@ -309,7 +348,7 @@ const MainApplicationUI: React.FC = () => {
     }
     setKfbInput(val);
     setKfbNumber(val);
-    loadBranchesData(val);
+    void loadBranchesData(val);
   };
 
   // Layout helpers
@@ -356,7 +395,6 @@ const MainApplicationUI: React.FC = () => {
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
           {mainView === 'dashboard' ? (
             <>
-              {/* Removed CHECK button and failure text */}
               {showRemoveCable && (
                 <div className="px-8 pt-3">
                   <div className="flex items-center gap-3 rounded-xl bg-amber-100 text-amber-900 px-5 py-3 font-extrabold shadow">
@@ -368,7 +406,6 @@ const MainApplicationUI: React.FC = () => {
 
               {errorMsg && <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>}
 
-              {/* This renders the large "PLEASE SCAN KFB INFO" panel when no data */}
               <BranchDashboardMainContent
                 appHeaderHeight={actualHeaderHeight}
                 onManualSubmit={handleManualSubmit}

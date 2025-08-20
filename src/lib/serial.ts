@@ -1,9 +1,10 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
-import { ReadlineParser } from "@serialport/parser-readline";
-import { setLastScanFor } from "@/lib/scannerMemory";
-import { broadcast, DeviceInfo } from "@/lib/bus";
 
+import { setLastScanFor, recordScan } from "@/lib/scannerMemory";
+import { broadcast, DeviceInfo } from "@/lib/bus";
+import { Transform } from "stream";
+import { ReadlineParser } from "@serialport/parser-readline";
 /* ────────────────────────────────────────────────────────────────────────────
    ESP line stream — singleton with ring buffer + subscriber fan-out
    Adds cursoring so callers can fence reads to “future-only”.
@@ -252,6 +253,7 @@ function attachScannerHandlers(
     const code = String(raw).trim();
     if (!code) return;
     setLastScanFor(path, code);
+    recordScan(code, path); 
     broadcast({ type: "scan", code, path });
   });
 
@@ -274,6 +276,8 @@ function attachScannerHandlers(
   });
 }
 
+
+
 export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
   let rt = scanners.get(path);
   if (!rt) {
@@ -288,20 +292,35 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
   if (state.port?.isOpen) return;
   if (state.starting) return state.starting;
   if (inCooldown(retry)) throw new Error(`SCANNER_COOLDOWN ${path} until ${new Date(retry.nextAttemptAt).toISOString()}`);
+  function looksLikeSamePath(candidate: string, wanted: string) {
+    if (candidate === wanted) return true;
+    // accept by-id that ends in ACM0 when wanted is /dev/ttyACM0, etc.
+    const tail = wanted.split("/").pop() || wanted;
+    return candidate.endsWith(tail) || /\/by-id\/.*ACM0/i.test(candidate);
+  }
 
   const devices = await SerialPort.list();
-  if (!devices.some((d) => d.path === path)) {
-    const msg = `Scanner port not present: ${path}`;
-    broadcastScannerErrorOnce(retry, msg, path);
-    bumpCooldown(retry, 10_000);
-    throw new Error(msg);
-  }
+    if (!devices.some((d) => looksLikeSamePath(d.path, path))) {
+      const msg = `Scanner port not present: ${path}`;
+      broadcastScannerErrorOnce(retry, msg, path);
+      bumpCooldown(retry, 10_000);
+      throw new Error(msg);
+    }
 
   state.starting = new Promise<void>((resolve, reject) => {
     console.log(`[scanner:${path}] Opening @${baudRate}…`);
     const port = new SerialPort({ path, baudRate, autoOpen: false, lock: false });
-    const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
+const normalizer = new Transform({
+  transform(chunk, _enc, cb) {
+    const s = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+    // collapse CRLF/CR to LF so Readline sees '\n'
+    cb(null, Buffer.from(s.replace(/\r\n/g, "\n").replace(/\r/g, "\n")));
+  }
+});
 
+const parser = port
+  .pipe(normalizer)
+  .pipe(new ReadlineParser({ delimiter: "\n" }));
     port.open((err) => {
       if (err) {
         console.error(`[scanner:${path}] open error`, err);

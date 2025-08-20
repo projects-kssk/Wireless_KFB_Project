@@ -1,20 +1,61 @@
 // src/lib/scannerMemory.ts
+
 type ScanMem = { last: string | null; ts: number };
+type ScanMap = Map<string, ScanMem>;
 
-const g = globalThis as unknown as { __scanMem?: ScanMem };
-if (!g.__scanMem) g.__scanMem = { last: null, ts: 0 };
+const GG = globalThis as unknown as { __scanMemV2?: ScanMap };
+if (!GG.__scanMemV2) GG.__scanMemV2 = new Map<string, ScanMem>();
 
-export function setLastScan(s: string) {
-  g.__scanMem!.last = s?.trim() || null;
-  g.__scanMem!.ts = Date.now();
-}
+const DEFAULT_KEY = 'default';
 
-export function getLastScanAndClear() {
-  const v = g.__scanMem!.last;
-  g.__scanMem!.last = null;
+/** Internal: get or init entry */
+function slot(key: string): ScanMem {
+  const k = key || DEFAULT_KEY;
+  let v = GG.__scanMemV2!.get(k);
+  if (!v) {
+    v = { last: null, ts: 0 };
+    GG.__scanMemV2!.set(k, v);
+  }
   return v;
 }
 
-export function peekLastScan() {
-  return g.__scanMem!.last;
+/** Per-port API */
+export function setLastScanFor(source: string, code: string) {
+  const s = slot(source);
+  s.last = (code ?? '').trim() || null;
+  s.ts = Date.now();
 }
+
+export function getLastScanAndClearFor(source: string): string | null {
+  const s = slot(source);
+  const v = s.last;
+  s.last = null;
+  return v;
+}
+
+export function peekLastScanFor(source: string): string | null {
+  return slot(source).last;
+}
+
+export function clearScanFor(source: string) {
+  slot(source).last = null;
+}
+
+/** Optional: purge all entries */
+export function clearAllScans() {
+  GG.__scanMemV2!.clear();
+}
+
+/** Optional: TTL-based sweep (no-op if ttlMs <= 0) */
+export function sweep(ttlMs = 0) {
+  if (!ttlMs || ttlMs <= 0) return;
+  const now = Date.now();
+  for (const [k, v] of GG.__scanMemV2!) {
+    if (!v.last && now - v.ts > ttlMs) GG.__scanMemV2!.delete(k);
+  }
+}
+
+/** Back-compat single-scanner API */
+export const setLastScan = (code: string) => setLastScanFor(DEFAULT_KEY, code);
+export const getLastScanAndClear = () => getLastScanAndClearFor(DEFAULT_KEY);
+export const peekLastScan = () => peekLastScanFor(DEFAULT_KEY);

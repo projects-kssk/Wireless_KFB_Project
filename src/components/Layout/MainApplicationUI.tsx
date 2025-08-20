@@ -10,20 +10,35 @@ import { SettingsBranchesPageContent } from '@/components/Settings/SettingsBranc
 import BranchDashboardMainContent from '@/components/Program/BranchDashboardMainContent';
 
 import dynamic from 'next/dynamic';
+import { m, AnimatePresence } from 'framer-motion';
 
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
+type OverlayKind = 'success' | 'error' | 'scanning';
+
+function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
+  if (!src) return fallback;
+  try {
+    const m = src.match(/^\/(.+)\/([gimsuy]*)$/);
+    return m ? new RegExp(m[1], m[2]) : new RegExp(src);
+  } catch {
+    return fallback;
+  }
+}
+
+// ENV-configurable KFB regex (fallback: 4 alphanumerics)
+const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^[A-Z0-9]{4}$/);
 
 const MainApplicationUI: React.FC = () => {
   // UI state
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-  // IMPORTANT: default import + no SSR to avoid Flight mismatch
   const SettingsRightSidebar = dynamic(
     () => import('@/components/Settings/SettingsRightSidebar'),
     { ssr: false }
   );
+
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
   const [kfbNumber, setKfbNumber] = useState('');
@@ -35,7 +50,7 @@ const MainApplicationUI: React.FC = () => {
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [awaitingRelease, setAwaitingRelease] = useState(false); // ← keep listening for SUCCESS
+  const [awaitingRelease, setAwaitingRelease] = useState(false);
   const [showRemoveCable, setShowRemoveCable] = useState(false);
 
   // Settings flow
@@ -48,6 +63,18 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => { kfbInputRef.current = kfbInput; }, [kfbInput]);
   useEffect(() => { isScanningRef.current = isScanning; }, [isScanning]);
 
+  // Overlay
+  const [overlay, setOverlay] = useState<{ open: boolean; kind: OverlayKind; code: string }>({
+    open: false, kind: 'success', code: ''
+  });
+  const showOverlay = (kind: OverlayKind, code: string) =>
+    setOverlay({ open: true, kind, code });
+  const hideOverlaySoon = () => {
+    const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), 1200);
+    return () => clearTimeout(t);
+  };
+  const lastScanRef = useRef('');
+
   const handleResetKfb = () => {
     setKfbNumber('');
     setKfbInfo(null);
@@ -55,9 +82,79 @@ const MainApplicationUI: React.FC = () => {
     setKfbInput('');
   };
 
+  // Narrowing guard
+  const isTestablePin = (
+    b: BranchDisplayData
+  ): b is BranchDisplayData & { pinNumber: number } =>
+    !b.notTested && typeof b.pinNumber === 'number';
+
+  // ----- RUN CHECK ON DEMAND OR AFTER EACH SCAN -----
+  const runCheck = useCallback(
+    async (pins: number[], mac: string) => {
+      if (!pins.length || !mac) return;
+
+      setIsChecking(true);
+      setCheckFailures(null);
+      setShowRemoveCable(false);
+      setAwaitingRelease(true);
+
+      try {
+        const res = await fetch('/api/serial/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pins, mac }),
+        });
+        const result = await res.json();
+
+        if (res.ok) {
+          const failures: number[] = result.failures || [];
+          setCheckFailures(failures);
+          setBranchesData(data =>
+            data.map(b => {
+              if (typeof b.pinNumber !== 'number' || b.notTested) return b;
+              return failures.includes(b.pinNumber)
+                ? { ...b, testStatus: 'nok' as TestStatus }
+                : { ...b, testStatus: 'ok' as TestStatus };
+            })
+          );
+
+          if (failures.length === 0) {
+            showOverlay('success', lastScanRef.current);
+          } else {
+            showOverlay('error', `Failures: ${failures.join(', ')}`);
+          }
+          hideOverlaySoon();
+        } else {
+          console.error('CHECK error:', result);
+          showOverlay('error', 'CHECK failed');
+          hideOverlaySoon();
+        }
+      } catch (err) {
+        console.error('CHECK error', err);
+        showOverlay('error', 'CHECK exception');
+        hideOverlaySoon();
+      } finally {
+        setIsChecking(false);
+      }
+    },
+    []
+  );
+
+  // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
   const loadBranchesData = useCallback(async (value?: string) => {
-    const kfb = (value ?? kfbInputRef.current).trim();
-    if (!kfb) return;
+    const kfbRaw = (value ?? kfbInputRef.current).trim();
+    if (!kfbRaw) return;
+
+    const normalized = kfbRaw.toUpperCase();
+    if (!KFB_REGEX.test(normalized)) {
+      showOverlay('error', normalized);
+      hideOverlaySoon();
+      return;
+    }
+
+    // show SCANNING immediately
+    lastScanRef.current = normalized;
+    showOverlay('scanning', normalized);
 
     setIsScanning(true);
     setErrorMsg(null);
@@ -71,23 +168,24 @@ const MainApplicationUI: React.FC = () => {
 
     try {
       // a) branches
-      const res = await fetch(`/api/branches?kfb=${encodeURIComponent(kfb)}`, { cache: 'no-store' });
+      const res = await fetch(`/api/branches?kfb=${encodeURIComponent(normalized)}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       const data: BranchDisplayData[] = await res.json();
-     setBranchesData(data.map(b => ({ ...b, testStatus: 'not_tested' as TestStatus })));
-      setKfbNumber(kfb.toUpperCase());
+      setBranchesData(data.map(b => ({ ...b, testStatus: 'not_tested' as TestStatus })));
+      setKfbNumber(normalized);
 
       // b) configuration (mac + info)
-      const cfgRes = await fetch(`/api/configurations?kfb=${encodeURIComponent(kfb)}`, { cache: 'no-store' });
+      const cfgRes = await fetch(`/api/configurations?kfb=${encodeURIComponent(normalized)}`, { cache: 'no-store' });
       if (!cfgRes.ok) throw new Error(`Failed to fetch configuration: ${cfgRes.status}`);
       const { mac_address, kfb_info } = await cfgRes.json();
       setMacAddress(mac_address);
       setKfbInfo(kfb_info);
 
       // c) classify pins
-      const latchPins = data.filter(b => b.looseContact && !b.notTested && typeof b.pinNumber === 'number').map(b => b.pinNumber);
-      const normalPins = data.filter(b => !b.looseContact && !b.notTested && typeof b.pinNumber === 'number').map(b => b.pinNumber);
-      const pins = [...latchPins, ...normalPins];
+      const testable = data.filter(isTestablePin);
+      const latchPins: number[] = testable.filter(b => b.looseContact).map(b => b.pinNumber);
+      const normalPins: number[] = testable.filter(b => !b.looseContact).map(b => b.pinNumber);
+      const pins: number[] = [...latchPins, ...normalPins];
 
       // d) MONITOR
       const serialRes = await fetch('/api/serial', {
@@ -97,30 +195,21 @@ const MainApplicationUI: React.FC = () => {
       });
       if (!serialRes.ok) throw new Error(`Serial POST failed: ${await serialRes.text()}`);
 
-      // e) quick CHECK (sync failures for UI mapping)
-      const initialRes = await fetch('/api/serial/check', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pins, mac: mac_address }),
-      });
-      const initialResult = await initialRes.json();
-      const failures: number[] = initialResult.failures || [];
+      // e) AUTO-CHECK on every scan
+      await runCheck(pins, mac_address);
 
-      setBranchesData(d => d.map(b => {
-        if (typeof b.pinNumber !== 'number') return b;
-        return failures.includes(b.pinNumber)
-          ? { ...b, testStatus: 'nok' as TestStatus }
-          : { ...b, testStatus: 'ok' as TestStatus };
-      }));
-      setIsScanning(false);               // <-- HERE: after mapping statuses
+      setIsScanning(false);
     } catch (e) {
-        setIsScanning(false); 
+      setIsScanning(false);
       setKfbNumber('');
       setKfbInfo(null);
       setMacAddress('');
       setErrorMsg('No branches found or failed to load.');
       console.error('Load/MONITOR error:', e);
-    } 
-  }, []);
+      showOverlay('error', 'Load failed');
+      hideOverlaySoon();
+    }
+  }, [runCheck]);
 
   // Scanner polling
   useEffect(() => {
@@ -137,12 +226,21 @@ const MainApplicationUI: React.FC = () => {
         const res = await fetch('/api/serial/scanner', { cache: 'no-store' });
         if (res.ok) {
           const { code } = await res.json();
-          const val = typeof code === 'string' ? code.trim() : '';
-          if (val && val !== kfbInputRef.current) {
-            setKfbInput(val);
-            setKfbNumber(val);
-            await loadBranchesData(val);
+          const raw = typeof code === 'string' ? code.trim() : '';
+          if (raw) {
+          const normalized = raw.toUpperCase();
+          // keep fields in sync but do not gate on equality
+          if (normalized !== kfbInputRef.current) {
+            setKfbInput(normalized);
+            setKfbNumber(normalized);
           }
+          if (!KFB_REGEX.test(normalized)) {
+            showOverlay('error', normalized);
+            hideOverlaySoon();
+          } else {
+            await loadBranchesData(normalized); // this calls showOverlay('scanning', ...)
+          }
+        }
         }
       } catch (e) {
         console.error('[SCANNER] poll error', e);
@@ -156,46 +254,44 @@ const MainApplicationUI: React.FC = () => {
   }, [mainView, loadBranchesData]);
 
   // Listen for UI cues + SUCCESS after a CHECK until release
-useEffect(() => {
-  if (!awaitingRelease || !macAddress) return;
-  let cancel = false;
+  useEffect(() => {
+    if (!awaitingRelease || !macAddress) return;
+    let cancel = false;
 
-  const loop = async () => {
-    while (!cancel && awaitingRelease) {
-      try {
-        const r = await fetch(`/api/serial/ui?mac=${encodeURIComponent(macAddress)}&t=${Date.now()}`, { cache: 'no-store' });
-        if (r.ok) {
-          const { cue, result } = await r.json();
+    const loop = async () => {
+      while (!cancel && awaitingRelease) {
+        try {
+          const r = await fetch(`/api/serial/ui?mac=${encodeURIComponent(macAddress)}&t=${Date.now()}`, { cache: 'no-store' });
+          if (r.ok) {
+            const { cue, result } = await r.json();
 
-          // normalize cue ("UI REMOVE_CABLE", "UI:REMOVE_CABLE", "REMOVE_CABLE")
-          const cueNorm = String(cue || '').toUpperCase().replace(/\s+/g, ':');
-          if (cueNorm === 'UI:REMOVE_CABLE' || cueNorm === 'REMOVE_CABLE') {
-            setShowRemoveCable(true);
+            const cueNorm = String(cue || '').toUpperCase().replace(/\s+/g, ':');
+            if (cueNorm === 'UI:REMOVE_CABLE' || cueNorm === 'REMOVE_CABLE') {
+              setShowRemoveCable(true);
 
-            // clear any transient failures: mark tested pins OK
-            setCheckFailures([]);
-            setBranchesData(d =>
-              d.map(b =>
-                (typeof b.pinNumber === 'number' && !b.notTested)
-                  ? { ...b, testStatus: 'ok' as TestStatus }
-                  : b
-              )
-            );
+              setCheckFailures([]);
+              setBranchesData(d =>
+                d.map(b =>
+                  (typeof b.pinNumber === 'number' && !b.notTested)
+                    ? { ...b, testStatus: 'ok' as TestStatus }
+                    : b
+                )
+              );
+            }
+
+            if (typeof result === 'string' && /^SUCCESS\b/i.test(result)) {
+              setShowRemoveCable(false);
+              setAwaitingRelease(false);
+            }
           }
+        } catch {}
+        await new Promise(r => setTimeout(r, 250));
+      }
+    };
 
-          if (typeof result === 'string' && /^SUCCESS\b/i.test(result)) {
-            setShowRemoveCable(false);
-            setAwaitingRelease(false);
-          }
-        }
-      } catch {}
-      await new Promise(r => setTimeout(r, 250));
-    }
-  };
-
-  loop();
-  return () => { cancel = true; };
-}, [awaitingRelease, macAddress]);
+    loop();
+    return () => { cancel = true; };
+  }, [awaitingRelease, macAddress]);
 
   // Manual submit from a form/input
   const handleKfbSubmit = (e: FormEvent) => {
@@ -204,52 +300,17 @@ useEffect(() => {
   };
 
   const handleManualSubmit = (submittedNumber: string) => {
-    const val = submittedNumber.trim();
+    const val = submittedNumber.trim().toUpperCase();
     if (!val) return;
+    if (!KFB_REGEX.test(val)) {
+      showOverlay('error', val);
+      hideOverlaySoon();
+      return;
+    }
     setKfbInput(val);
     setKfbNumber(val);
     loadBranchesData(val);
   };
-
-  const handleCheck = useCallback(async () => {
-    if (!branchesData.length || !macAddress) return;
-
-    setIsChecking(true);
-    setCheckFailures(null);
-    setShowRemoveCable(false);
-    setAwaitingRelease(true); // start watching for REMOVE_CABLE + SUCCESS
-
-    try {
-      const pins = branchesData
-        .filter(b => !b.notTested && typeof b.pinNumber === 'number')
-        .map(b => b.pinNumber);
-
-      const res = await fetch('/api/serial/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pins, mac: macAddress }),
-      });
-
-      const result = await res.json();
-      if (res.ok) {
-        const failures: number[] = result.failures || [];
-        setCheckFailures(failures);
-
-        setBranchesData(data =>
-          data.map(b => {
-            if (typeof b.pinNumber !== 'number') return b;
-            return failures.includes(b.pinNumber)
-              ? { ...b, testStatus: 'nok' as TestStatus }
-              : { ...b, testStatus: 'ok' as TestStatus };
-          })
-        );
-      }
-    } catch (err) {
-      console.error('CHECK error', err);
-    } finally {
-      setIsChecking(false); // keep awaitingRelease until SUCCESS arrives
-    }
-  }, [branchesData, macAddress]);
 
   // Layout helpers
   const actualHeaderHeight = mainView === 'dashboard' ? '4rem' : '0rem';
@@ -295,22 +356,7 @@ useEffect(() => {
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
           {mainView === 'dashboard' ? (
             <>
-              <div className="flex justify-end items-center px-8 pt-4">
-                <button
-                  className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-8 py-3 font-bold shadow-lg disabled:opacity-60 transition"
-                  onClick={handleCheck}
-                  disabled={isChecking || !branchesData.length || !macAddress}
-                >
-                  {isChecking ? 'Checking...' : 'CHECK'}
-                </button>
-                {checkFailures && (
-                  <span className="ml-6 text-lg text-red-600">
-                    {checkFailures.length ? `Failures: ${checkFailures.join(', ')}` : 'All pins OK'}
-                  </span>
-                )}
-              </div>
-
-              {/* NEW non-modal cue */}
+              {/* Removed CHECK button and failure text */}
               {showRemoveCable && (
                 <div className="px-8 pt-3">
                   <div className="flex items-center gap-3 rounded-xl bg-amber-100 text-amber-900 px-5 py-3 font-extrabold shadow">
@@ -322,6 +368,7 @@ useEffect(() => {
 
               {errorMsg && <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>}
 
+              {/* This renders the large "PLEASE SCAN KFB INFO" panel when no data */}
               <BranchDashboardMainContent
                 appHeaderHeight={actualHeaderHeight}
                 onManualSubmit={handleManualSubmit}
@@ -349,11 +396,85 @@ useEffect(() => {
         onShowBranchesSettingsInMain={() => showBranchesSettings()}
       />
 
-      {/* small global style for the cable animation */}
       <style>{`
         .plug-wiggle { animation: wiggle 1s ease-in-out infinite; }
         @keyframes wiggle { 0%,100% { transform: translateX(0) } 50% { transform: translateX(8px) } }
       `}</style>
+
+      {/* SCANNING / OK / ERROR overlay */}
+      <AnimatePresence>
+        {overlay.open && (
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(2,6,23,0.64)',
+              backdropFilter: 'blur(4px)',
+              display: 'grid',
+              placeItems: 'center',
+              zIndex: 9999,
+            }}
+            aria-live="assertive"
+            aria-label={
+              overlay.kind === 'success' ? 'OK' :
+              overlay.kind === 'error' ? 'ERROR' : 'SCANNING'
+            }
+            onAnimationStart={() => {
+              if (overlay.kind !== 'scanning') hideOverlaySoon();
+            }}
+          >
+            <m.div
+              initial={{ scale: 0.98, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+              style={{ display: 'grid', justifyItems: 'center', gap: 8 }}
+            >
+              <m.div
+                initial={{ y: 6, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.22 }}
+                style={{
+                  fontSize: 128,
+                  fontWeight: 900,
+                  letterSpacing: '0.02em',
+                  color:
+                    overlay.kind === 'success' ? '#10b981' :
+                    overlay.kind === 'error' ? '#ef4444' :
+                    '#60a5fa',
+                  textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                  fontFamily:
+                    'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+                }}
+              >
+                {overlay.kind === 'success' ? 'OK' :
+                 overlay.kind === 'error' ? 'ERROR' : 'SCANNING'}
+              </m.div>
+              {overlay.code && (
+                <m.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.05 }}
+                  style={{
+                    fontSize: 16,
+                    color: '#f1f5f9',
+                    opacity: 0.95,
+                    wordBreak: 'break-all',
+                    textAlign: 'center',
+                    maxWidth: 640,
+                  }}
+                >
+                  {overlay.code}
+                </m.div>
+              )}
+            </m.div>
+          </m.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

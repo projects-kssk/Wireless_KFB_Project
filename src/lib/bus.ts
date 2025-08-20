@@ -1,4 +1,4 @@
-import { EventEmitter } from "events";
+// src/lib/bus.ts
 
 export type DeviceInfo = {
   path: string;
@@ -8,24 +8,26 @@ export type DeviceInfo = {
   serialNumber: string | null;
 };
 
+// ⬇︎ make path optional on scanner events and scan
 export type SerialEvent =
-  | { type: "scan"; code: string }
-  | { type: "scanner/open" }
-  | { type: "scanner/close" }
-  | { type: "scanner/error"; error: string }
   | { type: "devices"; devices: DeviceInfo[] }
-  | { type: "esp"; ok: boolean; raw?: string; error?: string };
+  | { type: "esp"; ok: boolean; raw?: string; present?: boolean; error?: string }
+  | { type: "scan"; code: string; path?: string }
+  | { type: "scanner/open"; path?: string }
+  | { type: "scanner/close"; path?: string }
+  | { type: "scanner/error"; error: string; path?: string };
 
-const g = globalThis as any;
-if (!g.__serialBus) g.__serialBus = new EventEmitter();
+// simple pub/sub
+type Sub = (e: SerialEvent) => void;
+const subs = new Set<Sub>();
 
-export const serialBus: EventEmitter = g.__serialBus;
-
-export function broadcast(e: SerialEvent) {
-  serialBus.emit("event", e);
+export function onSerialEvent(fn: Sub): () => void {
+  subs.add(fn);
+  return () => subs.delete(fn);
 }
 
-export function onSerialEvent(cb: (e: SerialEvent) => void) {
-  serialBus.on("event", cb);
-  return () => serialBus.off("event", cb);
+export function broadcast(e: SerialEvent): void {
+  for (const s of subs) {
+    try { s(e); } catch {}
+  }
 }

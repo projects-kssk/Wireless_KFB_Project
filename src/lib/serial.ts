@@ -1,7 +1,7 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
 import { ReadlineParser } from "@serialport/parser-readline";
-import { setLastScan } from "@/lib/scannerMemory";
+import { setLastScanFor } from "@/lib/scannerMemory";
 import { broadcast, DeviceInfo } from "@/lib/bus";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -14,10 +14,10 @@ type SubFn = (s: string, id: number) => void;
 type EspLineStream = {
   port: SerialPort;
   parser: ReadlineParser;
-  ring: string[];        // recent lines
-  ringIds: number[];     // monotonically increasing ids matching ring[]
-  nextId: number;        // next id to assign
-  subs: Set<SubFn>;      // fan-out subscribers
+  ring: string[];
+  ringIds: number[];
+  nextId: number;
+  subs: Set<SubFn>;
 };
 
 type G = typeof globalThis & { __ESP_STREAM?: EspLineStream };
@@ -26,7 +26,6 @@ const GBL = globalThis as G;
 function espPath(): string {
   return process.env.ESP_TTY ?? process.env.ESP_TTY_PATH ?? "/dev/ttyUSB1";
 }
-
 function espBaud(): number {
   const b = Number(process.env.ESP_BAUD ?? 115200);
   return Number.isFinite(b) && b > 0 ? b : 115200;
@@ -76,30 +75,19 @@ function armEsp(): EspLineStream {
   return GBL.__ESP_STREAM;
 }
 
-export function getEspLineStream(): EspLineStream {
-  return armEsp();
-}
-
-/** Return the id of the latest line currently in the ring (0 if empty). */
+export function getEspLineStream(): EspLineStream { return armEsp(); }
 export function mark(): number {
   const { ringIds } = armEsp();
   return ringIds.length ? ringIds[ringIds.length - 1]! : 0;
 }
-
-/** Optional: advance to tail, effectively dropping history for future waits. */
-export function flushHistory(): number {
-  return mark();
-}
+export function flushHistory(): number { return mark(); }
 
 async function waitUntilOpen(port: SerialPort): Promise<void> {
   if ((port as any).isOpen) return;
   await new Promise<void>((resolve, reject) => {
     const onOpen = () => { cleanup(); resolve(); };
     const onErr = (e: any) => { cleanup(); reject(e); };
-    const cleanup = () => {
-      port.off("open", onOpen);
-      port.off("error", onErr);
-    };
+    const cleanup = () => { port.off("open", onOpen); port.off("error", onErr); };
     port.on("open", onOpen);
     port.on("error", onErr);
   });
@@ -118,9 +106,6 @@ async function writeLine(line: string): Promise<void> {
   if (process.env.ESP_DEBUG) console.log(`⟶ [you] ${line}`);
 }
 
-/** Wait for a matching line.
- *  By default scans history, then subscribes. Pass { since: mark() } for future-only.
- */
 export function waitForLine(
   matcher: ((s: string) => boolean) | RegExp,
   signal?: AbortSignal,
@@ -128,23 +113,18 @@ export function waitForLine(
   opts: { since?: number } = {}
 ): Promise<string> {
   const { ring, ringIds, subs } = armEsp();
-  const isMatch = typeof matcher === "function"
-    ? matcher
-    : (s: string) => (matcher as RegExp).test(s);
+  const isMatch = typeof matcher === "function" ? matcher : (s: string) => (matcher as RegExp).test(s);
   const since = opts.since ?? undefined;
 
   return new Promise<string>((resolve, reject) => {
-    // 1) Scan recent history first (unless caller fenced with since > tail)
     for (let i = ring.length - 1; i >= 0; i--) {
-      if (since && ringIds[i] <= since) break; // stop at the fence
+      if (since && ringIds[i] <= since) break;
       const s = ring[i];
       if (isMatch(s)) return resolve(s);
     }
 
-    // 2) Subscribe for future lines
     let done = false;
     let timer: NodeJS.Timeout | null = null;
-
     const finish = (err?: any, val?: string) => {
       if (done) return;
       done = true;
@@ -154,10 +134,7 @@ export function waitForLine(
       err ? reject(err) : resolve(val as string);
     };
 
-    const onLine: SubFn = (s, id) => {
-      if (since && id <= since) return;
-      if (isMatch(s)) finish(undefined, s);
-    };
+    const onLine: SubFn = (s, id) => { if (since && id <= since) return; if (isMatch(s)) finish(undefined, s); };
     const onAbort = () => finish(new Error("client-abort"));
     const onTimeout = () => finish(new Error("timeout"));
 
@@ -170,7 +147,6 @@ export function waitForLine(
   });
 }
 
-/** Future-only helper. Does NOT scan history. */
 export function waitForNextLine(
   matcher: ((s: string) => boolean) | RegExp,
   signal?: AbortSignal,
@@ -179,14 +155,8 @@ export function waitForNextLine(
   return waitForLine(matcher, signal, timeoutMs, { since: mark() });
 }
 
-/** Fire-and-forget. */
-export async function sendToEsp(cmd: string): Promise<void> {
-  await writeLine(cmd);
-}
-
-/** Send and resolve when a terminal line arrives (OK/SUCCESS/FAIL/ERROR). */
+export async function sendToEsp(cmd: string): Promise<void> { await writeLine(cmd); }
 export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<string> {
-  // Be strict: avoid matching "TX status=OK"
   const RX_OK_STRICT = /^\s*(?:>>\s*)?(?:RESULT\s+)?(?:SUCCESS|OK)\s*$/i;
   const matcher = (line: string) => {
     const up = line.toUpperCase();
@@ -194,22 +164,18 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
     if (/\bFAIL(?:URE|URES)\b/.test(up)) return true;
     return RX_OK_STRICT.test(line);
   };
-
   const since = mark();
   const p = waitForLine(matcher, undefined, timeout, { since });
   await writeLine(cmd);
   return p;
 }
 
-/** Presence: device node exists. */
 export async function isEspPresent(path = espPath()): Promise<boolean> {
   const list = await SerialPort.list();
   return list.some((d) => d.path === path);
 }
-
-/** Optional ping (templated) — only used if ESP_PING_CMD is non-empty. */
 export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
-  const tmpl = (process.env.ESP_PING_CMD ?? "PING").trim(); // e.g. "PING {mac} {payload}"
+  const tmpl = (process.env.ESP_PING_CMD ?? "PING").trim();
   if (!tmpl) return { ok: true, raw: "present (no ping)" };
 
   const mac = process.env.ESP_MAC ?? "";
@@ -224,27 +190,17 @@ export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
     return { ok: false, raw: String(e?.message ?? e) };
   }
 }
-
-/** Combined health:
- *  - If ESP_PING_CMD is blank => Online = presence only
- *  - Else => Online = presence && ping OK
- */
 export async function espHealth(): Promise<{ present: boolean; ok: boolean; raw: string }> {
   const present = await isEspPresent();
   if (!present) return { present, ok: false, raw: "not present" };
-
   const tmpl = (process.env.ESP_PING_CMD ?? "").trim();
   if (!tmpl) return { present, ok: true, raw: "present (no ping)" };
-
   const { ok, raw } = await pingEsp();
   return { present, ok, raw };
 }
-
-/** Raw device listing passthrough. */
 export async function listSerialDevicesRaw(): Promise<Awaited<ReturnType<typeof SerialPort.list>>> {
   return SerialPort.list();
 }
-
 export async function listSerialDevices(): Promise<DeviceInfo[]> {
   const list = await SerialPort.list();
   return list.map((d) => ({
@@ -260,19 +216,8 @@ export async function listSerialDevices(): Promise<DeviceInfo[]> {
    Multi-scanner singleton (per path) with per-port cooldown/backoff
    ──────────────────────────────────────────────────────────────────────────── */
 
-type ScannerPerPath = {
-  port: SerialPort | null;
-  parser: ReadlineParser | null;
-  starting: Promise<void> | null;
-};
-
-type RetryState = {
-  nextAttemptAt: number;
-  retryMs: number;
-  lastError: string | null;
-  lastErrSentAt: number;
-};
-
+type ScannerPerPath = { port: SerialPort | null; parser: ReadlineParser | null; starting: Promise<void> | null; };
+type RetryState = { nextAttemptAt: number; retryMs: number; lastError: string | null; lastErrSentAt: number; };
 type Runtime = { state: ScannerPerPath; retry: RetryState };
 
 const GG = globalThis as any;
@@ -287,26 +232,32 @@ const bumpCooldown = (r: RetryState, ms?: number) => {
 };
 const resetCooldown = (r: RetryState) => { r.retryMs = 2000; r.nextAttemptAt = 0; };
 
-function broadcastScannerErrorOnce(r: RetryState, msg: string) {
+function broadcastScannerErrorOnce(r: RetryState, msg: string, path?: string) {
   const t = now();
   if (r.lastError !== msg || t - r.lastErrSentAt > 5000) {
     r.lastError = msg;
     r.lastErrSentAt = t;
-    broadcast({ type: "scanner/error", error: msg });
+    broadcast({ type: "scanner/error", error: msg, ...(path ? { path } : {}) });
   }
 }
 
-function attachScannerHandlers(path: string, state: ScannerPerPath, retry: RetryState, port: SerialPort, parser: ReadlineParser) {
+function attachScannerHandlers(
+  path: string,
+  state: ScannerPerPath,
+  retry: RetryState,
+  port: SerialPort,
+  parser: ReadlineParser
+) {
   parser.on("data", (raw) => {
     const code = String(raw).trim();
     if (!code) return;
-    setLastScan(code);
-    broadcast({ type: "scan", code });
+    setLastScanFor(path, code);
+    broadcast({ type: "scan", code, path });
   });
 
   port.on("close", () => {
     console.warn(`[scanner:${path}] port closed`);
-    broadcast({ type: "scanner/close" });
+    broadcast({ type: "scanner/close", path });
     state.port = null;
     state.parser = null;
     state.starting = null;
@@ -314,7 +265,7 @@ function attachScannerHandlers(path: string, state: ScannerPerPath, retry: Retry
 
   port.on("error", (e) => {
     console.error(`[scanner:${path}] port error`, e);
-    broadcastScannerErrorOnce(retry, String(e?.message ?? e));
+    broadcast({ type: "scanner/error", error: String(e?.message ?? e), path });
     try { port.close(() => {}); } catch {}
     state.port = null;
     state.parser = null;
@@ -341,7 +292,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
   const devices = await SerialPort.list();
   if (!devices.some((d) => d.path === path)) {
     const msg = `Scanner port not present: ${path}`;
-    broadcastScannerErrorOnce(retry, msg);
+    broadcastScannerErrorOnce(retry, msg, path);
     bumpCooldown(retry, 10_000);
     throw new Error(msg);
   }
@@ -354,7 +305,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
     port.open((err) => {
       if (err) {
         console.error(`[scanner:${path}] open error`, err);
-        broadcastScannerErrorOnce(retry, String(err?.message ?? err));
+        broadcastScannerErrorOnce(retry, String(err?.message ?? err), path);
         state.port = null;
         state.parser = null;
         state.starting = null;
@@ -366,7 +317,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
       state.port = port;
       state.parser = parser;
       attachScannerHandlers(path, state, retry, port, parser);
-      broadcast({ type: "scanner/open" });
+      broadcast({ type: "scanner/open", path });
       state.starting = null;
       resolve();
     });
@@ -376,12 +327,18 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
 }
 
 export async function ensureScanners(pathsInput?: string | string[], baudRate = 115200): Promise<void> {
-  const paths = Array.isArray(pathsInput)
-    ? pathsInput
-    : (pathsInput ?? process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+  const base =
+    pathsInput ??
+    process.env.SCANNER_TTY_PATHS ??
+    process.env.SCANNER_TTY_PATH ??
+    "/dev/ttyACM0";
+  const paths = (Array.isArray(base) ? base : base.split(","))
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  // include explicit secondary override if provided
+  const s2 = (process.env.SCANNER2_TTY_PATH ?? process.env.SECOND_SCANNER_TTY_PATH ?? "").trim();
+  if (s2 && !paths.includes(s2)) paths.push(s2);
 
   await Promise.all(paths.map((p) => ensureScannerForPath(p, baudRate).catch(() => {})));
 }
@@ -412,7 +369,11 @@ export function considerDevicesForScanner(
   devices: DeviceInfo[],
   pathsInput = process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0"
 ) {
-  const paths = pathsInput.split(",").map((s) => s.trim()).filter(Boolean);
+  const extra = (process.env.SCANNER2_TTY_PATH ?? process.env.SECOND_SCANNER_TTY_PATH ?? "").trim();
+  const paths = [
+    ...pathsInput.split(",").map((s) => s.trim()).filter(Boolean),
+    ...(extra ? [extra] : []),
+  ];
   let anyPresent = false;
   for (const p of paths) {
     const present = devices.some((d) => d.path === p);
@@ -445,7 +406,6 @@ function closeAllScanners() {
     rt.state.starting = null;
   }
 }
-
 function closeEsp() {
   const s = GBL.__ESP_STREAM?.port;
   if (s) try { s.close(() => {}); } catch {}
@@ -455,10 +415,6 @@ function closeEsp() {
 process.on("SIGINT", () => { closeAllScanners(); closeEsp(); process.exit(); });
 process.on("SIGTERM", () => { closeAllScanners(); closeEsp(); process.exit(); });
 process.on("uncaughtException", () => { closeAllScanners(); closeEsp(); process.exit(1); });
-
-/* ────────────────────────────────────────────────────────────────────────────
-   Export default
-   ──────────────────────────────────────────────────────────────────────────── */
 
 export default {
   // ESP core
@@ -475,7 +431,6 @@ export default {
   // history fencing helpers
   mark,
   flushHistory,
-
   // Scanner fleet
   ensureScanner,
   ensureScannerForPath,

@@ -50,7 +50,7 @@ const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
       {[10,14,17,22,26,29,34,38,41,46,50,53,58,62,65,70,74,77,82,86].map((x,i) => (
         <rect key={i} x={x} y="10" width={i%3===2?3:i%2===1?1:2} height="30" />
       ))}
-      <text x="50" y="47" fontSize="6" textAnchor="middle" fill="currentColor">83AUDAU40X03</text>
+      <text x="50" y="47" fontSize="6" textAnchor="middle" fill="currentColor">IWTESTBOARD</text>
     </g>
   </svg>
 );

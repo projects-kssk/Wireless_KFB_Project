@@ -85,11 +85,11 @@ export async function GET(req: Request) {
     const path = scan?.path ?? null;
 
     let error: string | null = null;
-    if (!code) {
-      if (!status) error = 'disconnected:not_present';
-      else if (!status.open) error = 'closed:not_open';
-      else if (status.inCooldown) error = status.lastError || 'cooldown';
-    }
+    // if (!code) {
+    //   if (!status) error = 'disconnected:not_present';
+    //   else if (!status.open) error = 'closed:not_open';
+    //   else if (status.inCooldown) error = status.lastError || 'cooldown';
+    // }
 
     return NextResponse.json(
       { code, path, error, retryInMs: CLIENT_RETRY_MS },

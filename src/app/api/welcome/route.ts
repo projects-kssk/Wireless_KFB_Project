@@ -6,26 +6,26 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAC_RE = /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/i;
-const ACK_LINE_RE = /^ACK\s+WELCOME\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})\s+(READY|TIMEOUT)\s*$/i;
-const WELCOME_RE  = /^WELCOME\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})\s*$/i;
-const STATUS_RE   = /^(READY|TIMEOUT)\s*$/i;
 
 let inFlight = false;
 
-async function writeWelcome(mac: string) {
+/** Write WELCOME to the station serial (optionally including KFB). */
+async function writeWelcome(mac: string, kfb?: string | null) {
   const { port } = getEspLineStream() as any;
   if (!port || typeof port.write !== "function") throw new Error("serial-not-present");
-  await new Promise<void>((resolve, reject) =>
-    port.write(`WELCOME ${mac}\n`, (err: any) => (err ? reject(err) : resolve()))
-  );
+  const line = kfb && String(kfb).trim() ? `WELCOME ${mac} ${kfb}\n` : `WELCOME ${mac}\n`;
+  await new Promise<void>((resolve, reject) => port.write(line, (err: any) => (err ? reject(err) : resolve())));
   if (typeof (port as any).drain === "function") {
-    await new Promise<void>((resolve, reject) =>
-      (port as any).drain((err: any) => (err ? reject(err) : resolve()))
-    );
+    await new Promise<void>((resolve, reject) => (port as any).drain((err: any) => (err ? reject(err) : resolve())));
   }
 }
 
-function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 10_000) {
+/**
+ * Wait for an ACK to WELCOME from the hub.
+ * Accept ACK regardless of MAC equality (ACK carries HUB MAC, not the KFB MAC).
+ * Also handle the 2-line form: "WELCOME <KFB_MAC>" followed by "READY|TIMEOUT".
+ */
+function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 20_000) {
   type StatusT = "READY" | "TIMEOUT";
   const MAC_ANY = /([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i;
 
@@ -44,12 +44,23 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
   return new Promise<{ hubMac: string; status: StatusT; raw: string }>((resolve, reject) => {
     const { parser, ring } = getEspLineStream() as any;
 
+    // Look back in the ring buffer first (helps if ACK already arrived)
     for (let i = ring.length - 1; i >= 0; i--) {
       const p = parse(ring[i]);
       if (!p) continue;
       if (p.hasAckWelcome && p.status) {
-        if (p.status === "READY" && p.mac !== wantMacUpper) continue;
         return resolve({ hubMac: p.mac || wantMacUpper, status: p.status, raw: p.raw });
+      }
+      // Handle recent WELCOME + READY seen together
+      if (p.hasWelcome && (!p.mac || p.mac === wantMacUpper)) {
+        // try to find a following status line
+        for (let j = i + 1; j < ring.length; j++) {
+          const q = parse(ring[j]);
+          if (q?.status) {
+            const combined = `${p.raw}\n${q.raw}`;
+            return resolve({ hubMac: q.mac || p.mac || wantMacUpper, status: q.status, raw: combined });
+          }
+        }
       }
     }
 
@@ -60,12 +71,13 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
       const p = parse(buf);
       if (!p) return;
 
+      // One-line ACK: "ACK WELCOME <HUB_MAC> READY|TIMEOUT"
       if (p.hasAckWelcome && p.status) {
-        if (p.status === "READY" && p.mac && p.mac !== wantMacUpper) return;
         cleanup();
         return resolve({ hubMac: p.mac || wantMacUpper, status: p.status, raw: p.raw });
       }
 
+      // Two-line sequence: "WELCOME <KFB_MAC>" then "READY|TIMEOUT"
       if (p.hasWelcome && (p.mac ? p.mac === wantMacUpper : true)) {
         armedForReady = true;
         lastWelcomeRaw = p.raw;
@@ -73,10 +85,12 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
       }
 
       if (p.status) {
-        if (p.mac && p.mac !== wantMacUpper && !armedForReady) return;
-        cleanup();
-        const rawCombined = lastWelcomeRaw ? `${lastWelcomeRaw}\n${p.raw}` : p.raw;
-        return resolve({ hubMac: p.mac || wantMacUpper, status: p.status, raw: rawCombined });
+        // If we saw a matching WELCOME, accept the status even without MAC
+        if (armedForReady || !p.mac || p.mac === wantMacUpper) {
+          cleanup();
+          const rawCombined = lastWelcomeRaw ? `${lastWelcomeRaw}\n${p.raw}` : p.raw;
+          return resolve({ hubMac: p.mac || wantMacUpper, status: p.status, raw: rawCombined });
+        }
       }
     };
 
@@ -85,7 +99,7 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
 
     let timer: NodeJS.Timeout | null = null;
     const cleanup = () => {
-      try { parser.off("data", onData); } catch {}
+      try { parser.off?.("data", onData); } catch {}
       try { signal.removeEventListener("abort", onAbort); } catch {}
       if (timer) clearTimeout(timer);
     };
@@ -93,11 +107,9 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
     if (signal.aborted) return onAbort();
     signal.addEventListener("abort", onAbort);
 
-    if (typeof (parser as any).prependListener === "function") {
-      (parser as any).prependListener("data", onData);
-    } else {
-      parser.on("data", onData);
-    }
+    // Prepend so we don't miss lines under high traffic
+    if (typeof parser?.prependListener === "function") parser.prependListener("data", onData);
+    else parser?.on?.("data", onData);
 
     timer = setTimeout(onTimeout, softTimeoutMs);
   });
@@ -106,9 +118,12 @@ function waitForAck(signal: AbortSignal, wantMacUpper: string, softTimeoutMs = 1
 export async function POST(req: Request) {
   if (inFlight) return NextResponse.json({ error: "busy" }, { status: 429 });
   inFlight = true;
+
   try {
     const body = await req.json().catch(() => ({} as any));
     const mac = String(body?.mac || "").toUpperCase();
+    const kfb = typeof body?.kfb === "string" && body.kfb.trim() ? String(body.kfb).trim() : null;
+
     if (!MAC_RE.test(mac)) {
       return NextResponse.json({ error: 'Missing or invalid "mac".' }, { status: 400 });
     }
@@ -118,13 +133,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "serial-not-present" }, { status: 428 });
     }
 
-    const waitP = waitForAck((req as any).signal, mac, 10_000);
-    await writeWelcome(mac);
+    const waitP = waitForAck((req as any).signal, mac, 20_000);
+    await writeWelcome(mac, kfb);
     const { hubMac, status, raw } = await waitP;
 
     if (status === "READY") {
-      return NextResponse.json({ ok: true, mac, hubMac, message: `WELCOME ACK from hub ${hubMac} (READY)`, raw });
+      return NextResponse.json({
+        ok: true,
+        mac,
+        hubMac,
+        message: `WELCOME ACK from hub ${hubMac} (READY)`,
+        raw,
+      });
     }
+
     return NextResponse.json({ error: "timeout", mac, hubMac, raw }, { status: 504 });
   } catch (e: any) {
     const msg = String(e?.message ?? e);

@@ -378,28 +378,37 @@ const handleTest = async () => {
   if (!foundMac) return;
   try {
     setTestStatus('calling');
-    setTestMsg('Sending WELCOME and waiting for READY…');
+    setTestMsg('Sending WELCOME…');
 
-    const res = await fetch('/api/welcome', {
+    // 1) Handshake
+    const w = await fetch('/api/welcome', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: foundMac }),
+    });
+    const wj = await w.json();
+    if (!w.ok) throw new Error(wj?.error || 'WELCOME failed');
+
+    setTestMsg('WELCOME READY. Sending TEST…');
+
+    // 2) Actual test command
+    const t = await fetch('/api/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac: foundMac, kfb: currentConfig.kfb || null }),
     });
-
-    const raw = await res.text();
-    const data = res.headers.get('content-type')?.includes('application/json')
-      ? JSON.parse(raw || '{}')
-      : { message: raw };
-
-    if (!res.ok) throw new Error(data?.error || raw || 'Test failed');
+    const tj = await t.json();
+    if (!t.ok) throw new Error(tj?.error || 'TEST failed');
 
     setTestStatus('ok');
-    setTestMsg('READY received. Test OK.');
+    setTestMsg(tj.ready ? 'READY received. Test OK.' : tj.message || 'Test command sent.');
   } catch (e: any) {
     setTestStatus('error');
     setTestMsg(e?.message ?? 'Failed to run test.');
   }
 };
+
+
 
   const macFlash = useFlashOnChange(currentConfig.mac_address, 900);
 

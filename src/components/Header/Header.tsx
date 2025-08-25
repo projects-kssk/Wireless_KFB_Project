@@ -35,6 +35,10 @@ type StatusCellProps = {
   align?: 'left' | 'center' | 'right';
 };
 
+/* add this type once near the top */
+type Row = { title: string; sub?: string | null; color: LedColor; suffix?: string | number };
+
+
 /* ────────────────────────────────────────────────────────────────────────────
    Header chrome
    ──────────────────────────────────────────────────────────────────────────── */
@@ -183,47 +187,53 @@ const Pill: React.FC<{ variant?: 'primary' | 'muted'; children: React.ReactNode 
   </span>
 );
 
-const StatusCellBase: React.FC<StatusCellProps> = ({ title, sub, suffix, color, labelsHidden, className, align = 'left' }) => {
-  return (
-    <div className={['flex h-14 items-center gap-3 px-3', className ?? ''].join(' ')}>
+// StatusCell: full-height, centered
+const StatusCellBase: React.FC<Row & { labelsHidden?: boolean }> = ({
+  title, sub, color, suffix, labelsHidden,
+}) => (
+  <div className="flex h-full items-center gap-3 px-3">
+    <div className="shrink-0 overflow-hidden rounded-full">
       <LedBall color={color} />
-      {!labelsHidden && (
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-0.5 min-h-[20px]">
-            {suffix !== undefined && <Pill variant="primary">{suffix}</Pill>}
-            {sub && <Pill>{sub}</Pill>}
-          </div>
-          <div
-            className={[
-              'truncate text-[15px] 2xl:text-[16px] font-extrabold tracking-tight text-slate-900 dark:text-white',
-              align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : '',
-            ].join(' ')}
-            aria-live="polite"
-          >
-            {title}
-          </div>
-        </div>
-      )}
     </div>
-  );
-};
+    {!labelsHidden && (
+      <div className="min-w-0">
+        <div className="mb-0.5 flex items-center gap-2">
+          {suffix !== undefined && (
+            <span className="px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1 ring-slate-200 bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900">
+              {suffix}
+            </span>
+          )}
+          {sub && (
+            <span className="px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1 ring-slate-200 text-slate-700 bg-slate-50 dark:text-slate-200 dark:bg-slate-800">
+              {sub}
+            </span>
+          )}
+        </div>
+        <span className="truncate text-[15px] 2xl:text-[16px] font-extrabold tracking-tight text-slate-900 dark:text-white">
+          {title}
+        </span>
+      </div>
+    )}
+  </div>
+);
+
 const StatusCell = memo(StatusCellBase);
 
-const StatusRow: React.FC<{ cells: Omit<StatusCellProps, 'className' | 'align'>[]; className?: string; labelsHidden?: boolean }> = ({
-  cells,
-  className,
-  labelsHidden,
+// StatusRow: flex = full width, equal columns, clip halo overflow
+const StatusRow: React.FC<{ cells: Row[]; className?: string; labelsHidden?: boolean }> = ({
+  cells, className, labelsHidden,
 }) => (
-  <div className={['w-full h-full p-0', className ?? ''].join(' ')} style={{ overflow: 'hidden' }}>
-    <div className="grid grid-cols-3 gap-3 h-full">
+  <div className={['w-full h-full p-0 min-w-0', className ?? ''].join(' ')}>
+    <div className="flex h-full  ">
       {cells.slice(0, 3).map((c, i) => (
-        <div key={i} className="flex">
+        <div key={i} className="flex-1 min-w-0 flex items-center overflow-hidden">
           <StatusCell {...c} labelsHidden={labelsHidden} />
         </div>
       ))}
     </div>
   </div>
 );
+
 
 /* ────────────────────────────────────────────────────────────────────────────
    iOS-like Settings glyph
@@ -407,7 +417,7 @@ export const Header: React.FC<HeaderProps> = ({
   const s1 = slotState(0);
   const s2 = slotState(1);
 
-  const colorFor = (s: SlotState): LedColor => (s.open ? 'green' : s.present ? 'amber' : 'red');
+  const colorFor = (s: SlotState): LedColor => (s.open ? 'green' : s.present ? 'green' : 'red');
   const subFor = (s: SlotState) => (s.open ? 'Ready' : s.present ? 'Detected' : 'Not detected');
 
   const s1Color: LedColor = colorFor(s1);
@@ -481,37 +491,45 @@ export const Header: React.FC<HeaderProps> = ({
           transform: 'translateZ(0)',
         }}
       >
-        <div className="flex items-center w-full h-full px-4 sm:px-6 2xl:px-10" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-          {/* Left cluster: Call + 3 LEDs */}
-          <div className="flex items-stretch gap-3">
-            <div style={{ width: 210, height: settingsSize }}>
-              <SupportPillSM
-                className="h-full"
-                supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}
-                onCall={(appConfig as any).callSupportInfo?.onCta}
-                labelsHidden={labelsHidden}
-              />
-            </div>
+        
+        <div
+  className="grid w-full h-full items-center gap-3 px-4 sm:px-6 2xl:px-10"
+  style={{ paddingTop: 'env(safe-area-inset-top)', gridTemplateColumns: 'minmax(190px,220px) 1fr minmax(120px,160px)' }}
+>
+  {/* 1) Support (fixed) */}
+  <div className="h-full">
+    <SupportPillSM
+      className="h-full"
+      supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}
+      onCall={(appConfig as any).callSupportInfo?.onCta}
+      labelsHidden={labelsHidden}
+    />
+  </div>
 
-            <div style={{ width: 'clamp(360px, 34vw, 720px)', height: settingsSize }}>
-              <StatusRow
-                cells={[
-                  { title: 'Scanner Check', suffix: 1, color: s1Color, sub: s1Sub },
-                  { title: 'Scanner Setup', suffix: 2, color: s2Color, sub: s2Sub },
-                  { title: 'Server', color: serverColor, sub: serverSub },
-                ]}
-                className="h-full"
-                labelsHidden={labelsHidden}
-              />
-            </div>
-          </div>
+  {/* 2) Status (fills remaining width) */}
+  <div className="h-full min-w-0">
+    <StatusRow
+      cells={[
+        { title: 'Scanner Check', suffix: 1, color: s1Color, sub: s1Sub },
+        { title: 'Scanner Setup', suffix: 2, color: s2Color, sub: s2Sub },
+        { title: 'Server', color: serverColor, sub: serverSub },
+      ]}
+      className="h-full"
+      labelsHidden={labelsHidden}
+    />
+  </div>
 
-          <div className="flex-1" />
+  {/* 3) Settings (auto) */}
+  {!process.env.NEXT_PUBLIC_HIDE_SETTINGS && (
+    <SettingsIconButton
+      size={settingsSize}
+      label={currentView === 'settings' ? 'Dashboard' : 'Settings'}
+      onClick={onSettingsClick}
+      showLabel={!labelsHidden}
+    />
+  )}
+</div>
 
-          {!process.env.NEXT_PUBLIC_HIDE_SETTINGS && (
-            <SettingsIconButton size={settingsSize} label={mainButtonText} onClick={onSettingsClick} showLabel={!labelsHidden} />
-          )}
-        </div>
       </m.header>
     </AnimatePresence>
   );

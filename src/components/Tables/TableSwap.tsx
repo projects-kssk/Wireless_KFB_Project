@@ -6,238 +6,338 @@ import { m, AnimatePresence } from "framer-motion";
 
 type TableSwapProps = {
   cycleKey: number;
-  queues?: string[];
-  okMs?: number;
-  slideMs?: number;
+  queues?: string[];                 // e.g. ["KFB 61-001"]
+  okMs?: number;                     // legacy, unused
+  slideMs?: number;                  // fade timings; x uses spring
   clsXml?: string;
-
-  /** new: control banner text by workflow */
-  hasBoard?: boolean;     // true after KFB scanned
-  ksskCount?: number;     // 0..3
-  ksskTarget?: number;    // default 3
+  hasBoard?: boolean;
+  ksskCount?: number;
+  ksskTarget?: number;
+  swapDelayMs?: number;              // delay before swapping after OK trigger
+  okAppearDelayMs?: number;          // delay before showing the big SETUP OK overlay
+   boardName?: string | null;            // <-- allow null
+  boardMap?: Record<string, string>; // e.g. { KFB1: "KFB 61-001" }
 };
 
 export default function TableSwap({
   cycleKey,
   queues,
   okMs = 5000,
-  slideMs = 0.6,
+  slideMs = 0.45,
   clsXml,
   hasBoard = false,
   ksskCount = 0,
   ksskTarget = 3,
+  swapDelayMs = 2000,       // 2s swap delay
+  okAppearDelayMs = 600,    // small extra delay before showing SETUP OK
+  boardName,
+  boardMap,
 }: TableSwapProps) {
-  const data = useMemo(
-    () => (queues?.length ? queues : ["KFB 61-001"]).map((t, i) => ({ id: `${i}-${t}`, title: t })),
-    [queues]
-  );
-  const current = data[0];
+  // resolve incoming display title from source
+  const incomingTitle = useMemo(() => {
+    const mapped = boardName && boardMap?.[boardName];
+    return mapped ?? queues?.[0] ?? boardName ?? "";
+  }, [boardName, boardMap, queues]);
 
-  // internal splash state
-  const [mode, setMode] = useState<"idle" | "ok">("idle");
-  const prev = useRef<number>(cycleKey);
+  // state machine
+  const [visibleKey, setVisibleKey] = useState<number>(cycleKey);
+  const [visibleTitle, setVisibleTitle] = useState<string>(incomingTitle);
+  const [pendingTitle, setPendingTitle] = useState<string | null>(null);
+  const [phase, setPhase] = useState<"idle" | "okPending" | "swapping">("idle");
+  const [dir, setDir] = useState<1 | -1>(1);
 
+  const prevCycle = useRef<number>(cycleKey);
+  const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const swapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // new cycle: delay showing OK, then swap; frame never hides
   useEffect(() => {
-    if (cycleKey === prev.current) return;
-    prev.current = cycleKey;
-    setMode("ok");
-  }, [cycleKey]);
+    if (cycleKey === prevCycle.current) return;
 
-  useEffect(() => {
-    if (mode !== "ok") return;
-    const t = setTimeout(() => setMode("idle"), okMs);
-    return () => clearTimeout(t);
-  }, [mode, okMs]);
+    const nextDir: 1 | -1 = cycleKey > prevCycle.current ? 1 : -1;
+    prevCycle.current = cycleKey;
+    setDir(nextDir);
 
-  // banner logic
-  const prompt =
-    mode === "ok"
-      ? ""
-      : !hasBoard || ksskCount >= ksskTarget
-      ? "Please scan new board number"
-      : "Please scan KSSK";
+    setPendingTitle(incomingTitle);
 
-  const stageVariants = {
-    enter: { x: "10%", opacity: 0, scale: 0.985, filter: "blur(2px)" as any },
-    center: { x: "0%", opacity: 1, scale: 1, filter: "blur(0px)" as any },
-    exit: { x: "-12%", opacity: 0, scale: 0.985, filter: "blur(2px)" as any },
-  };
+    // clear any previous timers
+    if (okTimer.current) clearTimeout(okTimer.current);
+    if (swapTimer.current) clearTimeout(swapTimer.current);
+    if (settleTimer.current) clearTimeout(settleTimer.current);
 
+    // ensure OK appears before swap; keep at least ~300ms runway
+    const okDelay =
+      okAppearDelayMs >= swapDelayMs ? Math.max(0, swapDelayMs - 300) : Math.max(0, okAppearDelayMs);
+
+    okTimer.current = setTimeout(() => {
+      setPhase("okPending");
+    }, okDelay);
+
+    swapTimer.current = setTimeout(() => {
+      setPhase("swapping");
+      setVisibleKey(cycleKey);
+
+      settleTimer.current = setTimeout(() => {
+        if (pendingTitle) setVisibleTitle(pendingTitle);
+        setPendingTitle(null);
+        setPhase("idle");
+      }, 650); // spring settle
+    }, Math.max(0, swapDelayMs));
+
+    return () => {
+      if (okTimer.current) clearTimeout(okTimer.current);
+      if (swapTimer.current) clearTimeout(swapTimer.current);
+      if (settleTimer.current) clearTimeout(settleTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cycleKey, incomingTitle, okAppearDelayMs, swapDelayMs]);
+
+  // prompt text
+  const prompt = !hasBoard || ksskCount >= ksskTarget ? "Please scan new board number" : "Please scan KSSK";
   const Icon = prompt.includes("KSSK") ? BarsIcon : ScanIcon;
+  const showProgress = prompt.includes("KSSK");
+
+  // directional slide for panel content
+  const panelVariants = {
+    enter: (d: 1 | -1) => ({
+      x: `${d * 26}%`,
+      opacity: 0,
+      scale: 0.985,
+      rotate: d * 0.2,
+      filter: "blur(2px)" as any,
+    }),
+    center: { x: "0%", opacity: 1, scale: 1, rotate: 0, filter: "blur(0px)" as any },
+    exit: (d: 1 | -1) => ({
+      x: `${d * -26}%`,
+      opacity: 0,
+      scale: 0.985,
+      rotate: d * -0.1,
+      filter: "blur(2px)" as any,
+    }),
+  } as const;
 
   return (
     <div style={{ width: "min(1400px, 100%)", margin: "0 auto" }}>
       <div
         style={{
           position: "relative",
-          height: 380,
+          height: 420,
           overflow: "hidden",
-          borderRadius: 20,
-          border: "2px dashed #94a3b8",
-          background: "linear-gradient(180deg,#f8fafc 0%,#f1f5f9 60%,#eef2f6 100%)",
+          borderRadius: 28,
+          background: "linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)",
+          boxShadow: "0 1px 0 rgba(0,0,0,0.06) inset",
+          padding: 16,
         }}
       >
-        {/* card */}
-        <AnimatePresence initial={false} mode="wait">
-          <m.div
-            key={`${current.id}-${mode}`}
-            variants={stageVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: slideMs, ease: [0.22, 0.8, 0.2, 1] }}
-            style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}
-          >
-            <Card title={current.title} mode={mode} prompt={prompt} />
-          </m.div>
-        </AnimatePresence>
+        {/* static frame */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 16,
+            borderRadius: 24,
+            background: "rgba(255,255,255,0.80)",
+            backdropFilter: "saturate(180%) blur(14px)",
+            WebkitBackdropFilter: "saturate(180%) blur(14px)",
+            border: "1px solid rgba(15,23,42,0.08)",
+            boxShadow: "0 18px 40px rgba(0,0,0,0.15)",
+            display: "grid",
+            gridTemplateRows: "auto 1fr",
+            rowGap: 12,
+            padding: 20,
+          }}
+        >
+          {/* header persists */}
+          <Header title={visibleTitle} muted={phase !== "idle"} />
 
-        {/* animated callout */}
-        {prompt && (
-          <m.div
-            role="status"
-            aria-live="polite"
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
+          {/* sliding content area */}
+          <div
             style={{
-              position: "absolute",
-              right: 22,
-              top: 22,
-              padding: "14px 18px",
-              borderRadius: 14,
-              border: "2px solid #cbd5e1",
-              background: "#fff",
-              boxShadow: "0 8px 18px rgba(0,0,0,0.10)",
-              color: "#0f172a",
-              fontWeight: 900,
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
+              position: "relative",
+              borderRadius: 18,
+              background: "#f8fafc",
+              border: "1px solid #e5e7eb",
               overflow: "hidden",
             }}
           >
-            <Icon />
-            <span style={{ whiteSpace: "nowrap" }}>{prompt}</span>
-            <m.span
-              aria-hidden
-              animate={{ x: [0, 4, 0] }}
-              transition={{ repeat: Infinity, repeatType: "loop", duration: 1.6 }}
-              style={{ display: "inline-flex", marginLeft: 4 }}
+            <AnimatePresence initial={false} custom={dir} mode="wait">
+              <m.div
+                key={visibleKey}
+                custom={dir}
+                variants={panelVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{
+                  x: { type: "spring", stiffness: 700, damping: 60, mass: 0.7 },
+                  opacity: { duration: slideMs * 0.36 },
+                  scale: { duration: slideMs * 0.44 },
+                  filter: { duration: slideMs * 0.5 },
+                }}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 28,
+                  textAlign: "center",
+                  willChange: "transform",
+                }}
+              >
+                {/* Hide the prompt while OK is visible */}
+                {phase !== "okPending" && <Body prompt={prompt} />}
+
+                {/* Big SETUP OK overlay inside the table */}
+                <AnimatePresence>
+                  {phase === "okPending" && (
+                    <m.div
+                      key="okOverlay"
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      transition={{ type: "spring", stiffness: 260, damping: 22 }}
+                      style={{
+                        position: "absolute",
+                        inset: 12,
+                        borderRadius: 16,
+                        background: "rgba(220, 252, 231, 0.92)",
+                        border: "1px solid #86efac",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        pointerEvents: "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight: 1000,
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          fontSize: "clamp(44px, 7.5vw, 96px)",
+                          color: "#065f46",
+                          lineHeight: 1.02,
+                          textAlign: "center",
+                        }}
+                      >
+                        Setup OK
+                      </div>
+                    </m.div>
+                  )}
+                </AnimatePresence>
+              </m.div>
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* floating callout hidden during OK as well */}
+        <AnimatePresence>
+          {phase !== "okPending" && (
+            <m.div
+              key="callout"
+              role="status"
+              aria-live="polite"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.3 }}
+              style={{
+                position: "absolute",
+                right: 24,
+                top: 24,
+                padding: "12px 16px",
+                borderRadius: 20,
+                border: "1px solid rgba(15,23,42,0.06)",
+                background: "rgba(255,255,255,0.72)",
+                backdropFilter: "saturate(180%) blur(12px)",
+                WebkitBackdropFilter: "saturate(180%) blur(12px)",
+                boxShadow: "0 6px 22px rgba(0,0,0,0.12)",
+                color: "#0f172a",
+                fontWeight: 800,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                maxWidth: "70%",
+                whiteSpace: "nowrap",
+              }}
             >
-              <ChevronRight />
-            </m.span>
-          </m.div>
-        )}
+              <Icon />
+              <span>{prompt}</span>
+              {showProgress && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    padding: "2px 8px",
+                    borderRadius: 999,
+                    background: "rgba(15,23,42,0.06)",
+                    fontWeight: 700,
+                    letterSpacing: 0,
+                    textTransform: "none",
+                  }}
+                >
+                  {ksskCount}/{ksskTarget}
+                </span>
+              )}
+              <m.span
+                aria-hidden
+                animate={{ x: [0, 4, 0] }}
+                transition={{ repeat: Infinity, repeatType: "loop", duration: 1.6 }}
+                style={{ display: "inline-flex", marginLeft: 6 }}
+              >
+                <ChevronRight />
+              </m.span>
+            </m.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-/* ---------- presentational ---------- */
+/* ---------- parts ---------- */
 
-function Card({ title, mode, prompt }: { title: string; mode: "idle" | "ok"; prompt: string }) {
-  const base = { w: 1040, h: 320, p: 24 };
-  const accent = "#334155";
-  const border = "#cbd5e1";
+function Header({ title, muted }: { title: string; muted: boolean }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center" }}>
+      <div
+        style={{
+          fontWeight: 900,
+          fontSize: 22,
+          letterSpacing: "0.02em",
+          color: "#0f172a",
+          textTransform: "uppercase",
+          lineHeight: 1.1,
+          opacity: muted ? 0.85 : 1,
+          transition: "opacity .2s ease",
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ width: 124, height: 10, background: "#e5e7eb", borderRadius: 999, opacity: 0.9 }} />
+    </div>
+  );
+}
 
+function Body({ prompt }: { prompt: string }) {
   return (
     <div
       style={{
-        width: base.w,
-        height: base.h,
-        borderRadius: 18,
-        background: "#ffffff",
-        border: `3px solid ${border}`,
-        boxShadow: "inset 0 0 0 2px rgba(0,0,0,0.03)",
-        padding: base.p,
-        display: "grid",
-        gridTemplateRows: "auto 1fr",
-        gap: 12,
+        maxWidth: "92%",
+        fontWeight: 1000,
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+        fontSize: "clamp(36px, 6vw, 64px)",
+        color: "#0f172a",
+        opacity: 0.9,
+        lineHeight: 1.05,
+        wordBreak: "break-word",
+        whiteSpace: "pre-wrap",
+        textWrap: "balance" as any,
       }}
     >
-      {/* header */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center" }}>
-        <div
-          style={{
-            fontWeight: 900,
-            fontSize: 22,
-            letterSpacing: "0.03em",
-            color: accent,
-            textTransform: "uppercase",
-            lineHeight: 1.1,
-          }}
-        >
-          {mode === "ok" ? title : ""}
-        </div>
-        <div style={{ width: 140, height: 22, background: "#e2e8f0", borderRadius: 999, opacity: 0.8 }} />
-      </div>
-
-      {/* body */}
-      <div
-        style={{
-          position: "relative",
-          borderRadius: 14,
-          background: "#f8fafc",
-          border: "2px solid #e2e8f0",
-          overflow: "hidden",
-          display: "grid",
-          placeItems: "center",
-        }}
-      >
-        {mode === "ok" ? (
-          <m.div
-            initial={{ scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 260, damping: 20 }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "grid",
-              placeItems: "center",
-              background: "#dcfce7",
-              border: "2px solid #86efac",
-              borderRadius: 12,
-            }}
-          >
-            <div style={{ textAlign: "center", lineHeight: 1.1 }}>
-              <div
-                style={{
-                  fontWeight: 1000,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  fontSize: "clamp(40px, 8vw, 80px)",
-                  color: "#065f46",
-                }}
-              >
-                Setup Ok
-              </div>
-            </div>
-          </m.div>
-        ) : (
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.25 }}
-            style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "#f8fafc" }}
-          >
-            <div
-              style={{
-                fontWeight: 1000,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                fontSize: "clamp(40px, 8vw, 60px)",
-                color: "#0f172a",
-                opacity: 0.8,
-              }}
-            >
-              {prompt}
-            </div>
-          </m.div>
-        )}
-      </div>
+      {prompt}
     </div>
   );
 }

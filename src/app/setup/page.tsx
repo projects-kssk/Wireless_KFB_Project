@@ -68,12 +68,14 @@ export default function SetupPage() {
     setShowManualFor({});
   }, []);
 
-  const acceptKfb = useCallback((code: string) => {
-    setKfb(code);
-    setKfbStatus("valid");
-    setKsskSlots([null, null, null]); // reset batch on new board
-    showOk(code);
-  }, []);
+const acceptKfb = useCallback((code: string) => {
+  setKfb(code);
+  setKfbStatus("valid");
+  setKsskSlots([null, null, null]);
+  showOk(code);
+  setTableCycle((n) => n + 1); // <- kick TableSwap
+}, []);
+
 
   const acceptKsskToIndex = useCallback(
     (code: string, idx?: number) => {
@@ -287,15 +289,19 @@ export default function SetupPage() {
       )}
 
       {/* TableSwap */}
-      <div style={{ ...containerWide, marginTop: 8 }}>
-       <TableSwap
-  cycleKey={tableCycle}
-  okMs={OK_DISPLAY_MS}
-  hasBoard={!!kfb}
-  ksskCount={ksskSlots.filter(Boolean).length}
-  ksskTarget={3}
-/>
-      </div>
+<div style={{ ...containerWide, marginTop: 8 }}>
+  <TableSwap
+    cycleKey={tableCycle}
+    hasBoard={!!kfb}
+    ksskCount={ksskSlots.filter(Boolean).length}
+    ksskTarget={3}
+    boardName={kfb}                   // <- source code (e.g., "KFB1")
+    boardMap={{ KFB1: "" }} // <- optional pretty label map
+    okAppearDelayMs={800}             // <- OK shows a bit later
+    swapDelayMs={2000}                // <- swap after 2s
+  />
+</div>
+
 
       {/* Overlay */}
       <ResultOverlay open={overlay.open} kind={overlay.kind} code={overlay.code} msg={overlay.msg} onClose={() => setOverlay((o) => ({ ...o, open: false }))} />

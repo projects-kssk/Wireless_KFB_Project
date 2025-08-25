@@ -21,7 +21,8 @@ const IDENTITY_ENDPOINT =
 
 // Checkpoint endpoints
 const ENDPOINT_CHECKPOINT_ONLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ?? "http://localhost:3000/api/krosy-checkpoint";
+  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ??
+  "http://localhost:3000/api/krosy-checkpoint";
 const ENDPOINT_CHECKPOINT_OFFLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ?? "/api/krosy-offline";
 
@@ -48,8 +49,7 @@ function formatXml(xml: string) {
     return xml;
   }
 }
-const isCompleteKrosy = (xml: string) =>
-  xml.trim().startsWith("<krosy") && /<\/krosy>\s*$/.test(xml);
+const isCompleteKrosy = (xml: string) => /^\s*<krosy[\s>][\s\S]*<\/krosy>\s*$/i.test(xml);
 
 /* ===== component ===== */
 export default function KrosyPage() {
@@ -84,6 +84,9 @@ export default function KrosyPage() {
   // checkpoint gate
   const [hasWorkingData, setHasWorkingData] = useState(false);
   const [workingDataXml, setWorkingDataXml] = useState<string | null>(null);
+
+  // new: only allow checkpoint when last successful run was ONLINE
+  const [checkpointEligible, setCheckpointEligible] = useState(false);
 
   // concurrency lock
   const inFlightRef = useRef(false);
@@ -145,13 +148,18 @@ export default function KrosyPage() {
     if ((ct || "").includes("json")) {
       const j = payload as any;
       return String(
-        j.responseXmlRaw || j.responseXml || j.responseXmlPreview || j.responsePreview || j.sentXmlPreview || "",
+        j.responseXmlRaw ||
+          j.responseXml ||
+          j.responseXmlPreview ||
+          j.responsePreview ||
+          j.sentXmlPreview ||
+          "",
       );
     }
     return String(payload || "");
   };
 
-  /* RUN: request workingData, then lock Send and enable Checkpoint */
+  /* RUN: request workingData, then lock Send and enable Checkpoint only for ONLINE */
   const run = useCallback(async () => {
     if (inFlightRef.current || busyAny) return;
     inFlightRef.current = true;
@@ -162,9 +170,10 @@ export default function KrosyPage() {
     setRespBody("");
     setXmlPreview("");
     setTab("body");
-    // reset gate
+    // reset gates
     setHasWorkingData(false);
     setWorkingDataXml(null);
+    setCheckpointEligible(false);
 
     const payload = {
       action: "working",
@@ -195,14 +204,19 @@ export default function KrosyPage() {
         setRespBody(JSON.stringify(j, null, 2));
         const xml = extractXmlFromResponse(ct, j);
         if (xml.trim().startsWith("<")) setXmlPreview(formatXml(xml));
-        if (j.usedUrl) append(`used: ${j.usedUrl}`);
 
         const complete = isCompleteKrosy(xml);
         const hasWD = /<workingData[\s>]/i.test(xml);
         if (complete && hasWD) {
-          setHasWorkingData(true);              // enable checkpoint
-          setWorkingDataXml(xml);               // pass exact response to checkpoint API
-          append("workingData detected (complete XML) → checkpoint enabled, send disabled");
+          setHasWorkingData(true);
+          setWorkingDataXml(xml);
+          const eligible = apiMode === "online";
+          setCheckpointEligible(eligible);
+          append(
+            eligible
+              ? "workingData detected (complete XML, ONLINE) → checkpoint enabled, send disabled"
+              : "workingData detected (complete XML, OFFLINE) → checkpoint disabled by policy",
+          );
         } else if (hasWD) {
           append("workingData detected but XML is preview/truncated → checkpoint stays disabled");
         } else {
@@ -211,8 +225,6 @@ export default function KrosyPage() {
       } else {
         const t = await res.text();
         setRespBody(formatXml(t));
-        const used = res.headers.get("x-krosy-used-url");
-        if (used) append(`used: ${used}`);
         if ((t || "").trim().startsWith("<")) setXmlPreview(formatXml(t));
 
         const complete = isCompleteKrosy(t);
@@ -220,7 +232,13 @@ export default function KrosyPage() {
         if (complete && hasWD) {
           setHasWorkingData(true);
           setWorkingDataXml(t);
-          append("workingData detected (complete XML) → checkpoint enabled, send disabled");
+          const eligible = apiMode === "online";
+          setCheckpointEligible(eligible);
+          append(
+            eligible
+              ? "workingData detected (complete XML, ONLINE) → checkpoint enabled, send disabled"
+              : "workingData detected (complete XML, OFFLINE) → checkpoint disabled by policy",
+          );
         } else if (hasWD) {
           append("workingData detected but XML is preview/truncated → checkpoint stays disabled");
         } else {
@@ -236,13 +254,23 @@ export default function KrosyPage() {
       setBusyReq(false);
       inFlightRef.current = false;
     }
-  }, [accept, append, endpoint, apiMode, requestID, intksk, targetHostName, sourceHostname, busyAny]);
+  }, [
+    accept,
+    append,
+    endpoint,
+    apiMode,
+    requestID,
+    intksk,
+    targetHostName,
+    sourceHostname,
+    busyAny,
+  ]);
 
   /* RUN CHECKPOINT: uses values from the response XML */
   const runCheckpoint = useCallback(async () => {
     if (inFlightRef.current || busyAny) return;
-    if (!hasWorkingData || !workingDataXml || !isCompleteKrosy(workingDataXml)) {
-      append("checkpoint aborted: need complete <krosy>…</krosy> with <workingData>");
+    if (!hasWorkingData || !workingDataXml || !isCompleteKrosy(workingDataXml) || !checkpointEligible) {
+      append("checkpoint aborted: need ONLINE run with complete <krosy>…</krosy> and <workingData>");
       return;
     }
     inFlightRef.current = true;
@@ -256,7 +284,9 @@ export default function KrosyPage() {
     // Pass the exact workingData XML to API, which derives all fields
     const payload = { workingDataXml, requestID };
 
-    append(`POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`);
+    append(
+      `POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`,
+    );
 
     const started = performance.now();
     try {
@@ -277,12 +307,9 @@ export default function KrosyPage() {
         setRespBody(JSON.stringify(j, null, 2));
         const xml = extractXmlFromResponse(ct, j);
         if (xml.trim()) setXmlPreview(formatXml(xml));
-        if (j.usedUrl) append(`used: ${j.usedUrl}`);
       } else {
         const t = await res.text();
         setRespBody(formatXml(t));
-        const used = res.headers.get("x-krosy-used-url");
-        if (used) append(`used: ${used}`);
       }
 
       setStatus(res.ok ? "ok" : "err");
@@ -293,12 +320,13 @@ export default function KrosyPage() {
       setBusyChk(false);
       inFlightRef.current = false;
     }
-  }, [accept, append, apiMode, endpointCheckpoint, hasWorkingData, workingDataXml, requestID, busyAny]);
+  }, [accept, append, apiMode, endpointCheckpoint, hasWorkingData, workingDataXml, requestID, busyAny, checkpointEligible]);
 
   // Reset flow so Send becomes active again
   const resetFlow = () => {
     setHasWorkingData(false);
     setWorkingDataXml(null);
+    setCheckpointEligible(false);
     setXmlPreview("");
     setRespBody("Ready");
     setStatus("idle");
@@ -307,12 +335,11 @@ export default function KrosyPage() {
   };
 
   const canCheckpoint = useMemo(
-    () => hasWorkingData && !!workingDataXml && isCompleteKrosy(workingDataXml),
-    [hasWorkingData, workingDataXml],
+    () => hasWorkingData && !!workingDataXml && isCompleteKrosy(workingDataXml) && checkpointEligible,
+    [hasWorkingData, workingDataXml, checkpointEligible],
   );
 
-  const endpointLabel =
-    apiMode === "offline" ? ENDPOINT_OFFLINE : ENDPOINT_ONLINE;
+  const endpointLabel = apiMode === "offline" ? ENDPOINT_OFFLINE : ENDPOINT_ONLINE;
   const checkpointLabel =
     apiMode === "offline" ? ENDPOINT_CHECKPOINT_OFFLINE : ENDPOINT_CHECKPOINT_ONLINE;
 
@@ -406,13 +433,13 @@ export default function KrosyPage() {
                 onClick={runCheckpoint}
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
-                disabled={busyAny || !canCheckpoint} // enable only after valid workingData XML
+                disabled={busyAny || !canCheckpoint} // enable only after valid ONLINE workingData XML
                 className="inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 shadow"
                 aria-label="Send checkpoint from response XML"
                 title={
                   canCheckpoint
-                    ? "Build and send workingResult from current workingData XML"
-                    : "Run a request and ensure full XML"
+                    ? "Build and send workingResult from ONLINE workingData XML"
+                    : "Run ONLINE request and ensure full XML"
                 }
               >
                 <Spinner visible={busyChk} />

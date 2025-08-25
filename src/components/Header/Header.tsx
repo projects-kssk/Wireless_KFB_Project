@@ -591,7 +591,6 @@ export const Header: React.FC<HeaderProps> = ({
     setDiscoverOpen(true);
     setDiscoverStatus('searching');
     setDiscoverError(null);
-    setFoundMac(null);
     setTestStatus('idle');
     setTestMsg(null);
 
@@ -624,8 +623,13 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const closeDiscover = () => {
-    discoverAbortRef.current?.abort();
-    setDiscoverOpen(false);
+
+      discoverAbortRef.current?.abort();
+  setDiscoverOpen(false);
+  setDiscoverStatus('idle');   // <- stop "Discovering…"
+  setDiscoverError(null);
+  setTestStatus('idle');
+  setTestMsg(null);
   };
 
 const runTest = async () => {

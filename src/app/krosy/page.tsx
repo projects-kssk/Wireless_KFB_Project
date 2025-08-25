@@ -13,19 +13,23 @@ const DEFAULT_API_MODE: ApiMode =
   process.env.NEXT_PUBLIC_KROSY_ONLINE === "true" ? "online" : "offline";
 
 const ENDPOINT_ONLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://localhost:3000/api/krosy";
+  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://172.26.202.248:3000/api/krosy";
 const ENDPOINT_OFFLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
-const IDENTITY_ENDPOINT =
-  process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ?? "/api/krosy-offline";
 
 // Checkpoint endpoints
 const ENDPOINT_CHECKPOINT_ONLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ??
-  "http://localhost:3000/api/krosy-checkpoint";
-// IMPORTANT: point to the new offline checkpoint route
+  "/api/krosy/checkpoint";
+
 const ENDPOINT_CHECKPOINT_OFFLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ?? "/api/krosy-offile/checkpoint";
+  process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ??
+  "/api/krosy-offline/checkpoint";
+
+// Identity bootstrap (GET returns hostname/ip/mac from the offline checkpoint route)
+const IDENTITY_ENDPOINT =
+  process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL ??
+  "/api/krosy-offline/checkpoint";
 
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
 

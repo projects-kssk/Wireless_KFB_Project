@@ -16,18 +16,26 @@ const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
 const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
-const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
-/** newline | fin | null | none */
-const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
 
-/** Default connect target per your requirement */
+const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
+/** newline | crlf | fin | null | none */
+const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
+/** Comma list of strings that mean success */
+const ACK_TOKENS = String(process.env.KROSY_ACK_TOKENS ?? "ack,ok,io")
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+/** Treat any non-empty data then idle as success */
+const READ_IDLE_MS = Number(process.env.KROSY_READ_IDLE_MS ?? 200);
+const ANY_DATA_ACK = (process.env.KROSY_ANY_DATA_ACK ?? "0") === "1";
+
+/** Default connect target */
 const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim();
 /** Fallback TCP port if host has no :port */
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 
-/* ===== VisualControl namespaces ===== */
-const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1"; // for request+result
-const VC_NS_ANY = "*"; // tolerant parse
+/* ===== Namespaces ===== */
+const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 
 /* ===== CORS ===== */
 function cors(req: NextRequest) {
@@ -38,6 +46,8 @@ function cors(req: NextRequest) {
     Vary: "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Accept",
+    "Access-Control-Expose-Headers": "X-Krosy-Used-Url",
+    "Access-Control-Max-Age": "600",
   };
 }
 
@@ -88,21 +98,41 @@ const xmlEsc = (s: string) =>
   String(s ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+const hasWorkingDataTag = (s: string) => /<workingData[\s>]/i.test(s || "");
 
 /* ===== TCP ===== */
+function terminatorAppend(xml: string) {
+  if (TCP_TERMINATOR === "newline") return xml + "\n";
+  if (TCP_TERMINATOR === "crlf") return xml + "\r\n";
+  if (TCP_TERMINATOR === "null") return xml + "\0";
+  return xml;
+}
+const xmlDone = (s: string) => s.trim().toLowerCase().endsWith("</krosy>");
+const isAckToken = (s: string) => {
+  const t = s.trim().toLowerCase();
+  return ACK_TOKENS.includes(t);
+};
 function sendTcp(host: string, port: number, xml: string) {
   return new Promise<{ ok: boolean; status: number; text: string; error: string | null; used: string }>((resolve) => {
     const socket = new net.Socket();
-    let buf = ""; let done = false;
+    let buf = "";
+    let done = false;
+    let idleTimer: NodeJS.Timeout | null = null;
     const used = `tcp://${host}:${port}`;
-    const payload =
-      TCP_TERMINATOR === "newline" ? xml + "\n" :
-      TCP_TERMINATOR === "null"    ? xml + "\0" : xml;
+    const payload = terminatorAppend(xml);
 
     const finish = (ok: boolean, status = 200, err: string | null = null) => {
-      if (done) return; done = true;
+      if (done) return;
+      done = true;
+      try { if (idleTimer) clearTimeout(idleTimer); } catch {}
       try { socket.destroy(); } catch {}
       resolve({ ok, status, text: buf, error: err, used });
+    };
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      if (READ_IDLE_MS > 0) idleTimer = setTimeout(() => {
+        if (!done && (ANY_DATA_ACK ? buf.length > 0 : isAckToken(buf))) finish(true, 200, null);
+      }, READ_IDLE_MS);
     };
 
     socket.setNoDelay(true);
@@ -111,12 +141,14 @@ function sendTcp(host: string, port: number, xml: string) {
     socket.connect(port, host, () => {
       socket.write(payload);
       if (TCP_TERMINATOR === "fin") socket.end();
+      armIdle();
     });
 
     socket.on("data", (c) => {
       buf += c.toString("utf8");
-      const s = buf.trim().toLowerCase();
-      if (s === "ack" || s.endsWith("</krosy>")) finish(true, 200, null);
+      const t = buf.trim();
+      if (xmlDone(t) || isAckToken(t)) return finish(true, 200, null);
+      armIdle();
     });
     socket.on("end", () => { if (buf.length) finish(true); else finish(false, 0, "no data"); });
     socket.on("timeout", () => finish(false, 0, "tcp timeout"));
@@ -178,26 +210,30 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
   const parser = new Xmldom();
   const doc = parser.parseFromString(workingDataXml, "text/xml");
 
-  // header elements from workingData
   const header = firstDesc(doc, "header")!;
   const requestID = overrides?.requestID || textOf(header, "requestID", String(Date.now()));
-  const srcHostname_prev = textOf(firstDesc(header, "sourceHost")!, "hostname", "unknown-source"); // e.g. sun
-  const tgtHostname_prev = textOf(firstDesc(header, "targetHost")!, "hostname", "unknown-target"); // e.g. device
+  const srcHostname_prev = textOf(firstDesc(header, "sourceHost")!, "hostname", "unknown-source");
+  const tgtHostname_prev = textOf(firstDesc(header, "targetHost")!, "hostname", "unknown-target");
 
-  // workingData payload
   const workingData = firstDesc(doc, "workingData");
-  if (!workingData) throw new Error("No <workingData> found in response");
+  if (!workingData) throw new Error("No <workingData> in payload");
 
-  const device = workingData.getAttribute("device") || tgtHostname_prev; // device becomes our sourceHost
+  const device = workingData.getAttribute("device") || tgtHostname_prev;
   const intksk = workingData.getAttribute("intksk") || "";
   const scanned = workingData.getAttribute("scanned") || isoNoMs();
   const resultTime = overrides?.resultTimeIso || isoNoMs();
 
-  // Sequencer -> segments -> sequences
-  const sequencer = firstDesc(workingData, "sequencer");
+  const { ip, mac } = pickIpAndMac();
+  const sourceIp = overrides?.sourceIp || ip;
+  const sourceMac = overrides?.sourceMac || mac;
+
+  // ===== Build sequencer results: exactly one "false" globally =====
   let segmentsOut = "";
   let segCount = 0;
-
+  let totalSeqCount = 0;
+  let markedFalse = false; // ensure only one failure across sequences and clips
+const failingClipRefs = new Set<string>(); // add
+  const sequencer = firstDesc(workingData, "sequencer");
   if (sequencer) {
     const segList = firstDesc(sequencer, "segmentList") || sequencer;
     const segments = childrenByLocal(segList, "segment");
@@ -209,23 +245,46 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
 
       const seqListNode = firstDesc(seg, "sequenceList") || seg;
       const sequences = childrenByLocal(seqListNode, "sequence");
+      totalSeqCount += sequences.length;
+
       let seqOut = "";
+      let segHasFalse = false;
+
       for (const seq of sequences) {
         const idx = seq.getAttribute("index") || "";
-        const compType = seq.getAttribute("compType") || "";
+        const compType = (seq.getAttribute("compType") || "").toLowerCase();
         const reference = seq.getAttribute("reference") || "";
+        const measType = (seq.getAttribute("measType") || "").toLowerCase();
 
         const objGroup = textOf(seq, "objGroup", "");
         const objPos = textOf(seq, "objPos", "");
 
+        const isTarget =
+          compType === "clip" &&
+          reference === "2" &&
+          idx === "10" &&
+          measType === "default";
+
+
+
+        // flip exactly one sequence to false, rest true
+       // inside the sequence loop, after computing `thisIsFalse`
+        const thisIsFalse = !markedFalse && isTarget;
+        if (thisIsFalse) {
+          markedFalse = true;
+          segHasFalse = true;
+          if (reference) failingClipRefs.add(reference); // add
+        }
+
         seqOut +=
-          `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(compType)}" reference="${xmlEsc(reference)}" result="true">` +
+          `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(compType)}" reference="${xmlEsc(reference)}" result="${thisIsFalse ? "false" : "true"}">` +
             (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
             (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
           `</sequence>`;
       }
+
       segmentsOut +=
-        `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="true" resultTime="${xmlEsc(resultTime)}">` +
+        `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="${segHasFalse ? "false" : "true"}" resultTime="${xmlEsc(resultTime)}">` +
           `<sequenceList count="${sequences.length}">` +
             seqOut +
           `</sequenceList>` +
@@ -233,25 +292,28 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
     }
   }
 
-  // Component -> clips
-  const component = firstDesc(workingData, "component");
-  let clipResultsOut = "";
-  let clipCount = 0;
-  if (component) {
-    const clipList = firstDesc(component, "clipList");
-    const clips = clipList ? childrenByLocal(clipList, "clip") : [];
-    clipCount = clips.length;
-    for (const clip of clips) {
-      const idx = clip.getAttribute("index") || "";
-      clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="true" />`;
-    }
+  // ===== Build component clip results if present; only mark false if none already marked =====
+// ===== Component -> clips
+const component = firstDesc(workingData, "component");
+let clipResultsOut = "";
+let clipCount = 0;
+if (component) {
+  const clipList = firstDesc(component, "clipList");
+  const clips = clipList ? childrenByLocal(clipList, "clip") : [];
+  clipCount = clips.length;
+  for (const clip of clips) {
+    const idx = clip.getAttribute("index") || "";
+  
+    const isFalse = failingClipRefs.has(idx); // seq.reference === clip.index
+    if (isFalse) markedFalse = true;          // ensure overall result=false
+    clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="${isFalse ? "false" : "true"}" />`;
+
   }
+}
 
-  const { ip, mac } = pickIpAndMac();
-  const sourceIp = overrides?.sourceIp || ip;
-  const sourceMac = overrides?.sourceMac || mac;
+  // WorkingResult result reflects any child failure
+  const workingResultOverall = markedFalse ? "false" : "true";
 
-  // Build workingResult (namespace V_0_1 as requested)
   const xml =
     `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="${VC_NS_V01}">` +
       `<header>` +
@@ -262,12 +324,12 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
           `<macAddress>${xmlEsc(sourceMac)}</macAddress>` +
         `</sourceHost>` +
         `<targetHost>` +
-          `<hostname>${xmlEsc(srcHostname_prev)}</hostname>` + // send result back to the previous source (e.g. *sun)
+          `<hostname>${xmlEsc(srcHostname_prev)}</hostname>` +
         `</targetHost>` +
       `</header>` +
       `<body>` +
         `<visualControl>` +
-          `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="true" resultTime="${xmlEsc(resultTime)}">` +
+          `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="${workingResultOverall}" resultTime="${xmlEsc(resultTime)}">` +
             (segCount
               ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>`
               : ``) +
@@ -290,7 +352,8 @@ export async function OPTIONS(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const { ip, mac } = pickIpAndMac();
   return new Response(JSON.stringify({ hostname: os.hostname(), ip, mac }), {
-    status: 200, headers: { "Content-Type": "application/json", ...cors(req) },
+    status: 200,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors(req) },
   });
 }
 
@@ -303,8 +366,8 @@ export async function GET(req: NextRequest) {
  *   // Or request+derive:
  *   intksk?: "830569527900",
  *   requestID?: "1",
- *   sourceHostname?: "ksskkfb01",     // our device hostname for the request leg
- *   targetHostName?: "kssksun01",     // the *sun host for the request leg
+ *   sourceHostname?: "ksskkfb01",
+ *   targetHostName?: "kssksun01",
  *
  *   // TCP connect target
  *   targetAddress?: "172.26.192.1:10080"
@@ -333,13 +396,7 @@ export async function POST(req: NextRequest) {
     const scanned = isoNoMs();
 
     const reqXml = buildWorkingRequestXML({
-      requestID: reqId,
-      srcHost: sourceHostname,
-      targetHost: xmlTargetHost,
-      scanned,
-      ip,
-      mac,
-      intksk,
+      requestID: reqId, srcHost: sourceHostname, targetHost: xmlTargetHost, scanned, ip, mac, intksk,
     });
     const prettyReq = prettyXml(reqXml);
 
@@ -423,7 +480,6 @@ export async function POST(req: NextRequest) {
     }, null, 2)),
   ]);
 
-  // Content-negotiation: prefer XML if caller asked and we have XML response
   if ((accept.includes("xml") || accept === "*/*") && resOut.text && resOut.text.trim().startsWith("<")) {
     return new Response(prettyResultResp || resOut.text, {
       status: resOut.ok ? 200 : 502,
@@ -431,7 +487,6 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // JSON summary
   return new Response(JSON.stringify({
     ok: resOut.ok,
     phase: "workingResult",
@@ -442,5 +497,5 @@ export async function POST(req: NextRequest) {
     error: resOut.error,
     sentWorkingResultPreview: prettyResultReq.slice(0, 2000),
     responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
-  }, null, 2), { status: resOut.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } });
+  }, null, 2), { status: resOut.ok ? 200 : 502, headers: { "Content-Type": "application/json", "X-Krosy-Used-Url": resOut.used, ...cors(req) } });
 }

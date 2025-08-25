@@ -3,7 +3,6 @@ import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
 import net from "node:net";
-import { DOMParser as Xmldom } from "@xmldom/xmldom";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +23,9 @@ const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080")
 /** Fallback TCP port if host has no :port */
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 
+/** Preview char limit for JSON payloads */
+const PREVIEW_LIMIT = Number(process.env.KROSY_PREVIEW_LIMIT ?? 2000);
+
 /* ===== VisualControl namespace ===== */
 const VC_NS = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 
@@ -36,6 +38,8 @@ function cors(req: NextRequest) {
     Vary: "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Accept",
+    "Access-Control-Expose-Headers": "X-Krosy-Used-Url",
+    "Access-Control-Max-Age": "600",
   };
 }
 
@@ -63,13 +67,14 @@ function pickIpAndMac() {
   return { ip: addr, mac };
 }
 function parseHostPort(raw: string, defPort: number) {
+  // supports "host:1234", "[::1]:1234", or "host" with default port
   let host = raw, port = defPort;
   const m = raw.match(/^\[?([^\]]+)\]:(\d+)$/);
   if (m) { host = m[1]; port = Number(m[2]); }
   return { host, port };
 }
 
-/* ===== VisualControl XML (working only) ===== */
+/* ===== XML helpers ===== */
 function buildVisualControlWorkingXML(args: {
   requestID: string; srcHost: string; targetHost: string; scanned: string; ip: string; mac: string; intksk: string;
 }) {
@@ -108,6 +113,10 @@ function prettyXml(xml: string) {
     return out.join("\n");
   } catch { return xml; }
 }
+
+const hasWorkingDataTag = (s: string) => /<workingData[\s>]/i.test(s || "");
+const isCompleteKrosy = (s: string) =>
+  /^\s*(?:<\?xml[^>]*\?>\s*)?<krosy[\s>][\s\S]*<\/krosy>\s*$/i.test(s || "");
 
 /* ===== TCP ===== */
 function sendTcp(host: string, port: number, xml: string) {
@@ -152,7 +161,12 @@ export async function OPTIONS(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const { ip, mac } = pickIpAndMac();
   return new Response(JSON.stringify({ hostname: os.hostname(), ip, mac }), {
-    status: 200, headers: { "Content-Type": "application/json", ...cors(req) },
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      ...cors(req),
+    },
   });
 }
 
@@ -194,6 +208,11 @@ export async function POST(req: NextRequest) {
   let prettyResp: string | null = null;
   try { if (out.text && out.text.trim().startsWith("<")) prettyResp = prettyXml(out.text); } catch {}
 
+  // Derived flags for client to avoid re-post "upgrade"
+  const responseXmlRaw = out.text || "";
+  const hasWorkingData = hasWorkingDataTag(responseXmlRaw);
+  const isComplete = isCompleteKrosy(responseXmlRaw);
+
   // Logs
   try {
     const stamp = nowStamp();
@@ -201,8 +220,8 @@ export async function POST(req: NextRequest) {
     await Promise.all([
       writeLog(base, "request.xml", xml),
       writeLog(base, "request.pretty.xml", prettyReq),
-      writeLog(base, "response.xml", out.text || ""),
-      writeLog(base, "response.pretty.xml", prettyResp || (out.text || "")),
+      writeLog(base, "response.xml", responseXmlRaw),
+      writeLog(base, "response.pretty.xml", prettyResp || responseXmlRaw),
       writeLog(base, "meta.json", JSON.stringify({
         mode: "visualControl.working",
         requestID,
@@ -216,13 +235,20 @@ export async function POST(req: NextRequest) {
     ]);
   } catch {}
 
-  if ((accept.includes("xml") || accept === "*/*") && out.text && out.text.trim().startsWith("<")) {
-    return new Response(prettyResp || out.text, {
+  // XML response branch
+  if ((accept.includes("xml") || accept === "*/*") && responseXmlRaw.trim().startsWith("<")) {
+    return new Response(prettyResp || responseXmlRaw, {
       status: out.ok ? 200 : 502,
-      headers: { "Content-Type": "application/xml; charset=utf-8", "X-Krosy-Used-Url": out.used, ...cors(req) },
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Krosy-Used-Url": out.used,
+        ...cors(req),
+      },
     });
   }
 
+  // JSON response branch with full raw XML and flags to prevent client "upgrade" POST
   return new Response(JSON.stringify({
     ok: out.ok,
     requestID,
@@ -230,7 +256,18 @@ export async function POST(req: NextRequest) {
     status: out.status,
     durationMs,
     error: out.error,
-    sentXmlPreview: prettyReq.slice(0, 2000),
-    responseXmlPreview: (prettyResp || out.text || "").slice(0, 2000),
-  }, null, 2), { status: out.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } });
+    sentXmlPreview: prettyReq.slice(0, PREVIEW_LIMIT),
+    responseXmlPreview: (prettyResp || responseXmlRaw).slice(0, PREVIEW_LIMIT),
+    responseXmlRaw,            // <— full XML for client consumption
+    hasWorkingData,            // <— server-evaluated hint
+    isComplete,                // <— server-evaluated hint
+  }, null, 2), {
+    status: out.ok ? 200 : 502,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "X-Krosy-Used-Url": out.used,
+      ...cors(req),
+    },
+  });
 }

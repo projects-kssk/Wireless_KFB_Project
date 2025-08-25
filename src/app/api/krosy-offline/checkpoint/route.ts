@@ -17,15 +17,17 @@ const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
 const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
 
-const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim();
+const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim(); // request leg (TCP)
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
 /** newline | fin | null | none */
 const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
 
+/** NEW: checkpoint leg can be HTTP */
+const DEFAULT_CHECKPOINT_URL = (process.env.KROSY_RESULT_URL || "http://localhost:3001/api/checkpoint").trim();
+
 /* ===== VC NS ===== */
-const VC_NS_V01 =
-  "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
+const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 
 /* ===== CORS ===== */
 function cors(req: NextRequest) {
@@ -87,7 +89,7 @@ const xmlEsc = (s: string) =>
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 
-/* ===== TCP ===== */
+/* ===== Transports ===== */
 function sendTcp(host: string, port: number, xml: string) {
   return new Promise<{ ok: boolean; status: number; text: string; error: string | null; used: string }>((resolve) => {
     const socket = new net.Socket();
@@ -120,6 +122,31 @@ function sendTcp(host: string, port: number, xml: string) {
     socket.on("timeout", () => finish(false, 0, "tcp timeout"));
     socket.on("error", (e) => finish(false, 0, e?.message || "tcp error"));
   });
+}
+
+async function sendHttp(url: string, xml: string) {
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml",
+        "Accept": "application/xml,application/json;q=0.9,*/*;q=0.1",
+      },
+      body: xml,
+    });
+    const text = await r.text();
+    return { ok: r.ok, status: r.status, text, error: r.ok ? null : `http ${r.status}`, used: url };
+  } catch (e: any) {
+    return { ok: false, status: 0, text: "", error: e?.message || "http error", used: url };
+  }
+}
+
+function pickCheckpointTarget(raw: string, defPort: number):
+  | { kind: "http"; url: string }
+  | { kind: "tcp"; host: string; port: number } {
+  if (/^https?:\/\//i.test(raw)) return { kind: "http", url: raw };
+  const { host, port } = parseHostPort(raw, defPort);
+  return { kind: "tcp", host, port };
 }
 
 /* ===== DOM helpers ===== */
@@ -157,7 +184,11 @@ function buildWorkingRequestXML(args: {
 function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
   requestID?: string; resultTimeIso?: string; sourceIp?: string; sourceMac?: string;
 }) {
-  const parser = new Xmldom();
+  const parser = new Xmldom({
+  errorHandler: {
+    warning: () => {}, error: () => {}, fatalError: () => {},
+  },
+} as any);
   const doc = parser.parseFromString(workingDataXml, "text/xml");
 
   const header = firstDesc(doc, "header");
@@ -254,18 +285,25 @@ export async function GET(req: NextRequest) {
  * POST JSON:
  * {
  *   workingDataXml?: "<krosy ...><workingData ...>...</workingData></krosy>",  // preferred
- *   // or derive workingData by sending workingRequest first:
+ *   // or derive workingData by sending workingRequest first (TCP):
  *   intksk?: "830569527900", requestID?: "1", sourceHostname?: "ksskkfb01", targetHostName?: "kssksun01",
- *   // TCP bridge:
- *   targetAddress?: "172.26.192.1:10080"
+ *   // TCP bridge for request leg:
+ *   targetAddress?: "172.26.192.1:10080",
+ *   // HTTP or TCP for checkpoint leg (defaults to http://localhost:3001/checkpoint):
+ *   checkpointUrl?: "http://localhost:3001/checkpoint" | "172.26.192.1:10080"
  * }
  */
 export async function POST(req: NextRequest) {
   const accept = req.headers.get("accept") || "application/json";
   const body = (await req.json().catch(() => ({}))) as any;
 
+  // Request leg (always TCP)
   const connectRaw = String(body.targetAddress || DEFAULT_CONNECT).trim();
   const { host: connectHost, port: tcpPort } = parseHostPort(connectRaw, TCP_PORT);
+
+  // Checkpoint leg can be HTTP or TCP
+  const checkpointRaw = String(body.checkpointUrl || DEFAULT_CHECKPOINT_URL || connectRaw).trim();
+  const checkpointTarget = pickCheckpointTarget(checkpointRaw, tcpPort);
 
   const stamp = nowStamp();
   const reqId = String(body.requestID || Date.now());
@@ -317,7 +355,7 @@ export async function POST(req: NextRequest) {
     workingDataXml = reqOut.text;
   }
 
-  // Build workingResult and send checkpoint back over TCP
+  // Build workingResult and send checkpoint back via chosen transport
   let resultXml: string; let meta: any;
   try { ({ xml: resultXml, meta } = buildWorkingResultFromWorkingData(workingDataXml!, { requestID: reqId })); }
   catch (e: any) {
@@ -328,7 +366,9 @@ export async function POST(req: NextRequest) {
 
   const prettyResultReq = prettyXml(resultXml);
   const t2 = Date.now();
-  const resOut = await sendTcp(connectHost, tcpPort, resultXml);
+  const resOut = checkpointTarget.kind === "http"
+    ? await sendHttp(checkpointTarget.url, resultXml)
+    : await sendTcp(checkpointTarget.host, checkpointTarget.port, resultXml);
   const dur2 = Date.now() - t2;
 
   let prettyResultResp: string | null = null;
@@ -343,7 +383,9 @@ export async function POST(req: NextRequest) {
       leg: "result",
       requestID: meta?.requestID, toHost: meta?.toHost, device: meta?.device, intksk: meta?.intksk,
       scanned: meta?.scanned, resultTime: meta?.resultTime,
-      connect: { host: connectHost, tcpPort, used: resOut.used },
+      connect: checkpointTarget.kind === "http"
+        ? { url: resOut.used }
+        : { host: checkpointTarget.host, tcpPort: checkpointTarget.port, used: resOut.used },
       durationMs: dur2, ok: resOut.ok, error: resOut.error, status: resOut.status,
       terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS, totalMs: Date.now() - startedAll,
     }, null, 2)),
@@ -352,7 +394,11 @@ export async function POST(req: NextRequest) {
   if ((accept.includes("xml") || accept === "*/*") && resOut.text && resOut.text.trim().startsWith("<")) {
     return new Response(prettyResultResp || resOut.text, {
       status: resOut.ok ? 200 : 502,
-      headers: { "Content-Type": "application/xml; charset=utf-8", "X-Krosy-Used-Url": resOut.used, ...cors(req) },
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "X-Krosy-Used-Url": resOut.used,
+        ...cors(req),
+      },
     });
   }
 

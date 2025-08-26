@@ -105,23 +105,55 @@ function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: num
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
-
 function extractPinsFromKrosyXML(xml: string) {
-  const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const seqs = Array.from(doc.getElementsByTagName("sequence"));
-  const accept = new Set(["default", "no_check"]); // include no_check if you want CL_3804,10
-  const normal: number[] = [], latch: number[] = [];
-  for (const s of seqs) {
-    const mt = (s.getAttribute("measType") || "").toLowerCase();
-    if (!accept.has(mt)) continue;
-    const pos = s.getElementsByTagName("objPos")[0]?.textContent || "";
-    const parts = pos.split(",");
+  const accept = new Set(["default", "no_check"]);
+  const normal: number[] = [];
+  const latch: number[] = [];
+
+  // --- helper
+  const pushPin = (pos: string) => {
+    const parts = String(pos).split(",");
     let isLatch = false;
-    if (parts[parts.length - 1]?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
-    const pin = Number((parts[parts.length - 1] || "").replace(/\D+/g, ""));
-    if (!Number.isFinite(pin)) continue;
-    (isLatch ? latch : normal).push(pin);
+    if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
+    const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
+    if (Number.isFinite(pin)) (isLatch ? latch : normal).push(pin);
+  };
+
+  // --- try DOM first (namespace-agnostic)
+  let usedRegexFallback = false;
+  try {
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    const hasErr = doc.getElementsByTagName("parsererror").length > 0;
+
+    let nodes: Element[] = [];
+    // 1) plain name
+    nodes = Array.from(doc.getElementsByTagName("sequence"));
+    // 2) wildcard namespace
+    if (nodes.length === 0 && doc.getElementsByTagNameNS) {
+      nodes = Array.from(doc.getElementsByTagNameNS("*", "sequence"));
+    }
+
+    if (!hasErr && nodes.length) {
+      for (const el of nodes) {
+        const mt = (el.getAttribute("measType") || "").toLowerCase();
+        if (!accept.has(mt)) continue;
+        const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
+        if (pos) pushPin(pos);
+      }
+    } else {
+      usedRegexFallback = true;
+    }
+  } catch {
+    usedRegexFallback = true;
   }
+
+  // --- regex fallback (works even on truncated/pretty-printed XML)
+  if (usedRegexFallback) {
+    const re = /<sequence\b[^>]*\bmeasType="(default|no_check)"[^>]*>[\s\S]*?<objPos>([^<]+)<\/objPos>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml))) pushPin(m[2]);
+  }
+
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
@@ -324,7 +356,10 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
         const pins = resp.data?.__xml
         ? extractPinsFromKrosyXML(resp.data.__xml)   // new helper
         : extractPinsFromKrosy(resp.data);
-
+        console.debug("pins", pins, {
+          fromXml: !!resp.data?.__xml,
+          xmlLen: resp.data?.__xml?.length || 0
+        });
         const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
 
         if (!hasPins) {

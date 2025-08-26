@@ -240,11 +240,18 @@ useEffect(() => {
   }, [flashSeq, flashKind, okAppearDelayMs]);
 
   /* prompt */
-  const prompt =
-    !hasBoard || ksskCount >= ksskTarget ? "Please scan barcode" : "Please scan KSSK";
-  const Icon = prompt.includes("KSSK") ? BarsIcon : ScanIcon;
-  const showProgress = prompt.includes("KSSK");
-const showScanHint = !showProgress;
+  const nextOrdinal = Math.min(ksskCount + 1, ksskTarget);
+
+  const prompt = !hasBoard
+    ? "Please scan new board number"
+    : ksskCount >= ksskTarget
+    ? "Please scan new board number"
+    : `Please scan KSSK #${nextOrdinal}`;
+
+  const Icon = hasBoard && ksskCount < ksskTarget ? BarsIcon : ScanIcon;
+  const showProgress = hasBoard && ksskCount < ksskTarget;
+  const showScanHint = !showProgress;
+
 
 // 50% of callout, clamped; wide:height ≈ 2.4:1
 const tileWpx = Math.round(Math.max(72, Math.min(calloutW * 0.5, 220)));

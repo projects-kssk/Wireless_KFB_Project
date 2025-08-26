@@ -457,117 +457,82 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
   showOk(code, "BOARD SET", "kfb");   // <-- targeted flash
 }, []);
 
-const acceptKsskToIndex = useCallback(
-  async (code: string, idx?: number) => {
+const acceptKsskToIndex = useCallback(async (codeRaw: string, idx?: number) => {
+  const code = digitsOnly(codeRaw);
+  // 0) single-flight gate BEFORE any network
+ if (sendBusyRef.current) { showErr(code, "Busy — finishing previous KSSK", "global"); return; }
+  sendBusyRef.current = true;
+
+  try {
     const target = typeof idx === "number" ? idx : ksskSlots.findIndex(v => v === null);
     const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
 
-    if (activeLocks.current.has(code)) { showErr(code, "TESTED on another board — already in production", panel); return; }
+    // 1) never trust local cache for availability; server is source of truth
     if (!kfb) { showErr(code, "Scan MAC address first", "kfb"); return; }
-    if (ksskSlots.some(c => c === code)) { showErr(code, "Duplicate KSSK", panel); return; }
+    if (ksskSlots.includes(code)) { showErr(code, "Duplicate KSSK", panel); return; }
     if (target === -1) { showErr(code, "Batch full (3/3)", "global"); return; }
 
     setKsskSlots(prev => { const n = [...prev]; n[target] = code; return n; });
     setTableCycle(n => n + 1);
 
+    // 2) acquire server lock
     const lockRes = await fetch("/api/kssk-lock", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
     });
 
+    // 2a) if server says it's already locked BY US, treat as OK/idempotent
     if (!lockRes.ok) {
       const j = await lockRes.json().catch(() => ({}));
-      const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
-      const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
-      const msg =
-        otherMac && otherMac !== kfb?.toUpperCase()
+      const sameOwner =
+        String(j?.existing?.mac || "").toUpperCase() === String(kfb).toUpperCase() &&
+        j?.existing?.stationId === STATION_ID;
+
+      if (!sameOwner) {
+        const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+        const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+        const msg = otherMac && otherMac !== String(kfb).toUpperCase()
           ? `TESTED on another board — already assigned to BOARD ${otherMac}`
           : `TESTED on another board — already in production${heldBy}`;
 
-      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-      showErr(code, msg, panel);
-      return;
+        setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        showErr(code, msg, panel);
+        return;
+      }
     }
 
+    // 3) reconcile local cache AFTER the server agrees
     activeLocks.current.add(code);
     saveLocalLocks(activeLocks.current);
 
-    if (sendBusyRef.current) {
-      await releaseLock(code);
-      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-      return;
-    }
+    // 4) offline/Krosy + ESP write as before
+    const resp = await sendKsskToOffline(code);
+    if (!resp?.ok && resp?.status === 0) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); showErr(code,"Krosy communication error",panel); return; }
 
-    sendBusyRef.current = true;
-    let resp: OfflineResp | null = null;
-    try { resp = await sendKsskToOffline(code); } finally { sendBusyRef.current = false; }
+    const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
+    const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+    if (!hasPins) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); showErr(code,"Krosy configuration error: no PINS",panel); return; }
 
-    if (!resp?.ok && resp?.status === 0) {
-      await releaseLock(code);
-      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-      showErr(code, "Krosy communication error", panel);
-      return;
-    }
+    let espOk = true;
+    try {
+      const r = await fetch("/api/serial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ normalPins: pins.normalPins, latchPins: pins.latchPins, mac: String(kfb).toUpperCase(), kssk: code }),
+      });
+      if (!r.ok) { espOk = false; showErr(code, `ESP write failed — ${await r.text().catch(()=>String(r.status))}`, panel); }
+    } catch (e:any) { espOk = false; showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel); }
 
-    if (resp?.ok) {
-      const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
-      const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+    if (!espOk && !ALLOW_NO_ESP) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); return; }
 
-      if (!hasPins) {
-        await releaseLock(code);
-        setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, "Krosy configuration error: no PINS", panel);
-        return;
-      }
+    showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
+    startHeartbeat(code);
+  } finally {
+    sendBusyRef.current = false;
+  }
+}, [kfb, ksskSlots, sendKsskToOffline]);
 
-      let espOk = true;
-      try {
-        const r = await fetch("/api/serial", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ normalPins: pins.normalPins, latchPins: pins.latchPins, mac: kfb.toUpperCase(), kssk: code }),
-        });
-        if (!r.ok) {
-          espOk = false;
-          const t = await r.text().catch(() => "");
-          showErr(code, `ESP write failed — ${t || r.status}`, panel);
-        }
-      } catch (e:any) {
-        espOk = false;
-        showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel);
-      }
-
-      if (!espOk) {
-        if (ALLOW_NO_ESP) {
-          showOk(code, "KSSK OK (ESP offline)", panel);
-          startHeartbeat(code);
-          setTimeout(() => {
-            setKsskSlots(prev => {
-              const filled = prev.filter(Boolean).length;
-              if (filled >= 3) { setKfb(null); return [null, null, null]; }
-              return prev;
-            });
-          }, OK_DISPLAY_MS);
-          return;
-        } else {
-          await releaseLock(code);
-          setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-          showErr(code, "ESP write failed", panel);
-          return;
-        }
-      }
-
-      showOk(code, "KSSK OK", panel);
-      startHeartbeat(code);
-    } else {
-      await releaseLock(code);
-      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-      showErr(code, `KSSK send failed (${resp?.status || "no status"})`, panel);
-    }
-  },
-  [kfb, ksskSlots, sendKsskToOffline]
-);
 
 const handleManualSubmit = useCallback(
   (panel: PanelKey, raw: string) => {
@@ -694,7 +659,7 @@ const handleScanned = useCallback((raw: string) => {
               transition={{ type: "spring", stiffness: 520, damping: 30, mass: 0.7 }}
               style={heroBoard}
             >
-              SETUP
+              SETUP: A56N_KFB_WIRELESS
             </m.div>
           </m.div>
         ) : (

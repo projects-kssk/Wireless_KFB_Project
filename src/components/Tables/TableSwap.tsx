@@ -4,73 +4,196 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { m, AnimatePresence } from "framer-motion";
 
+/* ---------- types ---------- */
+
 type TableSwapProps = {
   cycleKey: number;
-  queues?: string[];                 // e.g. ["KFB 61-001"]
-  okMs?: number;                     // legacy, unused
-  slideMs?: number;                  // fade timings; x uses spring
+  queues?: string[];
+  slideMs?: number;                 // fade timings; x uses spring
   clsXml?: string;
   hasBoard?: boolean;
   ksskCount?: number;
   ksskTarget?: number;
-  swapDelayMs?: number;              // delay before swapping after OK trigger
-  okAppearDelayMs?: number;          // delay before showing the big SETUP OK overlay
-   boardName?: string | null;            // <-- allow null
-  boardMap?: Record<string, string>; // e.g. { KFB1: "KFB 61-001" }
-  flashKind?: "success" | "error";   // NEW
-  flashSeq?: number;                 // NEW
+  swapDelayMs?: number;             // delay before swapping after OK trigger
+  okAppearDelayMs?: number;         // extra delay before showing in-table overlay
+  boardName?: string | null;
+  boardMap?: Record<string, string>;
+  flashKind?: "success" | "error";  // from SetupPage overlay
+  flashSeq?: number;                // from SetupPage overlay
 };
+
+/* ---------- helpers ---------- */
+
+function seededRand(seed: number) {
+  // xorshift-ish; deterministic per seed
+  let x = seed || 1234567;
+  return () => {
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return Math.abs(x) / 0x7fffffff;
+  };
+}
+
+const springX = { type: "spring", stiffness: 700, damping: 60, mass: 0.7 } as const;
+
+const panelVariants = {
+  enter: (d: 1 | -1) => ({ x: `${d * 26}%`, opacity: 0, scale: 0.985, rotate: d * 0.2, filter: "blur(2px)" as any }),
+  center: { x: "0%", opacity: 1, scale: 1, rotate: 0, filter: "blur(0px)" as any },
+  exit: (d: 1 | -1) => ({ x: `${d * -26}%`, opacity: 0, scale: 0.985, rotate: d * -0.1, filter: "blur(2px)" as any }),
+} as const;
+
+function CornerBarcodeHint({
+  top = 52,
+  widthPx,
+  heightPx,
+}: { top?: number; widthPx: number; heightPx: number }) {
+  const rOuter = 0;
+  const inset = 8;                              // inner slab margin
+  const slabH = Math.max(18, Math.round(heightPx * 0.66));
+  const rInner = 4;
+
+  return (
+    <div
+      aria-label="Barcode hint"
+      style={{
+        position: "absolute",
+        right: 24,
+        top,
+        display: "grid",
+        placeItems: "center",
+        gap: 8,
+        pointerEvents: "none",
+      }}
+    >
+      {/* outer frame */}
+      <div
+        style={{
+          position: "relative",
+          width: widthPx,
+          height: heightPx,
+          borderRadius: rOuter,
+          background: "#0b1220",
+          overflow: "hidden",
+          boxShadow:
+            "inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px rgba(15,23,42,.15)",
+        }}
+      >
+        {/* subtle vertical grid like the big box */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: 0.22,
+            backgroundImage:
+              "repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)",
+            backgroundSize: "120px 100%",
+          }}
+        />
+
+        {/* centered barcode slab */}
+        <div
+          style={{
+            position: "absolute",
+            left: inset,
+            right: inset,
+            top: "50%",
+            transform: "translateY(-50%)",
+            height: slabH,
+            borderRadius: rInner,
+            background:
+              "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)",
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)",
+          }}
+        />
+        {/* edge fade (matches big slab ends) */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: inset,
+            right: inset,
+            top: "50%",
+            transform: "translateY(-50%)",
+            height: slabH,
+            borderRadius: rInner,
+            background:
+              "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 12%, rgba(11,18,32,0) 88%, rgba(11,18,32,1) 100%)",
+          }}
+        />
+      </div>
+
+      {/* tag */}
+      <div
+        style={{
+          fontFamily:
+            'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial',
+          textTransform: "uppercase",
+          letterSpacing: 2.5,
+          fontWeight: 900,
+          fontSize: 12,
+          color: "#0f172a",
+          opacity: 0.8,
+        
+          padding: "3px 8px",
+          borderRadius: 999,
+          
+         
+        }}
+      >
+        BARCODE POSITION
+      </div>
+    </div>
+  );
+}
+
+
+
+/* ---------- component ---------- */
 
 export default function TableSwap({
   cycleKey,
   queues,
-  okMs = 5000,
   slideMs = 0.45,
   clsXml,
   hasBoard = false,
   ksskCount = 0,
   ksskTarget = 3,
-  swapDelayMs = 2000,       // 2s swap delay
-  okAppearDelayMs = 600,    // small extra delay before showing SETUP OK
+  swapDelayMs = 1400,
+  okAppearDelayMs = 350,
   boardName,
   boardMap,
   flashKind,
   flashSeq,
 }: TableSwapProps) {
-  // resolve incoming display title from source
+  /* title from boardName/queues/map */
   const incomingTitle = useMemo(() => {
     const mapped = boardName && boardMap?.[boardName];
     return mapped ?? queues?.[0] ?? boardName ?? "";
   }, [boardName, boardMap, queues]);
 
-  // state machine
+  // inside TableSwap()
+const calloutRef = useRef<HTMLDivElement | null>(null);
+const [calloutW, setCalloutW] = useState(0);
+
+useEffect(() => {
+  if (!calloutRef.current) return;
+  const ro = new ResizeObserver(([e]) => setCalloutW(e.contentRect.width));
+  ro.observe(calloutRef.current);
+  return () => ro.disconnect();
+}, []);
+  /* frame + slide machine */
   const [visibleKey, setVisibleKey] = useState<number>(cycleKey);
   const [visibleTitle, setVisibleTitle] = useState<string>(incomingTitle);
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"idle" | "okPending" | "swapping">("idle");
-  const [okKind, setOkKind] = useState<"success" | "error">("success");
-  const prevFlashSeq = useRef<number | null>(null);
-
-  
   const [dir, setDir] = useState<1 | -1>(1);
 
   const prevCycle = useRef<number>(cycleKey);
-  const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
- useEffect(() => {
-    if (flashSeq == null) return;
-    if (prevFlashSeq.current === flashSeq) return;
-    prevFlashSeq.current = flashSeq;
-    setOkKind(flashKind === "error" ? "error" : "success");
-    setPhase("okPending");
-    const t = setTimeout(() => setPhase("idle"), 900);
-    return () => clearTimeout(t);
-  }, [flashSeq, flashKind]);
-  // new cycle: delay showing OK, then swap; frame never hides
+
   useEffect(() => {
     if (cycleKey === prevCycle.current) return;
-
     const nextDir: 1 | -1 = cycleKey > prevCycle.current ? 1 : -1;
     prevCycle.current = cycleKey;
     setDir(nextDir);
@@ -80,12 +203,10 @@ export default function TableSwap({
     if (settleTimer.current) clearTimeout(settleTimer.current);
 
     swapTimer.current = setTimeout(() => {
-      setPhase("swapping");
       setVisibleKey(cycleKey);
       settleTimer.current = setTimeout(() => {
         if (pendingTitle) setVisibleTitle(pendingTitle);
         setPendingTitle(null);
-        setPhase("idle");
       }, 650);
     }, Math.max(0, swapDelayMs));
 
@@ -93,38 +214,61 @@ export default function TableSwap({
       if (swapTimer.current) clearTimeout(swapTimer.current);
       if (settleTimer.current) clearTimeout(settleTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cycleKey, incomingTitle, okAppearDelayMs, swapDelayMs]);
+  }, [cycleKey, incomingTitle, swapDelayMs, pendingTitle]);
 
-  // prompt text
-  const prompt = !hasBoard || ksskCount >= ksskTarget ? "Please scan new board number" : "Please scan KSSK";
+  /* in-table OK/NOT OK overlay */
+  const [phase, setPhase] = useState<"idle" | "ok">("idle");
+  const [okKind, setOkKind] = useState<"success" | "error">("success");
+  const prevFlashSeq = useRef<number | null>(null);
+  const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (flashSeq == null) return;
+    if (prevFlashSeq.current === flashSeq) return;
+    prevFlashSeq.current = flashSeq;
+
+    setTimeout(() => {
+      setOkKind(flashKind === "error" ? "error" : "success");
+      setPhase("ok");
+      if (okTimer.current) clearTimeout(okTimer.current);
+      okTimer.current = setTimeout(() => setPhase("idle"), 1000); // visible ~1s
+    }, Math.max(0, okAppearDelayMs));
+
+    return () => {
+      if (okTimer.current) clearTimeout(okTimer.current);
+    };
+  }, [flashSeq, flashKind, okAppearDelayMs]);
+
+  /* prompt */
+  const prompt =
+    !hasBoard || ksskCount >= ksskTarget ? "Please scan barcode" : "Please scan KSSK";
   const Icon = prompt.includes("KSSK") ? BarsIcon : ScanIcon;
   const showProgress = prompt.includes("KSSK");
+const showScanHint = !showProgress;
 
- const okTheme =
+// 50% of callout, clamped; wide:height ≈ 2.4:1
+const tileWpx = Math.round(Math.max(72, Math.min(calloutW * 0.5, 220)));
+const tileHpx = Math.round(tileWpx * 0.42);
+
+const hintGutter = showScanHint ? tileWpx + 32 : 0;
+  const theme =
     okKind === "success"
-      ? { bg: "rgba(220, 252, 231, 0.92)", bd: "#86efac", fg: "#065f46", label: "Setup OK" }
-      : { bg: "rgba(254, 226, 226, 0.92)", bd: "#fecaca", fg: "#7f1d1d", label: "Setup NOT OK" };
-
-
-  // directional slide for panel content
-  const panelVariants = {
-    enter: (d: 1 | -1) => ({
-      x: `${d * 26}%`,
-      opacity: 0,
-      scale: 0.985,
-      rotate: d * 0.2,
-      filter: "blur(2px)" as any,
-    }),
-    center: { x: "0%", opacity: 1, scale: 1, rotate: 0, filter: "blur(0px)" as any },
-    exit: (d: 1 | -1) => ({
-      x: `${d * -26}%`,
-      opacity: 0,
-      scale: 0.985,
-      rotate: d * -0.1,
-      filter: "blur(2px)" as any,
-    }),
-  } as const;
+      ? {
+          bg: "linear-gradient(180deg, rgba(240,253,244,0.92), rgba(220,252,231,0.92))",
+          ring: "0 0 0 10px rgba(16,185,129,0.18)",
+          border: "#86efac",
+          fg: "#065f46",
+          label: "OK",
+          accent: "#10b981",
+        }
+      : {
+          bg: "linear-gradient(180deg, rgba(254,242,242,0.92), rgba(254,226,226,0.92))",
+          ring: "0 0 0 10px rgba(239,68,68,0.18)",
+          border: "#fecaca",
+          fg: "#7f1d1d",
+          label: "NOT OK",
+          accent: "#ef4444",
+        };
 
   return (
     <div style={{ width: "min(1400px, 100%)", margin: "0 auto" }}>
@@ -139,7 +283,7 @@ export default function TableSwap({
           padding: 16,
         }}
       >
-        {/* static frame */}
+        {/* frame */}
         <div
           style={{
             position: "absolute",
@@ -156,10 +300,10 @@ export default function TableSwap({
             padding: 20,
           }}
         >
-          {/* header persists */}
+          {/* header */}
           <Header title={visibleTitle} muted={phase !== "idle"} />
 
-          {/* sliding content area */}
+          {/* sliding body */}
           <div
             style={{
               position: "relative",
@@ -178,98 +322,151 @@ export default function TableSwap({
                 animate="center"
                 exit="exit"
                 transition={{
-                  x: { type: "spring", stiffness: 700, damping: 60, mass: 0.7 },
+                  x: springX,
                   opacity: { duration: slideMs * 0.36 },
                   scale: { duration: slideMs * 0.44 },
                   filter: { duration: slideMs * 0.5 },
                 }}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  padding: 28,
-                  textAlign: "center",
-                  willChange: "transform",
-                }}
+               style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 28,
+                paddingRight: 28 + hintGutter,   // NEW
+                textAlign: "center",
+                willChange: "transform",
+              }}
               >
-                {/* Hide the prompt while OK is visible */}
-                {phase !== "okPending" && <Body prompt={prompt} />}
+                {phase !== "ok" && (
+                <Body prompt={prompt} reserveRightPx={hintGutter} />   // pass the gutter
+              )}
+              {phase !== "ok" && showScanHint && (
+                <CornerBarcodeHint top={52} widthPx={tileWpx} heightPx={tileHpx} />
+              )}
 
-                {/* Big SETUP OK overlay inside the table */}
-            <AnimatePresence>
-            {phase === "okPending" && (
-              <m.div
-                key={`okOverlay-${prevFlashSeq.current ?? 0}`}   // ensure remount
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ type: "spring", stiffness: 260, damping: 22 }}
-                style={{
-                  position: "absolute",
-                  inset: 12,
-                  borderRadius: 16,
-                  background: okTheme.bg,
-                  border: `1px solid ${okTheme.bd}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  pointerEvents: "none",
-                }}
-              >
-                <div
-                  style={{
-                    fontWeight: 1000,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    fontSize: "clamp(44px, 7.5vw, 96px)",
-                    color: okTheme.fg,
-                    lineHeight: 1.02,
-                    textAlign: "center",
-                  }}
-                >
-                  {okTheme.label}
-                </div>
-              </m.div>
-            )}
-          </AnimatePresence>
+                {/* OK/NOT OK overlay */}
+                <AnimatePresence>
+                  {phase === "ok" && (
+                    <m.div
+                      key={`ok-${prevFlashSeq.current ?? 0}`}
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.98 }}
+                      transition={{ type: "spring", stiffness: 260, damping: 22 }}
+                      role="status"
+                      aria-live="assertive"
+                      style={{
+                        position: "absolute",
+                        inset: 12,
+                        borderRadius: 16,
+                        background: theme.bg,
+                        border: `1px solid ${theme.border}`,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        pointerEvents: "none",
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,255,255,0.7), 0 22px 44px rgba(15,23,42,0.25)",
+                      }}
+                    >
+                      {/* beveled frame + glow */}
+                      <div
+                        aria-hidden
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          borderRadius: 16,
+                          boxShadow: theme.ring,
+                        }}
+                      />
+                      <CornerPip pos="tl" color={theme.accent} />
+                      <CornerPip pos="tr" color={theme.accent} />
+                      <CornerPip pos="bl" color={theme.accent} />
+                      <CornerPip pos="br" color={theme.accent} />
+
+                      {/* subtle scan beam */}
+                      <m.div
+                        aria-hidden
+                        initial={{ x: "-120%" }}
+                        animate={{ x: "120%" }}
+                        transition={{ duration: 1.2, ease: "easeInOut" }}
+                        style={{
+                          position: "absolute",
+                          top: "22%",
+                          left: 0,
+                          right: 0,
+                          height: 8,
+                          filter: "blur(8px)",
+                          background:
+                            "linear-gradient(90deg, transparent, rgba(255,255,255,0.7), transparent)",
+                        }}
+                      />
+
+                      {/* label */}
+                      <div
+                        style={{
+                          fontWeight: 1000,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                          fontSize: "clamp(42px, 7.5vw, 96px)",
+                          color: theme.fg,
+                          lineHeight: 1.02,
+                          textAlign: "center",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 18,
+                        }}
+                      >
+                        {okKind === "success" ? <CheckIcon /> : <CrossIcon />}
+                        {theme.label}
+                      </div>
+
+                      {/* success confetti / error shake aura */}
+                      <Decor kind={okKind} seed={prevFlashSeq.current ?? 1} />
+                    </m.div>
+                  )}
+                </AnimatePresence>
               </m.div>
             </AnimatePresence>
           </div>
         </div>
 
-        {/* floating callout hidden during OK as well */}
+        {/* floating callout (hidden during overlay) */}
         <AnimatePresence>
-          {phase !== "okPending" && (
+          {phase !== "ok" && (
             <m.div
-              key="callout"
-              role="status"
-              aria-live="polite"
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.3 }}
-              style={{
-                position: "absolute",
-                right: 24,
-                top: 24,
-                padding: "12px 16px",
-                borderRadius: 20,
-                border: "1px solid rgba(15,23,42,0.06)",
-                background: "rgba(255,255,255,0.72)",
-                backdropFilter: "saturate(180%) blur(12px)",
-                WebkitBackdropFilter: "saturate(180%) blur(12px)",
-                boxShadow: "0 6px 22px rgba(0,0,0,0.12)",
-                color: "#0f172a",
-                fontWeight: 800,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                maxWidth: "70%",
-                whiteSpace: "nowrap",
+              ref={calloutRef}  
+  key="callout"
+  role="status"
+  aria-live="polite"
+  initial={{ opacity: 0, y: -4 }}
+  animate={{ opacity: 1, y: 0 }}
+  exit={{ opacity: 0, y: -4 }}
+  transition={{ duration: 0.22 }}
+  style={{
+    position: "absolute",
+    right: 8,              // was 24
+    top: 8,                // was 24
+    padding: "14px 18px",  // a touch larger
+    borderRadius: 24,
+    border: "1px solid rgba(15,23,42,0.06)",
+    background: "rgba(255,255,255,0.78)",
+    backdropFilter: "saturate(180%) blur(12px)",
+    WebkitBackdropFilter: "saturate(180%) blur(12px)",
+    boxShadow: "0 10px 26px rgba(0,0,0,0.14)",
+    color: "#0f172a",
+    fontWeight: 900,
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 420,                      // ensure it’s wider
+    maxWidth: "min(920px, 96vw)",       // was "70%"
+    whiteSpace: "nowrap",
+
               }}
             >
               <Icon />
@@ -320,7 +517,11 @@ function Header({ title, muted }: { title: string; muted: boolean }) {
           lineHeight: 1.1,
           opacity: muted ? 0.85 : 1,
           transition: "opacity .2s ease",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
         }}
+        title={title}
       >
         {title}
       </div>
@@ -329,11 +530,11 @@ function Header({ title, muted }: { title: string; muted: boolean }) {
   );
 }
 
-function Body({ prompt }: { prompt: string }) {
+function Body({ prompt, reserveRightPx = 0 }: { prompt: string; reserveRightPx?: number }) {
   return (
     <div
       style={{
-        maxWidth: "92%",
+        maxWidth: `calc(92% - ${reserveRightPx}px)`, // reserve space for badge
         fontWeight: 1000,
         letterSpacing: "0.06em",
         textTransform: "uppercase",
@@ -351,8 +552,93 @@ function Body({ prompt }: { prompt: string }) {
   );
 }
 
+/* ---------- overlay decoration ---------- */
+
+function CornerPip({ pos, color }: { pos: "tl" | "tr" | "bl" | "br"; color: string }) {
+  const base: React.CSSProperties = {
+    position: "absolute",
+    width: 72,
+    height: 72,
+    borderRadius: 14,
+    pointerEvents: "none",
+    boxShadow: `0 10px 28px ${color}33`,
+  };
+  const edge = 4;
+  const style =
+    pos === "tl"
+      ? { ...base, left: -edge, top: -edge, borderTop: `${edge}px solid ${color}`, borderLeft: `${edge}px solid ${color}` }
+      : pos === "tr"
+      ? { ...base, right: -edge, top: -edge, borderTop: `${edge}px solid ${color}`, borderRight: `${edge}px solid ${color}` }
+      : pos === "bl"
+      ? { ...base, left: -edge, bottom: -edge, borderBottom: `${edge}px solid ${color}`, borderLeft: `${edge}px solid ${color}` }
+      : { ...base, right: -edge, bottom: -edge, borderBottom: `${edge}px solid ${color}`, borderRight: `${edge}px solid ${color}` };
+  return <div aria-hidden style={style} />;
+}
+
+function Decor({ kind, seed }: { kind: "success" | "error"; seed: number }) {
+  if (kind === "error") {
+    return (
+      <m.div
+        aria-hidden
+        initial={{ scale: 1 }}
+        animate={{ scale: [1, 1.015, 1], filter: ["drop-shadow(0 0 0 rgba(239,68,68,0))", "drop-shadow(0 0 18px rgba(239,68,68,0.55))", "drop-shadow(0 0 0 rgba(239,68,68,0))"] }}
+        transition={{ duration: 0.55, ease: "easeInOut" }}
+        style={{ position: "absolute", inset: 0 }}
+      />
+    );
+  }
+
+  // success confetti
+  const rng = seededRand(seed);
+  const pieces = Array.from({ length: 18 }).map((_, i) => {
+    const x = rng() * 100;
+    const rot = rng() * 360;
+    const d = 0.8 + rng() * 0.6;
+    const delay = rng() * 0.15;
+    const size = 6 + Math.round(rng() * 8);
+    return { key: i, x, rot, d, delay, size };
+  });
+
+  return (
+    <>
+      {pieces.map((p) => (
+        <m.div
+          key={p.key}
+          initial={{ top: "42%", left: `${p.x}%`, rotate: p.rot, opacity: 0 }}
+          animate={{ top: "98%", opacity: [0, 1, 0.2, 0] }}
+          transition={{ duration: p.d, delay: p.delay }}
+          style={{
+            position: "absolute",
+            width: p.size,
+            height: p.size,
+            borderRadius: 2,
+            background: ["#10b981", "#34d399", "#86efac", "#22d3ee"][p.key % 4],
+            boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 /* ---------- icons ---------- */
 
+function CheckIcon() {
+  return (
+    <svg width="56" height="56" viewBox="0 0 64 64" aria-hidden>
+      <circle cx="32" cy="32" r="32" fill="#10b981" />
+      <path d="M18 34l10 9L46 22" fill="none" stroke="white" strokeWidth="7" strokeLinecap="round" />
+    </svg>
+  );
+}
+function CrossIcon() {
+  return (
+    <svg width="52" height="52" viewBox="0 0 56 56" aria-hidden>
+      <circle cx="28" cy="28" r="28" fill="#ef4444" />
+      <path d="M18 18l20 20M38 18l-20 20" stroke="white" strokeWidth="6" strokeLinecap="round" />
+    </svg>
+  );
+}
 function ScanIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -361,7 +647,6 @@ function ScanIcon() {
     </svg>
   );
 }
-
 function BarsIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -371,7 +656,6 @@ function BarsIcon() {
     </svg>
   );
 }
-
 function ChevronRight() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>

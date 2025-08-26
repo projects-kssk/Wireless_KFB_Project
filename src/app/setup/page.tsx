@@ -228,12 +228,13 @@ const [overlay, setOverlay] = useState<Ov>({
   const [toasts, setToasts] = useState<Array<FlashEvent>>([]);
   const flashSeq = useRef(0);
 
-  const pushToast = useCallback((f: FlashEvent) => {
-    setToasts(prev => [...prev, f]);
-    window.setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== f.id));
-    }, 3500);
-  }, []);
+    const pushToast = useCallback((f: FlashEvent) => {
+      setToasts(prev => {
+        const next = [...prev, f];
+        return next.slice(-100); // keep last 10
+      });
+    }, []);
+
 
   const fireFlash = useCallback(
     (kind: "success" | "error", code: string, panel: PanelTarget, msg?: string) => {
@@ -693,7 +694,7 @@ const handleScanned = useCallback((raw: string) => {
               transition={{ type: "spring", stiffness: 520, damping: 30, mass: 0.7 }}
               style={heroBoard}
             >
-              SETUP WIRELESS KFB
+              SETUP
             </m.div>
           </m.div>
         ) : (
@@ -740,7 +741,7 @@ const handleScanned = useCallback((raw: string) => {
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>SCAN BOARD NUMBER (MAC ADDRESS)</h2>
+                <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
               </div>
 
               <ScanBoxAnimated
@@ -848,65 +849,152 @@ const handleScanned = useCallback((raw: string) => {
   );
 }
 
-/* ===== Scan visuals (animated only for KFB) ===== */
 
-function ScanBoxAnimated({
-  ariaLabel, height = 160, flashKind, flashId,
-}: {
+type Props = {
   ariaLabel: string;
   height?: number;
   flashKind?: "success" | "error" | null;
   flashId?: number;
-}) {
-  const isOk  = flashKind === "success";
+};
+export function ScanBoxAnimated({
+  ariaLabel,
+  height = 176,
+  flashKind,
+  flashId,
+}: Props) {
+  const isOk = flashKind === "success";
   const isErr = flashKind === "error";
-  const ring  = isOk ? "rgba(16,185,129,.30)" : isErr ? "rgba(239,68,68,.30)" : "transparent";
-  const tint  = isOk ? "rgba(16,185,129,.10)" : isErr ? "rgba(239,68,68,.10)" : "transparent";
+
+  const ring = isOk ? "rgba(34,197,94,.30)" : isErr ? "rgba(239,68,68,.30)" : "transparent";
+  const tint = isOk ? "rgba(34,197,94,.08)" : isErr ? "rgba(239,68,68,.08)" : "transparent";
+
+  const slabH = Math.max(104, Math.min(Math.round(height * 0.60), 128));
 
   return (
-    <div
-      aria-label={ariaLabel}
-      style={{
-        position:"relative",
-        width:"100%", height, borderRadius:16, overflow:"hidden",
-        background:"#0b1220",
-        border:"1px solid #1e293b",
-        boxShadow:"inset 0 0 0 1px rgba(255,255,255,.06)"
-      }}
-    >
-      {/* static grid only */}
+    <div aria-label={ariaLabel}>
+      {/* frame */}
       <div
         style={{
-          position:"absolute", inset:0, opacity:.35,
-          backgroundSize:"120px 100%",
-          backgroundImage:"repeating-linear-gradient(90deg, rgba(148,163,184,.24) 0 1px, transparent 1px 12px)"
+          position: "relative",
+          width: "100%",
+          height,
+          borderRadius: 16,
+          overflow: "hidden",
+          background: "#0b1220",
+          border: "1px solid #1f2937",
+          boxShadow: "inset 0 0 0 1px rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.25)",
         }}
-      />
-
-      {/* flash ring */}
-      {(isOk || isErr) && (
-        <m.div
-          key={flashId ?? flashKind}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: .18 }}
+      >
+        {/* grid */}
+        <div
+          aria-hidden
           style={{
-            position:"absolute", inset:0,
-            boxShadow:`0 0 0 6px ${ring} inset`,
-            background:tint
+            position: "absolute",
+            inset: 0,
+            opacity: 0.22,
+            backgroundImage:
+              "repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)",
+            backgroundSize: "120px 100%",
           }}
         />
-      )}
 
-      {/* centered barcode slab */}
-      <div
-        style={{
-          position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)",
-          width:"min(100%, 1100px)", height:86, borderRadius:10,
-          background:"repeating-linear-gradient(90deg, rgba(248,250,252,.9) 0 6px, transparent 6px 14px)"
-        }}
-      />
+        {/* flash ring */}
+        {(isOk || isErr) && (
+          <m.div
+            key={flashId ?? flashKind}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              boxShadow: `0 0 0 6px ${ring} inset`,
+              background: tint,
+            }}
+          />
+        )}
+
+        {/* corner brackets */}
+        {(["tl", "tr", "bl", "br"] as const).map((pos) => (
+          <div
+            key={pos}
+            aria-hidden
+            style={{
+              position: "absolute",
+              width: 18,
+              height: 18,
+              ...(pos === "tl" && { left: 10, top: 10, borderLeft: "2px solid #e5e7eb", borderTop: "2px solid #e5e7eb" }),
+              ...(pos === "tr" && { right: 10, top: 10, borderRight: "2px solid #e5e7eb", borderTop: "2px solid #e5e7eb" }),
+              ...(pos === "bl" && { left: 10, bottom: 10, borderLeft: "2px solid #e5e7eb", borderBottom: "2px solid #e5e7eb" }),
+              ...(pos === "br" && { right: 10, bottom: 10, borderRight: "2px solid #e5e7eb", borderBottom: "2px solid #e5e7eb" }),
+              opacity: 0.7,
+              borderRadius: 2,
+            }}
+          />
+        ))}
+
+        {/* static barcode slab (no animation) */}
+        <div
+          aria-hidden
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%,-50%)",
+            width: "min(100%, 1100px)",
+            height: slabH,
+            borderRadius: 12,
+            background:
+              "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)",
+            boxShadow: "inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)",
+          }}
+        >
+          {/* edge fade only */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: 12,
+              background:
+                "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 8%, rgba(11,18,32,0) 92%, rgba(11,18,32,1) 100%)",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
+
+        {/* brand text on black with bottom padding */}
+       <div
+  aria-label="KFB WIRELESS"
+  style={{
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,           // pin to bottom
+    paddingBottom: 6,    // minimal under-padding; lower than before
+    display: "flex",
+    justifyContent: "center",
+    pointerEvents: "none",
+  }}
+>
+  <span
+    style={{
+      fontFamily:
+        'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial',
+      textTransform: "uppercase",
+      letterSpacing: 3,
+      fontWeight: 700,
+      fontSize: 12,
+      color: "#ffffff",
+      opacity: 0.6,
+      textShadow: "0 1px 0 rgba(0,0,0,.35)",
+      userSelect: "none",
+    }}
+  >
+    KFB WIRELESS
+  </span>
+</div>
+      </div>
     </div>
   );
 }
@@ -1208,68 +1296,226 @@ function CodePill({
     </div>
   );
 }
-
 function ToastStack({ items, onDismiss }: { items: FlashEvent[]; onDismiss:(id:number)=>void }) {
+  const [hover, setHover] = useState(false);
+
+  const latest = items[items.length - 1] ?? null;
+  if (!latest) return null;
+
+  const errors = items.filter(t => t.kind === "error");
+  const isLatestErr = latest.kind === "error";
+  const hiddenErrCount = Math.max(0, errors.length - (isLatestErr ? 1 : 0));
+  const history = errors
+    .filter(e => !(isLatestErr && e.id === latest.id))
+    .slice(-10)         // keep last 10
+    .reverse();         // newest first
+
+  const ok = latest.kind === "success";
+  const fg = ok ? "#065f46" : "#7f1d1d";
+  const bg = ok ? "linear-gradient(180deg,#ecfdf5,#d1fae5)" : "linear-gradient(180deg,#fef2f2,#fee2e2)";
+  const bd = ok ? "#a7f3d0" : "#fecaca";
+
+  const cardW = 520;
+  const reserveH = 72;
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour12:false });
+const isOpen = hover && history.length > 0;
+  const clearAll = () => {
+    items.forEach(t => onDismiss(t.id));
+    setHover(false);
+  };
+
   return (
-    <div style={{ position:"fixed", top:12, right:12, display:"grid", gap:10, zIndex:90 }} aria-live="polite" role="status">
-      <AnimatePresence initial={false}>
-        {items.map(t => {
-          const ok = t.kind === "success";
-          const big = t.kind === "error"; // ← make errors bigger
+   <div
+    style={{ position:"fixed", top:12, right:12, zIndex:90, pointerEvents:"auto" }}
+    aria-live="polite"
+    role="status"
+    onMouseEnter={() => setHover(true)}
+    onMouseLeave={() => setHover(false)}
+  >
+          <div style={{ position:"relative", width: cardW, height: reserveH, paddingBottom: isOpen ? 8 : 0 }}>
+        {/* Top (fixed) toast */}
+        <AnimatePresence initial={false}>
+          <m.div
+            key={latest.id}
+            initial={{ opacity: 0, x: 8, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            style={{
+              position:"absolute", inset:0,
+              background: bg, border:`3px solid ${bd}`, borderRadius: 14,
+              padding: "16px 20px",
+              boxShadow:"0 10px 28px rgba(15,23,42,0.22)",
+              display:"flex", alignItems:"center", gap: 12
+            }}
+          >
+            <span aria-hidden style={{
+              width: 20, height: 20, borderRadius:999,
+              background: ok ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fb7185,#ef4444)",
+              boxShadow:`0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`
+            }}/>
+            <div style={{ color: fg, fontSize: 16, fontWeight: 900, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              {ok ? "OK" : "ERROR"} — {latest.code}{latest.msg ? ` — ${latest.msg}` : ""}
+            </div>
 
-          const bg = ok ? "linear-gradient(180deg,#ecfdf5,#d1fae5)" : "linear-gradient(180deg,#fef2f2,#fee2e2)";
-          const bd = ok ? "#a7f3d0" : "#fecaca";
-          const fg = ok ? "#065f46" : "#7f1d1d";
-
-          return (
-            <m.div
-              key={t.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ type: "tween", duration: 0.18 }}
-              style={{
-                position: "relative",
-                minWidth: big ? 480 : 320,     // ↑ wider
-                maxWidth: big ? 820 : 520,     // ↑ max width
-                background: bg,
-                border: `3px solid ${bd}`,     // ↑ thicker border
-                borderRadius: big ? 16 : 12,   // ↑ radius
-                padding: big ? "16px 20px" : "10px 14px", // ↑ padding
-                boxShadow: "0 10px 28px rgba(15,23,42,0.22)",
-              }}
+            <time
+              dateTime={new Date(latest.ts).toISOString()}
+              style={{ marginLeft: 8, color: fg, opacity:.75, fontWeight:800, fontSize:12 }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: big ? 14 : 10 }}>
-                <span
-                  aria-hidden
-                  style={{
-                    width: big ? 22 : 16,       // ↑ icon size
-                    height: big ? 22 : 16,
-                    borderRadius: 999,
-                    background: ok ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fb7185,#ef4444)",
-                    boxShadow: `0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`,
-                    flex: "0 0 auto",
-                  }}
-                />
-                <strong style={{ color: fg, fontSize: big ? 18 : 14, lineHeight: 1.25 }}>
-                  {ok ? "OK" : "ERROR"} — {t.code}{t.msg ? ` — ${t.msg}` : ""}
-                </strong>
+              {fmtTime(latest.ts)}
+            </time>
+
+            {isLatestErr && hiddenErrCount > 0 && (
+              <span
+                title={`${hiddenErrCount} more errors`}
+                style={{
+                  marginLeft: 8, padding:"4px 10px", borderRadius:999,
+                  background:"linear-gradient(180deg,#fecaca,#fca5a5)",
+                  border:"1px solid #fecaca", color:"#7f1d1d", fontWeight:900, fontSize:12
+                }}
+              >
+                +{hiddenErrCount}
+              </span>
+            )}
+
+            <button
+              type="button"
+              aria-label="Dismiss"
+              onClick={() => onDismiss(latest.id)}
+              style={{ marginLeft:"auto", border:0, background:"transparent", cursor:"pointer", fontSize:20, color: fg }}
+            >
+              ×
+            </button>
+          </m.div>
+        </AnimatePresence>
+
+        {/* Dropdown history */}
+         <AnimatePresence>
+        {isOpen && (
+          <m.div
+            key="toast-history"
+            initial={{ height: 0, opacity: 0, y: 0 }}
+            animate={{ height: "auto", opacity: 1, y: 0 }}
+            exit={{ height: 0, opacity: 0, y: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            style={{
+              position:"absolute",
+              top: "100%",          // ⬅️ no gap (was calc(100% + 8px))
+              right: 0,
+              width: "100%",
+              overflow: "hidden",
+              borderRadius: 16,
+              border: "2px solid #fecaca",
+              background: "linear-gradient(180deg,#fff5f5,#fee2e2)",
+              boxShadow: "0 16px 36px rgba(15,23,42,0.18)"
+            }}
+            >
+              {/* Sticky header */}
+              <div style={{
+                position:"sticky", top:0, zIndex:1,
+                display:"flex", alignItems:"center", gap:10,
+                padding:"12px 14px",
+                background:"rgba(255,255,255,0.65)",
+                backdropFilter:"saturate(160%) blur(8px)",
+                WebkitBackdropFilter:"saturate(160%) blur(8px)",
+                borderBottom:"1px solid #ffdada",
+                color:"#7f1d1d", fontWeight:900
+              }}>
+                <span style={{ display:"inline-flex", alignItems:"center", gap:8 }}>
+                  <span aria-hidden style={{
+                    width:10, height:10, borderRadius:999,
+                    background:"linear-gradient(180deg,#fb7185,#ef4444)",
+                    boxShadow:"0 0 0 2px rgba(239,68,68,.22)"
+                  }}/>
+                  Recent errors
+                  <span style={{
+                    marginLeft:8, padding:"2px 8px", borderRadius:999,
+                    background:"#ffe4e6", border:"1px solid #fecaca",
+                    fontSize:12, fontWeight:900
+                  }}>
+                    {history.length} shown
+                  </span>
+                </span>
                 <button
                   type="button"
-                  aria-label="Dismiss"
-                  onClick={() => onDismiss(t.id)}
-                  style={{ marginLeft: "auto", border: 0, background: "transparent", cursor: "pointer", fontSize: big ? 22 : 18, color: fg }}
+                  onClick={clearAll}
+                  style={{
+                    marginLeft:"auto",
+                    padding:"6px 12px",
+                    borderRadius:999,
+                    border:"1px solid #fecaca",
+                    background:"linear-gradient(180deg,#ffe4e6,#ffd7db)",
+                    color:"#7f1d1d",
+                    fontWeight:900,
+                    cursor:"pointer"
+                  }}
                 >
-                  ×
+                  Clear all
                 </button>
               </div>
+
+              {/* List */}
+              <div style={{
+                maxHeight: 340,
+                overflowY:"auto",
+                padding:"10px 12px 12px",
+              }}>
+                {history.map((t, i) => (
+                  <m.div
+                    key={t.id}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.025, duration: 0.16 }}
+                    style={{
+                      display:"flex", alignItems:"center", gap:12,
+                      padding:"12px 14px",
+                      background:"linear-gradient(180deg,#ffffff,rgba(255,255,255,0.75))",
+                      border:"1px solid #ffe1e1",
+                      borderRadius:12,
+                      color:"#7f1d1d", fontWeight:800,
+                      boxShadow:"0 1px 0 rgba(255,255,255,0.65) inset",
+                      marginBottom:8
+                    }}
+                  >
+                    <span aria-hidden style={{
+                      width: 12, height: 12, borderRadius:999,
+                      background:"linear-gradient(180deg,#fb7185,#ef4444)",
+                      boxShadow:"0 0 0 2px rgba(239,68,68,.18)"
+                    }}/>
+                    <div style={{
+                      minWidth:0, flex:1,
+                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"
+                    }}>
+                      ERROR — {t.code}{t.msg ? ` — ${t.msg}` : ""}
+                    </div>
+                    <time
+                      dateTime={new Date(t.ts).toISOString()}
+                      style={{
+                        fontSize:12, fontWeight:900, opacity:.75,
+                        padding:"2px 8px", borderRadius:999,
+                        background:"#ffe8ea", border:"1px solid #ffd2d6"
+                      }}
+                    >
+                      {fmtTime(t.ts)}
+                    </time>
+                  </m.div>
+                ))}
+              </div>
+
+              {/* soft bottom fade */}
+              <div aria-hidden style={{
+                position:"sticky", bottom:0, height:18, pointerEvents:"none",
+                background:"linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55))",
+                borderTop:"1px solid rgba(255,255,255,.4)"
+              }}/>
             </m.div>
-          );
-        })}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }
+
 type SpotlightRect = { top:number; left:number; width:number; height:number };
 
 // 1) Props typing — drop React. and allow null
@@ -1385,12 +1631,6 @@ const bannerRight = useViewport
             <div style={{ position:"absolute", left:0, top:hole!.top, width:hole!.left, height:hole!.height, background:CURTAIN }} />
             <div style={{ position:"absolute", left:hole!.left + hole!.width, right:0, top:hole!.top, height:hole!.height, background:CURTAIN }} />
             <div style={{ position:"absolute", left:0, right:0, top:hole!.top + hole!.height, bottom:0, background:CURTAIN }} />
-
-            {/* corner accents */}
-            <div style={{ ...cornerBase, left:hole!.left-CORNER_THICK, top:hole!.top-CORNER_THICK, borderTop:`${CORNER_THICK}px solid ${ACCENT}`, borderLeft:`${CORNER_THICK}px solid ${ACCENT}` }} />
-            <div style={{ ...cornerBase, left:hole!.left+hole!.width-CORNER_SIZE+CORNER_THICK, top:hole!.top-CORNER_THICK, borderTop:`${CORNER_THICK}px solid ${ACCENT}`, borderRight:`${CORNER_THICK}px solid ${ACCENT}` }} />
-            <div style={{ ...cornerBase, left:hole!.left-CORNER_THICK, top:hole!.top+hole!.height-CORNER_SIZE+CORNER_THICK, borderBottom:`${CORNER_THICK}px solid ${ACCENT}`, borderLeft:`${CORNER_THICK}px solid ${ACCENT}` }} />
-            <div style={{ ...cornerBase, left:hole!.left+hole!.width-CORNER_SIZE+CORNER_THICK, top:hole!.top+hole!.height-CORNER_SIZE+CORNER_THICK, borderBottom:`${CORNER_THICK}px solid ${ACCENT}`, borderRight:`${CORNER_THICK}px solid ${ACCENT}` }} />
           </>
         ) : anchor === "table" ? (
           // while measuring, keep a soft full curtain; for viewport, no curtain

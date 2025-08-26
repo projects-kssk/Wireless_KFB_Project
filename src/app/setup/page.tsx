@@ -706,7 +706,7 @@ const handleScanned = useCallback((raw: string) => {
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
+                <h2 style={heading}>SCAN BARCODE</h2>
               </div>
 
               <ScanBoxAnimated
@@ -1022,7 +1022,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
             display: "grid", placeItems: "center",
           }}
         >
-          <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>{index + 1}</span>
+          <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>{index + 1 }</span>
         </div>
         <StateIcon state={filled ? "valid" : isErr ? "invalid" : "idle"} size={40} />
       </div>

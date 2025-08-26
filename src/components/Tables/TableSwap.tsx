@@ -243,9 +243,9 @@ useEffect(() => {
   const nextOrdinal = Math.min(ksskCount + 1, ksskTarget);
 
   const prompt = !hasBoard
-    ? "Please scan new board number"
+    ? "Please scan barcode"
     : ksskCount >= ksskTarget
-    ? "Please scan new board number"
+    ? "Please scan barcode"
     : `Please scan KSSK #${nextOrdinal}`;
 
   const Icon = hasBoard && ksskCount < ksskTarget ? BarsIcon : ScanIcon;

@@ -18,6 +18,9 @@ type EspLineStream = {
   ringIds: number[];
   nextId: number;
   subs: Set<SubFn>;
+    lastSeenAt: number;          // NEW
+  lastLine?: string;           // NEW
+
 };
 
 type G = typeof globalThis & { __ESP_STREAM?: EspLineStream };
@@ -44,24 +47,31 @@ function armEsp(): EspLineStream {
   const ringIds: number[] = [];
   let nextId = 1;
   const subs = new Set<SubFn>();
+  let lastSeenAt = 0;            // NEW
 
-  parser.on("data", (buf: Buffer | string) => {
-    const s = String(buf).trim();
-    if (!s) return;
+// --- update the data handler
+parser.on("data", (buf: Buffer | string) => {
+  const s = String(buf).trim();
+  if (!s) return;
 
-    if (process.env.ESP_DEBUG) console.log(`[ESP:${path}] ${s}`);
+  if (process.env.ESP_DEBUG) console.log(`[ESP:${path}] ${s}`);
 
-    ring.push(s);
-    ringIds.push(nextId++);
-    if (ring.length > 400) {
-      ring.shift();
-      ringIds.shift();
-    }
+  ring.push(s);
+  ringIds.push(nextId++);
+  if (ring.length > 400) {
+    ring.shift();
+    ringIds.shift();
+  }
 
-    subs.forEach((fn) => {
-      try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
-    });
+  // NEW: passive liveness
+  lastSeenAt = Date.now();
+  GBL.__ESP_STREAM!.lastSeenAt = lastSeenAt;
+  GBL.__ESP_STREAM!.lastLine = s;
+
+  subs.forEach((fn) => {
+    try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
   });
+});
 
   port.on("error", (e) => {
     console.error(`[ESP:${path}] error`, e?.message ?? e);
@@ -71,8 +81,8 @@ function armEsp(): EspLineStream {
     GBL.__ESP_STREAM = undefined; // allow re-open later
   });
 
-  GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs };
-  return GBL.__ESP_STREAM;
+  GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs, lastSeenAt, lastLine: undefined };
+return GBL.__ESP_STREAM;
 }
 
 export function getEspLineStream(): EspLineStream { return armEsp(); }
@@ -81,6 +91,15 @@ export function mark(): number {
   return ringIds.length ? ringIds[ringIds.length - 1]! : 0;
 }
 export function flushHistory(): number { return mark(); }
+
+// --- convenience accessor
+export function getEspActivity(): { lastSeenAt: number | null; ageMs: number | null; lastLine?: string } {
+  const s = getEspLineStream();
+  if (!s.lastSeenAt) return { lastSeenAt: null, ageMs: null, lastLine: undefined };
+  const ageMs = Date.now() - s.lastSeenAt;
+  return { lastSeenAt: s.lastSeenAt, ageMs, lastLine: s.lastLine };
+}
+
 
 async function waitUntilOpen(port: SerialPort): Promise<void> {
   if ((port as any).isOpen) return;
@@ -190,14 +209,41 @@ export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
     return { ok: false, raw: String(e?.message ?? e) };
   }
 }
-export async function espHealth(): Promise<{ present: boolean; ok: boolean; raw: string }> {
+// --- replace espHealth to avoid pinging by default
+export async function espHealth(opts?: {
+  probe?: "never" | "if-stale" | "always";
+  staleMs?: number;
+}): Promise<{ present: boolean; ok: boolean; raw: string; ageMs?: number; lastLine?: string }> {
+  const probeEnv = (process.env.ESP_HEALTH_PROBE ?? "never").toLowerCase() as "never" | "if-stale" | "always";
+  const probe = opts?.probe ?? probeEnv;
+  const staleMs = opts?.staleMs ?? Number(process.env.ESP_HEALTH_STALE_MS ?? 15000);
+
   const present = await isEspPresent();
   if (!present) return { present, ok: false, raw: "not present" };
+
+  const act = getEspActivity();
+  const ageMs = act.ageMs ?? Number.POSITIVE_INFINITY;
+
+  // Passive-only success path
+  if (probe === "never") {
+    return { present, ok: true, raw: act.ageMs == null ? "present (no activity yet)" : `passive ${ageMs}ms`, ageMs: act.ageMs ?? undefined, lastLine: act.lastLine };
+  }
+
+  // If-stale only probes when no recent traffic
+  if (probe === "if-stale" && ageMs < staleMs) {
+    return { present, ok: true, raw: `passive ${ageMs}ms`, ageMs, lastLine: act.lastLine };
+  }
+
+  // Explicit probe, but only if a ping template is configured
   const tmpl = (process.env.ESP_PING_CMD ?? "").trim();
-  if (!tmpl) return { present, ok: true, raw: "present (no ping)" };
+  if (!tmpl) {
+    return { present, ok: true, raw: act.ageMs == null ? "present (probe disabled)" : `passive ${ageMs}ms`, ageMs: act.ageMs ?? undefined, lastLine: act.lastLine };
+  }
+
   const { ok, raw } = await pingEsp();
   return { present, ok, raw };
 }
+
 export async function listSerialDevicesRaw(): Promise<Awaited<ReturnType<typeof SerialPort.list>>> {
   return SerialPort.list();
 }

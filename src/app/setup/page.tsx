@@ -194,6 +194,7 @@ type KsskIndex = 0 | 1 | 2;
 type KsskPanel = `kssk${KsskIndex}`;
 type PanelKey = "kfb" | KsskPanel;
 type OfflineResp = { ok: boolean; status: number; data: any | null };
+type Ov = { open:boolean; kind:"success"|"error"; code:string; msg?:string; seq:number };
 
 /* ===== Page ===== */
 export default function SetupPage() {
@@ -204,15 +205,17 @@ export default function SetupPage() {
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>([null, null, null]);
 
   const [showManualFor, setShowManualFor] = useState<Record<string, boolean>>({});
-  const [overlay, setOverlay] = useState<{ open: boolean; kind: "success" | "error"; code: string; msg?: string }>(
-    { open: false, kind: "success", code: "" }
-  );
+  const [overlay, setOverlay] = useState<Ov>({ open:false, kind:"success", code:"", seq:0 });
+
+
   const [tableCycle, setTableCycle] = useState(0);
   const [kbdBuffer, setKbdBuffer] = useState("");
 
   const sendBusyRef = useRef(false);
 
 
+
+  
 const hb = useRef<Map<string, number>>(new Map());
 
 const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
@@ -286,14 +289,15 @@ useEffect(() => {
   
   const [lastError, setLastError] = useState<string | null>(null);
 
-  const showOk = (code: string, msg?: string) => {
-    setOverlay({ open: true, kind: "success", code, msg });
-    setLastError(null);
-  };
-  const showErr = (code: string, msg?: string) => {
-    setOverlay({ open: true, kind: "error", code, msg });
-    setLastError(`${code}${msg ? ` — ${msg}` : ""}`);
-  };
+
+  const showOk  = (code:string, msg?:string) =>
+  setOverlay(o => ({ open:true, kind:"success", code, msg, seq:o.seq + 1 }));
+
+
+  const showErr = (code:string, msg?:string) => {
+  setLastError(`${code}${msg ? ` — ${msg}` : ""}`);   // <— update badge
+  setOverlay(o => ({ open:true, kind:"error", code, msg, seq:o.seq+1 }));
+};
 
     //RESETALL
     const resetAll = useCallback(() => {
@@ -659,7 +663,7 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
               transition={{ type: "spring", stiffness: 520, damping: 30, mass: 0.7 }}
               style={heroBoard}
             >
-              Scan BOARD NUMBER
+              SETUP WIRELESS KFB
             </m.div>
           </m.div>
         ) : (
@@ -708,7 +712,7 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>BOARD NUMBER (MAC)</h2>
+                <h2 style={heading}>SCAN BOARD NUMBER (MAC ADDRESS)</h2>
               </div>
 
               <ScanBoxAnimated ariaLabel="KFB scan zone" height={160} />
@@ -784,13 +788,15 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
       </div>
 
       {/* Overlay */}
-      <ResultOverlay
-        open={overlay.open}
-        kind={overlay.kind}
-        code={overlay.code}
-        msg={overlay.msg}
-        onClose={() => setOverlay((o) => ({ ...o, open: false }))}
-      />
+     <ResultOverlay
+      open={overlay.open}
+      kind={overlay.kind}
+      code={overlay.code}
+      msg={overlay.msg}
+      seq={overlay.seq}
+      onClose={() => setOverlay(o => ({ ...o, open:false }))}
+    />
+
     </main>
   );
 }
@@ -1129,13 +1135,14 @@ function CodePill({
 
 /* ===== Overlay ===== */
 function ResultOverlay({
-  open, kind, code, msg, onClose,
-}: { open: boolean; kind: "success" | "error"; code: string; msg?: string; onClose: () => void }) {
+  open, kind, code, msg, seq, onClose,
+}: { open:boolean; kind:"success"|"error"; code:string; msg?:string; seq:number; onClose:()=>void }) {
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(onClose, 900);
     return () => clearTimeout(t);
-  }, [open, onClose]);
+  }, [seq, open, onClose]);
+
 
   const isOk = kind === "success";
   const BG = isOk ? "rgba(16,185,129,0.50)" : "rgba(239,68,68,0.50)";
@@ -1144,7 +1151,7 @@ function ResultOverlay({
   return (
     <AnimatePresence>
       {open && (
-        <m.div
+        <m.div key={seq}  
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

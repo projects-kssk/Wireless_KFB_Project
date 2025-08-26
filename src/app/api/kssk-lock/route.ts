@@ -2,128 +2,194 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRedis } from "@/lib/redis";
 
-type LockVal = { kssk: string; mac: string; stationId: string; ts: number };
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/* ================= In-memory fallback ================= */
-const mem = new Map<string, { v: LockVal; exp: number }>(); // key = kssk:lock:<kssk>
-const keyFor = (kssk: string) => `kssk:lock:${kssk}`;
+/* ===== Types ===== */
+type LockVal = { kssk: string; mac: string; stationId: string; ts: number };
+type LockRow = LockVal & { expiresAt?: number };
 
-function memGet(key: string): LockVal | null {
-  const x = mem.get(key);
+/* ===== Keys ===== */
+const K = (kssk: string) => `kssk:lock:${kssk}`;
+const S = (stationId: string) => `kssk:station:${stationId}`;
+
+/* =======================================================================================
+   In-memory fallback (kept simple but mirrors Redis behaviour incl. per-station index)
+======================================================================================= */
+const memLocks = new Map<string, { v: LockVal; exp: number }>(); // key = K(kssk)
+const memStations = new Map<string, Set<string>>(); // key = S(stationId) -> Set<kssk>
+
+const nowMs = () => Date.now();
+const memGet = (key: string): LockVal | null => {
+  const x = memLocks.get(key);
   if (!x) return null;
-  if (Date.now() > x.exp) {
-    mem.delete(key);
+  if (nowMs() > x.exp) {
+    // expire + cleanup station index
+    memLocks.delete(key);
+    const kssk = key.slice("kssk:lock:".length);
+    for (const set of memStations.values()) set.delete(kssk);
     return null;
   }
   return x.v;
-}
-function memSetNX(key: string, v: LockVal, ttlMs: number): boolean {
+};
+const memSetNX = (key: string, v: LockVal, ttlMs: number) => {
   if (memGet(key)) return false;
-  mem.set(key, { v, exp: Date.now() + ttlMs });
+  memLocks.set(key, { v, exp: nowMs() + ttlMs });
+  const setKey = S(v.stationId);
+  if (!memStations.has(setKey)) memStations.set(setKey, new Set());
+  memStations.get(setKey)!.add(v.kssk);
   return true;
-}
-function memDelIfOwner(key: string, stationId: string): boolean {
+};
+const memDelIfOwner = (key: string, stationId: string) => {
   const cur = memGet(key);
   if (!cur || cur.stationId !== stationId) return false;
-  mem.delete(key);
+  memLocks.delete(key);
+  const setKey = S(stationId);
+  memStations.get(setKey)?.delete(cur.kssk);
   return true;
-}
-function memTouchIfOwner(key: string, stationId: string, ttlMs: number): boolean {
+};
+const memTouchIfOwner = (key: string, stationId: string, ttlMs: number) => {
   const cur = memGet(key);
   if (!cur || cur.stationId !== stationId) return false;
-  mem.set(key, { v: cur, exp: Date.now() + ttlMs });
+  memLocks.set(key, { v: cur, exp: nowMs() + ttlMs });
   return true;
-}
-function memList(stationId?: string): LockVal[] {
-  const now = Date.now();
-  const out: LockVal[] = [];
-  for (const [k, { v, exp }] of mem.entries()) {
-    if (exp <= now) {
-      mem.delete(k);
-      continue;
+};
+const memList = (stationId?: string): LockRow[] => {
+  const out: LockRow[] = [];
+  const n = nowMs();
+
+  if (stationId) {
+    const ids = memStations.get(S(stationId)) ?? new Set<string>();
+    for (const kssk of ids) {
+      const k = K(kssk);
+      const x = memLocks.get(k);
+      if (!x) continue;
+      if (x.exp <= n) { memLocks.delete(k); ids.delete(kssk); continue; }
+      out.push({ ...x.v, expiresAt: x.exp });
     }
-    if (!stationId || v.stationId === stationId) out.push(v);
+    return out;
+  }
+
+  for (const [k, { v, exp }] of memLocks.entries()) {
+    if (exp <= n) { memLocks.delete(k); continue; }
+    out.push({ ...v, expiresAt: exp });
   }
   return out;
-}
+};
 
-/* ================= Redis helpers ================= */
-async function redisGet(key: string): Promise<LockVal | null> {
+/* =======================================================================================
+   Redis helpers (compatible with ioredis or node-redis v4)
+======================================================================================= */
+const asJSON = (x: any) => (typeof x === "string" ? JSON.parse(x) : x);
+
+async function rGet(key: string): Promise<LockVal | null> {
   const r: any = getRedis();
   if (!r) return null;
   const raw = await r.get(key);
-  return raw ? (JSON.parse(raw) as LockVal) : null;
+  return raw ? (asJSON(raw) as LockVal) : null;
 }
-
-async function redisSetNX(key: string, val: LockVal, ttlMs: number): Promise<boolean> {
+async function rSetNXPX(key: string, val: LockVal, ttlMs: number): Promise<boolean> {
   const r: any = getRedis();
   if (!r) return false;
-  // ioredis: set(key, value, 'PX', ttl, 'NX'); node-redis v4: set(key, value, { PX: ttl, NX: true })
+  // ioredis: set key val 'PX' ttl 'NX'   |   node-redis v4: set key val { PX, NX: true }
   const ok =
     (await r.set?.(key, JSON.stringify(val), "PX", ttlMs, "NX")) ??
     (await r.set?.(key, JSON.stringify(val), { PX: ttlMs, NX: true }));
   return !!ok;
 }
-
-async function redisDel(key: string): Promise<void> {
-  const r: any = getRedis();
-  if (!r) return;
-  await r.del(key);
-}
-
-async function redisPexpire(key: string, ttlMs: number): Promise<boolean> {
+async function rExpirePX(key: string, ttlMs: number): Promise<boolean> {
   const r: any = getRedis();
   if (!r) return false;
   const n = await r.pexpire(key, ttlMs);
   return !!n;
 }
-
-async function redisScanKeys(pattern: string): Promise<string[]> {
+async function rDel(key: string): Promise<void> {
+  const r: any = getRedis();
+  if (!r) return;
+  await r.del(key);
+}
+async function rSAdd(skey: string, member: string) {
+  const r: any = getRedis();
+  if (!r) return;
+  await r.sadd(skey, member);
+}
+async function rSRem(skey: string, member: string) {
+  const r: any = getRedis();
+  if (!r) return;
+  await r.srem(skey, member);
+}
+async function rSMembers(skey: string): Promise<string[]> {
   const r: any = getRedis();
   if (!r) return [];
+  const res = await r.smembers(skey);
+  return Array.isArray(res) ? res : [];
+}
+async function rPTTL(key: string): Promise<number | null> {
+  const r: any = getRedis();
+  if (!r) return null;
+  const v = await r.pttl(key);
+  return typeof v === "number" ? v : null; // -2 missing, -1 no TTL
+}
+
+/* Station-scoped list with cleanup & expiresAt */
+async function redisList(stationId?: string): Promise<LockRow[]> {
+  const r: any = getRedis();
+  if (!r) return [];
+
+  const now = nowMs();
+  const rows: LockRow[] = [];
+
+  const collect = async (ksskList: string[]) => {
+    // fetch each; keep simple for compatibility
+    await Promise.all(
+      ksskList.map(async (kssk) => {
+        const key = K(kssk);
+        const val = await rGet(key);
+        if (!val) {
+          // stale index entry → cleanup
+          if (stationId) await rSRem(S(stationId), kssk);
+          return;
+        }
+        const ttl = await rPTTL(key);
+        const expiresAt = ttl && ttl > 0 ? now + ttl : undefined;
+        rows.push({ ...val, expiresAt });
+      })
+    );
+  };
+
+  if (stationId) {
+    const members = await rSMembers(S(stationId));
+    await collect(members);
+    return rows;
+  }
+
+  // no station filter → scan keys
+  const keys: string[] = [];
   if (typeof r.scan === "function") {
     let cursor = "0";
-    const keys: string[] = [];
     do {
-      const res = await r.scan(cursor, "MATCH", pattern, "COUNT", 100);
+      const res = await r.scan(cursor, "MATCH", "kssk:lock:*", "COUNT", 300);
       cursor = res[0];
-      const batch = res[1] as string[];
-      keys.push(...batch);
+      keys.push(...(res[1] as string[]));
     } while (cursor !== "0");
-    return keys;
+  } else {
+    keys.push(...(await r.keys("kssk:lock:*")));
   }
-  // Fallback (acceptable for small dev instances)
-  return (await r.keys(pattern)) as string[];
+
+  await Promise.all(
+    keys.map(async (key) => {
+      const val = await rGet(key);
+      if (!val) return;
+      const ttl = await rPTTL(key);
+      rows.push({ ...val, expiresAt: ttl && ttl > 0 ? now + ttl : undefined });
+    })
+  );
+  return rows;
 }
 
-async function redisMGet(keys: string[]): Promise<(LockVal | null)[]> {
-  const r: any = getRedis();
-  if (!r || keys.length === 0) return [];
-  if (typeof r.mget === "function") {
-    const raws: (string | null)[] = await r.mget(keys);
-    return raws.map((raw) => (raw ? (JSON.parse(raw) as LockVal) : null));
-  }
-  // Fallback to individual GETs
-  const out: (LockVal | null)[] = [];
-  for (const k of keys) out.push(await redisGet(k));
-  return out;
-}
-
-async function redisList(stationId?: string): Promise<LockVal[]> {
-  const keys = await redisScanKeys("kssk:lock:*");
-  const vals = await redisMGet(keys);
-  const out: LockVal[] = [];
-  for (const v of vals) {
-    if (!v) continue;
-    if (!stationId || v.stationId === stationId) out.push(v);
-  }
-  return out;
-}
-
-/* ================= Handlers ================= */
+/* =======================================================================================
+   Handlers
+======================================================================================= */
 
 export async function POST(req: NextRequest) {
   const { kssk, mac, stationId, ttlSec = 900 } = await req.json();
@@ -131,17 +197,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
   }
 
-  const key = keyFor(String(kssk));
+  const key = K(String(kssk));
   const ttlMs = Math.max(5, Number(ttlSec)) * 1000;
-  const val: LockVal = { kssk: String(kssk), mac: String(mac ?? ""), stationId: String(stationId), ts: Date.now() };
+  const val: LockVal = {
+    kssk: String(kssk),
+    mac: String(mac ?? "").toUpperCase(),
+    stationId: String(stationId),
+    ts: nowMs(),
+  };
 
   const r = getRedis();
   if (r) {
-    const ok = await redisSetNX(key, val, ttlMs);
+    const ok = await rSetNXPX(key, val, ttlMs);
     if (!ok) {
-      const existing = await redisGet(key);
+      const existing = await rGet(key);
       return NextResponse.json({ error: "locked", existing }, { status: 409 });
     }
+    // index by station for fast listing
+    await rSAdd(S(val.stationId), val.kssk);
     return NextResponse.json({ ok: true });
   }
 
@@ -151,10 +224,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-/**
- * GET supports two modes:
- *  1) /api/kssk-lock?kssk=123          -> lookup a single lock
- *  2) /api/kssk-lock[?stationId=ID]    -> list locks (optionally filter by station)
+/** GET
+ *  - /api/kssk-lock?kssk=123         -> single status
+ *  - /api/kssk-lock[?stationId=ID]   -> list, optionally filtered; returns expiresAt
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -162,35 +234,48 @@ export async function GET(req: NextRequest) {
   const stationId = searchParams.get("stationId") || undefined;
 
   if (kssk) {
-    const key = keyFor(kssk);
+    const key = K(kssk);
     const r = getRedis();
-    const existing = r ? await redisGet(key) : memGet(key);
-    return NextResponse.json({ locked: !!existing, existing: existing ?? null });
+    if (r) {
+      const existing = await rGet(key);
+      const ttl = existing ? await rPTTL(key) : null;
+      const expiresAt = existing && ttl && ttl > 0 ? nowMs() + ttl : undefined;
+      return NextResponse.json({ locked: !!existing, existing: existing ? { ...existing, expiresAt } : null });
+    }
+    const v = memGet(key);
+    // find exp in mem
+    let expiresAt: number | undefined;
+    if (v) {
+      const x = (memLocks.get(key) as any)?.exp as number | undefined;
+      if (x) expiresAt = x;
+    }
+    return NextResponse.json({ locked: !!v, existing: v ? { ...v, expiresAt } : null });
   }
 
-  // List locks
   const r = getRedis();
-  const locks = r ? await redisList(stationId) : memList(stationId);
+  const locks: LockRow[] = r ? await redisList(stationId) : memList(stationId);
   return NextResponse.json({ locks });
 }
 
+/** PATCH: heartbeat (extend TTL) */
 export async function PATCH(req: NextRequest) {
-  // heartbeat: extend TTL if owner
   const { kssk, stationId, ttlSec = 900 } = await req.json();
   if (!kssk || !stationId) {
     return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
   }
-  const key = keyFor(String(kssk));
+  const key = K(String(kssk));
   const ttlMs = Math.max(5, Number(ttlSec)) * 1000;
 
   const r = getRedis();
   if (r) {
-    const existing = await redisGet(key);
+    const existing = await rGet(key);
     if (!existing) return NextResponse.json({ error: "not_locked" }, { status: 404 });
     if (existing.stationId !== String(stationId)) {
       return NextResponse.json({ error: "not_owner", existing }, { status: 403 });
     }
-    await redisPexpire(key, ttlMs);
+    await rExpirePX(key, ttlMs);
+    // ensure index exists
+    await rSAdd(S(existing.stationId), existing.kssk);
     return NextResponse.json({ ok: true });
   }
 
@@ -200,21 +285,23 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/** DELETE: release (owner only) */
 export async function DELETE(req: NextRequest) {
   const { kssk, stationId } = await req.json();
   if (!kssk || !stationId) {
     return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
   }
-  const key = keyFor(String(kssk));
+  const key = K(String(kssk));
 
   const r = getRedis();
   if (r) {
-    const existing = await redisGet(key);
+    const existing = await rGet(key);
     if (!existing) return NextResponse.json({ ok: true }); // already free
     if (existing.stationId !== String(stationId)) {
       return NextResponse.json({ error: "not_owner", existing }, { status: 403 });
     }
-    await redisDel(key);
+    await rDel(key);
+    await rSRem(S(existing.stationId), existing.kssk); // remove from station index
     return NextResponse.json({ ok: true });
   }
 

@@ -257,9 +257,16 @@ export async function POST(req: NextRequest) {
   push(`→ HTTP ${status || 0} in ${ms} ms`);
 
   // Compute server-truth flags
-  const responsePretty = prettyXml(text || "");
-  const hasWorkingData = text ? hasWorkingDataTag(text) : false;
-  const complete = isCompleteKrosy(text || "");
+
+  let upstreamJson: any = null;
+  try { upstreamJson = text && text.trim().startsWith("{") ? JSON.parse(text) : null; } catch {}
+
+  const responsePretty = upstreamJson ? "" : prettyXml(text || "");
+  const hasWorkingData =
+    upstreamJson
+      ? !!upstreamJson?.response?.krosy?.body?.visualControl?.workingData
+      : (text ? hasWorkingDataTag(text) : false);
+  const complete = upstreamJson ? true : isCompleteKrosy(text || "");
   const preview = responsePretty.length > PREVIEW_LIMIT;
   const responseXmlPreview = truncate(responsePretty, PREVIEW_LIMIT);
 
@@ -343,10 +350,11 @@ export async function POST(req: NextRequest) {
         hasWorkingData,
         isComplete: complete,
         isPreview: preview,
-        responseXmlPreview, // truncated pretty
-        responseXmlPreviewLength: responseXmlPreview.length,
-        responseXmlRaw: maybeRaw, // when small enough
-        responseXmlRawLength: responsePretty.length,
+        responseXmlPreview: upstreamJson ? undefined : responsePretty && responsePretty.slice(0, PREVIEW_LIMIT),
+        responseXmlPreviewLength: upstreamJson ? undefined : responsePretty ? Math.min(responsePretty.length, PREVIEW_LIMIT) : 0,
+        responseXmlRaw: upstreamJson ? undefined : maybeRaw,
+        responseXmlRawLength: upstreamJson ? undefined : responsePretty.length,
+         responseJsonRaw: upstreamJson || undefined,
         logText: report,
         logs: lines,
       },

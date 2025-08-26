@@ -73,40 +73,60 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
   );
 }
 function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: number[] } {
-  const take = (node: any) => (Array.isArray(node) ? node : node != null ? [node] : []);
-
-  // segment can live under workingData or loadedData
-  const segmentRoot =
+  const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
+  const segRoot =
     data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment ??
     data?.response?.krosy?.body?.visualControl?.loadedData?.sequencer?.segmentList?.segment;
 
-  const segments = take(segmentRoot);
-
+  const segments = take(segRoot);
   const normal: number[] = [];
   const latch: number[] = [];
 
+  const ACCEPT = new Set(["default", "no_check"]); // ← include no_check to see PIN:10
+
   for (const seg of segments) {
-    const seqArr = take(seg?.sequenceList?.sequence);
-    for (const s of seqArr) {
+    for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
-      if (mt !== "default") continue; // ignore no_check etc.
+      if (!ACCEPT.has(mt)) continue;
+
+      // OPTIONAL: only take objGroups that look like "...(AA:BB:CC:DD:EE:FF)"
+      // const og = String(s?.objGroup ?? "");
+      // if (!/\([0-9A-F]{2}(?::[0-9A-F]{2}){5}\)$/i.test(og)) continue;
 
       const parts = String(s?.objPos ?? "").split(",");
       let isLatch = false;
-      if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") {
-        isLatch = true;
-        parts.pop();
-      }
+      if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
       const last = parts[parts.length - 1] ?? "";
       const pin = Number(String(last).replace(/[^\d]/g, ""));
       if (!Number.isFinite(pin)) continue;
       (isLatch ? latch : normal).push(pin);
     }
   }
-
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
+
+function extractPinsFromKrosyXML(xml: string) {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const seqs = Array.from(doc.getElementsByTagName("sequence"));
+  const accept = new Set(["default", "no_check"]); // include no_check if you want CL_3804,10
+  const normal: number[] = [], latch: number[] = [];
+  for (const s of seqs) {
+    const mt = (s.getAttribute("measType") || "").toLowerCase();
+    if (!accept.has(mt)) continue;
+    const pos = s.getElementsByTagName("objPos")[0]?.textContent || "";
+    const parts = pos.split(",");
+    let isLatch = false;
+    if (parts[parts.length - 1]?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
+    const pin = Number((parts[parts.length - 1] || "").replace(/\D+/g, ""));
+    if (!Number.isFinite(pin)) continue;
+    (isLatch ? latch : normal).push(pin);
+  }
+  const uniq = (xs: number[]) => Array.from(new Set(xs));
+  return { normalPins: uniq(normal), latchPins: uniq(latch) };
+}
+
+
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(
@@ -189,29 +209,79 @@ export default function SetupPage() {
     }
   };
 
-  const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
-    return withTimeout(async (signal) => {
-      try {
-        const res = await fetch(KROSY_OFFLINE_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Accept: "application/json" },
-          signal,
-          body: JSON.stringify({
-            intksk: ksskDigits,
-            requestID: "1",
-            sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
-            targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
-          }),
-        });
+const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
+  return withTimeout(async (signal) => {
+    try {
+      const res = await fetch(KROSY_OFFLINE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Accept both—offline may proxy XML or JSON
+          Accept: "application/json, application/xml;q=0.9, */*;q=0.1",
+        },
+        signal,
+        body: JSON.stringify({
+          intksk: ksskDigits,
+          requestID: "1",
+          sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+          targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
+        }),
+      });
 
-        let data: any = null;
-        try { data = await res.json(); } catch {}
-        return { ok: res.ok, status: res.status, data };
+      let data: any = null;
+      try {
+        const ct = (res.headers.get("content-type") || "").toLowerCase();
+
+        if (ct.includes("json")) {
+          const j = await res.json();
+
+          // /api/krosy-offline JSON wrapper -> surface XML or upstream JSON
+          if (j?.responseXmlRaw || j?.responseXmlPreview) {
+            data = { __xml: j.responseXmlRaw ?? j.responseXmlPreview };
+          } else if (j?.response?.krosy) {
+            // direct /api/krosy JSON 'latest'
+            data = j;
+          } else if (j?.responseJsonRaw) {
+            // optional passthrough (if server exposes it)
+            data = j.responseJsonRaw;
+          } else {
+            data = j; // best-effort passthrough
+          }
+
+        } else if (ct.includes("xml") || ct.includes("text/xml")) {
+          // Pure XML from upstream or proxy
+          data = { __xml: await res.text() };
+
+        } else {
+          // Unknown/opaque: try JSON, then treat as XML/text
+          const raw = await res.text();
+          try {
+            const j2 = JSON.parse(raw);
+            if (j2?.responseXmlRaw || j2?.responseXmlPreview) {
+              data = { __xml: j2.responseXmlRaw ?? j2.responseXmlPreview };
+            } else if (j2?.response?.krosy) {
+              data = j2;
+            } else if (j2?.responseJsonRaw) {
+              data = j2.responseJsonRaw;
+            } else {
+              data = j2;
+            }
+          } catch {
+            data = { __xml: raw };
+          }
+        }
       } catch {
-        return { ok: false, status: 0, data: null };
+        // non-fatal parse failure; fall through with data=null
       }
-    });
-  }, []);
+
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      // network/timeout abort
+      return { ok: false, status: 0, data: null };
+    }
+  });
+}, []);
+
 
   /* ===== Acceptors ===== */
   const acceptKfb = useCallback((code: string) => {
@@ -251,7 +321,10 @@ export default function SetupPage() {
 
       if (resp.ok) {
         // Extract pins
-        const pins = resp.data ? extractPinsFromKrosy(resp.data) : null;
+        const pins = resp.data?.__xml
+        ? extractPinsFromKrosyXML(resp.data.__xml)   // new helper
+        : extractPinsFromKrosy(resp.data);
+
         const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
 
         if (!hasPins) {

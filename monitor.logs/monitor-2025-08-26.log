@@ -1,4 +1,0 @@
-{"ts":"2025-08-26T16:39:19.454Z","event":"monitor.prepare","mac":"08:3A:8D:15:27:54","kssk":"830577904820","cmd":"MONITOR 1,2,3,4,5,6,8,9,10,11,12 LATCH 3,6,7 08:3A:8D:15:27:54","normalPins":[1,2,3,4,5,6,8,9,10,11,12],"latchPins":[3,6,7]}
-{"ts":"2025-08-26T16:39:19.466Z","event":"monitor.success","mac":"08:3A:8D:15:27:54","kssk":"830577904820","cmd":"MONITOR 1,2,3,4,5,6,8,9,10,11,12 LATCH 3,6,7 08:3A:8D:15:27:54"}
-{"ts":"2025-08-26T19:19:10.268Z","event":"monitor.prepare","mac":"08:3A:8D:15:27:54","kssk":"830577904820","cmd":"MONITOR 1,2,3,4,5,6,8,9,10,11,12 LATCH 3,6,7 08:3A:8D:15:27:54","normalPins":[1,2,3,4,5,6,8,9,10,11,12],"latchPins":[3,6,7]}
-{"ts":"2025-08-26T19:19:10.275Z","event":"monitor.error","mac":"08:3A:8D:15:27:54","kssk":"830577904820","cmd":"MONITOR 1,2,3,4,5,6,8,9,10,11,12 LATCH 3,6,7 08:3A:8D:15:27:54","error":"Error: No such file or directory, cannot open /dev/ttyUSB0"}

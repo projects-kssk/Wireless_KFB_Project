@@ -81,60 +81,99 @@ const memList = (stationId?: string): LockRow[] => {
    Redis helpers (compatible with ioredis or node-redis v4)
 ======================================================================================= */
 const asJSON = (x: any) => (typeof x === "string" ? JSON.parse(x) : x);
+async function connectIfNeeded(r: any): Promise<boolean> {
+  if (!r) return false;
+  try {
+    // node-redis v4
+    if (typeof r.isOpen === "boolean") {
+      if (!r.isOpen) await r.connect();
+      return r.isOpen;
+    }
+    // ioredis
+    if (typeof r.status === "string") {
+      if (r.status !== "ready") {
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            r.off?.("ready", done);
+            r.off?.("connect", done);
+            resolve();
+          };
+          r.once?.("ready", done);
+          r.once?.("connect", done);
+        });
+      }
+      return r.status === "ready";
+    }
+  } catch { /* ignore */ }
+  return true;
+}
 
 async function rGet(key: string): Promise<LockVal | null> {
   const r: any = getRedis();
-  if (!r) return null;
-  const raw = await r.get(key);
-  return raw ? (asJSON(raw) as LockVal) : null;
+  if (!r || !(await connectIfNeeded(r))) return null;
+  try {
+    const raw = await r.get(key);
+    return raw ? (asJSON(raw) as LockVal) : null;
+  } catch { return null; }
 }
+
 async function rSetNXPX(key: string, val: LockVal, ttlMs: number): Promise<boolean> {
   const r: any = getRedis();
-  if (!r) return false;
-  // ioredis: set key val 'PX' ttl 'NX'   |   node-redis v4: set key val { PX, NX: true }
-  const ok =
-    (await r.set?.(key, JSON.stringify(val), "PX", ttlMs, "NX")) ??
-    (await r.set?.(key, JSON.stringify(val), { PX: ttlMs, NX: true }));
-  return !!ok;
+  if (!r || !(await connectIfNeeded(r))) return false;
+  try {
+    const ok =
+      (await r.set?.(key, JSON.stringify(val), "PX", ttlMs, "NX")) ??
+      (await r.set?.(key, JSON.stringify(val), { PX: ttlMs, NX: true }));
+    return !!ok;
+  } catch { return false; }
 }
+
 async function rExpirePX(key: string, ttlMs: number): Promise<boolean> {
   const r: any = getRedis();
-  if (!r) return false;
-  const n = await r.pexpire(key, ttlMs);
-  return !!n;
+  if (!r || !(await connectIfNeeded(r))) return false;
+  try {
+    const n = await r.pexpire(key, ttlMs);
+    return !!n;
+  } catch { return false; }
 }
+
 async function rDel(key: string): Promise<void> {
   const r: any = getRedis();
-  if (!r) return;
-  await r.del(key);
+  if (!r || !(await connectIfNeeded(r))) return;
+  try { await r.del(key); } catch { /* ignore */ }
 }
+
 async function rSAdd(skey: string, member: string) {
   const r: any = getRedis();
-  if (!r) return;
-  await r.sadd(skey, member);
+  if (!r || !(await connectIfNeeded(r))) return;
+  try { await r.sadd(skey, member); } catch { /* ignore */ }
 }
 async function rSRem(skey: string, member: string) {
   const r: any = getRedis();
-  if (!r) return;
-  await r.srem(skey, member);
+  if (!r || !(await connectIfNeeded(r))) return;
+  try { await r.srem(skey, member); } catch { /* ignore */ }
 }
 async function rSMembers(skey: string): Promise<string[]> {
   const r: any = getRedis();
-  if (!r) return [];
-  const res = await r.smembers(skey);
-  return Array.isArray(res) ? res : [];
+  if (!r || !(await connectIfNeeded(r))) return [];
+  try {
+    const res = await r.smembers(skey);
+    return Array.isArray(res) ? res : [];
+  } catch { return []; }
 }
 async function rPTTL(key: string): Promise<number | null> {
   const r: any = getRedis();
-  if (!r) return null;
-  const v = await r.pttl(key);
-  return typeof v === "number" ? v : null; // -2 missing, -1 no TTL
+  if (!r || !(await connectIfNeeded(r))) return null;
+  try {
+    const v = await r.pttl(key);
+    return typeof v === "number" ? v : null;
+  } catch { return null; }
 }
 
 /* Station-scoped list with cleanup & expiresAt */
 async function redisList(stationId?: string): Promise<LockRow[]> {
   const r: any = getRedis();
-  if (!r) return [];
+if (!r || !(await connectIfNeeded(r))) return [];
 
   const now = nowMs();
   const rows: LockRow[] = [];
@@ -284,29 +323,57 @@ export async function PATCH(req: NextRequest) {
   }
   return NextResponse.json({ ok: true });
 }
-
-/** DELETE: release (owner only) */
 export async function DELETE(req: NextRequest) {
-  const { kssk, stationId } = await req.json();
-  if (!kssk || !stationId) {
-    return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
-  }
-  const key = K(String(kssk));
+  let kssk: string | null = null;
+  let stationId: string | null = null;
+  let force = false;
 
+  try {
+    if ((req.headers.get("content-type") || "").includes("application/json")) {
+      const b = await req.json().catch(() => ({}));
+      kssk = b?.kssk ?? null;
+      stationId = b?.stationId ?? null;
+      force = b?.force === true || b?.force === 1 || b?.force === "1";
+    }
+  } catch {}
+
+  const sp = new URL(req.url).searchParams;
+  kssk ??= sp.get("kssk");
+  stationId ??= sp.get("stationId");
+  force ||= sp.get("force") === "1";
+
+  if (!kssk) return NextResponse.json({ error: "kssk required" }, { status: 400 });
+
+  const key = K(String(kssk));
   const r = getRedis();
-  if (r) {
+
+  // --- Redis path
+  if (r && (await connectIfNeeded(r))) {
+    if (typeof r.connect === "function") { await r.connect().catch(()=>{}); }
     const existing = await rGet(key);
-    if (!existing) return NextResponse.json({ ok: true }); // already free
-    if (existing.stationId !== String(stationId)) {
+    if (!existing) return NextResponse.json({ ok: true });
+
+    if (!force && (!stationId || existing.stationId !== String(stationId))) {
       return NextResponse.json({ error: "not_owner", existing }, { status: 403 });
     }
+
     await rDel(key);
-    await rSRem(S(existing.stationId), existing.kssk); // remove from station index
-    return NextResponse.json({ ok: true });
+    // remove from station index set
+    await rSRem(S(existing.stationId), existing.kssk);
+
+    return NextResponse.json({ ok: true, deleted: existing });
   }
 
-  if (!memDelIfOwner(key, String(stationId))) {
-    return NextResponse.json({ error: "not_owner_or_missing" }, { status: 403 });
+  // --- In-memory fallback
+  const cur = memGet(key);
+  if (!cur) return NextResponse.json({ ok: true });
+
+  if (!force && (!stationId || cur.stationId !== String(stationId))) {
+    return NextResponse.json({ error: "not_owner_or_missing", existing: cur }, { status: 403 });
   }
-  return NextResponse.json({ ok: true });
+
+  memLocks.delete(key);
+  memStations.get(S(cur.stationId))?.delete(cur.kssk);
+
+  return NextResponse.json({ ok: true, deleted: cur });
 }

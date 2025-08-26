@@ -17,6 +17,8 @@ type TableSwapProps = {
   okAppearDelayMs?: number;          // delay before showing the big SETUP OK overlay
    boardName?: string | null;            // <-- allow null
   boardMap?: Record<string, string>; // e.g. { KFB1: "KFB 61-001" }
+  flashKind?: "success" | "error";   // NEW
+  flashSeq?: number;                 // NEW
 };
 
 export default function TableSwap({
@@ -32,6 +34,8 @@ export default function TableSwap({
   okAppearDelayMs = 600,    // small extra delay before showing SETUP OK
   boardName,
   boardMap,
+  flashKind,
+  flashSeq,
 }: TableSwapProps) {
   // resolve incoming display title from source
   const incomingTitle = useMemo(() => {
@@ -44,13 +48,25 @@ export default function TableSwap({
   const [visibleTitle, setVisibleTitle] = useState<string>(incomingTitle);
   const [pendingTitle, setPendingTitle] = useState<string | null>(null);
   const [phase, setPhase] = useState<"idle" | "okPending" | "swapping">("idle");
+  const [okKind, setOkKind] = useState<"success" | "error">("success");
+  const prevFlashSeq = useRef<number | null>(null);
+
+  
   const [dir, setDir] = useState<1 | -1>(1);
 
   const prevCycle = useRef<number>(cycleKey);
   const okTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+ useEffect(() => {
+    if (flashSeq == null) return;
+    if (prevFlashSeq.current === flashSeq) return;
+    prevFlashSeq.current = flashSeq;
+    setOkKind(flashKind === "error" ? "error" : "success");
+    setPhase("okPending");
+    const t = setTimeout(() => setPhase("idle"), 900);
+    return () => clearTimeout(t);
+  }, [flashSeq, flashKind]);
   // new cycle: delay showing OK, then swap; frame never hides
   useEffect(() => {
     if (cycleKey === prevCycle.current) return;
@@ -58,35 +74,22 @@ export default function TableSwap({
     const nextDir: 1 | -1 = cycleKey > prevCycle.current ? 1 : -1;
     prevCycle.current = cycleKey;
     setDir(nextDir);
-
     setPendingTitle(incomingTitle);
 
-    // clear any previous timers
-    if (okTimer.current) clearTimeout(okTimer.current);
     if (swapTimer.current) clearTimeout(swapTimer.current);
     if (settleTimer.current) clearTimeout(settleTimer.current);
-
-    // ensure OK appears before swap; keep at least ~300ms runway
-    const okDelay =
-      okAppearDelayMs >= swapDelayMs ? Math.max(0, swapDelayMs - 300) : Math.max(0, okAppearDelayMs);
-
-    okTimer.current = setTimeout(() => {
-      setPhase("okPending");
-    }, okDelay);
 
     swapTimer.current = setTimeout(() => {
       setPhase("swapping");
       setVisibleKey(cycleKey);
-
       settleTimer.current = setTimeout(() => {
         if (pendingTitle) setVisibleTitle(pendingTitle);
         setPendingTitle(null);
         setPhase("idle");
-      }, 650); // spring settle
+      }, 650);
     }, Math.max(0, swapDelayMs));
 
     return () => {
-      if (okTimer.current) clearTimeout(okTimer.current);
       if (swapTimer.current) clearTimeout(swapTimer.current);
       if (settleTimer.current) clearTimeout(settleTimer.current);
     };
@@ -97,6 +100,12 @@ export default function TableSwap({
   const prompt = !hasBoard || ksskCount >= ksskTarget ? "Please scan new board number" : "Please scan KSSK";
   const Icon = prompt.includes("KSSK") ? BarsIcon : ScanIcon;
   const showProgress = prompt.includes("KSSK");
+
+ const okTheme =
+    okKind === "success"
+      ? { bg: "rgba(220, 252, 231, 0.92)", bd: "#86efac", fg: "#065f46", label: "Setup OK" }
+      : { bg: "rgba(254, 226, 226, 0.92)", bd: "#fecaca", fg: "#7f1d1d", label: "Setup NOT OK" };
+
 
   // directional slide for panel content
   const panelVariants = {
@@ -189,42 +198,42 @@ export default function TableSwap({
                 {phase !== "okPending" && <Body prompt={prompt} />}
 
                 {/* Big SETUP OK overlay inside the table */}
-                <AnimatePresence>
-                  {phase === "okPending" && (
-                    <m.div
-                      key="okOverlay"
-                      initial={{ opacity: 0, scale: 0.96 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.98 }}
-                      transition={{ type: "spring", stiffness: 260, damping: 22 }}
-                      style={{
-                        position: "absolute",
-                        inset: 12,
-                        borderRadius: 16,
-                        background: "rgba(220, 252, 231, 0.92)",
-                        border: "1px solid #86efac",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        pointerEvents: "none",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontWeight: 1000,
-                          letterSpacing: "0.06em",
-                          textTransform: "uppercase",
-                          fontSize: "clamp(44px, 7.5vw, 96px)",
-                          color: "#065f46",
-                          lineHeight: 1.02,
-                          textAlign: "center",
-                        }}
-                      >
-                        Setup OK
-                      </div>
-                    </m.div>
-                  )}
-                </AnimatePresence>
+            <AnimatePresence>
+            {phase === "okPending" && (
+              <m.div
+                key={`okOverlay-${prevFlashSeq.current ?? 0}`}   // ensure remount
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 260, damping: 22 }}
+                style={{
+                  position: "absolute",
+                  inset: 12,
+                  borderRadius: 16,
+                  background: okTheme.bg,
+                  border: `1px solid ${okTheme.bd}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                }}
+              >
+                <div
+                  style={{
+                    fontWeight: 1000,
+                    letterSpacing: "0.06em",
+                    textTransform: "uppercase",
+                    fontSize: "clamp(44px, 7.5vw, 96px)",
+                    color: okTheme.fg,
+                    lineHeight: 1.02,
+                    textAlign: "center",
+                  }}
+                >
+                  {okTheme.label}
+                </div>
+              </m.div>
+            )}
+          </AnimatePresence>
               </m.div>
             </AnimatePresence>
           </div>

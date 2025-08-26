@@ -11,7 +11,7 @@ import {
 } from "react";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
-
+import type { RefObject, MutableRefObject } from "react";
 /* ===== Config ===== */
 const OK_DISPLAY_MS = 3000;
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
@@ -194,19 +194,59 @@ type KsskIndex = 0 | 1 | 2;
 type KsskPanel = `kssk${KsskIndex}`;
 type PanelKey = "kfb" | KsskPanel;
 type OfflineResp = { ok: boolean; status: number; data: any | null };
-type Ov = { open:boolean; kind:"success"|"error"; code:string; msg?:string; seq:number };
-
+type Ov = {
+  open: boolean;
+  kind: "success" | "error";
+  code: string;
+  msg?: string;
+  seq: number;
+  anchor: "table" | "viewport";
+};
+/* NEW: hoisted so all module scope can use them */
+type PanelTarget = PanelKey | "global";
+type FlashEvent = {
+  id: number;
+  kind: "success" | "error";
+  panel: PanelTarget;
+  code: string;
+  msg?: string;
+  ts: number;
+};
 /* ===== Page ===== */
 export default function SetupPage() {
   const allowManual = true;
   const prefersReduced = useReducedMotion();
-
+const tableRef = useRef<HTMLDivElement>(null);
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>([null, null, null]);
 
   const [showManualFor, setShowManualFor] = useState<Record<string, boolean>>({});
-  const [overlay, setOverlay] = useState<Ov>({ open:false, kind:"success", code:"", seq:0 });
+const [overlay, setOverlay] = useState<Ov>({
+  open:false, kind:"success", code:"", seq:0, anchor:"table"
+});
+  const [flash, setFlash] = useState<FlashEvent | null>(null);
+  const [toasts, setToasts] = useState<Array<FlashEvent>>([]);
+  const flashSeq = useRef(0);
 
+  const pushToast = useCallback((f: FlashEvent) => {
+    setToasts(prev => [...prev, f]);
+    window.setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== f.id));
+    }, 3500);
+  }, []);
+
+  const fireFlash = useCallback(
+    (kind: "success" | "error", code: string, panel: PanelTarget, msg?: string) => {
+      const id = ++flashSeq.current;
+      const f: FlashEvent = { id, kind, panel, code, msg, ts: Date.now() };
+      setFlash(f);
+      pushToast(f);
+      window.setTimeout(() => {
+        setFlash(cur => (cur && cur.id === id ? null : cur));
+      }, 900);
+    },
+    [pushToast]
+  );
 
   const [tableCycle, setTableCycle] = useState(0);
   const [kbdBuffer, setKbdBuffer] = useState("");
@@ -290,13 +330,20 @@ useEffect(() => {
   const [lastError, setLastError] = useState<string | null>(null);
 
 
-  const showOk  = (code:string, msg?:string) =>
-  setOverlay(o => ({ open:true, kind:"success", code, msg, seq:o.seq + 1 }));
+const showOk = (code: string, msg?: string, panel: PanelTarget = "global") => {
+  const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
+  setLastError(null);
+  fireFlash("success", code, panel, msg);
+  setOverlay(o => ({ ...o, open:false }));
+  setTimeout(() => {
+    setOverlay(o => ({ open:true, kind:"success", code, msg, seq:o.seq+1, anchor }));
+  }, 0);
+};
 
-
-  const showErr = (code:string, msg?:string) => {
-  setLastError(`${code}${msg ? ` — ${msg}` : ""}`);   // <— update badge
-  setOverlay(o => ({ open:true, kind:"error", code, msg, seq:o.seq+1 }));
+const showErr = (code: string, msg?: string, panel: PanelTarget = "global") => {
+  const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
+  fireFlash("error", code, panel, msg);
+  setOverlay(o => ({ open:true, kind:"error", code, msg, seq:o.seq+1, anchor }));
 };
 
     //RESETALL
@@ -397,191 +444,159 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
 
 
   /* ===== Acceptors ===== */
-  const acceptKfb = useCallback((code: string) => {
-    setKfb((prev) => {
-      if (prev !== code) {
-        setKsskSlots([null, null, null]);
-        setShowManualFor({});
-      }
-      return code;
+ const acceptKfb = useCallback((code: string) => {
+  setKfb(prev => {
+    if (prev !== code) {
+      setKsskSlots([null, null, null]);
+      setShowManualFor({});
+    }
+    return code;
+  });
+  setTableCycle(n => n + 1);
+  showOk(code, "BOARD SET", "kfb");   // <-- targeted flash
+}, []);
+
+const acceptKsskToIndex = useCallback(
+  async (code: string, idx?: number) => {
+    const target = typeof idx === "number" ? idx : ksskSlots.findIndex(v => v === null);
+    const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
+
+    if (activeLocks.current.has(code)) { showErr(code, "TESTED on another board — already in production", panel); return; }
+    if (!kfb) { showErr(code, "Scan MAC address first", "kfb"); return; }
+    if (ksskSlots.some(c => c === code)) { showErr(code, "Duplicate KSSK", panel); return; }
+    if (target === -1) { showErr(code, "Batch full (3/3)", "global"); return; }
+
+    setKsskSlots(prev => { const n = [...prev]; n[target] = code; return n; });
+    setTableCycle(n => n + 1);
+
+    const lockRes = await fetch("/api/kssk-lock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
     });
-    setTableCycle((n) => n + 1);
-    showOk(code, "BOARD SET");
-  }, []);
 
-  const acceptKsskToIndex = useCallback(
-    async (code: string, idx?: number) => {
-      // 0) Local "already in production" guard (rehydrated at mount)
-      if (activeLocks.current.has(code)) {
-        showErr(code, "TESTED on another board — already in production");
-        return;
-      }
+    if (!lockRes.ok) {
+      const j = await lockRes.json().catch(() => ({}));
+      const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+      const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+      const msg =
+        otherMac && otherMac !== kfb?.toUpperCase()
+          ? `TESTED on another board — already assigned to BOARD ${otherMac}`
+          : `TESTED on another board — already in production${heldBy}`;
 
-      // Preconditions
-      if (!kfb) { showErr(code, "Scan MAC address first"); return; }
-      if (ksskSlots.some((c) => c === code)) { showErr(code, "Duplicate KSSK"); return; }
-      const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
-      if (target === -1) { showErr(code, "Batch full (3/3)"); return; }
+      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+      showErr(code, msg, panel);
+      return;
+    }
 
-      // Optimistic fill
-      setKsskSlots((prev) => { const n = [...prev]; n[target] = code; return n; });
-      setTableCycle((n) => n + 1);
+    activeLocks.current.add(code);
+    saveLocalLocks(activeLocks.current);
 
-      // 1) Acquire server lock (authoritative)
-      const lockRes = await fetch("/api/kssk-lock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
-      });
+    if (sendBusyRef.current) {
+      await releaseLock(code);
+      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+      return;
+    }
 
-      if (!lockRes.ok) {
-        const j = await lockRes.json().catch(() => ({}));
-        const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
-        const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+    sendBusyRef.current = true;
+    let resp: OfflineResp | null = null;
+    try { resp = await sendKsskToOffline(code); } finally { sendBusyRef.current = false; }
 
-        // Prefer “tested on another board” message if it's locked to a different MAC
-        const msg =
-          otherMac && otherMac !== kfb?.toUpperCase()
-            ? `TESTED on another board — already assigned to BOARD ${otherMac}`
-            : `TESTED on another board — already in production${heldBy}`;
+    if (!resp?.ok && resp?.status === 0) {
+      await releaseLock(code);
+      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+      showErr(code, "Krosy communication error", panel);
+      return;
+    }
 
-        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, msg);
-        return;
-      }
+    if (resp?.ok) {
+      const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
+      const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
 
-      // 2) Persist local lock as soon as POST succeeds
-      activeLocks.current.add(code);
-      saveLocalLocks(activeLocks.current);
-
-      // 3) Single-flight guard
-      if (sendBusyRef.current) {
-        await releaseLock(code); // undo lock if we won't proceed now
-        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        return;
-      }
-
-      // 4) Krosy call
-      sendBusyRef.current = true;
-      let resp: OfflineResp | null = null;
-      try { resp = await sendKsskToOffline(code); }
-      finally { sendBusyRef.current = false; }
-
-      // Network/timeout
-      if (!resp?.ok && resp?.status === 0) {
+      if (!hasPins) {
         await releaseLock(code);
-        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, "Krosy communication error");
+        setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        showErr(code, "Krosy configuration error: no PINS", panel);
         return;
       }
 
-      if (resp?.ok) {
-        // 5) Extract pins
-        const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
-        const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+      let espOk = true;
+      try {
+        const r = await fetch("/api/serial", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ normalPins: pins.normalPins, latchPins: pins.latchPins, mac: kfb.toUpperCase(), kssk: code }),
+        });
+        if (!r.ok) {
+          espOk = false;
+          const t = await r.text().catch(() => "");
+          showErr(code, `ESP write failed — ${t || r.status}`, panel);
+        }
+      } catch (e:any) {
+        espOk = false;
+        showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel);
+      }
 
-        if (!hasPins) {
+      if (!espOk) {
+        if (ALLOW_NO_ESP) {
+          showOk(code, "KSSK OK (ESP offline)", panel);
+          startHeartbeat(code);
+          setTimeout(() => {
+            setKsskSlots(prev => {
+              const filled = prev.filter(Boolean).length;
+              if (filled >= 3) { setKfb(null); return [null, null, null]; }
+              return prev;
+            });
+          }, OK_DISPLAY_MS);
+          return;
+        } else {
           await releaseLock(code);
-          setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-          showErr(code, "Krosy configuration error: no PINS");
+          setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+          showErr(code, "ESP write failed", panel);
           return;
         }
-
-        // 6) Send to ESP
-        let espOk = true;
-        try {
-          const r = await fetch("/api/serial", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              normalPins: pins.normalPins,
-              latchPins: pins.latchPins,
-              mac: kfb.toUpperCase(),
-              kssk: code,
-            }),
-          });
-          if (!r.ok) {
-            espOk = false;
-            const t = await r.text().catch(() => "");
-            setLastError(`ESP write failed — ${t || r.status}`);
-          }
-        } catch (e:any) {
-          espOk = false;
-          setLastError(`ESP write failed — ${e?.message ?? "unknown error"}`);
-        }
-
-        if (!espOk) {
-          if (ALLOW_NO_ESP) {
-            // Treat as success for testing: KEEP the lock, show OK, heartbeat
-            showOk(code, "KSSK OK (ESP offline)");
-            startHeartbeat(code);
-            setTimeout(() => {
-              setKsskSlots((prev) => {
-                const filled = prev.filter(Boolean).length;
-                if (filled >= 3) { setKfb(null); return [null, null, null]; }
-                return prev;
-              });
-            }, OK_DISPLAY_MS);
-            return;
-          } else {
-            await releaseLock(code); // real mode: undo and error
-            setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-            showErr(code, "ESP write failed");
-            return;
-          }
-        }
-        // 7) Success: keep lock alive (do NOT release here)
-        showOk(code, "KSSK OK");
-        startHeartbeat(code);
-
-        // Optional UI reset when batch hits 3 — but keep locks!
-        setTimeout(() => {
-          setKsskSlots((prev) => {
-            const filled = prev.filter(Boolean).length;
-            if (filled >= 3) {
-              setKfb(null);
-              return [null, null, null];
-            }
-            return prev;
-          });
-        }, OK_DISPLAY_MS);
-
-      } else {
-        // HTTP error with status from Krosy
-        await releaseLock(code);
-        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, `KSSK send failed (${resp?.status || "no status"})`);
       }
-    },
-    [kfb, ksskSlots, sendKsskToOffline]
-  );
 
+      showOk(code, "KSSK OK", panel);
+      startHeartbeat(code);
+    } else {
+      await releaseLock(code);
+      setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+      showErr(code, `KSSK send failed (${resp?.status || "no status"})`, panel);
+    }
+  },
+  [kfb, ksskSlots, sendKsskToOffline]
+);
 
-  /* ===== Manual + Scanner wedge ===== */
-  const handleManualSubmit = useCallback(
-    (panel: PanelKey, raw: string) => {
-      const { type, code } = classify(raw);
-      if (!type) { showErr(raw, "Unrecognized code"); return; }
-
-      if (panel === "kfb") {
-        if (type !== "kfb") { showErr(code, "Expected ESP MAC (AA:BB:CC:DD:EE:FF)"); return; }
-        acceptKfb(code);
-      } else {
-        if (type !== "kssk") { showErr(code, "Expected KSSK (12 digits)"); return; }
-        const idx = Number(panel.slice(-1)) as KsskIndex;
-        void acceptKsskToIndex(code, idx);
-      }
-      setShowManualFor((s) => ({ ...s, [panel]: false }));
-    },
-    [acceptKfb, acceptKsskToIndex]
-  );
-
-  const handleScanned = useCallback((raw: string) => {
+const handleManualSubmit = useCallback(
+  (panel: PanelKey, raw: string) => {
     const { type, code } = classify(raw);
-    if (!type) { showErr(code || raw, "Unrecognized code"); return; }
-    if (type === "kfb") acceptKfb(code);
-    else void acceptKsskToIndex(code);
-  }, [acceptKfb, acceptKsskToIndex]);
+    if (!type) { showErr(raw, "Unrecognized code", panel); return; }
+
+    if (panel === "kfb") {
+      if (type !== "kfb") { showErr(code, "Expected ESP MAC (AA:BB:CC:DD:EE:FF)", "kfb"); return; }
+      acceptKfb(code);
+    } else {
+      if (type !== "kssk") { showErr(code, "Expected KSSK (12 digits)", panel); return; }
+      const idx = Number(panel.slice(-1)) as KsskIndex;
+      void acceptKsskToIndex(code, idx);
+    }
+    setShowManualFor(s => ({ ...s, [panel]: false }));
+  },
+  [acceptKfb, acceptKsskToIndex]
+);
+
+const handleScanned = useCallback((raw: string) => {
+  const { type, code } = classify(raw);
+  const nextIdx = ksskSlots.findIndex(v => v === null);
+  const defaultKsskPanel: PanelKey = (nextIdx >= 0 ? `kssk${nextIdx}` : "kssk0") as PanelKey;
+  const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKsskPanel;
+
+  if (!type) { showErr(code || raw, "Unrecognized code", defaultPanel); return; }
+  if (type === "kfb") acceptKfb(code);
+  else void acceptKsskToIndex(code);
+}, [kfb, ksskSlots, acceptKfb, acceptKsskToIndex]);
+
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -650,6 +665,21 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
 
   const ksskCount = ksskSlots.filter(Boolean).length;
 
+  useEffect(() => {
+  if (!kfb) return;
+  if (ksskCount === 3) {
+    // let the OK overlay finish (900ms), then reset UI to default
+    const t = setTimeout(() => {
+      setLastError(null);
+      setKfb(null);                     // back to Step 1: scan MAC
+      setKsskSlots([null, null, null]); // clear slots (locks are kept)
+      setShowManualFor({});
+      setTableCycle(n => n + 1);        // nudge TableSwap if needed
+    }, 950);
+    return () => clearTimeout(t);
+  }
+}, [ksskCount, kfb]);
+
   return (
     <main style={page}>
       {/* HERO */}
@@ -685,9 +715,7 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
               </m.div>
             </m.div>
 
-            {lastError && (
-              <InlineErrorBadge text={lastError} onClear={() => setLastError(null)} />
-            )}
+      
 
             {ksskCount >= 1 && (
               <m.div layout>
@@ -715,7 +743,13 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
                 <h2 style={heading}>SCAN BOARD NUMBER (MAC ADDRESS)</h2>
               </div>
 
-              <ScanBoxAnimated ariaLabel="KFB scan zone" height={160} />
+              <ScanBoxAnimated
+                ariaLabel="KFB scan zone"
+                height={160}
+                flashKind={flash?.panel === "kfb" ? flash.kind : null}
+                flashId={flash?.panel === "kfb" ? flash.id : undefined}
+              />
+
 
               {allowManual && (
                 <button
@@ -755,26 +789,29 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
             </div>
 
             <div style={slotsGrid}>
-              {([0, 1, 2] as const).map((idx) => {
-                const code = ksskSlots[idx];
-                return (
-                  <KsskSlotCompact
-                    key={idx}
-                    index={idx}
-                    code={code}
-                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
-                    manualOpen={!!showManualFor[`kssk${idx}`]}
-                    onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
-                  />
-                );
-              })}
+            {([0, 1, 2] as const).map((idx) => {
+              const code = ksskSlots[idx];
+              const hit = flash && (flash.panel === "global" || flash.panel === (`kssk${idx}` as PanelKey));
+              return (
+                <KsskSlotCompact
+                  key={idx}
+                  index={idx}
+                  code={code}
+                  onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
+                  manualOpen={!!showManualFor[`kssk${idx}`]}
+                  onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
+                  flashKind={hit ? flash!.kind : null}
+                  flashId={hit ? flash!.id : undefined}
+                />
+              );
+            })}
             </div>
           </section>
         </section>
       )}
 
       {/* TableSwap */}
-      <div style={{ ...containerWide, marginTop: 6 }}>
+      <div ref={tableRef} style={{ ...containerWide, marginTop: 6 }}>
         <TableSwap
           cycleKey={tableCycle}
           hasBoard={!!kfb}
@@ -784,8 +821,16 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
           boardMap={{}}
           okAppearDelayMs={350}
           swapDelayMs={1400}
+          flashKind={overlay.kind}   // NEW
+          flashSeq={overlay.seq}     // NEW
         />
       </div>
+
+
+   <ToastStack
+        items={toasts}
+        onDismiss={(id) => setToasts(prev => prev.filter(t => t.id !== id))}
+      />
 
       {/* Overlay */}
      <ResultOverlay
@@ -794,7 +839,9 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
       code={overlay.code}
       msg={overlay.msg}
       seq={overlay.seq}
+      excludeRef={tableRef}
       onClose={() => setOverlay(o => ({ ...o, open:false }))}
+      anchor={overlay.anchor}
     />
 
     </main>
@@ -803,101 +850,114 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
 
 /* ===== Scan visuals (animated only for KFB) ===== */
 
-function ScanBoxAnimated({ ariaLabel, height = 160 }: { ariaLabel: string; height?: number }) {
-  const prefersReduced = useReducedMotion();
+function ScanBoxAnimated({
+  ariaLabel, height = 160, flashKind, flashId,
+}: {
+  ariaLabel: string;
+  height?: number;
+  flashKind?: "success" | "error" | null;
+  flashId?: number;
+}) {
+  const isOk  = flashKind === "success";
+  const isErr = flashKind === "error";
+  const ring  = isOk ? "rgba(16,185,129,.30)" : isErr ? "rgba(239,68,68,.30)" : "transparent";
+  const tint  = isOk ? "rgba(16,185,129,.10)" : isErr ? "rgba(239,68,68,.10)" : "transparent";
+
   return (
     <div
-      style={{
-        width: "100%",
-        height,
-        borderRadius: 14,
-        background: "#fbfdff",
-        border: "1px solid #e6eef7",
-        display: "grid",
-        placeItems: "center",
-        overflow: "hidden",
-        position: "relative",
-        willChange: "transform",
-      }}
       aria-label={ariaLabel}
+      style={{
+        position:"relative",
+        width:"100%", height, borderRadius:16, overflow:"hidden",
+        background:"#0b1220",
+        border:"1px solid #1e293b",
+        boxShadow:"inset 0 0 0 1px rgba(255,255,255,.06)"
+      }}
     >
-      {!prefersReduced && (
-        <m.div
-          initial={{ backgroundPositionX: "0%" }}
-          animate={{ backgroundPositionX: "100%" }}
-          transition={{ repeat: Infinity, duration: 2.2, ease: "linear" }}
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundSize: "120px 100%",
-            backgroundImage:
-              "repeating-linear-gradient(90deg, rgba(30,58,138,0.06) 0 1px, transparent 1px 12px)",
-            opacity: 0.45,
-            willChange: "background-position",
-          }}
-        />
-      )}
-      <m.div
-        initial={{ scale: prefersReduced ? 1 : 0.985, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 680, damping: 28 }}
+      {/* static grid only */}
+      <div
         style={{
-          width: "min(100%, 720px)",
-          height: 84,
-          borderRadius: 12,
-          background:
-            "repeating-linear-gradient(90deg, rgba(6,30,62,0.32) 0 6px, transparent 6px 14px)",
+          position:"absolute", inset:0, opacity:.35,
+          backgroundSize:"120px 100%",
+          backgroundImage:"repeating-linear-gradient(90deg, rgba(148,163,184,.24) 0 1px, transparent 1px 12px)"
         }}
       />
-      {!prefersReduced && (
+
+      {/* flash ring */}
+      {(isOk || isErr) && (
         <m.div
-          initial={{ y: -90, opacity: 0.0 }}
-          animate={{ y: 90, opacity: 0.9 }}
-          transition={{ repeat: Infinity, repeatType: "reverse", duration: 1.1, ease: "easeInOut" }}
+          key={flashId ?? flashKind}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: .18 }}
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            height: 38,
-            filter: "blur(10px)",
-            background:
-              "linear-gradient(180deg, rgba(59,130,246,0.00) 0%, rgba(59,130,246,0.28) 45%, rgba(59,130,246,0.00) 100%)",
-            pointerEvents: "none",
-            willChange: "transform, opacity",
+            position:"absolute", inset:0,
+            boxShadow:`0 0 0 6px ${ring} inset`,
+            background:tint
           }}
         />
       )}
+
+      {/* centered barcode slab */}
+      <div
+        style={{
+          position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)",
+          width:"min(100%, 1100px)", height:86, borderRadius:10,
+          background:"repeating-linear-gradient(90deg, rgba(248,250,252,.9) 0 6px, transparent 6px 14px)"
+        }}
+      />
     </div>
   );
 }
 
-/* ===== KSSK slots (compact, no animation in scan area) ===== */
 
+/* ===== KSSK slots (compact, no animation in scan area) ===== */
 const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
   manualOpen,
   onManualToggle,
   onSubmit,
+  flashKind,
+  flashId,
 }: {
   index: 0 | 1 | 2;
   code: string | null;
   manualOpen: boolean;
   onManualToggle: () => void;
   onSubmit: (v: string) => void;
+  flashKind?: "success" | "error" | null;
+  flashId?: number;
 }) {
+  const prefersReduced = useReducedMotion();
   const filled = !!code;
+  const isOk = flashKind === "success";
+  const isErr = flashKind === "error";
+
+  const cardBg = filled ? "#f0fdf4" : "#fbfdff";
+  const ring = isOk ? "0 0 0 6px rgba(16,185,129,0.22)" : isErr ? "0 0 0 6px rgba(239,68,68,0.22)" : "none";
+  const border = isOk ? "#a7f3d0" : isErr ? "#fecaca" : "#edf2f7";
 
   return (
-    <div
+    <m.div
+      key={flashId ?? `slot-${index}`}
+      initial={false}
+      animate={
+        isErr && !prefersReduced
+          ? { x: [0, -8, 8, -6, 6, -3, 3, 0] }
+          : { x: 0 }
+      }
+      transition={{ duration: 0.5, ease: "easeInOut" }}
       style={{
-        border: "1px solid #edf2f7",
+        border: `1px solid ${border}`,
         borderRadius: 14,
-        background: filled ? "#f0fdf4" : "#fbfdff",
+        background: cardBg,
         padding: 14,
         display: "grid",
         gap: 10,
         position: "relative",
+        boxShadow: ring,
       }}
     >
       {/* header */}
@@ -911,12 +971,12 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         >
           <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>{index + 1}</span>
         </div>
-        <StateIcon state={filled ? "valid" : "idle"} size={40} />
+        <StateIcon state={filled ? "valid" : isErr ? "invalid" : "idle"} size={40} />
       </div>
 
       {/* code pill */}
       <div>
-        <CodePill value={code || "—"} highlight={filled ? "success" : "neutral"} big />
+        <CodePill value={code || "—"} highlight={isErr ? "danger" : filled ? "success" : "neutral"} big />
       </div>
 
       {/* Static scan stripes */}
@@ -972,9 +1032,25 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
           </m.div>
         )}
       </AnimatePresence>
-    </div>
+
+      {/* OK/ERROR burst icon */}
+      <AnimatePresence>
+        {(isOk || isErr) && (
+          <m.div
+            key={`burst-${flashId ?? flashKind}`}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 22 }}
+            style={{ position: "absolute", top: 10, right: 10 }}
+          >
+          </m.div>
+        )}
+      </AnimatePresence>
+    </m.div>
   );
 });
+
 
 /* ===== Shared bits ===== */
 
@@ -1133,67 +1209,197 @@ function CodePill({
   );
 }
 
-/* ===== Overlay ===== */
+function ToastStack({ items, onDismiss }: { items: FlashEvent[]; onDismiss:(id:number)=>void }) {
+  return (
+    <div style={{ position:"fixed", top:12, right:12, display:"grid", gap:10, zIndex:90 }} aria-live="polite" role="status">
+      <AnimatePresence initial={false}>
+        {items.map(t => {
+          const ok = t.kind === "success";
+          const big = t.kind === "error"; // ← make errors bigger
+
+          const bg = ok ? "linear-gradient(180deg,#ecfdf5,#d1fae5)" : "linear-gradient(180deg,#fef2f2,#fee2e2)";
+          const bd = ok ? "#a7f3d0" : "#fecaca";
+          const fg = ok ? "#065f46" : "#7f1d1d";
+
+          return (
+            <m.div
+              key={t.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ type: "tween", duration: 0.18 }}
+              style={{
+                position: "relative",
+                minWidth: big ? 480 : 320,     // ↑ wider
+                maxWidth: big ? 820 : 520,     // ↑ max width
+                background: bg,
+                border: `3px solid ${bd}`,     // ↑ thicker border
+                borderRadius: big ? 16 : 12,   // ↑ radius
+                padding: big ? "16px 20px" : "10px 14px", // ↑ padding
+                boxShadow: "0 10px 28px rgba(15,23,42,0.22)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: big ? 14 : 10 }}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: big ? 22 : 16,       // ↑ icon size
+                    height: big ? 22 : 16,
+                    borderRadius: 999,
+                    background: ok ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fb7185,#ef4444)",
+                    boxShadow: `0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`,
+                    flex: "0 0 auto",
+                  }}
+                />
+                <strong style={{ color: fg, fontSize: big ? 18 : 14, lineHeight: 1.25 }}>
+                  {ok ? "OK" : "ERROR"} — {t.code}{t.msg ? ` — ${t.msg}` : ""}
+                </strong>
+                <button
+                  type="button"
+                  aria-label="Dismiss"
+                  onClick={() => onDismiss(t.id)}
+                  style={{ marginLeft: "auto", border: 0, background: "transparent", cursor: "pointer", fontSize: big ? 22 : 18, color: fg }}
+                >
+                  ×
+                </button>
+              </div>
+            </m.div>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}
+type SpotlightRect = { top:number; left:number; width:number; height:number };
+
+// 1) Props typing — drop React. and allow null
 function ResultOverlay({
-  open, kind, code, msg, seq, onClose,
-}: { open:boolean; kind:"success"|"error"; code:string; msg?:string; seq:number; onClose:()=>void }) {
+  open,
+  kind,
+  code,
+  msg,
+  seq,
+  onClose,
+  excludeRef,
+  anchor,
+}: {
+  open: boolean;
+  kind: "success" | "error";
+  code: string;
+  msg?: string;
+  seq: number;
+  onClose: () => void;
+  // ↓ use the types you already import at top
+  excludeRef?: RefObject<HTMLElement | null> | MutableRefObject<HTMLElement | null>;
+  anchor: "table" | "viewport";
+}) {
+  const [hole, setHole] = useState<SpotlightRect | null>(null);
+  const [vw, setVw] = useState(0);
+
+  // viewport width (SSR-safe)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setVw(window.innerWidth || 0);
+    update();
+    window.addEventListener("resize", update, { passive:true });
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  // measure the table only when anchoring to table
+  useEffect(() => {
+    if (!open || anchor !== "table") return;
+    const calc = () => {
+      const el = excludeRef?.current || null;
+      if (!el) { setHole(null); return; }
+      const r = el.getBoundingClientRect();
+      setHole({ top:r.top, left:r.left, width:r.width, height:r.height });
+    };
+    calc();
+    const opts = { passive:true } as AddEventListenerOptions;
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(calc) : null;
+    if (ro && excludeRef?.current) ro.observe(excludeRef.current);
+    window.addEventListener("scroll", calc, opts);
+    window.addEventListener("resize", calc, opts);
+    return () => {
+      window.removeEventListener("scroll", calc, opts as any);
+      window.removeEventListener("resize", calc, opts as any);
+      ro?.disconnect();
+    };
+  }, [open, excludeRef, seq, anchor]);
+
+  // auto close
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(onClose, 900);
     return () => clearTimeout(t);
-  }, [seq, open, onClose]);
+  }, [open, seq, onClose]);
 
+  if (!open) return null;
 
   const isOk = kind === "success";
-  const BG = isOk ? "rgba(16,185,129,0.50)" : "rgba(239,68,68,0.50)";
-  const EDGE = isOk ? "rgba(5,150,105,1)" : "rgba(127,29,29,1)";
+  const CURTAIN = isOk ? "rgba(16,185,129,.45)" : "rgba(239,68,68,.45)";
+  const BD      = isOk ? "#a7f3d0" : "#fecaca";
+  const FG      = isOk ? "#065f46" : "#7f1d1d";
+  const ACCENT  = isOk ? "#10b981" : "#ef4444";
+  const ACCENT_SOFT = isOk ? "rgba(16,185,129,.28)" : "rgba(239,68,68,.28)";
+
+  const haveHole = anchor === "table" && hole;
+const h = hole ?? { top: 0, left: 0, width: 0, height: 0 };
+const useViewport = anchor === "viewport" || !hole;
+
+
+  const PILL_CLEAR_Y = 12;
+// after
+const bannerTop = useViewport
+  ? 16
+  : Math.max(10, h.top + PILL_CLEAR_Y);
+const bannerRight = useViewport
+  ? 16
+  : Math.max(12, vw - (h.left + h.width) + 12);
+
+  // corner accent style (only for table-anchored)
+  const CORNER_SIZE = 70, CORNER_THICK = 4;
+  const cornerBase: CSSProperties = {
+    position:"absolute",
+    width:CORNER_SIZE, height:CORNER_SIZE,
+    borderRadius:12, pointerEvents:"none",
+    boxShadow:`0 10px 28px ${ACCENT_SOFT}`,
+  };
 
   return (
     <AnimatePresence>
-      {open && (
-        <m.div key={seq}  
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ type: "tween", duration: 0.12 }}
-          style={{
-            position: "fixed", inset: 0, background: BG, display: "grid", placeItems: "center",
-            zIndex: 80, pointerEvents: "none", willChange: "opacity",
-          }}
-          aria-live="assertive"
-          aria-label={isOk ? "OK" : "ERROR"}
-        >
-          <m.div
-            initial={{ scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.96, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 20, mass: 0.6 }}
-            style={{ display: "grid", justifyItems: "center", gap: 10, padding: 8, transform: "translateZ(0)", willChange: "transform, opacity" }}
-          >
-            <div
-              style={{
-                fontSize: 180, lineHeight: 1, fontWeight: 1000, letterSpacing: "0.03em",
-                color: "#fff", textShadow: `0 0 0 ${EDGE}, 0 10px 28px rgba(0,0,0,0.45)`,
-                fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
-              }}
-            >
-              {isOk ? "OK" : "ERROR"}
-            </div>
+      <m.div
+        key={seq}
+        initial={{ opacity:0 }}
+        animate={{ opacity:1 }}
+        exit={{ opacity:0 }}
+        transition={{ duration:.12 }}
+        style={{ position:"fixed", inset:0, zIndex:80, pointerEvents:"none" }}
+        aria-live="assertive"
+        aria-label={isOk ? "OK" : "ERROR"}
+      >
+        {/* curtains only when anchoring to table */}
+        {haveHole ? (
+          <>
+            <div style={{ position:"absolute", left:0, right:0, top:0, height:hole!.top, background:CURTAIN }} />
+            <div style={{ position:"absolute", left:0, top:hole!.top, width:hole!.left, height:hole!.height, background:CURTAIN }} />
+            <div style={{ position:"absolute", left:hole!.left + hole!.width, right:0, top:hole!.top, height:hole!.height, background:CURTAIN }} />
+            <div style={{ position:"absolute", left:0, right:0, top:hole!.top + hole!.height, bottom:0, background:CURTAIN }} />
 
-            {(code || msg) && (
-              <div
-                style={{
-                  fontSize: 24, fontWeight: 900, color: "#fff",
-                  textShadow: "0 2px 10px rgba(0,0,0,0.45)", textAlign: "center",
-                  maxWidth: 960, padding: "0 12px", wordBreak: "break-all",
-                }}
-              >
-                {code}{msg ? ` — ${msg}` : ""}
-              </div>
-            )}
-          </m.div>
-        </m.div>
-      )}
+            {/* corner accents */}
+            <div style={{ ...cornerBase, left:hole!.left-CORNER_THICK, top:hole!.top-CORNER_THICK, borderTop:`${CORNER_THICK}px solid ${ACCENT}`, borderLeft:`${CORNER_THICK}px solid ${ACCENT}` }} />
+            <div style={{ ...cornerBase, left:hole!.left+hole!.width-CORNER_SIZE+CORNER_THICK, top:hole!.top-CORNER_THICK, borderTop:`${CORNER_THICK}px solid ${ACCENT}`, borderRight:`${CORNER_THICK}px solid ${ACCENT}` }} />
+            <div style={{ ...cornerBase, left:hole!.left-CORNER_THICK, top:hole!.top+hole!.height-CORNER_SIZE+CORNER_THICK, borderBottom:`${CORNER_THICK}px solid ${ACCENT}`, borderLeft:`${CORNER_THICK}px solid ${ACCENT}` }} />
+            <div style={{ ...cornerBase, left:hole!.left+hole!.width-CORNER_SIZE+CORNER_THICK, top:hole!.top+hole!.height-CORNER_SIZE+CORNER_THICK, borderBottom:`${CORNER_THICK}px solid ${ACCENT}`, borderRight:`${CORNER_THICK}px solid ${ACCENT}` }} />
+          </>
+        ) : anchor === "table" ? (
+          // while measuring, keep a soft full curtain; for viewport, no curtain
+          <div style={{ position:"absolute", inset:0, background:CURTAIN }} />
+        ) : null}
+
+        {/* compact banner */}
+      
+      </m.div>
     </AnimatePresence>
   );
 }

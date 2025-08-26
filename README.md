@@ -95,3 +95,14 @@ USE_SYSTEM_FPM=true npx electron-builder build --linux deb --arm64
 https://chatgpt.com/c/6863d3ad-0e20-800f-b7bf-89117257f776
 
 npm run locks:station -- --id=JETSON-01
+
+# add a lock
+curl -sS -X POST http://localhost:3000/api/kssk-lock \
+  -H 'content-type: application/json' \
+  -d '{"kssk":"830577904820","mac":"08:3A:8D:15:27:54","stationId":"JETSON-01","ttlSec":1800}'
+
+# list by station
+curl -sS 'http://localhost:3000/api/kssk-lock?stationId=JETSON-01' | jq
+
+# delete it
+curl -sS -X DELETE 'http://localhost:3000/api/kssk-lock?kssk=830577904820&stationId=JETSON-01'

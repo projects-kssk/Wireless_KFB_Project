@@ -1,8 +1,0 @@
-Harness tested
-Self check 
-OK 
-
-LOOSE CONTACT - DEFAULT ON 
-if pipa OFF 
-
-NOT TESTED - NEM KULDI LE DEFAULT OFF 

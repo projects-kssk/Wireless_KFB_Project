@@ -17,7 +17,11 @@ const OK_DISPLAY_MS = 3000;
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
-const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || (typeof window !== "undefined" ? window.location.hostname : "unknown");
+const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname
+const ALLOW_NO_ESP =
+  (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
+const KEEP_LOCKS_ON_UNLOAD =
+  (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -497,18 +501,31 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
             const t = await r.text().catch(() => "");
             setLastError(`ESP write failed — ${t || r.status}`);
           }
-        } catch (e: any) {
+        } catch (e:any) {
           espOk = false;
           setLastError(`ESP write failed — ${e?.message ?? "unknown error"}`);
         }
 
         if (!espOk) {
-          await releaseLock(code);
-          setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-          showErr(code, "ESP write failed");
-          return;
+          if (ALLOW_NO_ESP) {
+            // Treat as success for testing: KEEP the lock, show OK, heartbeat
+            showOk(code, "KSSK OK (ESP offline)");
+            startHeartbeat(code);
+            setTimeout(() => {
+              setKsskSlots((prev) => {
+                const filled = prev.filter(Boolean).length;
+                if (filled >= 3) { setKfb(null); return [null, null, null]; }
+                return prev;
+              });
+            }, OK_DISPLAY_MS);
+            return;
+          } else {
+            await releaseLock(code); // real mode: undo and error
+            setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+            showErr(code, "ESP write failed");
+            return;
+          }
         }
-
         // 7) Success: keep lock alive (do NOT release here)
         showOk(code, "KSSK OK");
         startHeartbeat(code);
@@ -575,20 +592,21 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
   }, [kbdBuffer, handleScanned]);
 
 
-    useEffect(() => {
-      const h = () => {
-        activeLocks.current.forEach((k) => {
-          fetch("/api/kssk-lock", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kssk: k, stationId: STATION_ID }),
-            keepalive: true,
-          }).catch(()=>{});
-        });
-      };
-      window.addEventListener("pagehide", h);
-      return () => window.removeEventListener("pagehide", h);
-    }, []);
+   useEffect(() => {
+    if (KEEP_LOCKS_ON_UNLOAD) return;         // <— skip cleanup in test mode
+    const h = () => {
+      activeLocks.current.forEach((k) => {
+        fetch("/api/kssk-lock", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kssk: k, stationId: STATION_ID }),
+          keepalive: true,
+        }).catch(()=>{});
+      });
+    };
+    window.addEventListener("pagehide", h);
+    return () => window.removeEventListener("pagehide", h);
+  }, []);
 
 
   /* ===== Styles ===== */

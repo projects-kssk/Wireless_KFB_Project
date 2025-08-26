@@ -17,7 +17,7 @@ const OK_DISPLAY_MS = 3000;
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
-
+const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || (typeof window !== "undefined" ? window.location.hostname : "unknown");
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -175,6 +175,15 @@ function canonicalMac(raw: string): string | null {
 }
 
 
+function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
+  const asKssk = digitsOnly(raw);
+  if (KSSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
+  const mac = canonicalMac(raw);
+  if (mac) return { type: "kfb", code: mac };
+  return { type: null, code: raw };
+}
+
+
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
 type KsskIndex = 0 | 1 | 2;
@@ -199,19 +208,78 @@ export default function SetupPage() {
 
   const sendBusyRef = useRef(false);
 
-  /* ===== Helpers ===== */
-  const normalizeKssk = (s: string) => digitsOnly(s);
-  const classify = (raw: string): { type: "kfb" | "kssk" | null; code: string } => {
-    const asKssk = normalizeKssk(raw);
-    if (KSSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
 
-    const mac = canonicalMac(raw);
-    if (mac) return { type: "kfb", code: mac };
+const hb = useRef<Map<string, number>>(new Map());
 
-    return { type: null, code: raw };
-  };
+const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
+const loadLocalLocks = (): Set<string> => {
+  try { return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]")); }
+  catch { return new Set(); }
+};
+const saveLocalLocks = (s: Set<string>) => {
+  try { localStorage.setItem(LS_KEY, JSON.stringify([...s])); } catch {}
+};
+const activeLocks = useRef<Set<string>>(new Set()); // source of truth on client
 
+const startHeartbeat = (kssk: string) => {
+  stopHeartbeat(kssk);
+  const id = window.setInterval(() => {
+    fetch("/api/kssk-lock", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: 1800 }),
+    }).catch(() => {});
+  }, 60_000);
+  hb.current.set(kssk, id);
+};
 
+const stopHeartbeat = (kssk?: string) => {
+  if (!kssk) { hb.current.forEach(clearInterval); hb.current.clear(); return; }
+  const id = hb.current.get(kssk);
+  if (id) { clearInterval(id); hb.current.delete(kssk); }
+};
+
+const releaseLock = async (kssk: string) => {
+  stopHeartbeat(kssk);
+  activeLocks.current.delete(kssk);
+  saveLocalLocks(activeLocks.current);
+  try {
+    await fetch("/api/kssk-lock", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kssk, stationId: STATION_ID }),
+      keepalive: true,
+    });
+  } catch {}
+};
+
+const releaseAllLocks = async () => {
+  const all = [...activeLocks.current];
+  stopHeartbeat();
+  await Promise.all(all.map(releaseLock));
+};
+
+// Rehydrate on mount: server → local fallback
+useEffect(() => {
+  (async () => {
+    let hydrated = false;
+    try {
+      const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
+      if (r.ok) {
+        const j = await r.json();
+        const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
+        activeLocks.current = new Set(ks);
+        saveLocalLocks(activeLocks.current);
+        hydrated = true;
+      }
+    } catch {}
+    if (!hydrated) activeLocks.current = loadLocalLocks();
+
+    activeLocks.current.forEach((k) => startHeartbeat(k));
+  })();
+}, []);
+
+  
   const [lastError, setLastError] = useState<string | null>(null);
 
   const showOk = (code: string, msg?: string) => {
@@ -223,12 +291,14 @@ export default function SetupPage() {
     setLastError(`${code}${msg ? ` — ${msg}` : ""}`);
   };
 
-  const resetAll = useCallback(() => {
-    setKfb(null);
-    setKsskSlots([null, null, null]);
-    setShowManualFor({});
-    setLastError(null);
-  }, []);
+    //RESETALL
+    const resetAll = useCallback(() => {
+      //void releaseAllLocks(); THUS AUTO REALASE On reset UI 
+      setKfb(null);
+      setKsskSlots([null, null, null]);
+      setShowManualFor({});
+      setLastError(null);
+    }, []);
 
   /* ===== Network ===== */
   const withTimeout = async <T,>(fn: (signal: AbortSignal) => Promise<T>) => {
@@ -240,6 +310,9 @@ export default function SetupPage() {
       clearTimeout(t);
     }
   };
+
+
+
 
 const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
   return withTimeout(async (signal) => {
@@ -330,83 +403,138 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
 
   const acceptKsskToIndex = useCallback(
     async (code: string, idx?: number) => {
+      // 0) Local "already in production" guard (rehydrated at mount)
+      if (activeLocks.current.has(code)) {
+        showErr(code, "TESTED on another board — already in production");
+        return;
+      }
+
+      // Preconditions
       if (!kfb) { showErr(code, "Scan MAC address first"); return; }
       if (ksskSlots.some((c) => c === code)) { showErr(code, "Duplicate KSSK"); return; }
       const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
       if (target === -1) { showErr(code, "Batch full (3/3)"); return; }
 
-      // optimistic fill
+      // Optimistic fill
       setKsskSlots((prev) => { const n = [...prev]; n[target] = code; return n; });
       setTableCycle((n) => n + 1);
 
-      if (sendBusyRef.current) return;
-      sendBusyRef.current = true;
-      const resp = await sendKsskToOffline(code);
-      sendBusyRef.current = false;
+      // 1) Acquire server lock (authoritative)
+      const lockRes = await fetch("/api/kssk-lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
+      });
 
-      // Krosy comms error (no network/timeout)
-      if (!resp.ok && resp.status === 0) {
+      if (!lockRes.ok) {
+        const j = await lockRes.json().catch(() => ({}));
+        const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+        const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+
+        // Prefer “tested on another board” message if it's locked to a different MAC
+        const msg =
+          otherMac && otherMac !== kfb?.toUpperCase()
+            ? `TESTED on another board — already assigned to BOARD ${otherMac}`
+            : `TESTED on another board — already in production${heldBy}`;
+
+        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        showErr(code, msg);
+        return;
+      }
+
+      // 2) Persist local lock as soon as POST succeeds
+      activeLocks.current.add(code);
+      saveLocalLocks(activeLocks.current);
+
+      // 3) Single-flight guard
+      if (sendBusyRef.current) {
+        await releaseLock(code); // undo lock if we won't proceed now
+        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        return;
+      }
+
+      // 4) Krosy call
+      sendBusyRef.current = true;
+      let resp: OfflineResp | null = null;
+      try { resp = await sendKsskToOffline(code); }
+      finally { sendBusyRef.current = false; }
+
+      // Network/timeout
+      if (!resp?.ok && resp?.status === 0) {
+        await releaseLock(code);
         setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
         showErr(code, "Krosy communication error");
         return;
       }
 
-      if (resp.ok) {
-        // Extract pins
-        const pins = resp.data?.__xml
-        ? extractPinsFromKrosyXML(resp.data.__xml)   // new helper
-        : extractPinsFromKrosy(resp.data);
-        console.debug("pins", pins, {
-          fromXml: !!resp.data?.__xml,
-          xmlLen: resp.data?.__xml?.length || 0
-        });
+      if (resp?.ok) {
+        // 5) Extract pins
+        const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
         const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
 
         if (!hasPins) {
-          // No pins => big error + revert slot
+          await releaseLock(code);
           setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
           showErr(code, "Krosy configuration error: no PINS");
           return;
         }
 
-        // Send to ESP + log happens in server route; include kssk for audit
+        // 6) Send to ESP
+        let espOk = true;
         try {
           const r = await fetch("/api/serial", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              normalPins: pins!.normalPins,
-              latchPins: pins!.latchPins,
+              normalPins: pins.normalPins,
+              latchPins: pins.latchPins,
               mac: kfb.toUpperCase(),
               kssk: code,
             }),
           });
-
           if (!r.ok) {
+            espOk = false;
             const t = await r.text().catch(() => "");
             setLastError(`ESP write failed — ${t || r.status}`);
           }
         } catch (e: any) {
+          espOk = false;
           setLastError(`ESP write failed — ${e?.message ?? "unknown error"}`);
         }
 
-        // UX success pulse then maybe reset at 3/3
+        if (!espOk) {
+          await releaseLock(code);
+          setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+          showErr(code, "ESP write failed");
+          return;
+        }
+
+        // 7) Success: keep lock alive (do NOT release here)
         showOk(code, "KSSK OK");
+        startHeartbeat(code);
+
+        // Optional UI reset when batch hits 3 — but keep locks!
         setTimeout(() => {
           setKsskSlots((prev) => {
             const filled = prev.filter(Boolean).length;
-            if (filled >= 3) resetAll();
+            if (filled >= 3) {
+              setKfb(null);
+              return [null, null, null];
+            }
             return prev;
           });
         }, OK_DISPLAY_MS);
+
       } else {
-        // HTTP error with status
+        // HTTP error with status from Krosy
+        await releaseLock(code);
         setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, `KSSK send failed (${resp.status || "no status"})`);
+        showErr(code, `KSSK send failed (${resp?.status || "no status"})`);
       }
     },
-    [kfb, ksskSlots, resetAll, sendKsskToOffline]
+    [kfb, ksskSlots, sendKsskToOffline]
   );
+
 
   /* ===== Manual + Scanner wedge ===== */
   const handleManualSubmit = useCallback(
@@ -445,6 +573,23 @@ const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<Offlin
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [kbdBuffer, handleScanned]);
+
+
+    useEffect(() => {
+      const h = () => {
+        activeLocks.current.forEach((k) => {
+          fetch("/api/kssk-lock", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kssk: k, stationId: STATION_ID }),
+            keepalive: true,
+          }).catch(()=>{});
+        });
+      };
+      window.addEventListener("pagehide", h);
+      return () => window.removeEventListener("pagehide", h);
+    }, []);
+
 
   /* ===== Styles ===== */
   const fontStack =

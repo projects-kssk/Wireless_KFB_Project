@@ -1,5 +1,8 @@
+// src/app/api/serial/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import fs from "fs/promises";
+import path from "path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,16 +14,20 @@ const PinsBody = z.object({
   normalPins: z.array(z.number().int().nonnegative()).optional(),
   latchPins:  z.array(z.number().int().nonnegative()).optional(),
   mac:        Mac,
+  kssk:       z.string().optional(), // for logging
 });
 
 // alt payload: give me krosy "sequence" and I'll extract pins
 const SequenceItem = z.object({
   objPos: z.string(),
   measType: z.string(),
+  objGroup: z.string().optional(),
 });
+
 const SequenceBody = z.object({
   sequence: z.array(SequenceItem).min(1),
   mac: Mac,
+  kssk: z.string().optional(),
 });
 
 /* ----------------- health snapshot (in-memory) ----------------- */
@@ -33,6 +40,28 @@ function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
 }
 const now = () => Date.now();
+
+/* ----------------- logging ----------------- */
+const LOG_DIR = path.join(process.cwd(), "monitor.logs");
+async function ensureLogDir() {
+  try { await fs.mkdir(LOG_DIR, { recursive: true }); } catch {}
+}
+function logFilePath() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return path.join(LOG_DIR, `monitor-${yyyy}-${mm}-${dd}.log`);
+}
+async function appendLog(entry: Record<string, unknown>) {
+  try {
+    await ensureLogDir();
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
+    await fs.appendFile(logFilePath(), line, "utf8");
+  } catch (err) {
+    console.error("[monitor.log] append failed:", err);
+  }
+}
 
 /* ----------------- dynamic serial helper ----------------- */
 async function loadSerial(): Promise<{
@@ -49,7 +78,6 @@ async function loadSerial(): Promise<{
 }
 
 /* ----------------- pin extraction ----------------- */
-// objPos examples: "CL_2450,1" | "CL_2452,3,C" | "CL_2500,12"
 function parseObjPos(objPos: string): { pin: number | null; latch: boolean } {
   const parts = objPos.split(",");
   let latch = false;
@@ -62,16 +90,26 @@ function parseObjPos(objPos: string): { pin: number | null; latch: boolean } {
   return { pin: Number.isFinite(num) ? num : null, latch };
 }
 
-function extractPinsFromSequence(seq: Array<z.infer<typeof SequenceItem>>) {
+const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
+
+function extractPinsFromSequence(
+  seq: Array<z.infer<typeof SequenceItem>>,
+  mac?: string
+) {
+  const wantMac = mac?.toUpperCase();
   const normal: number[] = [];
   const latch: number[] = [];
+
   for (const s of seq) {
-    if (s.measType !== "default") continue; // only default
+    if (s.measType !== "default") continue;
+    if (s.objGroup) {
+      const m = s.objGroup.match(OBJGROUP_MAC);
+      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
+    }
     const { pin, latch: isLatch } = parseObjPos(s.objPos);
     if (pin == null) continue;
     (isLatch ? latch : normal).push(pin);
   }
-  // dedupe while keeping order
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
@@ -114,12 +152,14 @@ export async function POST(request: Request) {
   let mac: string;
   let normalPins: number[] = [];
   let latchPins: number[] = [];
+  let kssk: string | undefined;
 
   const asPins = PinsBody.safeParse(body);
   if (asPins.success) {
     mac = asPins.data.mac.toUpperCase();
     normalPins = Array.from(new Set(asPins.data.normalPins ?? []));
     latchPins = Array.from(new Set(asPins.data.latchPins ?? []));
+    kssk = asPins.data.kssk;
   } else {
     const asSeq = SequenceBody.safeParse(body);
     if (!asSeq.success) {
@@ -129,10 +169,21 @@ export async function POST(request: Request) {
       }, 400);
     }
     mac = asSeq.data.mac.toUpperCase();
-    const pins = extractPinsFromSequence(asSeq.data.sequence);
+    const pins = extractPinsFromSequence(asSeq.data.sequence, mac);
     normalPins = pins.normalPins;
-    latchPins = pins.latchPins;
+    latchPins  = pins.latchPins;
+    kssk = asSeq.data.kssk;
   }
+
+  // Fail fast if no pins
+  if (!normalPins.length && !latchPins.length) {
+    await appendLog({ event: "monitor.nopins", mac, kssk, normalPins, latchPins });
+    return json({ error: "No default pins for this MAC" }, 422);
+  }
+
+  // Sort for stable commands (optional)
+  normalPins.sort((a,b)=>a-b);
+  latchPins.sort((a,b)=>a-b);
 
   // Build MONITOR command
   let cmd = "MONITOR";
@@ -140,10 +191,13 @@ export async function POST(request: Request) {
   if (latchPins.length) cmd += " LATCH " + latchPins.join(",");
   cmd += " " + mac;
 
+  await appendLog({ event: "monitor.prepare", mac, kssk, cmd, normalPins, latchPins });
+
   let sendToEsp: (cmd: string, opts?: { timeoutMs?: number }) => Promise<void>;
   try {
     ({ sendToEsp } = await loadSerial());
   } catch (err) {
+    await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
     console.error("load serial helper error:", err);
     return json({ error: "Internal error" }, 500);
   }
@@ -151,11 +205,13 @@ export async function POST(request: Request) {
   try {
     await sendToEsp(cmd, { timeoutMs: 3000 });
     health = { ts: now(), ok: true, raw: "WRITE_OK" };
+    await appendLog({ event: "monitor.success", mac, kssk, cmd });
     return json({ success: true, cmd, normalPins, latchPins, mac });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     console.error("POST /api/serial error:", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
+    await appendLog({ event: "monitor.error", mac, kssk, cmd, error: message });
     return json({ error: message, cmdTried: cmd }, 500);
   }
 }

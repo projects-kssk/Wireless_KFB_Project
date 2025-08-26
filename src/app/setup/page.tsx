@@ -18,7 +18,7 @@ const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? 
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
 
-/* ===== Regex ===== */
+/* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
   try {
@@ -28,6 +28,7 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
     return fallback;
   }
 }
+
 function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => void }) {
   const base: CSSProperties = {
     display: "inline-flex",
@@ -35,38 +36,26 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
     gap: 12,
     padding: "12px 16px",
     borderRadius: 999,
-    background: "rgba(239,68,68,0.12)",       // stronger fill
-    border: "3px solid #fca5a5",               // thicker border
+    background: "rgba(239,68,68,0.12)",
+    border: "3px solid #fca5a5",
     boxShadow: "0 2px 10px rgba(239,68,68,0.18), inset 0 1px 0 #fff",
     color: "#7f1d1d",
     fontWeight: 1000,
-    fontSize: 18,                              // bigger text
+    fontSize: 18,
     letterSpacing: "0.01em",
     lineHeight: 1,
     whiteSpace: "nowrap",
   };
-
   const iconWrap: CSSProperties = {
-    width: 22,
-    height: 22,
-    borderRadius: 999,
+    width: 22, height: 22, borderRadius: 999,
     background: "linear-gradient(180deg,#fb7185,#ef4444)",
     boxShadow: "0 0 0 3px rgba(239,68,68,0.20)",
-    display: "grid",
-    placeItems: "center",
-    flex: "0 0 auto",
+    display: "grid", placeItems: "center", flex: "0 0 auto",
   };
-
   const closeBtn: CSSProperties = {
-    marginLeft: 6,
-    border: 0,
-    background: "transparent",
-    color: "#7f1d1d",
-    fontSize: 22,                              // bigger close
-    lineHeight: 1,
-    cursor: "pointer",
+    marginLeft: 6, border: 0, background: "transparent",
+    color: "#7f1d1d", fontSize: 22, lineHeight: 1, cursor: "pointer",
   };
-
   return (
     <div style={base} role="status" aria-live="polite" title={text}>
       <span aria-hidden style={iconWrap}>
@@ -74,9 +63,7 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
           <path d="M12 7v6m0 4h.01" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
         </svg>
       </span>
-      <span style={{ maxWidth: 760, overflow: "hidden", textOverflow: "ellipsis" }}>
-        {text}
-      </span>
+      <span style={{ maxWidth: 760, overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
       {onClear && (
         <button type="button" onClick={onClear} aria-label="Dismiss error" style={closeBtn}>
           ×
@@ -85,41 +72,63 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
     </div>
   );
 }
+function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: number[] } {
+  const take = (node: any) => (Array.isArray(node) ? node : node != null ? [node] : []);
 
-function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: number[] } | null {
-  try {
-    const seq =
-      data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment?.sequenceList?.sequence;
-    if (!Array.isArray(seq)) return null;
-    const normal: number[] = [];
-    const latch: number[] = [];
-    for (const s of seq) {
-      if (s?.measType !== "default" || typeof s?.objPos !== "string") continue;
-      const parts = s.objPos.split(",");
+  // segment can live under workingData or loadedData
+  const segmentRoot =
+    data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment ??
+    data?.response?.krosy?.body?.visualControl?.loadedData?.sequencer?.segmentList?.segment;
+
+  const segments = take(segmentRoot);
+
+  const normal: number[] = [];
+  const latch: number[] = [];
+
+  for (const seg of segments) {
+    const seqArr = take(seg?.sequenceList?.sequence);
+    for (const s of seqArr) {
+      const mt = String(s?.measType ?? "").trim().toLowerCase();
+      if (mt !== "default") continue; // ignore no_check etc.
+
+      const parts = String(s?.objPos ?? "").split(",");
       let isLatch = false;
-      if (parts[parts.length - 1]?.toUpperCase() === "C") { isLatch = true; parts.pop(); }
-      const pin = Number(String(parts[parts.length - 1] ?? "").replace(/[^\d]/g, ""));
+      if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") {
+        isLatch = true;
+        parts.pop();
+      }
+      const last = parts[parts.length - 1] ?? "";
+      const pin = Number(String(last).replace(/[^\d]/g, ""));
       if (!Number.isFinite(pin)) continue;
       (isLatch ? latch : normal).push(pin);
     }
-    const uniq = (xs: number[]) => Array.from(new Set(xs));
-    return { normalPins: uniq(normal), latchPins: uniq(latch) };
-  } catch {
-    return null;
   }
+
+  const uniq = (xs: number[]) => Array.from(new Set(xs));
+  return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
 
-
-
-const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^[A-Z0-9]{4}$/);
+/* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
+const MAC_REGEX = compileRegex(
+  process.env.NEXT_PUBLIC_KFB_REGEX,
+  /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
 const KSSK_DIGITS_REGEX = /^\d{12}$/;
 const digitsOnly = (s: string) => String(s ?? "").replace(/\D+/g, "");
+function canonicalMac(raw: string): string | null {
+  if (!/[:\-]/.test(raw) && !/[A-Fa-f]/.test(raw)) return null; // no separators & no hex letters → not a MAC
+  const hex = String(raw ?? "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  if (hex.length !== 12) return null;
+  const mac = hex.match(/.{2}/g)!.join(":");
+  return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i.test(mac) ? mac : null;
+}
+
 
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
 type KsskIndex = 0 | 1 | 2;
 type KsskPanel = `kssk${KsskIndex}`;
 type PanelKey = "kfb" | KsskPanel;
+type OfflineResp = { ok: boolean; status: number; data: any | null };
 
 /* ===== Page ===== */
 export default function SetupPage() {
@@ -137,38 +146,37 @@ export default function SetupPage() {
   const [kbdBuffer, setKbdBuffer] = useState("");
 
   const sendBusyRef = useRef(false);
-type OfflineResp = { ok: boolean; status: number; data: any | null };
-  /* ===== Helpers ===== */
-  const normalizeKfb = (s: string) => s.trim().toUpperCase();
-  const normalizeKssk = (s: string) => digitsOnly(s);
 
+  /* ===== Helpers ===== */
+  const normalizeKssk = (s: string) => digitsOnly(s);
   const classify = (raw: string): { type: "kfb" | "kssk" | null; code: string } => {
-    const asKfb = normalizeKfb(raw);
-    if (KFB_REGEX.test(asKfb)) return { type: "kfb", code: asKfb };
     const asKssk = normalizeKssk(raw);
     if (KSSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
+
+    const mac = canonicalMac(raw);
+    if (mac) return { type: "kfb", code: mac };
+
     return { type: null, code: raw };
   };
 
-// state (near the others)
-    const [lastError, setLastError] = useState<string | null>(null);
 
-    // helpers
-    const showOk = (code: string, msg?: string) => {
-      setOverlay({ open: true, kind: "success", code, msg });
-      setLastError(null); // hide inline error on success
-    };
-    const showErr = (code: string, msg?: string) => {
-      setOverlay({ open: true, kind: "error", code, msg });
-      setLastError(`${code}${msg ? ` — ${msg}` : ""}`); // keep last error visible
-    };
+  const [lastError, setLastError] = useState<string | null>(null);
 
-    const resetAll = useCallback(() => {
-      setKfb(null);
-      setKsskSlots([null, null, null]);
-      setShowManualFor({});
-      setLastError(null); // clear when starting fresh
-    }, []);
+  const showOk = (code: string, msg?: string) => {
+    setOverlay({ open: true, kind: "success", code, msg });
+    setLastError(null);
+  };
+  const showErr = (code: string, msg?: string) => {
+    setOverlay({ open: true, kind: "error", code, msg });
+    setLastError(`${code}${msg ? ` — ${msg}` : ""}`);
+  };
+
+  const resetAll = useCallback(() => {
+    setKfb(null);
+    setKsskSlots([null, null, null]);
+    setShowManualFor({});
+    setLastError(null);
+  }, []);
 
   /* ===== Network ===== */
   const withTimeout = async <T,>(fn: (signal: AbortSignal) => Promise<T>) => {
@@ -181,84 +189,101 @@ type OfflineResp = { ok: boolean; status: number; data: any | null };
     }
   };
 
-const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
-  return withTimeout(async (signal) => {
-    try {
-      const res = await fetch(KROSY_OFFLINE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        signal,
-        body: JSON.stringify({
-          intksk: ksskDigits,
-          requestID: "1",
-          sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
-          targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
-        }),
-      });
+  const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
+    return withTimeout(async (signal) => {
+      try {
+        const res = await fetch(KROSY_OFFLINE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          signal,
+          body: JSON.stringify({
+            intksk: ksskDigits,
+            requestID: "1",
+            sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+            targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
+          }),
+        });
 
-      let data: any = null;
-      try { data = await res.json(); } catch {}
-      return { ok: res.ok, status: res.status, data };
-    } catch {
-      return { ok: false, status: 0, data: null };
-    }
-  });
-}, []);
-
+        let data: any = null;
+        try { data = await res.json(); } catch {}
+        return { ok: res.ok, status: res.status, data };
+      } catch {
+        return { ok: false, status: 0, data: null };
+      }
+    });
+  }, []);
 
   /* ===== Acceptors ===== */
-const acceptKfb = useCallback((code: string) => {
-  setKfb((prev) => {
-    // If this is a new/different board, wipe previous KSSKs & UI toggles
-    if (prev !== code) {
-      setKsskSlots([null, null, null]);
-      setShowManualFor({});
-    }
-    return code;
-  });
-
-  // keep table visual in sync
-  setTableCycle((n) => n + 1);
-
-  // feedback
-  showOk(code, "BOARD SET");
-}, []);
+  const acceptKfb = useCallback((code: string) => {
+    setKfb((prev) => {
+      if (prev !== code) {
+        setKsskSlots([null, null, null]);
+        setShowManualFor({});
+      }
+      return code;
+    });
+    setTableCycle((n) => n + 1);
+    showOk(code, "BOARD SET");
+  }, []);
 
   const acceptKsskToIndex = useCallback(
     async (code: string, idx?: number) => {
-      if (!kfb) { showErr(code, "Scan KFB first"); return; }
+      if (!kfb) { showErr(code, "Scan MAC address first"); return; }
       if (ksskSlots.some((c) => c === code)) { showErr(code, "Duplicate KSSK"); return; }
-     const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
+      const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
       if (target === -1) { showErr(code, "Batch full (3/3)"); return; }
 
-      // compact + instant fill (no animations for KSSK area)
+      // optimistic fill
       setKsskSlots((prev) => { const n = [...prev]; n[target] = code; return n; });
       setTableCycle((n) => n + 1);
 
       if (sendBusyRef.current) return;
       sendBusyRef.current = true;
-    const resp = await sendKsskToOffline(code); // resp: OfflineResp
+      const resp = await sendKsskToOffline(code);
       sendBusyRef.current = false;
 
-    if (resp.ok) {
-        showOk(code, "KSSK OK");
+      // Krosy comms error (no network/timeout)
+      if (!resp.ok && resp.status === 0) {
+        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        showErr(code, "Krosy communication error");
+        return;
+      }
+
+      if (resp.ok) {
+        // Extract pins
+        const pins = resp.data ? extractPinsFromKrosy(resp.data) : null;
+        const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+
+        if (!hasPins) {
+          // No pins => big error + revert slot
+          setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+          showErr(code, "Krosy configuration error: no PINS");
+          return;
+        }
+
+        // Send to ESP + log happens in server route; include kssk for audit
         try {
-          const pins = resp.data ? extractPinsFromKrosy(resp.data) : null;
-          if (pins && kfb) {
-            await fetch("/api/serial", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                normalPins: pins.normalPins,
-                latchPins: pins.latchPins,
-                mac: kfb.toUpperCase(),
-              }),
-            });
+          const r = await fetch("/api/serial", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              normalPins: pins!.normalPins,
+              latchPins: pins!.latchPins,
+              mac: kfb.toUpperCase(),
+              kssk: code,
+            }),
+          });
+
+          if (!r.ok) {
+            const t = await r.text().catch(() => "");
+            setLastError(`ESP write failed — ${t || r.status}`);
           }
         } catch (e: any) {
           setLastError(`ESP write failed — ${e?.message ?? "unknown error"}`);
         }
 
+        // UX success pulse then maybe reset at 3/3
+        showOk(code, "KSSK OK");
         setTimeout(() => {
           setKsskSlots((prev) => {
             const filled = prev.filter(Boolean).length;
@@ -266,11 +291,11 @@ const acceptKfb = useCallback((code: string) => {
             return prev;
           });
         }, OK_DISPLAY_MS);
+      } else {
+        // HTTP error with status
+        setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
+        showErr(code, `KSSK send failed (${resp.status || "no status"})`);
       }
-      else {
-              setKsskSlots((prev) => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-              showErr(code, `KSSK send failed (${resp.status || "no status"})`);
-            }
     },
     [kfb, ksskSlots, resetAll, sendKsskToOffline]
   );
@@ -282,7 +307,7 @@ const acceptKfb = useCallback((code: string) => {
       if (!type) { showErr(raw, "Unrecognized code"); return; }
 
       if (panel === "kfb") {
-        if (type !== "kfb") { showErr(code, "Expected KFB"); return; }
+        if (type !== "kfb") { showErr(code, "Expected ESP MAC (AA:BB:CC:DD:EE:FF)"); return; }
         acceptKfb(code);
       } else {
         if (type !== "kssk") { showErr(code, "Expected KSSK (12 digits)"); return; }
@@ -313,7 +338,7 @@ const acceptKfb = useCallback((code: string) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [kbdBuffer, handleScanned]);
 
-  /* ===== Styles (production-clean) ===== */
+  /* ===== Styles ===== */
   const fontStack =
     'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
@@ -384,12 +409,10 @@ const acceptKfb = useCallback((code: string) => {
                 {ksskCount}/3 KSSK
               </m.div>
             </m.div>
-             {lastError && (
-            <InlineErrorBadge
-              text={lastError}
-              onClear={() => setLastError(null)}
-            />
-  )}
+
+            {lastError && (
+              <InlineErrorBadge text={lastError} onClear={() => setLastError(null)} />
+            )}
 
             {ksskCount >= 1 && (
               <m.div layout>
@@ -414,7 +437,7 @@ const acceptKfb = useCallback((code: string) => {
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>BOARD NUMBER</h2>
+                <h2 style={heading}>BOARD NUMBER (MAC)</h2>
               </div>
 
               <ScanBoxAnimated ariaLabel="KFB scan zone" height={160} />
@@ -438,7 +461,7 @@ const acceptKfb = useCallback((code: string) => {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: prefersReduced ? 0 : 0.14 }}
                   >
-                    <ManualInput placeholder="Type KFB code" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
+                    <ManualInput placeholder="Type ESP MAC e.g. 08:3A:8D:15:27:54" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
                   </m.div>
                 )}
               </AnimatePresence>
@@ -447,7 +470,7 @@ const acceptKfb = useCallback((code: string) => {
         )}
       </AnimatePresence>
 
-      {/* Step 2: KSSK (compact, NO animation on scan area) */}
+      {/* Step 2: KSSK (compact) */}
       {kfb && (
         <section style={section}>
           <section style={card}>
@@ -614,16 +637,12 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         <StateIcon state={filled ? "valid" : "idle"} size={40} />
       </div>
 
-      {/* code pill — BIG, with subtle border like ESP MAC */}
+      {/* code pill */}
       <div>
-        <CodePill
-          value={code || "—"}
-          highlight={filled ? "success" : "neutral"}
-          big
-        />
+        <CodePill value={code || "—"} highlight={filled ? "success" : "neutral"} big />
       </div>
 
-      {/* Static scan stripes only (NO animation) */}
+      {/* Static scan stripes */}
       <div
         aria-label={`KSSK scan zone ${index + 1}`}
         style={{
@@ -735,7 +754,6 @@ function StepBadge({ label, onClick }: { label: string; onClick?: () => void }) 
     userSelect: "none",
   };
   const text: CSSProperties = { fontSize: 14, fontWeight: 900, color: "#0f172a", whiteSpace: "nowrap", letterSpacing: "0.02em" };
-
   return (
     <div
       style={base}
@@ -764,8 +782,6 @@ function NextStepIcon({ size = 20 }: { size?: number }) {
   );
 }
 
-/* ===== ESP-like bits for pills ===== */
-
 function SignalDot() {
   return (
     <span
@@ -793,28 +809,10 @@ function CodePill({
 }) {
   const palette =
     highlight === "success"
-      ? {
-          bg: "rgba(16,185,129,0.08)",
-          bd: "#a7f3d0",
-          fg: "#065f46",
-          dot: "linear-gradient(180deg,#34d399,#10b981)",
-          ring: "rgba(16,185,129,0.18)",
-        }
+      ? { bg: "rgba(16,185,129,0.08)", bd: "#a7f3d0", fg: "#065f46", dot: "linear-gradient(180deg,#34d399,#10b981)", ring: "rgba(16,185,129,0.18)" }
       : highlight === "danger"
-      ? {
-          bg: "rgba(239,68,68,0.08)",
-          bd: "#fecaca",
-          fg: "#7f1d1d",
-          dot: "linear-gradient(180deg,#fb7185,#ef4444)",
-          ring: "rgba(239,68,68,0.18)",
-        }
-      : {
-          bg: "rgba(2,6,23,0.04)",
-          bd: "#dbe3ee",
-          fg: "#0f172a",
-          dot: "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-          ring: "rgba(2,6,23,0.06)",
-        };
+      ? { bg: "rgba(239,68,68,0.08)", bd: "#fecaca", fg: "#7f1d1d", dot: "linear-gradient(180deg,#fb7185,#ef4444)", ring: "rgba(239,68,68,0.18)" }
+      : { bg: "rgba(2,6,23,0.04)", bd: "#dbe3ee", fg: "#0f172a", dot: "linear-gradient(180deg,#cbd5e1,#94a3b8)", ring: "rgba(2,6,23,0.06)" };
 
   return (
     <div
@@ -858,18 +856,17 @@ function CodePill({
   );
 }
 
-/* ===== Overlay (stronger green/red, full-screen tint, bigger text) ===== */
+/* ===== Overlay ===== */
 function ResultOverlay({
   open, kind, code, msg, onClose,
 }: { open: boolean; kind: "success" | "error"; code: string; msg?: string; onClose: () => void }) {
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(onClose, 900); // slightly shorter for snappier feel
+    const t = setTimeout(onClose, 900);
     return () => clearTimeout(t);
   }, [open, onClose]);
 
   const isOk = kind === "success";
-  // Single translucent layer – no blur, no radial gradients (GPU-friendly)
   const BG = isOk ? "rgba(16,185,129,0.50)" : "rgba(239,68,68,0.50)";
   const EDGE = isOk ? "rgba(5,150,105,1)" : "rgba(127,29,29,1)";
 
@@ -882,14 +879,8 @@ function ResultOverlay({
           exit={{ opacity: 0 }}
           transition={{ type: "tween", duration: 0.12 }}
           style={{
-            position: "fixed",
-            inset: 0,
-            background: BG,
-            display: "grid",
-            placeItems: "center",
-            zIndex: 80,
-            pointerEvents: "none",              // no layout thrash from pointer handling
-            willChange: "opacity",              // hint for compositor
+            position: "fixed", inset: 0, background: BG, display: "grid", placeItems: "center",
+            zIndex: 80, pointerEvents: "none", willChange: "opacity",
           }}
           aria-live="assertive"
           aria-label={isOk ? "OK" : "ERROR"}
@@ -899,25 +890,13 @@ function ResultOverlay({
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 20, mass: 0.6 }}
-            style={{
-              display: "grid",
-              justifyItems: "center",
-              gap: 10,
-              padding: 8,
-              transform: "translateZ(0)",      // force GPU layer
-              willChange: "transform, opacity",
-            }}
+            style={{ display: "grid", justifyItems: "center", gap: 10, padding: 8, transform: "translateZ(0)", willChange: "transform, opacity" }}
           >
             <div
               style={{
-                fontSize: 180,
-                lineHeight: 1,
-                fontWeight: 1000,
-                letterSpacing: "0.03em",
-                color: "#fff",
-                textShadow: `0 0 0 ${EDGE}, 0 10px 28px rgba(0,0,0,0.45)`,
-                fontFamily:
-                  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
+                fontSize: 180, lineHeight: 1, fontWeight: 1000, letterSpacing: "0.03em",
+                color: "#fff", textShadow: `0 0 0 ${EDGE}, 0 10px 28px rgba(0,0,0,0.45)`,
+                fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
               }}
             >
               {isOk ? "OK" : "ERROR"}
@@ -926,14 +905,9 @@ function ResultOverlay({
             {(code || msg) && (
               <div
                 style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  color: "#fff",
-                  textShadow: "0 2px 10px rgba(0,0,0,0.45)",
-                  textAlign: "center",
-                  maxWidth: 960,
-                  padding: "0 12px",
-                  wordBreak: "break-all",
+                  fontSize: 24, fontWeight: 900, color: "#fff",
+                  textShadow: "0 2px 10px rgba(0,0,0,0.45)", textAlign: "center",
+                  maxWidth: 960, padding: "0 12px", wordBreak: "break-all",
                 }}
               >
                 {code}{msg ? ` — ${msg}` : ""}
@@ -945,4 +919,3 @@ function ResultOverlay({
     </AnimatePresence>
   );
 }
-

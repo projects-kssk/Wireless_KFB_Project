@@ -138,10 +138,20 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [isChecking, setIsChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [localBranches, setLocalBranches] = useState<BranchDisplayData[]>(branchesData);
+  const [recentMacs, setRecentMacs] = useState<string[]>([]);
 
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
 
   useEffect(() => { setHasMounted(true); }, []);
+
+  // load recent macs list (if any)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('RECENT_MACS') || '[]';
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) setRecentMacs(list.filter((s) => typeof s === 'string'));
+    } catch {}
+  }, []);
 
   const pending = useMemo(() =>
     localBranches
@@ -202,6 +212,13 @@ useEffect(() => {
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || String(res.status));
       const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
+      // store to recent list
+      try {
+        const mac = macAddress.toUpperCase();
+        const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
+        localStorage.setItem('RECENT_MACS', JSON.stringify(now));
+        setRecentMacs(now);
+      } catch {}
       // update local statuses
       setLocalBranches(prev => prev.map(b => {
         if (typeof b.pinNumber !== 'number' || b.notTested) return b;
@@ -263,6 +280,15 @@ useEffect(() => {
         return (
           <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-3xl p-0">
             <div className="relative w-full rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white/90">
+              <button
+                type="button"
+                onClick={() => setIsManualEntry(false)}
+                aria-label="Close"
+                className="absolute top-3 right-3 z-10 inline-flex items-center justify-center h-12 w-12 rounded-full border-2 border-slate-300 bg-white text-slate-800 hover:bg-slate-100 shadow"
+                title="Close"
+              >
+                <span className="text-3xl leading-none">×</span>
+              </button>
               <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/70 to-transparent" />
               <div className="p-10">
                 <div className="text-center mb-8">
@@ -277,36 +303,65 @@ useEffect(() => {
                 </div>
 
                 <form onSubmit={handleManualSubmit} className="w-full grid gap-6">
-                  <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => onMacChange(e.target.value)}
-                    placeholder="08:3A:8D:15:27:54"
-                    className={[
-                      'w-full text-center text-4xl p-6 rounded-2xl border-2',
-                      macValid ? 'border-emerald-400' : 'border-blue-500',
-                      'bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-200 shadow-inner',
-                      'font-mono tracking-widest placeholder:text-slate-400',
-                    ].join(' ')}
-                    autoFocus
-                  />
-                  {!macValid && inputValue && (
-                    <div className="text-center text-red-600 font-bold">Invalid MAC format</div>
+                  <div className="grid gap-2">
+                    <label className="text-sm font-bold text-slate-600 tracking-wide select-none">MAC Address</label>
+                    <div className={[
+                      'relative rounded-2xl border-2 bg-gradient-to-b from-white to-slate-50 shadow-inner backdrop-blur',
+                      macValid ? 'border-emerald-400' : 'border-blue-400',
+                    ].join(' ')}>
+                      <input
+                        type="text"
+                        value={inputValue}
+                        onChange={(e) => onMacChange(e.target.value)}
+                        placeholder="08:3A:8D:15:27:54"
+                        inputMode="text"
+                        autoCapitalize="characters"
+                        spellCheck={false}
+                        maxLength={17}
+                        pattern="^([0-9A-F]{2}:){5}[0-9A-F]{2}$"
+                        className={[
+                          'w-full text-center text-[44px] leading-[1.25] py-5 pl-36 pr-36 rounded-2xl outline-none',
+                          'bg-transparent text-slate-800 focus:ring-0',
+                          'font-mono tracking-[0.35em] placeholder:tracking-normal placeholder:text-slate-400 placeholder:opacity-70',
+                        ].join(' ')}
+                        autoFocus
+                        aria-invalid={!macValid && !!inputValue}
+                        aria-describedby="mac-help"
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                        {macValid && <CheckCircleIcon className="w-8 h-8 text-emerald-500" />}
+                      </div>
+                    </div>
+                    <div id="mac-help" className="text-center text-sm text-slate-500 font-semibold">
+                      Tip: Paste or scan; we auto-format as AA:BB:CC:DD:EE:FF
+                    </div>
+                    {!macValid && inputValue && (
+                      <div className="text-center text-red-600 font-bold">Invalid MAC format</div>
+                    )}
+                  </div>
+                  {recentMacs.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <span className="text-slate-500 font-semibold mr-2">Recent:</span>
+                      {recentMacs.map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => onMacChange(m)}
+                          className="px-3 py-1 rounded-full border border-slate-200 bg-white hover:bg-slate-100 font-mono text-slate-700"
+                          title={m}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  <div className="grid grid-cols-2 gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setIsManualEntry(false)}
-                      className="w-full bg-slate-200 text-slate-900 font-extrabold text-xl py-4 rounded-xl shadow hover:bg-slate-300"
-                    >
-                      Back to Scan
-                    </button>
+                  <div className="grid gap-4">
                     <button
                       type="submit"
                       disabled={!macValid || isScanning}
-                      className="w-full bg-blue-600 text-white font-extrabold text-xl py-4 rounded-xl shadow hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                      className="w-full py-4 rounded-2xl text-white font-extrabold text-2xl shadow-lg disabled:bg-slate-400 disabled:cursor-not-allowed bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-700 hover:via-indigo-700 hover:to-blue-800"
                     >
-                      {isScanning ? 'Submitting…' : 'Submit'}
+                      {isScanning ? 'Submitting…' : 'Submit MAC'}
                     </button>
                   </div>
                 </form>
@@ -316,32 +371,51 @@ useEffect(() => {
         );
       }
 
-      return (
-        <div className="flex flex-col items-center justify-center h-full min-h-[500px] bg-white/50 rounded-2xl border-4 border-dashed border-slate-400 p-10">
-          <div
-            className="flex flex-col items-center justify-center w-full"
-            onClick={handleScan}
-            style={{ cursor: 'pointer' }}
-          >
-            {/* Barcode container for centering and styling */}
-            <div className="flex items-center justify-center rounded-2xl bg-gray-100 p-10 mb-12" style={{ minWidth: 450, minHeight: 250 }}>
-              <BarcodeIcon className="w-[450px] h-[250px] text-slate-400" />
+      // Scan box styled like Setup page
+      const ScanBox = ({ ariaLabel, height = 220 }: { ariaLabel: string; height?: number }) => {
+        const slabH = Math.max(120, Math.min(Math.round(height * 0.6), 140));
+        return (
+          <div aria-label={ariaLabel} className="w-full max-w-4xl">
+            <div
+              style={{
+                position: 'relative',
+                width: '100%',
+                height,
+                borderRadius: 18,
+                overflow: 'hidden',
+                background: '#0b1220',
+                border: '1px solid #1f2937',
+                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.25)'
+              }}
+            >
+              <div aria-hidden style={{ position: 'absolute', inset: 0, opacity: .22, backgroundImage: 'repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)', backgroundSize: '120px 100%' }} />
+              {(['tl','tr','bl','br'] as const).map(pos => (
+                <div key={pos} aria-hidden style={{ position: 'absolute', width: 18, height: 18, ...(pos==='tl' && { left:10, top:10, borderLeft:'2px solid #e5e7eb', borderTop:'2px solid #e5e7eb' }), ...(pos==='tr' && { right:10, top:10, borderRight:'2px solid #e5e7eb', borderTop:'2px solid #e5e7eb' }), ...(pos==='bl' && { left:10, bottom:10, borderLeft:'2px solid #e5e7eb', borderBottom:'2px solid #e5e7eb' }), ...(pos==='br' && { right:10, bottom:10, borderRight:'2px solid #e5e7eb', borderBottom:'2px solid #e5e7eb' }), opacity:.7, borderRadius:2 }} />
+              ))}
+              <div aria-hidden style={{ position: 'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', width: 'min(100%, 1100px)', height: slabH, borderRadius: 12, background: 'repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)' }}>
+                <div style={{ position:'absolute', inset:0, borderRadius: 12, background: 'linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 8%, rgba(11,18,32,0) 92%, rgba(11,18,32,1) 100%)', pointerEvents:'none' }} />
+              </div>
+              <div aria-label="KFB WIRELESS" style={{ position:'absolute', left:0, right:0, bottom:0, paddingBottom: 6, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
+                <span style={{ fontFamily:'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial', textTransform:'uppercase', letterSpacing: 3, fontWeight: 700, fontSize: 12, color:'#ffffff', opacity:.6, textShadow: '0 1px 0 rgba(0,0,0,.35)', userSelect:'none' }}>KFB WIRELESS</span>
+              </div>
             </div>
-            <p className="text-7xl text-slate-500 font-semibold uppercase tracking-wider text-center">
-              Please Scan KFB INFO
-            </p>
-            {isScanning && <p className="text-slate-500 mt-4 text-6xl animate-pulse text-center">Scanning…</p>}
+          </div>
+        );
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
+          <div className="w-full flex flex-col items-center gap-8">
+            <ScanBox ariaLabel="Scan MAC or KFB" />
+            <p className="text-6xl md:text-7xl text-slate-600 font-extrabold uppercase tracking-widest text-center select-none">Please Scan KFB Board</p>
+            {isScanning && <p className="text-slate-500 text-4xl md:text-5xl animate-pulse text-center">Scanning…</p>}
           </div>
           {allowManualInput && (
-            <button
-              onClick={() => setIsManualEntry(true)}
-              className="mt-8 text-xl text-slate-500 hover:text-blue-600 transition-colors underline"
-            >
-              Or enter number manually
+            <button onClick={() => setIsManualEntry(true)} className="mt-10 text-xl md:text-2xl text-slate-500 hover:text-blue-600 transition-colors underline">
+              Or enter MAC manually
             </button>
           )}
         </div>
-
       );
     }
 

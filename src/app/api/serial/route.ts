@@ -74,12 +74,10 @@ async function appendLog(entry: Record<string, unknown>) {
     const kssk = (entry as any)?.kssk as string | undefined;
 
     if (evt === 'monitor.send') {
-      const built = (entry as any)?.built as { normalPins?: number[]; latchPins?: number[] } | undefined;
-      const n = built?.normalPins || [];
-      const l = built?.latchPins || [];
-      mon.info(
-        `MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`
-      );
+      const payload = (entry as any)?.sent ?? (entry as any)?.built; // ← prefer 'sent'
+      const n = payload?.normalPins || [];
+      const l = payload?.latchPins || [];
+      mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`);
       return;
     }
     if (evt === 'monitor.success') {
@@ -278,16 +276,15 @@ export async function POST(request: Request) {
 
   const entry: any = {
     event: "monitor.send",
-    mac, kssk, cmd,
-    sent: { normalPins: normalPins, latchPins: latchPins }, // ✅ only what we send
+    mac, kssk, cmd, rid,
+    sent: { normalPins, latchPins },
     counts
   };
   if (mismatch) {
     entry.requested = { normalPins: reqNormal ?? null, latchPins: reqLatch ?? null };
-    entry.diffs = diffs; // only when different
+    entry.diffs = diffs;
   }
   await appendLog(entry);
-
   await appendLog({
     event: "monitor.send",
     source: src,

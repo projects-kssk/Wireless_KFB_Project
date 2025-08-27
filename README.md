@@ -1,108 +1,131 @@
-# NextJS TailwindCSS Coming Soon Template
+# Wireless KFB – GUI + Electron + Serial/Scanner
 
-This is a simple coming soon template built with [Next.js](https://nextjs.org/) and [TailwindCSS](https://tailwindcss.com/). It is a lightweight and responsive template that can be used for various projects that require a "coming soon" page.
+Desktop app for scanning KFB codes, configuring and monitoring ESP devices via serial, and tracking work-in-progress locks in Redis. Built with Next.js (App Router) and packaged for Electron.
 
-## Demo
-Here's a live demo of the template: **[Live Demo](https://tailwnd-nextjs-comming-soon-tm2g.vercel.app/)**
+This README describes what the app does, how the code is structured, the APIs it exposes, how to run it, and how to read logs effectively.
 
+## Overview
+- UI: React + Tailwind driven dashboard (Next.js App Router) packaged inside Electron.
+- Serial: Communicates with an ESP over a configured TTY for MONITOR/CHECK flows.
+- Scanners: Listens to barcode scanners on `/dev/ttyACM*` and consumes the scanned KFB.
+- Locks: Uses Redis for station-scoped KSSK locks with an in-memory fallback.
+- Data: Branch/config endpoints read from Postgres (pool) as used by the UI.
 
-<a href="https://www.buymeacoffee.com/sandipbaikare" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
+Flow summary
+- Scan KFB → fetch branches/config → send MONITOR to ESP (pins + MAC) → run CHECK → overlay OK/ERROR + failures.
+- Locks endpoints manage station ownership of KSSK during work.
 
-### Screenshot
+## Run & Build
+- Dev (starts server, Next, and Electron): `npm run dev`
+- Only the monitor/console view: `npm run logs:monitor`
+- Full debug logging: `npm run logs:full`
+- Package Electron (AppImage): `npm run build`
+- ARM64 AppImage: `npm run build:arm64`
 
-#### Standard Version
-![Coming Soon Page](https://github.com/baikaresandip/tailwind-nextjs-comming-soon/blob/main/public/coming-soon-standard-template.png "Coming Soon Page")
+Prerequisites
+- Node 20+
+- Docker (for Redis helper script) or an accessible Redis instance
+- Postgres reachable by the env values in `.env`
 
-#### Version 1
-![Coming Soon Version 1](https://github.com/baikaresandip/tailwind-nextjs-comming-soon/blob/main/public/coming-soon-version-1.png "Coming Soon Version 1")
+## Key Environment Variables
+- Serial/ESP
+  - `ESP_TTY_PATH=/dev/ttyUSB0` (or `ESP_TTY`), `ESP_BAUD` (default 115200)
+  - `ESP_PING_CMD` (e.g. `PING {mac}`), `ESP_MAC` target MAC
+  - `ESP_HEALTH_PROBE` = `never|if-stale|always` (health policy)
+- Scanners
+  - `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1` (plus optional `SCANNER2_TTY_PATH`)
+- Redis
+  - `REDIS_URL=redis://127.0.0.1:6379`
+  - `KSSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
+- Postgres (used by branches/configs endpoints)
+  - `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`
+- UI behavior
+  - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for KFB input)
+  - `NEXT_PUBLIC_STATION_ID` (used for lock ownership)
+- Logging (defaults set in `.env`)
+  - `LOG_ENABLE=1`, `LOG_DIR=./logs`, `LOG_LEVEL=info`
+  - `LOG_MONITOR_ONLY=1` (print only monitor-tag info/warn)
+  - `LOG_MONITOR_START_ONLY=1` (show only MONITOR start lines; failures still appear)
+  - `LOG_TAG_LEVELS=redis=warn,kssk-lock=warn` (optional per-tag overrides)
 
+## Logging Cheat‑Sheet
+- Console (concise):
+  - `MONITOR start mac=… kssk=… normal(N)=[…] contactless(M)=[…]`
+  - `MONITOR ok …` (suppressed when start-only is enabled)
+  - `CHECK fail mac=… failures=[…]` (always printed)
+  - Errors from any tag always show
+- Files (structured JSON):
+  - App logs in `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1`)
+  - Detailed monitor events in `./monitor.logs/monitor-YYYY-MM-DD.log`
 
+## Repo Structure (selected)
+- `server.ts` – Next server + WS bridge for serial events (dev-prod compatible)
+- `main/` – Electron main process (starts Next or uses packaged server)
+- `src/lib/serial.ts` – ESP + scanner orchestration, ring buffer, cooldowns
+- `src/lib/logger.ts` – Structured logger with env-driven filtering
+- `src/app/api/*` – API routes (see below)
+- `scripts/print-locks-redis.mjs` – Inspect KSSK locks (supports station filter, watch, regex)
 
-## Getting Started
+## API Reference
 
-Clone this repository: `git clone https://github.com/baikaresandip/tailwind-nextjs-comming-soon.git`
+Base URL in dev: `http://localhost:3003`
 
-Install dependencies: `npm install`
+Serial/Monitor
+- `GET /api/serial?probe=1`
+  - Probes ESP health (policy via `ESP_HEALTH_PROBE`)
+  - Returns: `{ ok: boolean, raw: string }`
+- `POST /api/serial`
+  - Body A: `{ normalPins?: number[], latchPins?: number[], mac: "AA:BB:..." , kssk?: string }`
+  - Body B: `{ sequence: [...krosy items...], mac: "AA:...", kssk?: string }` (extracts pins)
+  - Sends `MONITOR` to ESP and returns `{ success, cmd, normalPins, latchPins, mac }`
+  - Also writes a concise monitor line and a detailed JSON entry to `monitor.logs`
+- `POST /api/serial/check`
+  - Body: `{ pins: number[], mac: string }`
+  - Sends `CHECK`, waits briefly for RESULT, returns `{ failures: number[] }`
+  - Emits concise monitor line on failure (or suppressed ok when start-only)
 
-Start the development server: `npm run dev`
+Scanners
+- `GET /api/serial/scanner`
+  - Poll endpoint returning last scan `{ code, path, error, retryInMs }` (peek/consume)
+- `GET /api/serial/events`
+  - Server-Sent Events stream with snapshots and updates:
+    - device list, scanner paths, scanner open/close/errors, scans, net iface info, ESP health
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+KSSK Locks (Redis; in-memory fallback when Redis is unavailable)
+- `POST /api/kssk-lock`
+  - Body: `{ kssk: string, mac?: string, stationId: string, ttlSec?: number }`
+  - Creates a lock with TTL; returns `{ ok: true }` or `409 locked`
+- `GET /api/kssk-lock?kssk=...`
+  - Returns `{ locked: boolean, existing: {..., expiresAt} | null }`
+- `GET /api/kssk-lock?stationId=JETSON-01`
+  - Lists active locks for station: `{ locks: LockRow[] }`
+- `PATCH /api/kssk-lock`
+  - Body: `{ kssk, stationId, ttlSec }` → touch TTL if you’re the owner
+- `DELETE /api/kssk-lock?kssk=...&stationId=...`
+  - Deletes if called by owner (or `force=1`)
 
+Branches / Configurations (Postgres)
+- `GET /api/branches?kfb=KFB123`
+  - Returns list of branches with optional pin and flags (used by dashboard)
+- `GET /api/configurations?kfb=KFB123`
+  - Returns configuration for a KFB (id, kfb, mac_address)
+- `POST /api/configurations` (admin workflows)
+  - Insert a full configuration with info details, branches, and pin mappings
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## CLI Helpers
+- Start Redis (Docker): `npm run redis:up` (and `npm run redis:logs`)
+- Print locks (station-scoped): `npm run locks:station -- --id=JETSON-01`
+- Watch with regex filter: `npm run locks:station:watch -- --id=JETSON-01 --match=/^8305779/`
 
-[http://localhost:3000/api/hello](http://localhost:3000/api/hello) is an endpoint that uses [Route Handlers](https://beta.nextjs.org/docs/routing/route-handlers). This endpoint can be edited in `app/api/hello/route.ts`.
+## Development Notes
+- Electron waits for `PORT` (default 3003) then opens the app.
+- `next.config.ts` externalizes `serialport` on server and disables it for browser builds.
+- SSE wiring (`/api/serial/events`) keeps the UI updated without polling, and the UI also polls `/api/serial/scanner` to consume scans.
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
-
-## Future Enhanment
-
-- [x] Coming Soon Template
-- [x] Both light and dark mode
-- [x] Another version with countdown time 
-- [ ] Email Sent functionality and configurations
-- [ ] Implemet hide and show components for both versions from data
-- [ ] Implement 
-
-## Tech Stacks
-- Next.JS: 14.1.4
-- Node: 20.12.5
-- next-seo: 6.5.0
-- next-themes: 0.3.0
-- react: 18.2.0
-- typescript: 5.4.4
-- eslint: 8
-
-## Learn More
-
-To learn more about Next.js and Tailwind CSS, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [TailwindCSS](https://tailwindcss.com/docs/installation) - Get started with Tailwind CSS
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
-
-## Credits
-This template was built with [Next.js](https://nextjs.org/) and [TailwindCSS](https://tailwindcss.com/). Build by [Sandip Baikare](https://github.com/baikaresandip/)
-
-## License
-This project is licensed under the MIT License. See the LICENSE file for details.
-
-
-STEPS
-rm -rf dist out
-
-pnpm run build:electron
-pnpm run build:next
-pnpm run build
-pnpm exec electron-builder --linux AppImage --linux deb --x64
-
-chmod +x dist/*.AppImage
-./dist/wireless-KFB-1.0.0.AppImage
-
-lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
-
-
-USE_SYSTEM_FPM=true npx electron-builder build --linux deb --arm64
-
-https://chatgpt.com/c/6863d3ad-0e20-800f-b7bf-89117257f776
-
-npm run locks:station -- --id=JETSON-01
-
-# add a lock
-curl -sS -X POST http://localhost:3000/api/kssk-lock \
-  -H 'content-type: application/json' \
-  -d '{"kssk":"830577904820","mac":"08:3A:8D:15:27:54","stationId":"JETSON-01","ttlSec":1800}'
-
-# list by station
-curl -sS 'http://localhost:3000/api/kssk-lock?stationId=JETSON-01' | jq
-
-# delete it
-curl -sS -X DELETE 'http://localhost:3000/api/kssk-lock?kssk=830577904820&stationId=JETSON-01'
+## Troubleshooting
+- No monitor logs:
+  - Check `ESP_TTY_PATH` and device permissions; set `ESP_DEBUG=1` to see serial lines.
+- No scans:
+  - Verify scanner path in env; watch `/api/serial/events` output; check `getScannerStatus()` via `/api/serial/scanner` response.
+- Locks not visible:
+  - Ensure `REDIS_URL` is the same for the app and script; use `npm run locks:station -- --id=...`.

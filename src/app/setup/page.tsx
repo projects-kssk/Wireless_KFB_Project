@@ -467,8 +467,9 @@ export default function SetupPage() {
           showErr(code, "Scan MAC address first", "kfb");
           return;
         }
-        if (ksskSlots.includes(code)) {
-          showErr(code, "Duplicate KSSK", panel);
+        // disallow duplicates in current batch or any active lock for this station
+        if (ksskSlots.includes(code) || activeLocks.current.has(code)) {
+          showErr(code, "Already in production — cannot reuse", panel);
           return;
         }
         if (target === -1) {
@@ -488,21 +489,15 @@ export default function SetupPage() {
 
         if (!lockRes.ok) {
           const j = await lockRes.json().catch(() => ({}));
-          const sameOwner =
-            String(j?.existing?.mac || "").toUpperCase() === String(kfb).toUpperCase() &&
-            j?.existing?.stationId === STATION_ID;
-
-          if (!sameOwner) {
-            const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
-            const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
-            const msg =
-              otherMac && otherMac !== String(kfb).toUpperCase()
-                ? `TESTED on another board — already assigned to BOARD ${otherMac}`
-                : `TESTED on another board — already in production${heldBy}`;
-            bump(target, null, "idle");
-            showErr(code, msg, panel);
-            return;
-          }
+          const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+          const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+          const msg =
+            otherMac && otherMac !== String(kfb).toUpperCase()
+              ? `Already in production for BOARD ${otherMac}${heldBy}`
+              : `Already in production${heldBy}`;
+          bump(target, null, "idle");
+          showErr(code, msg, panel);
+          return;
         }
 
         // 3) reconcile local after server ok

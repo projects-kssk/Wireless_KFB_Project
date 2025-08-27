@@ -1,6 +1,6 @@
 // src/app/api/serial/scanner/route.ts
 import { NextResponse } from 'next/server';
-import { getLastScanAndClear } from '@/lib/scannerMemory';
+import { getLastScanAndClear, getLastScanAndClearFor, peekLastScanFor } from '@/lib/scannerMemory';
 import { ensureScanners, getScannerStatus } from '@/lib/serial';
 
 export const runtime = 'nodejs';
@@ -63,13 +63,14 @@ function readScan(peek: boolean) {
 
 // Keep ensure() cheap but frequent
 let NEXT_ENSURE_AT = 0;
-const ENSURE_INTERVAL_MS = Number(process.env.SCANNER_ENSURE_INTERVAL_MS ?? 1200);
-const CLIENT_RETRY_MS = Number(process.env.SCANNER_CLIENT_RETRY_MS ?? 800);
+const ENSURE_INTERVAL_MS = Number(process.env.SCANNER_ENSURE_INTERVAL_MS ?? 2000);
+const CLIENT_RETRY_MS = Number(process.env.SCANNER_CLIENT_RETRY_MS ?? 1800);
 
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const consume = url.searchParams.get('consume') === '1'; // default: peek
+    const wantedPath = (url.searchParams.get('path') || '').trim();
     const now = Date.now();
 
     if (now >= NEXT_ENSURE_AT) {
@@ -78,11 +79,30 @@ export async function GET(req: Request) {
     }
 
     const statusRaw = getScannerStatus();
-  const status = pickStatus(statusRaw, envScannerPaths());
+    const status = pickStatus(statusRaw, envScannerPaths());
 
-  const scan = readScan(!consume); // peek unless explicitly consuming
-  const code = scan?.code ?? null;
-  const path = scan?.path ?? null;
+    // Per-path mode (if query param provided)
+    if (wantedPath) {
+      const data = consume ? getLastScanAndClearFor(wantedPath) : (peekLastScanFor(wantedPath)?.code ?? null);
+      const code = data ?? null;
+      const path = code ? wantedPath : null;
+      let error: string | null = null;
+      if (!code) {
+        const st = (statusRaw as any)[wantedPath] as ScannerStatus | undefined;
+        if (!st) error = 'disconnected:not_present';
+        else if (!st.open) error = 'closed:not_open';
+        else if (st.inCooldown) error = st.lastError || 'cooldown';
+      }
+      const advise = CLIENT_RETRY_MS;
+      return NextResponse.json(
+        { code, path, error, retryInMs: advise },
+        { headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    const scan = readScan(!consume); // peek unless explicitly consuming
+    const code = scan?.code ?? null;
+    const path = scan?.path ?? null;
 
   let error: string | null = null;
   // Optional: convey a hint about state in error (for logs/debug)
@@ -94,10 +114,10 @@ export async function GET(req: Request) {
   // Adaptive client retry suggestion
   let advise = CLIENT_RETRY_MS;
   if (!code) {
-    if (!status) advise = Math.max(advise, 1500);
-    else if (!status.open) advise = Math.max(advise, 1200);
-    else if (status.inCooldown) advise = Math.max(advise, 1200);
-    else advise = Math.max(advise, 900);
+    if (!status) advise = Math.max(advise, 2500);
+    else if (!status.open) advise = Math.max(advise, 2000);
+    else if (status.inCooldown) advise = Math.max(advise, 2000);
+    else advise = Math.max(advise, 1500);
   }
 
   return NextResponse.json(

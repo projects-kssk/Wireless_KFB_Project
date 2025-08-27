@@ -36,7 +36,7 @@ function buildMatchers(macUp: string) {
   // Terminal results only
   const RESULT_RE = new RegExp(`\\bRESULT\\s+(SUCCESS|OK|FAIL(?:URE)?[^\\n]*)\\b.*${MAC}\\b`, 'i');
   const REPLY_RESULT_RE = new RegExp(
-    `^\\s*←\\s*(?:reply|resp|response)\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|OK|FAIL(?:URE)?[^\\n]*)`,
+    `^\\s*←\\s*(?:reply|resp|response)\\s+from\\s+${MAC}\\s*:\\s*(?:RESULT\\s+)?(SUCCESS|OK|FAIL(?:URE)?[^\\n]*)`,
     'i'
   );
   const OK_ONLY_RE = /^\s*(?:OK|SUCCESS)\s*$/i;
@@ -65,20 +65,42 @@ function buildMatchers(macUp: string) {
 }
 
 function parseFailuresFromLine(line: string, pins?: number[]) {
-  const want = pins ? new Set<number>(pins) : null;
-  const miss =
-    line.match(/MISSING\s+([0-9,\s]+)/i) ||
-    line.match(/FAILURES?\s*:\s*([0-9,\s]+)/i);
+  const want = Array.isArray(pins) && pins.length > 0 ? new Set<number>(pins) : null;
+  // Known patterns first
+  const patterns = [
+    /MISSING\s+([0-9,\s]+)/i,
+    /FAILURES?\s*:\s*([0-9,\s]+)/i,
+    /FAILED\s+PINS?\s*:\s*([0-9,\s]+)/i,
+    /OPEN\s+PINS?\s*:\s*([0-9,\s]+)/i,
+    /BAD\s+PINS?\s*:\s*([0-9,\s]+)/i,
+  ];
+  let captured: string | null = null;
+  for (const rx of patterns) {
+    const m = line.match(rx);
+    if (m && m[1]) { captured = m[1]; break; }
+  }
 
   const failures = new Set<number>();
-  (miss?.[1] ?? '')
-    .split(/[,\s]+/)
-    .forEach((x) => {
+
+  if (captured) {
+    captured.split(/[,\s]+/).forEach((x) => {
       const n = Number(x);
       if (!Number.isInteger(n)) return;
       if (want) { if (want.has(n)) failures.add(n); }
       else failures.add(n);
     });
+  } else {
+    // Fallback: collect any standalone numbers in the line,
+    // but first remove MAC-like tokens to avoid false positives (e.g., 08:3A:..)
+    const sanitized = line.replace(/\b(?:[0-9A-F]{2}:){5}[0-9A-F]{2}\b/ig, '');
+    const nums = sanitized.match(/\b\d{1,4}\b/g) || [];
+    for (const s of nums) {
+      const n = Number(s);
+      if (!Number.isInteger(n)) continue;
+      if (want) { if (want.has(n)) failures.add(n); }
+      else failures.add(n);
+    }
+  }
 
   return Array.from(failures).sort((a, b) => a - b);
 }
@@ -104,16 +126,17 @@ export async function POST(request: Request) {
   locks.add(macUp);
 
   try {
-    const pins = parsed.data.pins ?? [];
+    // Leave undefined if client didn't provide pins, so we don't filter out everything
+    const pins = parsed.data.pins;
 
     const { sendToEsp, waitForNextLine } = serial as any;
     if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {
       throw new Error('serial-helpers-missing');
     }
 
-    log.info('CHECK begin', { rid, mac: macUp, pins: pins.length });
+    log.info('CHECK begin', { rid, mac: macUp, pins: pins?.length ?? 0 });
     if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
-      mon.info(`CHECK start mac=${macUp} pins=${pins.length}`);
+      mon.info(`CHECK start mac=${macUp} pins=${pins?.length ?? 0}`);
     }
 
     const {
@@ -183,9 +206,10 @@ export async function POST(request: Request) {
           'i'
         );
         const REPLY_RESULT_RE = new RegExp(
-          `^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|FAILURE[^\\n]*)`,
+          `^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(?:RESULT\\s+)?(SUCCESS|FAILURE[^\\n]*)`,
           'i'
         );
+
         for (let i = tail.length - 1; i >= 0; i--) {
           const ln = tail[i];
           const m = ln.match(RESULT_RE) || ln.match(REPLY_RESULT_RE);
@@ -215,7 +239,7 @@ export async function POST(request: Request) {
 
     // Terminal parse
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
-    if (m1 && /^SUCCESS/i.test(m1[1])) {
+    if (m1 && /^SUCCESS|OK/i.test(m1[1])) {
       log.info('CHECK success', { rid, mac: macUp, durationMs: Date.now()-t0 });
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
@@ -225,9 +249,10 @@ export async function POST(request: Request) {
 
     // FAILURE → return pin list
     const failures = parseFailuresFromLine(line, pins);
-    log.info('CHECK failure', { rid, mac: macUp, failures, durationMs: Date.now()-t0 });
+    const unknown = !failures.length;
+    log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });
     mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);
-    return NextResponse.json({ failures }, { headers: { 'X-Req-Id': rid } });
+    return NextResponse.json({ failures, unknownFailure: unknown }, { headers: { 'X-Req-Id': rid } });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status =

@@ -12,6 +12,7 @@ import {
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
 import type { RefObject } from "react";
+import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
@@ -620,6 +621,75 @@ export default function SetupPage() {
     [kfb, ksskSlots, acceptKfb, acceptKsskToIndex]
   );
 
+  // ---- Serial scanner integration (SSE) ----
+  const serial = useSerialEvents();
+  const SETUP_SCANNER_INDEX = Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_SETUP ?? '1');
+  const pathsEqual = (a?: string | null, b?: string | null) => {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const ta = a.split('/').pop() || a;
+    const tb = b.split('/').pop() || b;
+    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+  };
+  const resolveDesiredPath = (): string | null => {
+    const list = serial.scannerPaths || [];
+    if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
+    // fallback to common pattern if not discovered yet
+    return `/dev/ttyACM${SETUP_SCANNER_INDEX}`;
+  };
+  const desiredPath = resolveDesiredPath();
+  const desiredTail = (desiredPath || '').split('/').pop() || desiredPath || '';
+  const findPortState = () => {
+    const map = serial.scannerPorts || {} as any;
+    const key = Object.keys(map).find((k) => pathsEqual(k, desiredPath || ''));
+    return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
+  };
+  const desiredState = findPortState();
+  useEffect(() => {
+    if (!serial.lastScanTick) return;
+    const raw = String(serial.lastScan || '').trim();
+    if (!raw) return;
+    const want = resolveDesiredPath();
+    const seen = serial.lastScanPath;
+    if (want && seen && !pathsEqual(seen, want)) return; // ignore other scanner paths
+    // Avoid typing conflicts: ignore if user is focused in an input/textarea/contentEditable
+    const t = document.activeElement as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    handleScanned(raw);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serial.lastScanTick]);
+
+  // ---- Polling fallback when SSE is not connected ----
+  useEffect(() => {
+    if (serial.sseConnected) return; // rely on SSE when available
+    let stopped = false;
+    let timer: number | null = null;
+    let ctrl: AbortController | null = null;
+    const tick = async () => {
+      try {
+        ctrl = new AbortController();
+        const want = resolveDesiredPath();
+        const url = want ? `/api/serial/scanner?path=${encodeURIComponent(want)}` : '/api/serial/scanner';
+        const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        if (r.ok) {
+          const { code, retryInMs } = await r.json();
+          const raw = typeof code === 'string' ? code.trim() : '';
+          if (raw) handleScanned(raw);
+          const next = typeof retryInMs === 'number' && retryInMs > 0 ? retryInMs : 1500;
+          if (!stopped) timer = window.setTimeout(tick, next);
+        } else if (!stopped) timer = window.setTimeout(tick, 1800);
+      } catch {
+        if (!stopped) timer = window.setTimeout(tick, 2000);
+      }
+    };
+    tick();
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+      if (ctrl) ctrl.abort();
+    };
+  }, [serial.sseConnected, handleScanned]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -675,6 +745,28 @@ export default function SetupPage() {
     fontWeight: 900,
     color: "#065f46",
   };
+  const scannerPillBase: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 12px",
+    borderRadius: 999,
+    border: "2px solid transparent",
+    fontSize: 14,
+    fontWeight: 1000,
+  };
+  const scannerPillGreen: CSSProperties = {
+    ...scannerPillBase,
+    border: "2px solid #86efac", // green-300
+    background: "rgba(16,185,129,0.10)", // emerald-500 @ 10%
+    color: "#065f46", // emerald-900
+  };
+  const scannerPillRed: CSSProperties = {
+    ...scannerPillBase,
+    border: "2px solid #fca5a5", // red-300
+    background: "rgba(239,68,68,0.10)", // red-500 @ 10%
+    color: "#7f1d1d", // red-900
+  };
 
   const section: CSSProperties = { ...containerWide, display: "grid", gap: 10 };
   const card: CSSProperties = { border: "1px solid #edf2f7", borderRadius: 16, background: "#fff", padding: 18, display: "grid", gap: 12 };
@@ -689,7 +781,7 @@ export default function SetupPage() {
   // ✅ progress counts only OK slots
   const ksskOkCount = ksskStatus.filter((s) => s === "ok").length;
 
-  // auto-reset after 3 OK
+  // auto-reset after 3 OK (wait a bit so highlight is visible)
   useEffect(() => {
     if (!kfb) return;
     if (ksskOkCount === 3) {
@@ -700,7 +792,7 @@ export default function SetupPage() {
         setKsskStatus(["idle", "idle", "idle"]);
         setShowManualFor({});
         setTableCycle((n) => n + 1);
-      }, 950);
+      }, 2000);
       return () => clearTimeout(t);
     }
   }, [ksskOkCount, kfb]);
@@ -710,6 +802,7 @@ export default function SetupPage() {
       {/* HERO */}
       <m.section layout style={hero} aria-live="polite">
         {!kfb ? (
+          <>
           <m.div layout style={heroLeft}>
             <m.div
               layout
@@ -721,6 +814,17 @@ export default function SetupPage() {
               SETUP: A56N_KFB_WIRELESS
             </m.div>
           </m.div>
+          {desiredTail && (
+            <div style={{ marginTop: 8 }}>
+              <span
+                style={(desiredState && desiredState.present) ? scannerPillGreen : scannerPillRed}
+                title={desiredPath || undefined}
+              >
+                Scanner: {desiredTail} {(desiredState && desiredState.present) ? 'detected' : 'not detected'}
+              </span>
+            </div>
+          )}
+          </>
         ) : (
           <m.div layout style={heroTopRow}>
             <m.div layout style={heroLeft}>
@@ -738,6 +842,7 @@ export default function SetupPage() {
                 <SignalDot />
                 {ksskOkCount}/3 KSSK
               </m.div>
+              {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
 
             {ksskOkCount >= 1 && (
@@ -881,7 +986,7 @@ type Props = {
   flashId?: number;
 };
 
-export function ScanBoxAnimated({ ariaLabel, height = 176, flashKind, flashId }: Props) {
+function ScanBoxAnimated({ ariaLabel, height = 176, flashKind, flashId }: Props) {
   const isOk = flashKind === "success";
   const isErr = flashKind === "error";
   const ring = isOk ? "rgba(34,197,94,.30)" : isErr ? "rgba(239,68,68,.30)" : "transparent";

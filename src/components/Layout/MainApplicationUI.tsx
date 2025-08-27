@@ -85,6 +85,26 @@ const MainApplicationUI: React.FC = () => {
   const serial = useSerialEvents();
   const lastScan = serial.lastScan;
   const lastScanPath = (serial as any).lastScanPath as string | null | undefined;
+  const DASH_SCANNER_INDEX = Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0');
+  const pathsEqual = (a?: string | null, b?: string | null) => {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const ta = a.split('/').pop() || a;
+    const tb = b.split('/').pop() || b;
+    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+  };
+  const resolveDesiredPath = (): string | null => {
+    const list = serial.scannerPaths || [];
+    if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+    return `/dev/ttyACM${DASH_SCANNER_INDEX}`;
+  };
+  const desiredPath = resolveDesiredPath();
+  const desiredTail = (desiredPath || '').split('/').pop() || desiredPath || '';
+  const desiredPortState = (() => {
+    const map = serial.scannerPorts || {} as any;
+    const key = Object.keys(map).find((k) => pathsEqual(k, desiredPath || ''));
+    return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
+  })();
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
@@ -108,7 +128,7 @@ const MainApplicationUI: React.FC = () => {
       setIsChecking(true);
       setCheckFailures(null);
       setShowRemoveCable(false);
-      setAwaitingRelease(true);
+      setAwaitingRelease(false);
 
       try {
         const res = await fetch('/api/serial/check', {
@@ -120,6 +140,7 @@ const MainApplicationUI: React.FC = () => {
 
         if (res.ok) {
           const failures: number[] = result.failures || [];
+          const unknown = result?.unknownFailure === true;
           setCheckFailures(failures);
           setBranchesData(data => {
             // If we already have branches, update their statuses
@@ -145,20 +166,25 @@ const MainApplicationUI: React.FC = () => {
             }));
           });
 
-          if (failures.length === 0) {
+          if (!unknown && failures.length === 0) {
             showOverlay('success', lastScanRef.current);
+            setAwaitingRelease(true); // only wait for release on full success
           } else {
-            showOverlay('error', `Failures: ${failures.join(', ')}`);
+            const msg = unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`;
+            showOverlay('error', msg);
+            setAwaitingRelease(false);
           }
           hideOverlaySoon();
         } else {
           console.error('CHECK error:', result);
           showOverlay('error', 'CHECK failed');
+          setAwaitingRelease(false);
           hideOverlaySoon();
         }
       } catch (err) {
         console.error('CHECK error', err);
         showOverlay('error', 'CHECK exception');
+        setAwaitingRelease(false);
         hideOverlaySoon();
       } finally {
         setIsChecking(false);
@@ -265,6 +291,8 @@ const MainApplicationUI: React.FC = () => {
    if (isSettingsSidebarOpen) return;
    if (!serial.lastScanTick) return;              // no event yet
    if (lastScanPath && !isAcmPath(lastScanPath)) return;
+   const want = resolveDesiredPath();
+   if (want && lastScanPath && !pathsEqual(lastScanPath, want)) return; // ignore other scanner paths
    const code = serial.lastScan;                   // the latest payload
    if (!code) return;
    void handleScan(code);
@@ -280,6 +308,7 @@ const MainApplicationUI: React.FC = () => {
     if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
 
     let stopped = false;
+    let lastPollAt = 0;
     // guard against duplicate pollers in StrictMode / re-renders
     const key = '__scannerPollActive__';
     if ((window as any)[key]) return;
@@ -294,13 +323,16 @@ const MainApplicationUI: React.FC = () => {
           return;
         }
         ctrl = new AbortController();
-       const res = await fetch('/api/serial/scanner', { cache: 'no-store', signal: ctrl.signal });
+        const want = resolveDesiredPath();
+        const url = want ? `/api/serial/scanner?path=${encodeURIComponent(want)}` : '/api/serial/scanner';
+       const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
            const { code, path, error, retryInMs } = await res.json();
            try { if (typeof retryInMs === 'number') (window as any).__scannerRetry = retryInMs; } catch {}
           const raw = typeof code === 'string' ? code.trim() : '';
           if (raw) {
             if (path && !isAcmPath(path)) return;
+            if (want && path && !pathsEqual(path, want)) return;
             await handleScan(raw);
           }
               else if (error) {
@@ -313,8 +345,13 @@ const MainApplicationUI: React.FC = () => {
           console.error('[SCANNER] poll error', e);
         }
       } finally {
+        const now = Date.now();
         const delay = typeof (window as any).__scannerRetry === 'number' ? (window as any).__scannerRetry : undefined;
-        const nextMs = (typeof (delay) === 'number' && delay > 0) ? delay : 800;
+        let nextMs = (typeof delay === 'number' && delay > 0) ? delay : 1800;
+        // enforce a minimum spacing between polls
+        const elapsed = now - lastPollAt;
+        if (elapsed < nextMs) nextMs = Math.max(nextMs, 1800 - elapsed);
+        lastPollAt = now + nextMs;
         if (!stopped) timer = window.setTimeout(tick, nextMs);
       }
     };
@@ -360,7 +397,7 @@ const MainApplicationUI: React.FC = () => {
             }
           }
         } catch {}
-        await new Promise(r => setTimeout(r, 250));
+        await new Promise(r => setTimeout(r, 600));
       }
     };
 
@@ -431,6 +468,25 @@ const MainApplicationUI: React.FC = () => {
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
           {mainView === 'dashboard' ? (
             <>
+              {desiredTail && (
+                <div className="px-4 pt-2">
+                  {(() => {
+                    const present = !!desiredPortState?.present;
+                    const badgeBase = 'inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-extrabold';
+                    const badgeColor = present
+                      ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
+                      : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';
+                    return (
+                      <span className={`${badgeBase} ${badgeColor}`}>
+                        Scanner: {desiredTail}
+                        <span className={present ? 'text-emerald-700' : 'text-red-700'}>
+                          {present ? 'detected' : 'not detected'}
+                        </span>
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
               {showRemoveCable && (
                 <div className="px-8 pt-3">
                   <div className="flex items-center gap-3 rounded-xl bg-amber-100 text-amber-900 px-5 py-3 font-extrabold shadow">

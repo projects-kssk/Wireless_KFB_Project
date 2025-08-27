@@ -48,7 +48,7 @@ function CornerBarcodeHint({
 }: { top?: number; widthPx: number; heightPx: number }) {
   const rOuter = 0;
   const inset = 8;                              // inner slab margin
-  const slabH = Math.max(18, Math.round(heightPx * 0.66));
+  const slabH = Math.max(18, Math.round(heightPx * 0.6));
   const rInner = 4;
 
   return (
@@ -121,6 +121,22 @@ function CornerBarcodeHint({
               "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 12%, rgba(11,18,32,0) 88%, rgba(11,18,32,1) 100%)",
           }}
         />
+        {/* corner brackets like big box */}
+        {(["tl", "tr", "bl", "br"] as const).map((pos) => (
+          <div
+            key={pos}
+            aria-hidden
+            style={{
+              position: "absolute",
+              width: 18,
+              height: 18,
+              ...(pos === "tl" && { left: 10, top: 10, borderLeft: "2px solid #e5e7eb", borderTop: "2px solid #e5e7eb" }),
+              ...(pos === "tr" && { right: 10, top: 10, borderRight: "2px solid #e5e7eb", borderTop: "2px solid #e5e7eb" }),
+              ...(pos === "bl" && { left: 10, bottom: 10, borderLeft: "2px solid #e5e7eb", borderBottom: "2px solid #e5e7eb" }),
+              ...(pos === "br" && { right: 10, bottom: 10, borderRight: "2px solid #e5e7eb", borderBottom: "2px solid #e5e7eb" }),
+            }}
+          />
+        ))}
       </div>
 
       {/* tag */}
@@ -595,37 +611,8 @@ function Decor({ kind, seed }: { kind: "success" | "error"; seed: number }) {
     );
   }
 
-  // success confetti
-  const rng = seededRand(seed);
-  const pieces = Array.from({ length: 18 }).map((_, i) => {
-    const x = rng() * 100;
-    const rot = rng() * 360;
-    const d = 0.8 + rng() * 0.6;
-    const delay = rng() * 0.15;
-    const size = 6 + Math.round(rng() * 8);
-    return { key: i, x, rot, d, delay, size };
-  });
-
-  return (
-    <>
-      {pieces.map((p) => (
-        <m.div
-          key={p.key}
-          initial={{ top: "42%", left: `${p.x}%`, rotate: p.rot, opacity: 0 }}
-          animate={{ top: "98%", opacity: [0, 1, 0.2, 0] }}
-          transition={{ duration: p.d, delay: p.delay }}
-          style={{
-            position: "absolute",
-            width: p.size,
-            height: p.size,
-            borderRadius: 2,
-            background: ["#10b981", "#34d399", "#86efac", "#22d3ee"][p.key % 4],
-            boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
-          }}
-        />
-      ))}
-    </>
-  );
+  // success: no confetti; keep it calm
+  return null;
 }
 
 /* ---------- icons ---------- */

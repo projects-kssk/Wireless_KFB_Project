@@ -9,7 +9,7 @@ import { useSerialEvents } from './useSerialEvents';
 /* ────────────────────────────────────────────────────────────────────────────
    Config
    ──────────────────────────────────────────────────────────────────────────── */
-const BASE_HEADER_MIN_HEIGHT = '5.25rem';
+const BASE_HEADER_MIN_HEIGHT = '6.25rem';
 const scanners = appConfig.scanners as any[];
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -71,24 +71,27 @@ const SupportPillSM: React.FC<{
   };
 
   return (
-    <m.button
-      type="button"
-      onClick={call}
+    <m.div
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      className={['relative inline-flex items-center w-full h-full px-4 text-left group', 'bg-transparent', className ?? ''].join(' ')}
+      className={[
+        'relative inline-flex items-center w-full h-full px-7 py-4 text-left group rounded-2xl',
+        'bg-transparent',
+        className ?? '',
+      ].join(' ')}
       style={{ overflow: 'hidden', willChange: 'transform,opacity' }}
+      aria-label={`Support ${number}`}
     >
-      <div className="mr-3 shrink-0">
+      <div className="mr-4 shrink-0">
         <div
           className={[
             'relative flex items-center justify-center rounded-full',
-            'h-10 w-10 2xl:h-12 2xl:w-12',
+            'h-12 w-12 2xl:h-14 2xl:w-14',
             'text-white',
             'bg-gradient-to-br from-violet-500 via-fuchsia-500 to-indigo-500',
           ].join(' ')}
         >
-          <SupportIcon className="h-5 w-5 2xl:h-6 2xl:w-6 opacity-95" />
+          <SupportIcon className="h-6 w-6 2xl:h-7 2xl:w-7 opacity-95" />
           {!reduce && (
             <m.span
               className="pointer-events-none absolute inset-0 rounded-full"
@@ -102,20 +105,17 @@ const SupportPillSM: React.FC<{
       </div>
 
       {labelsHidden ? (
-        <span className="text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
-          {number}
-        </span>
+        <span className="text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">{number}</span>
       ) : (
         <div className="min-w-0">
-          <div className="text-[12px] font-semibold text-slate-600 dark:text-slate-300 leading-tight">Support</div>
-          <div className="flex items-baseline gap-2">
-            <span className="truncate text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
-              Call {number}
-            </span>
+          <div className="text-[12px] font-extrabold text-slate-700 dark:text-slate-300 leading-tight uppercase">Support</div>
+          <div className="flex items-center gap-3 mt-0.5">
+            <span className="truncate text-[22px] 2xl:text-[24px] font-black tracking-tight text-slate-900 dark:text-white leading-none">{number}</span>
+            <a href={`tel:${number}`} className="px-3 py-1 rounded-full text-[11px] font-bold bg-violet-600 text-white hover:bg-violet-700">Call</a>
           </div>
         </div>
       )}
-    </m.button>
+    </m.div>
   );
 };
 
@@ -411,9 +411,14 @@ function StatusBanner({ status, mac, error }: { status: DiscoverState; mac: stri
   }
   return (
     <div className={`${base} bg-white/80 ring-slate-200`}>
-      <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-semibold text-slate-800">
-        <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
-        <span>Waiting for ESP</span>
+      <div className="grid gap-1 place-items-center">
+        <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-semibold text-slate-800">
+          <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
+          <span>Waiting for ESP</span>
+        </div>
+        {mac && (
+          <div className="text-sm font-bold text-slate-500">Last: {mac}</div>
+        )}
       </div>
     </div>
   );
@@ -442,18 +447,31 @@ function DiscoverEspModal({
   return (
     <AnimatePresence>
       {open && (
-        <m.div
-          key="esp-sheet"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Discover ESP"
-          initial={{ opacity: 0, y: 12, scale: 0.99 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.99 }}
-          transition={SHEET}
-          className="fixed inset-0 z-[100] flex items-center justify-center p-3"
-        >
-          <div className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
+        <>
+          {/* Backdrop overlay: dim + blur underlying content */}
+          <m.div
+            key="esp-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 z-[95] bg-slate-900/55 backdrop-blur-sm"
+            aria-hidden
+          />
+
+          {/* Modal sheet */}
+          <m.div
+            key="esp-sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Discover ESP"
+            initial={{ opacity: 0, y: 12, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.99 }}
+            transition={SHEET}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3"
+          >
+            <div className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-[18px] font-semibold text-slate-900">Discover ESP</h3>
               <div className="flex items-center gap-3">
@@ -507,8 +525,9 @@ function DiscoverEspModal({
                 />
               </div>
             </div>
-          </div>
-        </m.div>
+            </div>
+          </m.div>
+        </>
       )}
     </AnimatePresence>
   );
@@ -521,13 +540,13 @@ const EspDiscoverButton: React.FC<{ onClick: () => void; busy: boolean; mac?: st
     onClick={onClick}
     whileHover={{ y: -2 }}
     whileTap={{ scale: 0.98 }}
-    className="inline-flex items-center gap-4 rounded-2xl px-6 py-4 ring-2 ring-slate-300/70 bg-white/95 dark:bg-slate-900/85 hover:bg-white dark:hover:bg-slate-800 shadow-[0_10px_30px_rgba(2,6,23,.12)]"
+    className="inline-flex flex-col items-center gap-2 rounded-2xl px-4 pt-5 pb-3 bg-transparent"
     title="Discover ESP and read MAC"
   >
-    <ESPIcon className="h-[30px] w-[30px]" />
-    <span className="text-[24px] leading-none font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{busy ? 'Discovering…' : 'ESP MAC'}</span>
+    <ESPIcon className="h-[64px] w-[64px]" />
+    <span className="text-[12px] leading-none font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{busy ? 'Discovering…' : 'ESP FIND MAC'}</span>
     {mac && (
-      <span className="ml-2 px-3 py-1 rounded-full text-[16px] font-bold ring-1 ring-emerald-300/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+      <span className="mt-1 px-2 py-0.5 rounded-full text-[11px] font-bold ring-1 ring-emerald-300/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
         {mac}
       </span>
     )}
@@ -717,7 +736,7 @@ const runTest = async () => {
       resizeRafId.current = window.requestAnimationFrame(() => {
         resizeRafId.current = null;
         const vw = typeof window !== 'undefined' ? window.innerWidth : 1600;
-        const size = Math.max(120, Math.min(vw * 0.09, 160));
+        const size = Math.max(136, Math.min(vw * 0.1, 172));
         setSettingsSize(Math.round(size));
       });
     };
@@ -760,7 +779,7 @@ const runTest = async () => {
         >
           <div
             className="grid w-full h-full items-center gap-3 px-4 sm:px-6 2xl:px-10"
-            style={{ paddingTop: 'env(safe-area-inset-top)', gridTemplateColumns: 'minmax(190px,220px) 1fr minmax(220px,280px)' }}
+            style={{ paddingTop: 'env(safe-area-inset-top)', gridTemplateColumns: 'minmax(260px,340px) 1fr minmax(260px,320px)' }}
           >
             {/* 1) Support */}
             <div className="h-full">

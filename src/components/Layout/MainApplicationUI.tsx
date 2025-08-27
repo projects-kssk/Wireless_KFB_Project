@@ -147,28 +147,11 @@ const MainApplicationUI: React.FC = () => {
         const ctrl = new AbortController();
         const tAbort = setTimeout(() => ctrl.abort(), Math.max(1000, clientBudget));
         
-        // Build the selected pins list from current grouped branches (active KSSKs) or aliases
-        const selectedPins: number[] = (() => {
-          if (groupedBranches && groupedBranches.length) {
-            const pins = new Set<number>();
-            for (const g of groupedBranches) {
-              if (!g || g.kssk === 'CHECK') continue;
-              for (const b of g.branches) if (typeof b.pinNumber === 'number' && b.pinNumber > 0) pins.add(b.pinNumber);
-            }
-            return Array.from(pins).sort((a,b)=>a-b);
-          }
-          try {
-            const macUp = mac.toUpperCase();
-            const aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {};
-            return Object.keys(aliases).map((k)=>Number(k)).filter((n)=>Number.isFinite(n) && n>0).sort((a,b)=>a-b);
-          } catch { return []; }
-        })();
-
         const res = await fetch('/api/serial/check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // Send explicit pins → speed: ESP checks only selected
-          body: JSON.stringify({ mac, pins: selectedPins }),
+          // Send only MAC; server will select pins via CHECK_SEND_MODE
+          body: JSON.stringify({ mac }),
           signal: ctrl.signal,
         });
         clearTimeout(tAbort);
@@ -636,10 +619,10 @@ const MainApplicationUI: React.FC = () => {
       {mainView === 'dashboard' ? (
         <>
               {desiredTail && (
-                <div className="px-4 pt-2">
+                <div className="px-2 pt-0">
                   {(() => {
                     const present = !!desiredPortState?.present;
-                    const badgeBase = 'inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-extrabold';
+                    const badgeBase = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-extrabold';
                     const badgeColor = present
                       ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
                       : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';

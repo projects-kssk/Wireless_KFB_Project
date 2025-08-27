@@ -85,12 +85,19 @@ function parseFailuresFromLine(line: string, pins?: number[]) {
   const failures = new Set<number>();
 
   if (captured) {
-    captured.split(/[,\s]+/).forEach((x) => {
-      const n = Number(x);
-      if (!Number.isInteger(n)) return;
-      if (want) { if (want.has(n)) failures.add(n); }
-      else failures.add(n);
-    });
+    captured
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .forEach((x) => {
+        const n = Number(x);
+        if (!Number.isInteger(n)) return;
+        if (want) {
+          if (want.has(n)) failures.add(n);
+        } else {
+          failures.add(n);
+        }
+      });
   } else {
     // Fallback: collect any standalone numbers in the line,
     // but first remove MAC-like tokens to avoid false positives (e.g., 08:3A:..)
@@ -130,43 +137,50 @@ export async function POST(request: Request) {
   try {
     // Build effective pin list based on mode
     // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins
-    // Default to client-provided pins (previous behavior). Can be overridden via env.
-    const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'client').toLowerCase();
-    let pins: number[] | undefined = undefined;
-    if (SEND_MODE === 'client') pins = Array.isArray(parsed.data.pins) ? parsed.data.pins : undefined;
+    // Build union of active KSSK pins (preferred), then fall back to client pins, then MAC-only
+    const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'union').toLowerCase();
+    let clientPins: number[] | undefined = Array.isArray(parsed.data.pins) ? parsed.data.pins : undefined;
+    let pinsUnion: number[] = [];
+    try {
+      const { getRedis } = await import('@/lib/redis');
+      const r = getRedis();
+      const indexKey = `kfb:aliases:index:${macUp}`;
+      const members: string[] = await r.smembers(indexKey).catch(() => []);
+      const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
+      let targets = members;
+      if (stationId) {
+        const act: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
+        if (Array.isArray(act) && act.length > 0) {
+          const set = new Set(act.map(String));
+          const inter = members.filter(m => set.has(String(m)));
+          if (inter.length > 0) targets = inter;
+        }
+      }
+      const pinsSet = new Set<number>();
+      for (const id of targets) {
+        try {
+          const raw = await r.get(`kfb:aliases:${macUp}:${id}`);
+          if (!raw) continue;
+          const d = JSON.parse(raw);
+          const names = d?.names || d?.aliases || {};
+          for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
+        } catch {}
+      }
+      pinsUnion = Array.from(pinsSet).sort((a,b)=>a-b);
+    } catch {}
 
-    let pinsArr: number[] = Array.isArray(pins) ? pins.filter((n)=>Number.isFinite(n) && n>0) : [];
-    if (SEND_MODE === 'union' && pinsArr.length === 0) {
-      try {
-        const { getRedis } = await import('@/lib/redis');
-        const r = getRedis();
-        const indexKey = `kfb:aliases:index:${macUp}`;
-        const members: string[] = await r.smembers(indexKey).catch(() => []);
-        const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
-        let targets = members;
-        if (stationId) {
-          const act: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
-          if (Array.isArray(act) && act.length > 0) {
-            const set = new Set(act.map(String));
-            const inter = members.filter(m => set.has(String(m)));
-            if (inter.length > 0) targets = inter;
-          }
-        }
-        const pinsSet = new Set<number>();
-        for (const id of targets) {
-          try {
-            const raw = await r.get(`kfb:aliases:${macUp}:${id}`);
-            if (!raw) continue;
-            const d = JSON.parse(raw);
-            const names = d?.names || d?.aliases || {};
-            for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
-          } catch {}
-        }
-        if (pinsSet.size > 0) pinsArr = Array.from(pinsSet).sort((a,b)=>a-b);
-      } catch {}
+    // Choose which pins to send:
+    // 1) union (preferred)
+    // 2) client (if SEND_MODE=client and provided)
+    // 3) MAC-only
+    let pins: number[] | undefined = undefined;
+    if (pinsUnion.length) {
+      pins = pinsUnion;
+    } else if (SEND_MODE === 'client' && Array.isArray(clientPins)) {
+      pins = clientPins.filter((n) => Number.isFinite(n) && n > 0);
+    } else {
+      pins = undefined;
     }
-    pins = (SEND_MODE === 'union' && pinsArr.length) ? pinsArr
-         : (SEND_MODE === 'client' && pinsArr.length ? pinsArr : undefined);
 
     const { sendToEsp, waitForNextLine } = serial as any;
     if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {

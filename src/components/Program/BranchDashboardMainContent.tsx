@@ -77,32 +77,26 @@ const BranchCard = ({ branch, kssk }: { branch: BranchDisplayData; kssk?: string
   return (
     <div
       key={branch.id}
-      className="group relative w-full max-w-[520px] rounded-2xl bg-white backdrop-blur-sm shadow-xl hover:shadow-2xl border-2 border-transparent transition-all duration-300 flex flex-col overflow-hidden"
+      className="group relative w-full rounded-2xl bg-white backdrop-blur-sm shadow-lg hover:shadow-xl border-2 border-transparent transition-all duration-300 flex flex-col overflow-hidden"
     >
-      {isNok && <div className="h-[5px] w-full bg-red-600 flex-shrink-0"></div>}
-      <div className="p-8 flex-grow flex flex-col justify-between">
-        <div className="flex justify-between items-center mb-6">
-          <div className={`inline-flex items-center gap-4 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'p-5 text-4xl' : 'px-4 py-2 text-lg'}`}>
-            <statusInfo.Icon className={isBigStatus ? "w-12 h-12" : "w-6 h-6"} />
+      {isNok && <div className="h-[8px] w-full bg-red-600 flex-shrink-0"></div>}
+      <div className="p-3 flex-grow flex flex-col justify-between">
+        <div className="flex justify-between items-center mb-3">
+          <div className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'px-2.5 py-1.5 text-xl' : 'px-2 py-1 text-sm'}`}>
+            <statusInfo.Icon className={isBigStatus ? "w-7 h-7" : "w-4.5 h-4.5"} />
             <span>{statusInfo.text}</span>
           </div>
           {branch.pinNumber != null && (
-            <div className="flex items-center gap-3 text-right">
-              <span className="text-3xl font-medium text-slate-400">PIN</span>
-              <span className="bg-slate-100 text-slate-800 font-mono rounded-full w-20 h-20 flex items-center justify-center text-5xl font-bold">
+            <div className="flex items-center gap-2 text-right">
+              <span className="text-sm md:text-base font-semibold text-slate-400">PIN</span>
+              <span className="bg-slate-100 text-slate-800 font-mono rounded-full w-14 h-14 flex items-center justify-center text-3xl font-bold">
                 {branch.pinNumber}
               </span>
             </div>
           )}
         </div>
-        {kssk && (
-          <div className="mb-4">
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-sm font-extrabold">
-              KSSK {kssk}
-            </span>
-          </div>
-        )}
-        <h3 className="text-7xl font-bold text-slate-800 group-hover:text-blue-600 transition-colors duration-300 mt-6 text-center">
+        {/* KSSK badge intentionally omitted in card view */}
+        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 group-hover:text-blue-600 transition-colors duration-300 mt-3 text-center whitespace-normal break-words leading-tight">
           {branch.branchName}
         </h3>
       </div>
@@ -179,6 +173,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       .sort((a, b) => 0)
       .slice(0, 120),
   [localBranches]);
+
+  // Build current failure pin list from props or from pending branches
+  const failurePins: number[] = useMemo(() => {
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+      return [...new Set((checkFailures as number[]).filter((n) => Number.isFinite(n)))].sort((a,b)=>a-b);
+    }
+    const pins = pending.map((b) => b.pinNumber).filter((n): n is number => typeof n === 'number');
+    return [...new Set(pins)].sort((a,b)=>a-b);
+  }, [checkFailures, pending]);
 
  const allOk = useMemo(() => {
    // If caller reports any failed pins from CHECK, never show OK animation
@@ -458,61 +461,75 @@ useEffect(() => {
 
     if (groupedBranches && groupedBranches.length > 0) {
       return (
-        <div className="flex flex-col gap-6 w-full">
-          <div className="flex flex-wrap items-center gap-3 px-1">
-            <span className="text-slate-600 font-extrabold tracking-wide">KSSKs:</span>
-            {groupedBranches.map((g) => (
-              <span key={`kssk-pill-${g.kssk}`} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-sm font-extrabold">
-                KSSK {g.kssk}
-              </span>
-            ))}
+        <div className="flex flex-col gap-3 w-full mt-0">
+          <div className="flex flex-wrap items-center gap-2 px-1">
+            <span className="text-slate-800 font-black tracking-wide text-4xl">KSSKs:</span>
+            {(() => {
+              const activeSet = new Set((activeKssks || []).map(String));
+              return groupedBranches.map((g) => {
+                const isActive = activeSet.has(String(g.kssk));
+                return (
+                  <span
+                    key={`kssk-pill-${g.kssk}`}
+                    className={[
+                      "inline-flex items-center gap-3 px-4 py-2 rounded-full border-2 text-2xl md:text-3xl font-black tracking-wide",
+                      isActive ? "bg-blue-600 text-white border-blue-600" : "bg-blue-50 text-blue-700 border-blue-200",
+                    ].join(" ")}
+                  >
+                    {g.kssk}
+                  </span>
+                );
+              });
+            })()}
           </div>
-          {Array.isArray(checkFailures) && checkFailures.length > 0 && (() => {
-            const known = new Set<number>();
-            for (const g of groupedBranches) for (const b of g.branches) if (typeof b.pinNumber === 'number') known.add(b.pinNumber);
-            const extras = checkFailures.filter((p) => Number.isFinite(p as number) && !known.has(p as number)) as number[];
-            if (extras.length === 0) return null;
+          {/* Groups remain separate; lay multiple groups per row; cap overall cards to 8 */}
+          {(() => {
+            let remaining = 8;
+            const colClass = (n: number) => {
+              const cols = Math.min(6, Math.max(1, n));
+              const map: Record<number, string> = {
+                1: 'grid-cols-1',
+                2: 'grid-cols-2',
+                3: 'grid-cols-3',
+                4: 'grid-cols-4',
+                5: 'grid-cols-5',
+                6: 'grid-cols-6',
+              };
+              return map[cols];
+            };
             return (
-              <section className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
-                <header className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
-                  <h2 className="text-3xl font-black tracking-wide text-blue-700">KSSK CHECK (unmapped)</h2>
-                  <span className="text-sm font-extrabold text-blue-600">{extras.length} pins</span>
-                </header>
-                <div className="p-6">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                    {extras.map((pin) => (
-                      <BranchCard
-                        key={`CHECK:${pin}`}
-                        kssk={'CHECK'}
-                        branch={{ id: `CHECK:${pin}`, branchName: (nameHints && nameHints[String(pin)]) || `PIN ${pin}`, testStatus: 'nok', pinNumber: pin }}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </section>
-            );
-          })()}
-          {groupedBranches.map((grp) => {
-            const onlyNok = grp.branches.filter(b => b.testStatus === 'nok');
-            if (onlyNok.length === 0) return null;
-            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                {groupedBranches.map((grp) => {
+                  if (remaining <= 0) return null;
+                  const onlyNok = grp.branches.filter((b) => b.testStatus === 'nok');
+                  if (onlyNok.length === 0) return null;
+                  const visible = onlyNok.slice(0, remaining);
+                  const gridCols = colClass(visible.length);
+                  remaining -= visible.length;
+                  return (
             <section key={grp.kssk} className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
-              <header className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
+              <header className="px-3 py-2 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold shadow">{String(grp.kssk).slice(-2)}</span>
-                  <h2 className="text-3xl font-black tracking-wide text-blue-700">KSSK {grp.kssk}</h2>
+                  <h2 className="text-3xl font-black tracking-wide text-blue-700">{grp.kssk}</h2>
                 </div>
-                <span className="text-sm font-extrabold text-blue-600">{onlyNok.length} NOK</span>
+                <span className="text-xs md:text-sm font-extrabold text-blue-600">{onlyNok.length} NOK</span>
               </header>
-              <div className="p-6">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-                  {onlyNok.map((b) => (
-                    <BranchCard key={b.id} branch={b} kssk={grp.kssk} />
+              <div className="p-3">
+                <div className="flex flex-col w-full gap-1">
+                  {visible.map((b) => (
+                    <div key={b.id} className="w-full">
+                      <BranchCard branch={b} />
+                    </div>
                   ))}
                 </div>
               </div>
             </section>
-          )})}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       );
     }
@@ -529,29 +546,42 @@ useEffect(() => {
 
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-8" style={{ paddingTop: appHeaderHeight }}>
-     <header className="w-full text-center mb-12 min-h-[108px]">
-      {(kfbInfo?.board || kfbNumber) ? (
-        <h1 className="text-9xl font-bold uppercase tracking-wider text-slate-700">
-          {kfbInfo?.board ?? kfbNumber}
-        </h1>
+     <header className="w-full mb-1 min-h-[56px]">
+      {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
+        <div className="flex items-center justify-between gap-1">
+          {(kfbInfo?.board || kfbNumber) ? (
+            <h1 className="text-5xl md:text-6xl font-bold uppercase tracking-wider text-slate-700 truncate">
+              {kfbInfo?.board ?? kfbNumber}
+            </h1>
+          ) : <div />}
+          {macAddress && localBranches.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-700 font-black text-3xl md:text-4xl tracking-wider uppercase whitespace-nowrap">
+                Scan again to re-check
+              </span>
+              {checkError && <span className="text-red-600 text-xl md:text-2xl font-bold whitespace-nowrap">{checkError}</span>}
+            </div>
+          )}
+        </div>
       ) : null}
+      {failurePins.length > 0 && macAddress && (
+        <div className="mt-0.5 px-1 flex items-center justify-between gap-2">
+          <span className="text-red-700 font-extrabold text-xl md:text-2xl whitespace-normal">
+            RESULT FAILURE MISSING {failurePins.join(', ')}
+          </span>
+          <span className="text-slate-600 font-extrabold text-lg md:text-xl whitespace-nowrap">
+            {macAddress.toUpperCase()}
+          </span>
+        </div>
+      )}
       {activeKssks.length > 0 && (
-        <div className="mt-3 flex items-center justify-center gap-2">
+        <div className="mt-0 flex items-center justify-center gap-2">
           <span className="text-slate-600 font-extrabold tracking-wide text-sm">Active KSSKs:</span>
           {activeKssks.map((id) => (
             <span key={`active-kssk-${id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold">
               {id}
             </span>
           ))}
-        </div>
-      )}
-      {/* CHECK controls removed — show hint instead */}
-      {macAddress && localBranches.length > 0 && (
-        <div className="mt-6 flex items-center justify-center gap-4">
-          <span className="px-5 py-2 rounded-full border border-slate-300 bg-slate-50 text-slate-700 font-extrabold text-xl">
-            Scan again to re-check
-          </span>
-          {checkError && <span className="text-red-600 text-lg font-bold">{checkError}</span>}
         </div>
       )}
     </header>

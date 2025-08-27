@@ -173,10 +173,12 @@ const MainApplicationUI: React.FC = () => {
     if (!kfbRaw) return;
 
     const normalized = kfbRaw.toUpperCase();
-    if (!KFB_REGEX.test(normalized)) {
-       showOverlay('error', `Invalid code: ${normalized} (pattern: ${KFB_REGEX.source})`);
-      console.warn('[SCAN] rejected by KFB_REGEX', { normalized, pattern: KFB_REGEX.source });
-       hideOverlaySoon();
+    // Accept MAC directly for production run; otherwise require KFB pattern
+    const isMac = MAC_ONLY_REGEX.test(normalized);
+    if (!isMac && !KFB_REGEX.test(normalized)) {
+      showOverlay('error', `Invalid code: ${normalized}`);
+      console.warn('[SCAN] rejected by patterns', { normalized });
+      hideOverlaySoon();
       return;
     }
 
@@ -195,54 +197,36 @@ const MainApplicationUI: React.FC = () => {
     setAwaitingRelease(false);
 
     try {
-      // a) branches
-      const res = await fetch(`/api/branches?kfb=${encodeURIComponent(normalized)}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
-      const data: BranchDisplayData[] = await res.json();
-      setBranchesData(data.map(b => ({ ...b, testStatus: 'not_tested' as TestStatus })));
-      setKfbNumber(normalized);
+      // MAC-first flow: build branch list from Setup pin aliases and run CHECK-only
+      const mac = isMac ? normalized : normalized; // if KFB code equals MAC form, treat as MAC
+      setKfbNumber(mac);
+      setMacAddress(mac);
 
-      // b) configuration (mac + info)
-      const cfgRes = await fetch(`/api/configurations?kfb=${encodeURIComponent(normalized)}`, { cache: 'no-store' });
-      if (!cfgRes.ok) throw new Error(`Failed to fetch configuration: ${cfgRes.status}`);
-      const { mac_address, kfb_info } = await cfgRes.json();
-      setMacAddress(mac_address);
-      setKfbInfo(kfb_info);
+      // build from aliases if present
+      let aliases: Record<string,string> = {};
+      try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
+      const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+      if (pins.length) {
+        setBranchesData(pins.map(pin => ({
+          id: String(pin),
+          branchName: aliases[String(pin)] || `PIN ${pin}`,
+          testStatus: 'not_tested' as TestStatus,
+          pinNumber: pin,
+          kfbInfoValue: undefined,
+        })));
+      } else {
+        setBranchesData([]);
+      }
 
-      // c) classify pins
-      const testable = data.filter(isTestablePin);
-      const latchPins: number[] = testable.filter(b => b.looseContact).map(b => b.pinNumber);
-      const normalPins: number[] = testable.filter(b => !b.looseContact).map(b => b.pinNumber);
-      const pins: number[] = [...latchPins, ...normalPins];
-
-      // d) MONITOR
-      const serialRes = await fetch('/api/serial', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ normalPins, latchPins, mac: mac_address }),
-      });
-      if (!serialRes.ok) throw new Error(`Serial POST failed: ${await serialRes.text()}`);
-
-      // e) AUTO-CHECK on every scan
-      await runCheck(mac_address);
+      await runCheck(mac);
     } catch (e) {
       console.error('Load/MONITOR error:', e);
-      // Fallback: if input looks like a MAC, run CHECK-only without branches
-      if (MAC_ONLY_REGEX.test(normalized)) {
-        setKfbNumber('');
-        setKfbInfo(null);
-        setBranchesData([]);
-        setErrorMsg(null);
-        setMacAddress(normalized);
-        try { await runCheck(normalized); } catch {}
-      } else {
-        setKfbNumber('');
-        setKfbInfo(null);
-        setMacAddress('');
-        setErrorMsg('No branches found or failed to load.');
-        showOverlay('error', 'Load failed');
-        hideOverlaySoon();
-      }
+      setKfbNumber('');
+      setKfbInfo(null);
+      setMacAddress('');
+      setErrorMsg('Failed to load setup data. Please run Setup or scan MAC again.');
+      showOverlay('error', 'Load failed');
+      hideOverlaySoon();
     } finally {
       setIsScanning(false);
     }

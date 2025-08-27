@@ -308,7 +308,9 @@ export async function GET(req: NextRequest) {
     }
 
     const rows: LockRow[] = haveRedis ? await redisList(stationId) : memList(stationId);
-    log.info('GET list', { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 });
+    const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
+    if (rows.length > 0) log.info('GET list', info);
+    else log.debug('GET list (empty)', info);
     return withMode(NextResponse.json({ locks: rows }), mode);
   } catch (e: unknown) {
     log.info('GET error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });

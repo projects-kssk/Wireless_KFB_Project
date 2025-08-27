@@ -65,9 +65,38 @@ async function appendLog(entry: Record<string, unknown>) {
     log.error("[monitor.log] append failed", err);
   }
 
-  // also emit to global logger
+  // also emit a concise, human-friendly line to the global logger
   try {
-    mon.info(JSON.stringify(entry));   // shows up as {"level":"info","tag":"monitor","msg":"{...}"}
+    const evt = String((entry as any)?.event || '');
+    const mac = (entry as any)?.mac as string | undefined;
+    const kssk = (entry as any)?.kssk as string | undefined;
+
+    if (evt === 'monitor.send') {
+      const built = (entry as any)?.built as { normalPins?: number[]; latchPins?: number[] } | undefined;
+      const n = built?.normalPins || [];
+      const l = built?.latchPins || [];
+      mon.info(
+        `MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`
+      );
+      return;
+    }
+    if (evt === 'monitor.success') {
+      const counts = (entry as any)?.counts as { builtNormal?: number; builtLatch?: number } | undefined;
+      const total = (counts?.builtNormal || 0) + (counts?.builtLatch || 0);
+      mon.info(`MONITOR ok mac=${mac ?? '-'} kssk=${kssk ?? '-'} totalPins=${total}`);
+      return;
+    }
+    if (evt === 'monitor.error') {
+      const err = (entry as any)?.error as string | undefined;
+      mon.error(`MONITOR error mac=${mac ?? '-'} kssk=${kssk ?? '-'} err=${err ?? 'unknown'}`);
+      return;
+    }
+    if (evt === 'monitor.nopins') {
+      mon.warn(`MONITOR skipped mac=${mac ?? '-'} kssk=${kssk ?? '-'} reason=no-pins`);
+      return;
+    }
+    // Fallback: keep very short
+    mon.info(`MONITOR event=${evt || 'unknown'} mac=${mac ?? '-'} kssk=${kssk ?? '-'}`);
   } catch {}
 }
 

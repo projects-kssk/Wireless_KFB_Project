@@ -1,8 +1,22 @@
-# Wireless KFB – GUI + Electron + Serial/Scanner
+<div align="center">
 
-Desktop app for scanning KFB codes, configuring and monitoring ESP devices via serial, and tracking work-in-progress locks in Redis. Built with Next.js (App Router) and packaged for Electron.
+# Wireless KFB GUI
 
-This README describes what the app does, how the code is structured, the APIs it exposes, how to run it, and how to read logs effectively.
+Desktop app for scanning KFB codes, monitoring ESP devices via serial, and coordinating production with Redis locks. Built with Next.js (App Router) and packaged for Electron.
+
+<br/>
+
+![badge-node](https://img.shields.io/badge/Node-20+-339933?logo=node.js&logoColor=white)
+![badge-next](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
+![badge-electron](https://img.shields.io/badge/Electron-37-47848F?logo=electron&logoColor=white)
+![badge-typescript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
+![badge-license](https://img.shields.io/badge/License-MIT-informational)
+
+<br/>
+
+</div>
+
+This README explains features, architecture, APIs, configuration, and how to run and debug the app.
 
 ## Overview
 - UI: React + Tailwind driven dashboard (Next.js App Router) packaged inside Electron.

@@ -431,6 +431,7 @@ const MainApplicationUI: React.FC = () => {
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning}
+                macAddress={macAddress}
                 onResetKfb={handleResetKfb}
               />
 

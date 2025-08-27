@@ -356,6 +356,15 @@ useEffect(() => {
           >
             {isChecking ? 'Checking…' : 'Run CHECK'}
           </button>
+          <button
+            type="button"
+            onClick={handleScan}
+            disabled={isChecking}
+            className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-extrabold text-xl shadow hover:bg-indigo-700 disabled:bg-slate-400"
+            title="Rescan and auto-check"
+          >
+            Rescan + Auto-Check
+          </button>
           {checkError && (
             <span className="text-red-600 text-lg font-bold">{checkError}</span>
           )}

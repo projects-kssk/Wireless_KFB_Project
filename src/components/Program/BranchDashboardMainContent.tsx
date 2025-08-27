@@ -223,6 +223,15 @@ useEffect(() => {
     }
   };
 
+  // --- MAC input helpers (format + validate like Setup) ---
+  const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+  const formatMac = (raw: string) => {
+    const hex = raw.replace(/[^0-9a-fA-F]/g, '').toUpperCase().slice(0, 12);
+    return hex.match(/.{1,2}/g)?.join(':') ?? '';
+  };
+  const onMacChange = (v: string) => setInputValue(formatMac(v));
+  const macValid = MAC_RE.test(inputValue.trim());
+
   const mainContent = () => {
     if (isScanning && localBranches.length > 0) {
       return (
@@ -252,42 +261,58 @@ useEffect(() => {
     if (hasMounted && localBranches.length === 0) {
       if (isManualEntry) {
         return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-2xl p-0">
-  <div className="w-full bg-white/90 rounded-2xl shadow-2xl border border-slate-200 p-10 flex flex-col items-center">
-    <h2 className="text-4xl sm:text-5xl font-bold text-blue-600 mb-8 text-center flex items-center gap-2">
-      <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-        <rect x="4" y="7" width="16" height="10" rx="3" stroke="currentColor" />
-        <path d="M8 7V5a4 4 0 0 1 8 0v2" stroke="currentColor" />
-      </svg>
-      Enter Mac Address
-    </h2>
-    <form onSubmit={handleManualSubmit} className="w-full flex flex-col items-center gap-6">
-     <input
-  type="text"
-  value={inputValue}
-  onChange={(e) => setInputValue(e.target.value)}
-  placeholder="e.g., IW15387663458"
-  className="w-full text-center text-4xl p-5 rounded-xl border-2 border-blue-500 bg-slate-50 text-slate-800 focus:border-blue-600 focus:ring-2 focus:ring-blue-200 shadow-inner transition-all font-mono tracking-wider placeholder:text-slate-400"
-  autoFocus
-/>
+          <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-3xl p-0">
+            <div className="relative w-full rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white/90">
+              <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/70 to-transparent" />
+              <div className="p-10">
+                <div className="text-center mb-8">
+                  <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-blue-200 bg-blue-50 text-blue-700 font-extrabold tracking-wider">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                      <rect x="4" y="7" width="16" height="10" rx="3" stroke="currentColor" />
+                      <path d="M8 7V5a4 4 0 0 1 8 0v2" stroke="currentColor" />
+                    </svg>
+                    ENTER MAC ADDRESS
+                  </div>
+                  <p className="mt-3 text-slate-500 font-semibold">Format: 08:3A:8D:15:27:54</p>
+                </div>
 
-      <button
-        type="submit"
-        disabled={!inputValue.trim() || isScanning}
-        className="w-full bg-blue-600 text-white font-extrabold text-2xl py-4 rounded-xl shadow-lg hover:bg-blue-700 transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed"
-      >
-        {isScanning ? 'Submitting...' : 'Submit'}
-      </button>
-    </form>
-    <button
-      onClick={() => setIsManualEntry(false)}
-      className="mt-8 text-base sm:text-lg text-slate-500 hover:text-blue-600 transition-colors underline"
-    >
-      Back to Scan
-    </button>
-  </div>
-</div>
-
+                <form onSubmit={handleManualSubmit} className="w-full grid gap-6">
+                  <input
+                    type="text"
+                    value={inputValue}
+                    onChange={(e) => onMacChange(e.target.value)}
+                    placeholder="08:3A:8D:15:27:54"
+                    className={[
+                      'w-full text-center text-4xl p-6 rounded-2xl border-2',
+                      macValid ? 'border-emerald-400' : 'border-blue-500',
+                      'bg-slate-50 text-slate-800 focus:ring-2 focus:ring-blue-200 shadow-inner',
+                      'font-mono tracking-widest placeholder:text-slate-400',
+                    ].join(' ')}
+                    autoFocus
+                  />
+                  {!macValid && inputValue && (
+                    <div className="text-center text-red-600 font-bold">Invalid MAC format</div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsManualEntry(false)}
+                      className="w-full bg-slate-200 text-slate-900 font-extrabold text-xl py-4 rounded-xl shadow hover:bg-slate-300"
+                    >
+                      Back to Scan
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!macValid || isScanning}
+                      className="w-full bg-blue-600 text-white font-extrabold text-xl py-4 rounded-xl shadow hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                    >
+                      {isScanning ? 'Submitting…' : 'Submit'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
         );
       }
 

@@ -34,6 +34,10 @@ const SSE_PATH = "/api/serial/events";
 export function useSerialEvents() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
+  const [netIface, setNetIface] = useState<string | null>(null);
+  const [netIp, setNetIp] = useState<string | null>(null);
+  const [netPresent, setNetPresent] = useState<boolean>(false);
+  const [netUp, setNetUp] = useState<boolean>(false);
 
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [lastScanPath, setLastScanPath] = useState<string | null>(null);
@@ -118,7 +122,11 @@ export function useSerialEvents() {
         case "net": {
           const upNow = Boolean(msg.up);
           netUpRef.current = upNow;
-          // net no longer affects server LED directly
+          // update last-known net snapshot
+          setNetIface((msg as any).iface ?? null);
+          setNetIp((msg as any).ip ?? null);
+          setNetPresent(Boolean((msg as any).present));
+          setNetUp(Boolean((msg as any).up));
           break;
         }
 
@@ -225,6 +233,10 @@ export function useSerialEvents() {
   return {
     devices,
     server,
+    netIface,
+    netIp,
+    netPresent,
+    netUp,
     sseConnected,
 
     lastScan,

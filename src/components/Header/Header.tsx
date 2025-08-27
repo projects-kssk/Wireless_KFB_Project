@@ -197,7 +197,7 @@ const StatusCell = memo(StatusCellBase);
 const StatusRow: React.FC<{ cells: Row[]; className?: string; labelsHidden?: boolean }> = ({ cells, className, labelsHidden }) => (
   <div className={['w-full h-full p-0 min-w-0', className ?? ''].join(' ')}>
     <div className="flex h-full">
-      {cells.slice(0, 3).map((c, i) => (
+      {cells.map((c, i) => (
         <div key={i} className="flex-1 min-w-0 flex items-center overflow-hidden">
           <StatusCell {...c} labelsHidden={labelsHidden} />
         </div>
@@ -541,7 +541,7 @@ export const Header: React.FC<HeaderProps> = ({
   const rafId = useRef<number | null>(null);
   const resizeRafId = useRef<number | null>(null);
 
-  const { devices, server, scannerPorts: ports } = useSerialEvents();
+  const { devices, server, scannerPorts: ports, netIface, netIp, netPresent, netUp } = useSerialEvents();
 
   type SlotState = { present: boolean; open: boolean };
   const slotState = (idx: number): SlotState => {
@@ -577,6 +577,14 @@ export const Header: React.FC<HeaderProps> = ({
 
   const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
   const serverSub = server === 'connected' ? 'ESP + Redis' : 'Needs ESP+Redis';
+
+  // KROSY: require eth* interface and specific IP
+  const expectIp = (process.env.NEXT_PUBLIC_KROSY_EXPECT_IP ?? '172.26.202.248').trim();
+  const krosyEth = (netIface ?? '').toLowerCase().startsWith('eth');
+  const krosyIpOk = (netIp ?? '') === expectIp;
+  const krosyOk = Boolean(netPresent && netUp && krosyEth && krosyIpOk);
+  const krosyColor: LedColor = krosyOk ? 'green' : 'red';
+  const krosySub = krosyOk ? `Connected` : `No connection`;
 
   /* ESP discover/test state */
   const [discoverOpen, setDiscoverOpen] = useState(false);
@@ -751,7 +759,8 @@ const runTest = async () => {
                 cells={[
                   { title: 'Scanner Check', suffix: 1, color: s1Color, sub: s1Sub },
                   { title: 'Scanner Setup', suffix: 2, color: s2Color, sub: s2Sub },
-                  { title: 'Server', color: serverColor, sub: serverSub },
+                  { title: 'Local Server', color: serverColor, sub: serverSub },
+                  { title: 'Krosy Server', color: krosyColor, sub: krosySub },
                 ]}
                 className="h-full"
                 labelsHidden={labelsHidden}

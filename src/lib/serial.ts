@@ -477,9 +477,15 @@ function closeEsp() {
   GBL.__ESP_STREAM = undefined;
 }
 
-process.on("SIGINT", () => { closeAllScanners(); closeEsp(); process.exit(); });
-process.on("SIGTERM", () => { closeAllScanners(); closeEsp(); process.exit(); });
-process.on("uncaughtException", () => { closeAllScanners(); closeEsp(); process.exit(1); });
+// Install process signal handlers only once (avoid MaxListeners warnings in dev/hot-reload)
+const __g = globalThis as any;
+if (!__g.__serial_sig_handlers_installed) {
+  try { process.setMaxListeners?.(Math.max(20, process.getMaxListeners?.() ?? 10)); } catch {}
+  process.on("SIGINT", () => { closeAllScanners(); closeEsp(); process.exit(); });
+  process.on("SIGTERM", () => { closeAllScanners(); closeEsp(); process.exit(); });
+  process.on("uncaughtException", () => { closeAllScanners(); closeEsp(); process.exit(1); });
+  __g.__serial_sig_handlers_installed = true;
+}
 
 export default {
   // ESP core

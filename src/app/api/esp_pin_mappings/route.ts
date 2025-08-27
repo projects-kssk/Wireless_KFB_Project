@@ -1,8 +1,10 @@
 // src/app/api/esp_pin_mappings/route.ts
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:esp_pin_mappings')
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -26,7 +28,7 @@ export async function GET(request: Request) {
     `, [detailId])
     return NextResponse.json(rows)
   } catch (err: any) {
-    console.error('GET /api/esp_pin_mappings error', err)
+    log.error('GET /api/esp_pin_mappings error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()
@@ -57,7 +59,7 @@ export async function POST(request: Request) {
     `, [config_id, kfb_info_detail_id, branch_id, pin_number])
     return NextResponse.json({ success: true })
   } catch (err: any) {
-    console.error('POST /api/esp_pin_mappings error', err)
+    log.error('POST /api/esp_pin_mappings error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()
@@ -88,7 +90,7 @@ export async function DELETE(request: Request) {
     `, [detailId, branchId, pinNum])
     return NextResponse.json({ success: true })
   } catch (err: any) {
-    console.error('DELETE /api/esp_pin_mappings error', err)
+    log.error('DELETE /api/esp_pin_mappings error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()

@@ -1,8 +1,10 @@
 // src/app/api/configurations/route.ts
 import { NextResponse } from 'next/server'
 import { pool }         from '@/lib/postgresPool'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:configurations')
 
 /**
  * GET /api/configurations
@@ -31,7 +33,7 @@ export async function GET(request: Request) {
       }
       return NextResponse.json(rows[0], { status: 200 })
     } catch (err: any) {
-      console.error(`GET /api/configurations?kfb=${kfb} error:`, err)
+      log.error(`GET /api/configurations?kfb=${kfb} error`, err)
       return NextResponse.json({ error: err.message }, { status: 500 })
     }
   }
@@ -164,7 +166,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result, { status: 200 })
   } catch (err: any) {
-    console.error('GET /api/configurations error:', err)
+    log.error('GET /api/configurations error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()
@@ -282,7 +284,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, id: configId }, { status: 201 })
   } catch (err: any) {
     await client.query('ROLLBACK')
-    console.error('POST /api/configurations error:', err)
+    log.error('POST /api/configurations error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()

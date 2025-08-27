@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
+import { LOG } from '@/lib/logger';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const log = LOG.tag('api:serial');
 
 /* ------------------------ schemas ------------------------ */
 const Mac = z.string().regex(/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/);
@@ -59,7 +61,7 @@ async function appendLog(entry: Record<string, unknown>) {
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
     await fs.appendFile(logFilePath(), line, "utf8");
   } catch (err) {
-    console.error("[monitor.log] append failed:", err);
+    log.error("[monitor.log] append failed", err);
   }
 }
 
@@ -138,7 +140,7 @@ export async function GET(req: Request) {
     return json({ ok, raw }, ok ? 200 : 502);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("[GET /api/serial] error:", err);
+    log.error("GET /api/serial error", err);
     return json({ ok: false, error: msg }, 500);
   }
 }
@@ -198,7 +200,7 @@ export async function POST(request: Request) {
     ({ sendToEsp } = await loadSerial());
   } catch (err) {
     await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
-    console.error("load serial helper error:", err);
+    log.error("load serial helper error", err);
     return json({ error: "Internal error" }, 500);
   }
 
@@ -209,7 +211,7 @@ export async function POST(request: Request) {
     return json({ success: true, cmd, normalPins, latchPins, mac });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
-    console.error("POST /api/serial error:", err);
+    log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
     await appendLog({ event: "monitor.error", mac, kssk, cmd, error: message });
     return json({ error: message, cmdTried: cmd }, 500);

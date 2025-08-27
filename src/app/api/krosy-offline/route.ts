@@ -3,9 +3,11 @@ import { NextRequest } from "next/server";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { LOG } from '@/lib/logger';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const log = LOG.tag('api:krosy-offline');
 
 /* ===== utils ===== */
 // Whitespace-tolerant pretty-printer
@@ -223,7 +225,7 @@ export async function POST(req: NextRequest) {
   const push = (s: string) => {
     const l = line(s);
     lines.push(l);
-    console.log(l);
+    log.info(l);
   };
 
   push(`POST ${targetUrl} [visualControl: working] (OFFLINE)`);

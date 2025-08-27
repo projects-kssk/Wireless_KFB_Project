@@ -3,8 +3,10 @@ import { NextResponse }           from 'next/server'
 import { pool }                   from '@/lib/postgresPool'
 import type { BranchDisplayData } from '@/types/types'
 import { z } from 'zod' // ⬅️ add this import
+import { LOG } from '@/lib/logger'
 export const dynamic = 'force-dynamic'
 const BodySchema = z.object({ name: z.string().trim().min(1) })
+const log = LOG.tag('api:branches')
 export async function GET(request: Request) {
   const url    = new URL(request.url)
   const kfb    = url.searchParams.get('kfb')
@@ -95,7 +97,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(data, { status: 200 })
   } catch (err: any) {
-    console.error('GET /api/branches error:', err)
+    log.error('GET /api/branches error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
@@ -149,7 +151,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json(responseData, { status: 201 })
   } catch (err: any) {
-    console.error('POST /api/branches error:', err)
+    log.error('POST /api/branches error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()

@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import { pool} from '@/lib/postgresPool';
+import { LOG } from '@/lib/logger'
 import type { Pool, PoolClient } from "pg";
 export const dynamic = 'force-dynamic';
+const log = LOG.tag('api:configurations')
 
 type CfgRow = { id: number; kfb: string; mac_address: string };
 type DetailRow = { id: number; config_id: number; kfb_info_value: string };
@@ -121,7 +123,7 @@ export async function GET(
       { status: 200 }
     );
   } catch (err: any) {
-    console.error(`GET /api/configurations/${id} error:`, err);
+    log.error(`GET /api/configurations/${id} error`, err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   } finally {
     client.release();
@@ -273,7 +275,7 @@ export async function PUT(
     return NextResponse.json({ success: true, id }, { status: 200 });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    console.error(`PUT /api/configurations/${id} error:`, err);
+    log.error(`PUT /api/configurations/${id} error`, err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   } finally {
     client.release();
@@ -314,7 +316,7 @@ export async function DELETE(
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err: any) {
     await client.query('ROLLBACK');
-    console.error(`DELETE /api/configurations/${id} error:`, err);
+    log.error(`DELETE /api/configurations/${id} error`, err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   } finally {
     client.release();

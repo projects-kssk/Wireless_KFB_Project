@@ -27,7 +27,6 @@ function attachEventLogging(r: any, urlShown: string) {
   r.on('end',         () => log.info('end'));
   r.on('error',       (e: any) => {
     const msg = e?.message || String(e);
-    console.error('[redis]', msg);
     log.error(`error: ${msg}`);
   });
 }

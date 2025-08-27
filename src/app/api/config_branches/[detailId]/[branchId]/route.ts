@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:config_branches')
 
 // PATCH /api/config_branches/:detailId/:branchId
 // Body: { not_tested?: boolean, loose_contact?: boolean }
@@ -42,7 +44,7 @@ export async function PATCH(
     await pool.query(q, [detail, branch, ...vals])
     return NextResponse.json({ success: true })
   } catch (err: any) {
-    console.error(`PATCH /api/config_branches/${detail}/${branch} error:`, err)
+    log.error(`PATCH /api/config_branches/${detail}/${branch} error`, err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
@@ -77,7 +79,7 @@ export async function DELETE(
     return NextResponse.json({ success: true, deleted: rowCount ?? 0 })
   } catch (err: any) {
     await client.query('ROLLBACK')
-    console.error(`DELETE /api/config_branches/${detail}/${branch} error:`, err)
+    log.error(`DELETE /api/config_branches/${detail}/${branch} error`, err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()

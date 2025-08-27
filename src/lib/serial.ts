@@ -1,5 +1,6 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
+import { LOG } from '@/lib/logger';
 
 import { broadcast, DeviceInfo } from "@/lib/bus";
 import { Transform } from "stream";
@@ -39,7 +40,8 @@ function armEsp(): EspLineStream {
 
   const path = espPath();
   const baudRate = espBaud();
-  console.log(`[ESP] opening ${path} @${baudRate}`);
+  const log = LOG.tag('esp');
+  log.info(`opening ${path} @${baudRate}`);
 
   const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
   const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
@@ -54,7 +56,7 @@ parser.on("data", (buf: Buffer | string) => {
   const s = String(buf).trim();
   if (!s) return;
 
-  if (process.env.ESP_DEBUG) console.log(`[ESP:${path}] ${s}`);
+  if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`[${path}] ${s}`);
 
   ring.push(s);
   ringIds.push(nextId++);
@@ -74,7 +76,7 @@ parser.on("data", (buf: Buffer | string) => {
 });
 
   port.on("error", (e) => {
-    console.error(`[ESP:${path}] error`, e?.message ?? e);
+    LOG.tag('esp').error(`error on ${path}`, e?.message ?? e);
   });
 
   port.on("close", () => {
@@ -122,7 +124,7 @@ async function writeLine(line: string): Promise<void> {
       port.drain((derr) => (derr ? reject(derr) : resolve()));
     })
   );
-  if (process.env.ESP_DEBUG) console.log(`⟶ [you] ${line}`);
+  if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`⟶ [you] ${line}`);
 }
 
 export function waitForLine(
@@ -302,7 +304,7 @@ function attachScannerHandlers(
   });
 
   port.on("close", () => {
-    console.warn(`[scanner:${path}] port closed`);
+    LOG.tag('scanner').warn(`port closed ${path}`);
     broadcast({ type: "scanner/close", path });
     state.port = null;
     state.parser = null;
@@ -310,7 +312,7 @@ function attachScannerHandlers(
   });
 
   port.on("error", (e) => {
-    console.error(`[scanner:${path}] port error`, e);
+    LOG.tag('scanner').error(`port error ${path}`, e);
     broadcast({ type: "scanner/error", error: String(e?.message ?? e), path });
     try { port.close(() => {}); } catch {}
     state.port = null;
@@ -352,7 +354,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
     }
 
   state.starting = new Promise<void>((resolve, reject) => {
-    console.log(`[scanner:${path}] Opening @${baudRate}…`);
+      LOG.tag('scanner').info(`opening ${path} @${baudRate}`);
     const port = new SerialPort({ path, baudRate, autoOpen: false, lock: false });
 const normalizer = new Transform({
   transform(chunk, _enc, cb) {
@@ -367,7 +369,7 @@ const parser = port
   .pipe(new ReadlineParser({ delimiter: "\n" }));
     port.open((err) => {
       if (err) {
-        console.error(`[scanner:${path}] open error`, err);
+        LOG.tag('scanner').error(`open error ${path}`, err);
         broadcastScannerErrorOnce(retry, String(err?.message ?? err), path);
         state.port = null;
         state.parser = null;
@@ -375,7 +377,7 @@ const parser = port
         bumpCooldown(retry);
         return reject(err);
       }
-      console.log(`[scanner:${path}] opened`);
+      LOG.tag('scanner').info(`opened ${path}`);
       resetCooldown(retry);
       state.port = port;
       state.parser = parser;

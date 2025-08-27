@@ -2,8 +2,10 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
 import { z } from 'zod'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:branches')
 
 const BodySchema = z.object({ name: z.string().trim().min(1) })
 
@@ -40,7 +42,7 @@ export async function PATCH(
     )
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
-    console.error('PATCH /api/branches/[id] error:', err)
+    log.error('PATCH /api/branches/[id] error', err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

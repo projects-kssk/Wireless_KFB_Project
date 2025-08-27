@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:esp_pin_mappings')
 
 // DELETE /api/esp_pin_mappings/:detailId/:branchId
 export async function DELETE(
@@ -23,7 +25,7 @@ export async function DELETE(
     )
     return NextResponse.json({ success: true, deleted: rowCount ?? 0 })
   } catch (err: any) {
-    console.error(`DELETE /api/esp_pin_mappings/${detail}/${branch} error:`, err)
+    log.error(`DELETE /api/esp_pin_mappings/${detail}/${branch} error`, err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

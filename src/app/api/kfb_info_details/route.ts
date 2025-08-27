@@ -1,8 +1,10 @@
 // src/app/api/kfb_info_details/route.ts
 import { NextResponse } from 'next/server'
 import { pool } from '@/lib/postgresPool'
+import { LOG } from '@/lib/logger'
 
 export const dynamic = 'force-dynamic'
+const log = LOG.tag('api:kfb_info_details')
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -28,7 +30,7 @@ export async function GET(request: Request) {
     `, [configId])
     return NextResponse.json(rows)
   } catch (err: any) {
-    console.error('GET /api/kfb_info_details error', err)
+    log.error('GET /api/kfb_info_details error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ success: true, id: insertRes.rows[0].id }, { status: 201 })
   } catch (err: any) {
-    console.error('POST /api/kfb_info_details error', err)
+    log.error('POST /api/kfb_info_details error', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   } finally {
     client.release()

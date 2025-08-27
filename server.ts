@@ -4,6 +4,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { WebSocketServer, RawData } from 'ws'
 // ⬇️ use the real file and add .js extension for ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
+import { LOG } from './src/lib/logger.js'
 
 const dev = process.env.NODE_ENV !== 'production'
 const app = next({ dev })
@@ -13,6 +14,7 @@ const PORT = parseInt(process.env.PORT || '3003', 10)
 app.prepare().then(() => {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => handle(req, res))
   const wss = new WebSocketServer({ noServer: true })
+  const log = LOG.tag('ws-server')
 
   server.on('upgrade', (req, socket, head) => {
     if (req.url === '/api/thread-ws') {
@@ -28,7 +30,7 @@ app.prepare().then(() => {
   const { parser } = getEspLineStream()
 
   wss.on('connection', ws => {
-    console.log('WS client connected')
+    log.info('WS client connected')
 
     const onData = (raw: unknown) => {
       const line = String(raw).trim()
@@ -58,9 +60,9 @@ app.prepare().then(() => {
 
     ws.on('close', () => {
       parser.off('data', onData)
-      console.log('WS client disconnected')
+      log.info('WS client disconnected')
     })
   })
 
-  server.listen(PORT, () => console.log(`> Ready on http://localhost:${PORT}`))
+  server.listen(PORT, () => log.info(`Ready on http://localhost:${PORT}`))
 })

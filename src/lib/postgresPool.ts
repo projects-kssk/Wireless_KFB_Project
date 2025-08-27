@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { LOG } from '@/lib/logger';
 
 const pool = new Pool({
   host:     process.env.PGHOST,
@@ -9,7 +10,8 @@ const pool = new Pool({
   ssl:      false,      // <— explicitly disable SSL
 });
 
-console.log('→ Postgres config:', {
+const log = LOG.tag('postgres');
+log.info('Postgres config', {
   host: pool.options.host,
   port: pool.options.port,
   database: pool.options.database,

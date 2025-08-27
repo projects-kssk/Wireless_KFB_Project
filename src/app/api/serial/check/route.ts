@@ -2,9 +2,11 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import serial from '@/lib/serial';
+import { LOG } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const log = LOG.tag('api:serial/check');
 
 const Body = z.object({
   pins: z.array(z.number().int()),
@@ -211,30 +213,17 @@ export async function POST(request: Request) {
     // Safe diagnostics
     try {
       const s = (serial as any).getEspLineStream?.();
-      if (Array.isArray(s?.ring)) {
-        const tail = s.ring.slice(-50);
-        console.error('[serial/check tail]', {
-          mac: parsed.success ? normMac(parsed.data.mac) : 'n/a',
-          tail,
-        });
-      } else {
-        console.error('[serial/check tail]', {
-          mac: parsed.success ? normMac(parsed.data.mac) : 'n/a',
-          tail: [],
-        });
-      }
+        if (Array.isArray(s?.ring)) {
+          const tail = s.ring.slice(-50);
+          log.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail });
+        } else {
+          log.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail: [] });
+        }
     } catch (err) {
-      console.error('[serial/check tail] failed', {
-        mac: parsed.success ? normMac(parsed.data.mac) : 'n/a',
-        error: String(err),
-      });
+      log.error('[serial/check tail] failed', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', error: String(err) });
     }
 
-    console.error('[serial/check]', {
-      mac: parsed.success ? normMac(parsed.data.mac) : 'n/a',
-      msg,
-      status,
-    });
+    log.error('[serial/check]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', msg, status });
     return NextResponse.json({ error: msg }, { status });
   } finally {
     locks.delete(macUp);

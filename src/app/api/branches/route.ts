@@ -4,10 +4,12 @@ import { pool }                   from '@/lib/postgresPool'
 import type { BranchDisplayData } from '@/types/types'
 import { z } from 'zod' // ⬅️ add this import
 import { LOG } from '@/lib/logger'
+import { ridFrom } from '@/lib/rid'
 export const dynamic = 'force-dynamic'
 const BodySchema = z.object({ name: z.string().trim().min(1) })
 const log = LOG.tag('api:branches')
 export async function GET(request: Request) {
+  const rid = ridFrom(request)
   const url    = new URL(request.url)
   const kfb    = url.searchParams.get('kfb')
   const idsRaw = url.searchParams.get('ids')
@@ -20,7 +22,9 @@ export async function GET(request: Request) {
         .filter(n => !Number.isNaN(n))
 
       if (ids.length === 0) {
-        return NextResponse.json<BranchDisplayData[]>([], { status: 200 })
+        const resp = NextResponse.json<BranchDisplayData[]>([], { status: 200 })
+        resp.headers.set('X-Req-Id', rid)
+        return resp
       }
 
       const { rows } = await pool.query<{
@@ -47,12 +51,16 @@ export async function GET(request: Request) {
         looseContact: !!r.loose_contact,
       }))
 
-      return NextResponse.json(data, { status: 200 })
+      const resp = NextResponse.json(data, { status: 200 })
+      resp.headers.set('X-Req-Id', rid)
+      return resp
     }
 
     // DASHBOARD MODE: fetch by KFB
     if (!kfb) {
-      return NextResponse.json({ error: 'Missing ?kfb=' }, { status: 400 })
+      const resp = NextResponse.json({ error: 'Missing ?kfb=' }, { status: 400 })
+      resp.headers.set('X-Req-Id', rid)
+      return resp
     }
 
    const { rows } = await pool.query<{
@@ -95,14 +103,19 @@ export async function GET(request: Request) {
     }))
 
 
-    return NextResponse.json(data, { status: 200 })
+    const resp = NextResponse.json(data, { status: 200 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } catch (err: any) {
-    log.error('GET /api/branches error', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    log.error('GET /api/branches error', { rid, error: err?.message || String(err) })
+    const resp = NextResponse.json({ error: err.message }, { status: 500 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   }
 }
 
 export async function POST(request: Request) {
+  const rid = ridFrom(request)
 
     // 1) parse & validate
   let name: string
@@ -114,7 +127,9 @@ export async function POST(request: Request) {
     }
     name = parsed.data.name
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    const resp = NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   }
 
 
@@ -149,10 +164,14 @@ export async function POST(request: Request) {
       pinNumber:    undefined,
       kfbInfoValue: undefined,
     }
-    return NextResponse.json(responseData, { status: 201 })
+    const resp = NextResponse.json(responseData, { status: 201 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } catch (err: any) {
-    log.error('POST /api/branches error', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    log.error('POST /api/branches error', { rid, error: err?.message || String(err) })
+    const resp = NextResponse.json({ error: err.message }, { status: 500 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } finally {
     client.release()
   }

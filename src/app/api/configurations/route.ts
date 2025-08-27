@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server'
 import { pool }         from '@/lib/postgresPool'
 import { LOG } from '@/lib/logger'
+import { ridFrom } from '@/lib/rid'
 
 export const dynamic = 'force-dynamic'
 const log = LOG.tag('api:configurations')
@@ -12,6 +13,7 @@ const log = LOG.tag('api:configurations')
  * - Otherwise → return full list of configurations with kfbInfo, branchPins, espPinMappings
  */
 export async function GET(request: Request) {
+  const rid = ridFrom(request)
   const url = new URL(request.url)
   const kfb = url.searchParams.get('kfb')
 
@@ -29,12 +31,18 @@ export async function GET(request: Request) {
         [kfb]
       )
       if (rows.length === 0) {
-        return NextResponse.json({ error: 'Not found' }, { status: 404 })
+        const resp = NextResponse.json({ error: 'Not found' }, { status: 404 })
+        resp.headers.set('X-Req-Id', rid)
+        return resp
       }
-      return NextResponse.json(rows[0], { status: 200 })
+      const resp = NextResponse.json(rows[0], { status: 200 })
+      resp.headers.set('X-Req-Id', rid)
+      return resp
     } catch (err: any) {
-      log.error(`GET /api/configurations?kfb=${kfb} error`, err)
-      return NextResponse.json({ error: err.message }, { status: 500 })
+      log.error(`GET /api/configurations?kfb=${kfb} error`, { rid, error: err?.message || String(err) })
+      const resp = NextResponse.json({ error: err.message }, { status: 500 })
+      resp.headers.set('X-Req-Id', rid)
+      return resp
     }
   }
 
@@ -53,7 +61,9 @@ export async function GET(request: Request) {
     )
     const configs = configsRes.rows
     if (configs.length === 0) {
-      return NextResponse.json([], { status: 200 })
+      const resp = NextResponse.json([], { status: 200 })
+      resp.headers.set('X-Req-Id', rid)
+      return resp
     }
 
     // 2.2) load kfb_info_details
@@ -164,10 +174,14 @@ export async function GET(request: Request) {
       }
     })
 
-    return NextResponse.json(result, { status: 200 })
+    const resp = NextResponse.json(result, { status: 200 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } catch (err: any) {
-    log.error('GET /api/configurations error', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    log.error('GET /api/configurations error', { rid, error: err?.message || String(err) })
+    const resp = NextResponse.json({ error: err.message }, { status: 500 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } finally {
     client.release()
   }
@@ -184,11 +198,14 @@ export async function GET(request: Request) {
  * }
  */
 export async function POST(request: Request) {
+  const rid = ridFrom(request)
   let body: any
   try {
     body = await request.json()
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    const resp = NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   }
   const { kfb, mac_address, kfbInfo, branchPins, espPinMappings } = body
 
@@ -281,11 +298,15 @@ export async function POST(request: Request) {
     }
 
     await client.query('COMMIT')
-    return NextResponse.json({ success: true, id: configId }, { status: 201 })
+    const resp = NextResponse.json({ success: true, id: configId }, { status: 201 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } catch (err: any) {
     await client.query('ROLLBACK')
-    log.error('POST /api/configurations error', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+    log.error('POST /api/configurations error', { rid, error: err?.message || String(err) })
+    const resp = NextResponse.json({ error: err.message }, { status: 500 })
+    resp.headers.set('X-Req-Id', rid)
+    return resp
   } finally {
     client.release()
   }

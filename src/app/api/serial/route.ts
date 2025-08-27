@@ -68,6 +68,7 @@ async function appendLog(entry: Record<string, unknown>) {
 
   // also emit a concise, human-friendly line to the global logger
   try {
+    const startOnly = (process.env.LOG_MONITOR_START_ONLY ?? '0') === '1';
     const evt = String((entry as any)?.event || '');
     const mac = (entry as any)?.mac as string | undefined;
     const kssk = (entry as any)?.kssk as string | undefined;
@@ -82,6 +83,7 @@ async function appendLog(entry: Record<string, unknown>) {
       return;
     }
     if (evt === 'monitor.success') {
+      if (startOnly) return; // suppress OK lines in start-only mode
       const counts = (entry as any)?.counts as { builtNormal?: number; builtLatch?: number } | undefined;
       const total = (counts?.builtNormal || 0) + (counts?.builtLatch || 0);
       mon.info(`MONITOR ok mac=${mac ?? '-'} kssk=${kssk ?? '-'} totalPins=${total}`);
@@ -258,7 +260,6 @@ export async function POST(request: Request) {
   if (latchPins.length)  cmd += " LATCH " + latchPins.join(",");
   cmd += " " + mac;
 
-  // --- NEW: rich pre-send log (requested vs built) ---
   const diffs = {
     normal: pinDiff(reqNormal, normalPins),
     latch:  pinDiff(reqLatch,  latchPins),
@@ -271,6 +272,22 @@ export async function POST(request: Request) {
     builtLatch:  latchPins.length,
     builtTotal:  normalPins.length + latchPins.length,
   };
+  const mismatch =
+    (diffs.normal.missing.length + diffs.normal.added.length +
+    diffs.latch.missing.length  + diffs.latch.added.length) > 0;
+
+  const entry: any = {
+    event: "monitor.send",
+    mac, kssk, cmd,
+    sent: { normalPins: normalPins, latchPins: latchPins }, // ✅ only what we send
+    counts
+  };
+  if (mismatch) {
+    entry.requested = { normalPins: reqNormal ?? null, latchPins: reqLatch ?? null };
+    entry.diffs = diffs; // only when different
+  }
+  await appendLog(entry);
+
   await appendLog({
     event: "monitor.send",
     source: src,

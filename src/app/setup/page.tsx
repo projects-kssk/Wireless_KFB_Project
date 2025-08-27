@@ -78,21 +78,30 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
   );
 }
 
-function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: number[] } {
+// put near the top of the file (reuse if already present)
+const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
+
+// JSON extractor
+function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number[]; latchPins: number[] } {
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
   const segRoot =
     data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment ??
     data?.response?.krosy?.body?.visualControl?.loadedData?.sequencer?.segmentList?.segment;
 
+  const wantMac = String(macHint ?? "").toUpperCase();
   const segments = take(segRoot);
   const normal: number[] = [];
   const latch: number[] = [];
-  const ACCEPT = new Set(["default", "no_check"]);
 
   for (const seg of segments) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
-      if (!ACCEPT.has(mt)) continue;
+      if (mt !== "default") continue; // 🔒 only default
+      // 🔒 match MAC in objGroup if present
+      const og = String(s?.objGroup ?? "");
+      const m = og.match(OBJGROUP_MAC);
+      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
+
       const parts = String(s?.objPos ?? "").split(",");
       let isLatch = false;
       if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
@@ -106,8 +115,9 @@ function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: num
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
 
-function extractPinsFromKrosyXML(xml: string) {
-  const accept = new Set(["default", "no_check"]);
+// XML extractor
+function extractPinsFromKrosyXML(xml: string, macHint?: string) {
+  const wantMac = String(macHint ?? "").toUpperCase();
   const normal: number[] = [];
   const latch: number[] = [];
 
@@ -119,38 +129,41 @@ function extractPinsFromKrosyXML(xml: string) {
     if (Number.isFinite(pin)) (isLatch ? latch : normal).push(pin);
   };
 
-  let usedRegexFallback = false;
+  let parsedOk = false;
   try {
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     const hasErr = doc.getElementsByTagName("parsererror").length > 0;
-    let nodes: Element[] = [];
-    nodes = Array.from(doc.getElementsByTagName("sequence"));
-    if (nodes.length === 0 && doc.getElementsByTagNameNS) {
-      nodes = Array.from(doc.getElementsByTagNameNS("*", "sequence"));
+    let nodes: Element[] = Array.from(doc.getElementsByTagName("sequence"));
+    if (nodes.length === 0 && (doc as any).getElementsByTagNameNS) {
+      nodes = Array.from((doc as any).getElementsByTagNameNS("*", "sequence"));
     }
     if (!hasErr && nodes.length) {
       for (const el of nodes) {
         const mt = (el.getAttribute("measType") || "").toLowerCase();
-        if (!accept.has(mt)) continue;
+        if (mt !== "default") continue; // 🔒 only default
+        // 🔒 MAC filter via neighbouring objGroup if present
+        const og = el.parentElement?.querySelector?.("objGroup")?.textContent || "";
+        const m = String(og).match(OBJGROUP_MAC);
+        if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
+
         const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
         if (pos) pushPin(pos);
       }
-    } else {
-      usedRegexFallback = true;
+      parsedOk = true;
     }
-  } catch {
-    usedRegexFallback = true;
-  }
+  } catch { /* fall back */ }
 
-  if (usedRegexFallback) {
-    const re = /<sequence\b[^>]*\bmeasType="(default|no_check)"[^>]*>[\s\S]*?<objPos>([^<]+)<\/objPos>/gi;
+  if (!parsedOk) {
+    // Regex fallback: only default
+    const re = /<sequence\b[^>]*\bmeasType="default"[^>]*>[\s\S]*?<objPos>([^<]+)<\/objPos>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(xml))) pushPin(m[2]);
+    while ((m = re.exec(xml))) pushPin(m[1]);
   }
 
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
+
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
@@ -505,7 +518,9 @@ export default function SetupPage() {
           return;
         }
 
-        const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
+        const pins = resp.data?.__xml
+          ? extractPinsFromKrosyXML(resp.data.__xml, String(kfb).toUpperCase())
+          : extractPinsFromKrosy(resp.data, String(kfb).toUpperCase());
         const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
         if (!hasPins) {
           await releaseLock(code);

@@ -109,7 +109,9 @@ export async function POST(request: Request) {
     }
 
     log.info('CHECK begin', { rid, mac: macUp, pins: pins.length, pinsCsv });
-    mon.info(`CHECK start mac=${macUp} pins=${pins.length}`);
+    if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+      mon.info(`CHECK start mac=${macUp} pins=${pins.length}`);
+    }
 
     const {
       SENT_RE,
@@ -195,7 +197,9 @@ export async function POST(request: Request) {
     if (!line) {
       // No signal yet. Return empty failures. Scanner will re-trigger.
       log.info('CHECK no-result-yet', { rid, mac: macUp, durationMs: Date.now()-t0 });
-      mon.info(`CHECK pending mac=${macUp} no-result-yet`);
+      if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+        mon.info(`CHECK pending mac=${macUp} no-result-yet`);
+      }
       return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
     }
 
@@ -203,7 +207,9 @@ export async function POST(request: Request) {
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
     if (m1 && /^SUCCESS/i.test(m1[1])) {
       log.info('CHECK success', { rid, mac: macUp, durationMs: Date.now()-t0 });
-      mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
+      if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+        mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
+      }
       return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
     }
 

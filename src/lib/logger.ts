@@ -23,6 +23,15 @@ for (const pair of TAG_LEVELS_RAW.split(",")) {
   if ((levels as any).includes(lv)) TAG_MIN[k] = lv as Level;
 }
 
+// Sensible defaults when not explicitly overridden and not in DEBUG mode
+if (!TAG_LEVELS_RAW && (process.env.DEBUG ?? "0") !== "1") {
+  TAG_MIN["redis"]              = "warn";
+  TAG_MIN["kssk-lock"]          = "warn";
+  TAG_MIN["api:krosy-offline"]  = "warn";
+  TAG_MIN["api:serial/check"]   = "warn";
+  TAG_MIN["api:serial"]         = "warn";
+}
+
 function levelIdx(l: Level) { return levels.indexOf(l); }
 function minFor(tag?: string): Level {
   if (tag && TAG_MIN[tag] ) return TAG_MIN[tag];

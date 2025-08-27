@@ -281,15 +281,34 @@ const pair = (vid?: string | null, pid?: string | null) => (vid && pid ? `${norm
 const ESPIcon: React.FC<{ className?: string; title?: string }> = ({ className, title = 'ESP' }) => (
   <svg viewBox="0 0 64 64" className={className} role="img" aria-label={title}>
     <defs>
-      <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0%" stopColor="#6ee7b7" /><stop offset="100%" stopColor="#10b981" />
+      <linearGradient id="chipBody" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#1f2937" /><stop offset="100%" stopColor="#0b1220" />
+      </linearGradient>
+      <linearGradient id="pin" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stopColor="#d1d5db" /><stop offset="100%" stopColor="#9ca3af" />
       </linearGradient>
     </defs>
-    <circle cx="32" cy="32" r="30" fill="url(#g)" />
-    <g fill="none" stroke="#0b1220" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 38a12 12 0 1124 0" />
-      <path d="M24 38a8 8 0 1116 0" />
-      <path d="M28 38a4 4 0 118 0" />
+    {/* pins left */}
+    {Array.from({ length: 6 }).map((_, i) => (
+      <rect key={`pl-${i}`} x={10} y={12 + i * 8} width={6} height={4} rx={1} fill="url(#pin)" />
+    ))}
+    {/* pins right */}
+    {Array.from({ length: 6 }).map((_, i) => (
+      <rect key={`pr-${i}`} x={48} y={12 + i * 8} width={6} height={4} rx={1} fill="url(#pin)" />
+    ))}
+    {/* chip body */}
+    <rect x={16} y={8} width={32} height={48} rx={6} fill="url(#chipBody)" stroke="#111827" strokeWidth={1.2} />
+    {/* antenna/wifi mark */}
+    <g fill="none" stroke="#60a5fa" strokeWidth={2.5} strokeLinecap="round">
+      <path d="M28 20a8 8 0 0116 0" />
+      <path d="M31 23a5 5 0 0110 0" />
+      <circle cx={36} cy={27} r={2} fill="#60a5fa" />
+    </g>
+    {/* label bars */}
+    <g stroke="#334155" strokeWidth={2}>
+      <path d="M22 34h20" />
+      <path d="M22 39h20" />
+      <path d="M22 44h14" />
     </g>
   </svg>
 );
@@ -502,13 +521,13 @@ const EspDiscoverButton: React.FC<{ onClick: () => void; busy: boolean; mac?: st
     onClick={onClick}
     whileHover={{ y: -2 }}
     whileTap={{ scale: 0.98 }}
-    className="inline-flex items-center gap-2 rounded-xl px-3 py-2 ring-1 ring-slate-300/70 bg-white/90 dark:bg-slate-900/80 hover:bg-white dark:hover:bg-slate-800"
+    className="inline-flex items-center gap-4 rounded-2xl px-6 py-4 ring-2 ring-slate-300/70 bg-white/95 dark:bg-slate-900/85 hover:bg-white dark:hover:bg-slate-800 shadow-[0_10px_30px_rgba(2,6,23,.12)]"
     title="Discover ESP and read MAC"
   >
-    <ESPIcon className="h-6 w-6" />
-    <span className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">{busy ? 'Discovering…' : 'ESP MAC'}</span>
+    <ESPIcon className="h-[30px] w-[30px]" />
+    <span className="text-[24px] leading-none font-extrabold tracking-tight text-slate-900 dark:text-slate-100">{busy ? 'Discovering…' : 'ESP MAC'}</span>
     {mac && (
-      <span className="ml-1 px-2 py-0.5 rounded-full text-[12px] font-semibold ring-1 ring-emerald-300/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+      <span className="ml-2 px-3 py-1 rounded-full text-[16px] font-bold ring-1 ring-emerald-300/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
         {mac}
       </span>
     )}

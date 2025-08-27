@@ -17,7 +17,16 @@
     "typescript"
   ],
   "scripts": {
+    "redis:up": "bash ./scripts/redis-up.sh",
+    "redis:wait": "npx wait-on tcp:127.0.0.1:6379",
+
+    "predev": "npm run redis:up && npm run redis:wait",
     "dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"npx wait-on http://localhost:3003 && electron .\"",
+
+
+
+    "redis:logs": "docker logs -f ${REDIS_CONTAINER_NAME:-redis}",
+    "locks:redis": "node scripts/print-locks-redis.mjs",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run build:renderer && npm run build:server && npm run build:electron && npx electron-builder --linux AppImage",

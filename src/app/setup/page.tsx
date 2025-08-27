@@ -12,16 +12,18 @@ import {
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
 import type { RefObject, MutableRefObject } from "react";
+
 /* ===== Config ===== */
 const OK_DISPLAY_MS = 3000;
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
-const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname
+const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
   (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
+
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -76,6 +78,7 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
     </div>
   );
 }
+
 function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: number[] } {
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
   const segRoot =
@@ -85,18 +88,12 @@ function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: num
   const segments = take(segRoot);
   const normal: number[] = [];
   const latch: number[] = [];
-
-  const ACCEPT = new Set(["default", "no_check"]); // ← include no_check to see PIN:10
+  const ACCEPT = new Set(["default", "no_check"]);
 
   for (const seg of segments) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
       if (!ACCEPT.has(mt)) continue;
-
-      // OPTIONAL: only take objGroups that look like "...(AA:BB:CC:DD:EE:FF)"
-      // const og = String(s?.objGroup ?? "");
-      // if (!/\([0-9A-F]{2}(?::[0-9A-F]{2}){5}\)$/i.test(og)) continue;
-
       const parts = String(s?.objPos ?? "").split(",");
       let isLatch = false;
       if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
@@ -109,12 +106,12 @@ function extractPinsFromKrosy(data: any): { normalPins: number[]; latchPins: num
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
+
 function extractPinsFromKrosyXML(xml: string) {
   const accept = new Set(["default", "no_check"]);
   const normal: number[] = [];
   const latch: number[] = [];
 
-  // --- helper
   const pushPin = (pos: string) => {
     const parts = String(pos).split(",");
     let isLatch = false;
@@ -123,20 +120,15 @@ function extractPinsFromKrosyXML(xml: string) {
     if (Number.isFinite(pin)) (isLatch ? latch : normal).push(pin);
   };
 
-  // --- try DOM first (namespace-agnostic)
   let usedRegexFallback = false;
   try {
     const doc = new DOMParser().parseFromString(xml, "application/xml");
     const hasErr = doc.getElementsByTagName("parsererror").length > 0;
-
     let nodes: Element[] = [];
-    // 1) plain name
     nodes = Array.from(doc.getElementsByTagName("sequence"));
-    // 2) wildcard namespace
     if (nodes.length === 0 && doc.getElementsByTagNameNS) {
       nodes = Array.from(doc.getElementsByTagNameNS("*", "sequence"));
     }
-
     if (!hasErr && nodes.length) {
       for (const el of nodes) {
         const mt = (el.getAttribute("measType") || "").toLowerCase();
@@ -151,7 +143,6 @@ function extractPinsFromKrosyXML(xml: string) {
     usedRegexFallback = true;
   }
 
-  // --- regex fallback (works even on truncated/pretty-printed XML)
   if (usedRegexFallback) {
     const re = /<sequence\b[^>]*\bmeasType="(default|no_check)"[^>]*>[\s\S]*?<objPos>([^<]+)<\/objPos>/gi;
     let m: RegExpExecArray | null;
@@ -162,22 +153,17 @@ function extractPinsFromKrosyXML(xml: string) {
   return { normalPins: uniq(normal), latchPins: uniq(latch) };
 }
 
-
-
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
-const MAC_REGEX = compileRegex(
-  process.env.NEXT_PUBLIC_KFB_REGEX,
-  /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
+const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
 const KSSK_DIGITS_REGEX = /^\d{12}$/;
 const digitsOnly = (s: string) => String(s ?? "").replace(/\D+/g, "");
 function canonicalMac(raw: string): string | null {
-  if (!/[:\-]/.test(raw) && !/[A-Fa-f]/.test(raw)) return null; // no separators & no hex letters → not a MAC
+  if (!/[:\-]/.test(raw) && !/[A-Fa-f]/.test(raw)) return null;
   const hex = String(raw ?? "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
   if (hex.length !== 12) return null;
   const mac = hex.match(/.{2}/g)!.join(":");
-  return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i.test(mac) ? mac : null;
+  return MAC_REGEX.test(mac) ? mac : null;
 }
-
 
 function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
   const asKssk = digitsOnly(raw);
@@ -186,7 +172,6 @@ function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
   if (mac) return { type: "kfb", code: mac };
   return { type: null, code: raw };
 }
-
 
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
@@ -202,7 +187,6 @@ type Ov = {
   seq: number;
   anchor: "table" | "viewport";
 };
-/* NEW: hoisted so all module scope can use them */
 type PanelTarget = PanelKey | "global";
 type FlashEvent = {
   id: number;
@@ -212,29 +196,30 @@ type FlashEvent = {
   msg?: string;
   ts: number;
 };
+
 /* ===== Page ===== */
 export default function SetupPage() {
   const allowManual = true;
   const prefersReduced = useReducedMotion();
-const tableRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLDivElement>(null);
+
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>([null, null, null]);
+  const [ksskStatus, setKsskStatus] =
+    useState<Array<"idle" | "pending" | "ok" | "error">>(["idle", "idle", "idle"]);
 
   const [showManualFor, setShowManualFor] = useState<Record<string, boolean>>({});
-const [overlay, setOverlay] = useState<Ov>({
-  open:false, kind:"success", code:"", seq:0, anchor:"table"
-});
+  const [overlay, setOverlay] = useState<Ov>({ open: false, kind: "success", code: "", seq: 0, anchor: "table" });
   const [flash, setFlash] = useState<FlashEvent | null>(null);
   const [toasts, setToasts] = useState<Array<FlashEvent>>([]);
   const flashSeq = useRef(0);
 
-    const pushToast = useCallback((f: FlashEvent) => {
-      setToasts(prev => {
-        const next = [...prev, f];
-        return next.slice(-100); // keep last 10
-      });
-    }, []);
-
+  const pushToast = useCallback((f: FlashEvent) => {
+    setToasts((prev) => {
+      const next = [...prev, f];
+      return next.slice(-100);
+    });
+  }, []);
 
   const fireFlash = useCallback(
     (kind: "success" | "error", code: string, panel: PanelTarget, msg?: string) => {
@@ -242,119 +227,122 @@ const [overlay, setOverlay] = useState<Ov>({
       const f: FlashEvent = { id, kind, panel, code, msg, ts: Date.now() };
       setFlash(f);
       pushToast(f);
-      window.setTimeout(() => {
-        setFlash(cur => (cur && cur.id === id ? null : cur));
-      }, 900);
+      window.setTimeout(() => setFlash((cur) => (cur && cur.id === id ? null : cur)), 900);
     },
     [pushToast]
   );
 
   const [tableCycle, setTableCycle] = useState(0);
   const [kbdBuffer, setKbdBuffer] = useState("");
-
   const sendBusyRef = useRef(false);
 
+  const hb = useRef<Map<string, number>>(new Map());
 
-
-  
-const hb = useRef<Map<string, number>>(new Map());
-
-const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
-const loadLocalLocks = (): Set<string> => {
-  try { return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]")); }
-  catch { return new Set(); }
-};
-const saveLocalLocks = (s: Set<string>) => {
-  try { localStorage.setItem(LS_KEY, JSON.stringify([...s])); } catch {}
-};
-const activeLocks = useRef<Set<string>>(new Set()); // source of truth on client
-
-const startHeartbeat = (kssk: string) => {
-  stopHeartbeat(kssk);
-  const id = window.setInterval(() => {
-    fetch("/api/kssk-lock", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: 1800 }),
-    }).catch(() => {});
-  }, 60_000);
-  hb.current.set(kssk, id);
-};
-
-const stopHeartbeat = (kssk?: string) => {
-  if (!kssk) { hb.current.forEach(clearInterval); hb.current.clear(); return; }
-  const id = hb.current.get(kssk);
-  if (id) { clearInterval(id); hb.current.delete(kssk); }
-};
-
-const releaseLock = async (kssk: string) => {
-  stopHeartbeat(kssk);
-  activeLocks.current.delete(kssk);
-  saveLocalLocks(activeLocks.current);
-  try {
-    await fetch("/api/kssk-lock", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kssk, stationId: STATION_ID }),
-      keepalive: true,
-    });
-  } catch {}
-};
-
-const releaseAllLocks = async () => {
-  const all = [...activeLocks.current];
-  stopHeartbeat();
-  await Promise.all(all.map(releaseLock));
-};
-
-// Rehydrate on mount: server → local fallback
-useEffect(() => {
-  (async () => {
-    let hydrated = false;
+  const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
+  const loadLocalLocks = (): Set<string> => {
     try {
-      const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
-      if (r.ok) {
-        const j = await r.json();
-        const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
-        activeLocks.current = new Set(ks);
-        saveLocalLocks(activeLocks.current);
-        hydrated = true;
-      }
+      return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  };
+  const saveLocalLocks = (s: Set<string>) => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify([...s]));
     } catch {}
-    if (!hydrated) activeLocks.current = loadLocalLocks();
+  };
+  const activeLocks = useRef<Set<string>>(new Set());
 
-    activeLocks.current.forEach((k) => startHeartbeat(k));
-  })();
-}, []);
+  const startHeartbeat = (kssk: string) => {
+    stopHeartbeat(kssk);
+    const id = window.setInterval(() => {
+      fetch("/api/kssk-lock", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: 1800 }),
+      }).catch(() => {});
+    }, 60_000);
+    hb.current.set(kssk, id);
+  };
 
-  
+  const stopHeartbeat = (kssk?: string) => {
+    if (!kssk) {
+      hb.current.forEach(clearInterval);
+      hb.current.clear();
+      return;
+    }
+    const id = hb.current.get(kssk);
+    if (id) {
+      clearInterval(id);
+      hb.current.delete(kssk);
+    }
+  };
+
+  const releaseLock = async (kssk: string) => {
+    stopHeartbeat(kssk);
+    activeLocks.current.delete(kssk);
+    saveLocalLocks(activeLocks.current);
+    try {
+      await fetch("/api/kssk-lock", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kssk, stationId: STATION_ID }),
+        keepalive: true,
+      });
+    } catch {}
+  };
+
+  const releaseAllLocks = async () => {
+    const all = [...activeLocks.current];
+    stopHeartbeat();
+    await Promise.all(all.map(releaseLock));
+  };
+
+  // Rehydrate on mount: server → local fallback
+  useEffect(() => {
+    (async () => {
+      let hydrated = false;
+      try {
+        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
+        if (r.ok) {
+          const j = await r.json();
+          const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
+          activeLocks.current = new Set(ks);
+          saveLocalLocks(activeLocks.current);
+          hydrated = true;
+        }
+      } catch {}
+      if (!hydrated) activeLocks.current = loadLocalLocks();
+      activeLocks.current.forEach((k) => startHeartbeat(k));
+    })();
+  }, []);
+
   const [lastError, setLastError] = useState<string | null>(null);
 
+  const showOk = (code: string, msg?: string, panel: PanelTarget = "global") => {
+    const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
+    setLastError(null);
+    fireFlash("success", code, panel, msg);
+    setOverlay((o) => ({ ...o, open: false }));
+    setTimeout(() => {
+      setOverlay((o) => ({ open: true, kind: "success", code, msg, seq: o.seq + 1, anchor }));
+    }, 0);
+  };
 
-const showOk = (code: string, msg?: string, panel: PanelTarget = "global") => {
-  const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
-  setLastError(null);
-  fireFlash("success", code, panel, msg);
-  setOverlay(o => ({ ...o, open:false }));
-  setTimeout(() => {
-    setOverlay(o => ({ open:true, kind:"success", code, msg, seq:o.seq+1, anchor }));
-  }, 0);
-};
+  const showErr = (code: string, msg?: string, panel: PanelTarget = "global") => {
+    const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
+    fireFlash("error", code, panel, msg);
+    setOverlay((o) => ({ open: true, kind: "error", code, msg, seq: o.seq + 1, anchor }));
+  };
 
-const showErr = (code: string, msg?: string, panel: PanelTarget = "global") => {
-  const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
-  fireFlash("error", code, panel, msg);
-  setOverlay(o => ({ open:true, kind:"error", code, msg, seq:o.seq+1, anchor }));
-};
-
-    //RESETALL
-    const resetAll = useCallback(() => {
-      //void releaseAllLocks(); THUS AUTO REALASE On reset UI 
-      setKfb(null);
-      setKsskSlots([null, null, null]);
-      setShowManualFor({});
-      setLastError(null);
-    }, []);
+  // RESET ALL
+  const resetAll = useCallback(() => {
+    setKfb(null);
+    setKsskSlots([null, null, null]);
+    setKsskStatus(["idle", "idle", "idle"]);
+    setShowManualFor({});
+    setLastError(null);
+  }, []);
 
   /* ===== Network ===== */
   const withTimeout = async <T,>(fn: (signal: AbortSignal) => Promise<T>) => {
@@ -367,218 +355,266 @@ const showErr = (code: string, msg?: string, panel: PanelTarget = "global") => {
     }
   };
 
-
-
-
-const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
-  return withTimeout(async (signal) => {
-    try {
-      const res = await fetch(KROSY_OFFLINE_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Accept both—offline may proxy XML or JSON
-          Accept: "application/json, application/xml;q=0.9, */*;q=0.1",
-        },
-        signal,
-        body: JSON.stringify({
-          intksk: ksskDigits,
-          requestID: "1",
-          sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
-          targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
-        }),
-      });
-
-      let data: any = null;
+  const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
+    return withTimeout(async (signal) => {
       try {
-        const ct = (res.headers.get("content-type") || "").toLowerCase();
+        const res = await fetch(KROSY_OFFLINE_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, application/xml;q=0.9, */*;q=0.1",
+          },
+          signal,
+          body: JSON.stringify({
+            intksk: ksskDigits,
+            requestID: "1",
+            sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+            targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
+          }),
+        });
 
-        if (ct.includes("json")) {
-          const j = await res.json();
-
-          // /api/krosy-offline JSON wrapper -> surface XML or upstream JSON
-          if (j?.responseXmlRaw || j?.responseXmlPreview) {
-            data = { __xml: j.responseXmlRaw ?? j.responseXmlPreview };
-          } else if (j?.response?.krosy) {
-            // direct /api/krosy JSON 'latest'
-            data = j;
-          } else if (j?.responseJsonRaw) {
-            // optional passthrough (if server exposes it)
-            data = j.responseJsonRaw;
-          } else {
-            data = j; // best-effort passthrough
-          }
-
-        } else if (ct.includes("xml") || ct.includes("text/xml")) {
-          // Pure XML from upstream or proxy
-          data = { __xml: await res.text() };
-
-        } else {
-          // Unknown/opaque: try JSON, then treat as XML/text
-          const raw = await res.text();
-          try {
-            const j2 = JSON.parse(raw);
-            if (j2?.responseXmlRaw || j2?.responseXmlPreview) {
-              data = { __xml: j2.responseXmlRaw ?? j2.responseXmlPreview };
-            } else if (j2?.response?.krosy) {
-              data = j2;
-            } else if (j2?.responseJsonRaw) {
-              data = j2.responseJsonRaw;
+        let data: any = null;
+        try {
+          const ct = (res.headers.get("content-type") || "").toLowerCase();
+          if (ct.includes("json")) {
+            const j = await res.json();
+            if (j?.responseXmlRaw || j?.responseXmlPreview) {
+              data = { __xml: j.responseXmlRaw ?? j.responseXmlPreview };
+            } else if (j?.response?.krosy) {
+              data = j;
+            } else if (j?.responseJsonRaw) {
+              data = j.responseJsonRaw;
             } else {
-              data = j2;
+              data = j;
             }
-          } catch {
-            data = { __xml: raw };
+          } else if (ct.includes("xml") || ct.includes("text/xml")) {
+            data = { __xml: await res.text() };
+          } else {
+            const raw = await res.text();
+            try {
+              const j2 = JSON.parse(raw);
+              if (j2?.responseXmlRaw || j2?.responseXmlPreview) data = { __xml: j2.responseXmlRaw ?? j2.responseXmlPreview };
+              else if (j2?.response?.krosy) data = j2;
+              else if (j2?.responseJsonRaw) data = j2.responseJsonRaw;
+              else data = j2;
+            } catch {
+              data = { __xml: raw };
+            }
           }
-        }
+        } catch {}
+        return { ok: res.ok, status: res.status, data };
       } catch {
-        // non-fatal parse failure; fall through with data=null
+        return { ok: false, status: 0, data: null };
       }
-
-      return { ok: res.ok, status: res.status, data };
-    } catch {
-      // network/timeout abort
-      return { ok: false, status: 0, data: null };
-    }
-  });
-}, []);
-
+    });
+  }, []);
 
   /* ===== Acceptors ===== */
- const acceptKfb = useCallback((code: string) => {
-  setKfb(prev => {
-    if (prev !== code) {
-      setKsskSlots([null, null, null]);
-      setShowManualFor({});
-    }
-    return code;
-  });
-  setTableCycle(n => n + 1);
-  showOk(code, "BOARD SET", "kfb");   // <-- targeted flash
-}, []);
-
-const acceptKsskToIndex = useCallback(async (codeRaw: string, idx?: number) => {
-  const code = digitsOnly(codeRaw);
-  // 0) single-flight gate BEFORE any network
- if (sendBusyRef.current) { showErr(code, "Busy — finishing previous KSSK", "global"); return; }
-  sendBusyRef.current = true;
-
-  try {
-    const target = typeof idx === "number" ? idx : ksskSlots.findIndex(v => v === null);
-    const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
-
-    // 1) never trust local cache for availability; server is source of truth
-    if (!kfb) { showErr(code, "Scan MAC address first", "kfb"); return; }
-    if (ksskSlots.includes(code)) { showErr(code, "Duplicate KSSK", panel); return; }
-    if (target === -1) { showErr(code, "Batch full (3/3)", "global"); return; }
-
-    setKsskSlots(prev => { const n = [...prev]; n[target] = code; return n; });
-    setTableCycle(n => n + 1);
-
-    // 2) acquire server lock
-    const lockRes = await fetch("/api/kssk-lock", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
+  const acceptKfb = useCallback((code: string) => {
+    setKfb((prev) => {
+      if (prev !== code) {
+        setKsskSlots([null, null, null]);
+        setKsskStatus(["idle", "idle", "idle"]);
+        setShowManualFor({});
+      }
+      return code;
     });
+    setTableCycle((n) => n + 1);
+    showOk(code, "BOARD SET", "kfb");
+  }, []);
 
-    // 2a) if server says it's already locked BY US, treat as OK/idempotent
-    if (!lockRes.ok) {
-      const j = await lockRes.json().catch(() => ({}));
-      const sameOwner =
-        String(j?.existing?.mac || "").toUpperCase() === String(kfb).toUpperCase() &&
-        j?.existing?.stationId === STATION_ID;
+  const bump = (i: number, code: string | null, s: "idle" | "pending" | "ok" | "error") => {
+    setKsskSlots((prev) => {
+      const n = [...prev];
+      n[i] = code;
+      return n;
+    });
+    setKsskStatus((prev) => {
+      const n = [...prev];
+      n[i] = s;
+      return n;
+    });
+    setTableCycle((n) => n + 1);
+  };
 
-      if (!sameOwner) {
-        const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
-        const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
-        const msg = otherMac && otherMac !== String(kfb).toUpperCase()
-          ? `TESTED on another board — already assigned to BOARD ${otherMac}`
-          : `TESTED on another board — already in production${heldBy}`;
-
-        setKsskSlots(prev => { const n = [...prev]; if (n[target] === code) n[target] = null; return n; });
-        showErr(code, msg, panel);
+  const acceptKsskToIndex = useCallback(
+    async (codeRaw: string, idx?: number) => {
+      const code = digitsOnly(codeRaw);
+      if (sendBusyRef.current) {
+        showErr(code, "Busy — finishing previous KSSK", "global");
         return;
       }
-    }
+      sendBusyRef.current = true;
 
-    // 3) reconcile local cache AFTER the server agrees
-    activeLocks.current.add(code);
-    saveLocalLocks(activeLocks.current);
+      try {
+        const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
+        const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
 
-    // 4) offline/Krosy + ESP write as before
-    const resp = await sendKsskToOffline(code);
-    if (!resp?.ok && resp?.status === 0) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); showErr(code,"Krosy communication error",panel); return; }
+        // 1) server is source of truth
+        if (!kfb) {
+          showErr(code, "Scan MAC address first", "kfb");
+          return;
+        }
+        if (ksskSlots.includes(code)) {
+          showErr(code, "Duplicate KSSK", panel);
+          return;
+        }
+        if (target === -1) {
+          showErr(code, "Batch full (3/3)", "global");
+          return;
+        }
 
-    const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
-    const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
-    if (!hasPins) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); showErr(code,"Krosy configuration error: no PINS",panel); return; }
+        // mark pending (no green yet)
+        bump(target, code, "pending");
 
-    let espOk = true;
-    try {
-      const r = await fetch("/api/serial", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ normalPins: pins.normalPins, latchPins: pins.latchPins, mac: String(kfb).toUpperCase(), kssk: code }),
-      });
-      if (!r.ok) { espOk = false; showErr(code, `ESP write failed — ${await r.text().catch(()=>String(r.status))}`, panel); }
-    } catch (e:any) { espOk = false; showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel); }
+        // 2) acquire server lock
+        const lockRes = await fetch("/api/kssk-lock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
+        });
 
-    if (!espOk && !ALLOW_NO_ESP) { await releaseLock(code); setKsskSlots(p => { const n=[...p]; if (n[target]===code) n[target]=null; return n; }); return; }
+        if (!lockRes.ok) {
+          const j = await lockRes.json().catch(() => ({}));
+          const sameOwner =
+            String(j?.existing?.mac || "").toUpperCase() === String(kfb).toUpperCase() &&
+            j?.existing?.stationId === STATION_ID;
 
-    showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
-    startHeartbeat(code);
-  } finally {
-    sendBusyRef.current = false;
-  }
-}, [kfb, ksskSlots, sendKsskToOffline]);
+          if (!sameOwner) {
+            const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+            const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+            const msg =
+              otherMac && otherMac !== String(kfb).toUpperCase()
+                ? `TESTED on another board — already assigned to BOARD ${otherMac}`
+                : `TESTED on another board — already in production${heldBy}`;
+            bump(target, null, "idle");
+            showErr(code, msg, panel);
+            return;
+          }
+        }
 
+        // 3) reconcile local after server ok
+        activeLocks.current.add(code);
+        saveLocalLocks(activeLocks.current);
 
-const handleManualSubmit = useCallback(
-  (panel: PanelKey, raw: string) => {
-    const { type, code } = classify(raw);
-    if (!type) { showErr(raw, "Unrecognized code", panel); return; }
+        // 4) Krosy
+        const resp = await sendKsskToOffline(code);
+        if (!resp?.ok && resp?.status === 0) {
+          await releaseLock(code);
+          bump(target, null, "idle");
+          showErr(code, "Krosy communication error", panel);
+          return;
+        }
 
-    if (panel === "kfb") {
-      if (type !== "kfb") { showErr(code, "Expected ESP MAC (AA:BB:CC:DD:EE:FF)", "kfb"); return; }
-      acceptKfb(code);
-    } else {
-      if (type !== "kssk") { showErr(code, "Expected KSSK (12 digits)", panel); return; }
-      const idx = Number(panel.slice(-1)) as KsskIndex;
-      void acceptKsskToIndex(code, idx);
-    }
-    setShowManualFor(s => ({ ...s, [panel]: false }));
-  },
-  [acceptKfb, acceptKsskToIndex]
-);
+        const pins = resp.data?.__xml ? extractPinsFromKrosyXML(resp.data.__xml) : extractPinsFromKrosy(resp.data);
+        const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+        if (!hasPins) {
+          await releaseLock(code);
+          bump(target, null, "idle");
+          showErr(code, "Krosy configuration error: no PINS", panel);
+          return;
+        }
 
-const handleScanned = useCallback((raw: string) => {
-  const { type, code } = classify(raw);
-  const nextIdx = ksskSlots.findIndex(v => v === null);
-  const defaultKsskPanel: PanelKey = (nextIdx >= 0 ? `kssk${nextIdx}` : "kssk0") as PanelKey;
-  const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKsskPanel;
+        // 5) ESP
+        let espOk = true;
+        try {
+          const r = await fetch("/api/serial", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              normalPins: pins.normalPins,
+              latchPins: pins.latchPins,
+              mac: String(kfb).toUpperCase(),
+              kssk: code,
+            }),
+          });
+          if (!r.ok) {
+            espOk = false;
+            showErr(code, `ESP write failed — ${await r.text().catch(() => String(r.status))}`, panel);
+          }
+        } catch (e: any) {
+          espOk = false;
+          showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel);
+        }
 
-  if (!type) { showErr(code || raw, "Unrecognized code", defaultPanel); return; }
-  if (type === "kfb") acceptKfb(code);
-  else void acceptKsskToIndex(code);
-}, [kfb, ksskSlots, acceptKfb, acceptKsskToIndex]);
+        if (!espOk && !ALLOW_NO_ESP) {
+          await releaseLock(code);
+          // keep the code visible but show error state
+          bump(target, code, "error");
+          return;
+        }
 
+        // success
+        startHeartbeat(code);
+        showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
+        bump(target, code, "ok");
+      } finally {
+        sendBusyRef.current = false;
+      }
+    },
+    [kfb, ksskSlots, sendKsskToOffline]
+  );
+
+  const handleManualSubmit = useCallback(
+    (panel: PanelKey, raw: string) => {
+      const { type, code } = classify(raw);
+      if (!type) {
+        showErr(raw, "Unrecognized code", panel);
+        return;
+      }
+      if (panel === "kfb") {
+        if (type !== "kfb") {
+          showErr(code, "Expected ESP MAC (AA:BB:CC:DD:EE:FF)", "kfb");
+          return;
+        }
+        acceptKfb(code);
+      } else {
+        if (type !== "kssk") {
+          showErr(code, "Expected KSSK (12 digits)", panel);
+          return;
+        }
+        const idx = Number(panel.slice(-1)) as KsskIndex;
+        void acceptKsskToIndex(code, idx);
+      }
+      setShowManualFor((s) => ({ ...s, [panel]: false }));
+    },
+    [acceptKfb, acceptKsskToIndex]
+  );
+
+  const handleScanned = useCallback(
+    (raw: string) => {
+      const { type, code } = classify(raw);
+      const nextIdx = ksskSlots.findIndex((v) => v === null);
+      const defaultKsskPanel: PanelKey = (nextIdx >= 0 ? `kssk${nextIdx}` : "kssk0") as PanelKey;
+      const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKsskPanel;
+
+      if (!type) {
+        showErr(code || raw, "Unrecognized code", defaultPanel);
+        return;
+      }
+      if (type === "kfb") acceptKfb(code);
+      else void acceptKsskToIndex(code);
+    },
+    [kfb, ksskSlots, acceptKfb, acceptKsskToIndex]
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.key === "Enter") {
-        if (kbdBuffer.trim()) { handleScanned(kbdBuffer.trim()); setKbdBuffer(""); }
+        if (kbdBuffer.trim()) {
+          handleScanned(kbdBuffer.trim());
+          setKbdBuffer("");
+        }
       } else if (e.key.length === 1) setKbdBuffer((s) => (s + e.key).slice(-128));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [kbdBuffer, handleScanned]);
 
-
-   useEffect(() => {
-    if (KEEP_LOCKS_ON_UNLOAD) return;         // <— skip cleanup in test mode
+  useEffect(() => {
+    if (KEEP_LOCKS_ON_UNLOAD) return;
     const h = () => {
       activeLocks.current.forEach((k) => {
         fetch("/api/kssk-lock", {
@@ -586,13 +622,12 @@ const handleScanned = useCallback((raw: string) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kssk: k, stationId: STATION_ID }),
           keepalive: true,
-        }).catch(()=>{});
+        }).catch(() => {});
       });
     };
     window.addEventListener("pagehide", h);
     return () => window.removeEventListener("pagehide", h);
   }, []);
-
 
   /* ===== Styles ===== */
   const fontStack =
@@ -629,22 +664,24 @@ const handleScanned = useCallback((raw: string) => {
   const hint: CSSProperties = { fontSize: 12, color: "#2563eb", textDecoration: "underline", cursor: "pointer", fontWeight: 700 };
   const input: CSSProperties = { width: "100%", height: 46, borderRadius: 10, border: "1px solid #cbd5e1", padding: "0 12px", fontSize: 18, outline: "none", background: "#fff", color: "#0f172a", caretColor: "#0f172a" };
 
-  const ksskCount = ksskSlots.filter(Boolean).length;
+  // ✅ progress counts only OK slots
+  const ksskOkCount = ksskStatus.filter((s) => s === "ok").length;
 
+  // auto-reset after 3 OK
   useEffect(() => {
-  if (!kfb) return;
-  if (ksskCount === 3) {
-    // let the OK overlay finish (900ms), then reset UI to default
-    const t = setTimeout(() => {
-      setLastError(null);
-      setKfb(null);                     // back to Step 1: scan MAC
-      setKsskSlots([null, null, null]); // clear slots (locks are kept)
-      setShowManualFor({});
-      setTableCycle(n => n + 1);        // nudge TableSwap if needed
-    }, 950);
-    return () => clearTimeout(t);
-  }
-}, [ksskCount, kfb]);
+    if (!kfb) return;
+    if (ksskOkCount === 3) {
+      const t = setTimeout(() => {
+        setLastError(null);
+        setKfb(null);
+        setKsskSlots([null, null, null]);
+        setKsskStatus(["idle", "idle", "idle"]);
+        setShowManualFor({});
+        setTableCycle((n) => n + 1);
+      }, 950);
+      return () => clearTimeout(t);
+    }
+  }, [ksskOkCount, kfb]);
 
   return (
     <main style={page}>
@@ -677,13 +714,11 @@ const handleScanned = useCallback((raw: string) => {
 
               <m.div layout style={heroProgressPill}>
                 <SignalDot />
-                {ksskCount}/3 KSSK
+                {ksskOkCount}/3 KSSK
               </m.div>
             </m.div>
 
-      
-
-            {ksskCount >= 1 && (
+            {ksskOkCount >= 1 && (
               <m.div layout>
                 <StepBadge label="SCAN NEW BOARD TO START OVER" onClick={resetAll} />
               </m.div>
@@ -692,7 +727,7 @@ const handleScanned = useCallback((raw: string) => {
         )}
       </m.section>
 
-      {/* Step 1: KFB (animated scanner, full width) */}
+      {/* Step 1: KFB */}
       <AnimatePresence initial={false}>
         {!kfb && (
           <m.section
@@ -706,7 +741,7 @@ const handleScanned = useCallback((raw: string) => {
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>SCAN BARCODE</h2>
+                <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
               </div>
 
               <ScanBoxAnimated
@@ -715,7 +750,6 @@ const handleScanned = useCallback((raw: string) => {
                 flashKind={flash?.panel === "kfb" ? flash.kind : null}
                 flashId={flash?.panel === "kfb" ? flash.id : undefined}
               />
-
 
               {allowManual && (
                 <button
@@ -736,7 +770,11 @@ const handleScanned = useCallback((raw: string) => {
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: prefersReduced ? 0 : 0.14 }}
                   >
-                    <ManualInput placeholder="Type ESP MAC e.g. 08:3A:8D:15:27:54" onSubmit={(v) => handleManualSubmit("kfb", v)} inputStyle={input} />
+                    <ManualInput
+                      placeholder="Type ESP MAC e.g. 08:3A:8D:15:27:54"
+                      onSubmit={(v) => handleManualSubmit("kfb", v)}
+                      inputStyle={input}
+                    />
                   </m.div>
                 )}
               </AnimatePresence>
@@ -745,7 +783,7 @@ const handleScanned = useCallback((raw: string) => {
         )}
       </AnimatePresence>
 
-      {/* Step 2: KSSK (compact) */}
+      {/* Step 2: KSSK */}
       {kfb && (
         <section style={section}>
           <section style={card}>
@@ -755,22 +793,25 @@ const handleScanned = useCallback((raw: string) => {
             </div>
 
             <div style={slotsGrid}>
-            {([0, 1, 2] as const).map((idx) => {
-              const code = ksskSlots[idx];
-              const hit = flash && (flash.panel === "global" || flash.panel === (`kssk${idx}` as PanelKey));
-              return (
-                <KsskSlotCompact
-                  key={idx}
-                  index={idx}
-                  code={code}
-                  onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
-                  manualOpen={!!showManualFor[`kssk${idx}`]}
-                  onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
-                  flashKind={hit ? flash!.kind : null}
-                  flashId={hit ? flash!.id : undefined}
-                />
-              );
-            })}
+              {([0, 1, 2] as const).map((idx) => {
+                const code = ksskSlots[idx];
+                const status = ksskStatus[idx];
+                // only light the slot that matches, not "global"
+                const hit = flash && flash.panel === (`kssk${idx}` as PanelKey);
+                return (
+                  <KsskSlotCompact
+                    key={idx}
+                    index={idx}
+                    code={code}
+                    status={status}
+                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
+                    manualOpen={!!(showManualFor as any)[`kssk${idx}`]}
+                    onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
+                    flashKind={hit ? flash!.kind : null}
+                    flashId={hit ? flash!.id : undefined}
+                  />
+                );
+              })}
             </div>
           </section>
         </section>
@@ -781,39 +822,35 @@ const handleScanned = useCallback((raw: string) => {
         <TableSwap
           cycleKey={tableCycle}
           hasBoard={!!kfb}
-          ksskCount={ksskCount}
+          ksskCount={ksskOkCount}
           ksskTarget={3}
           boardName={kfb}
           boardMap={{}}
           okAppearDelayMs={350}
           swapDelayMs={1400}
-          flashKind={overlay.kind}   // NEW
-          flashSeq={overlay.seq}     // NEW
+          flashKind={overlay.kind}
+          flashSeq={overlay.seq}
         />
       </div>
 
-
-   <ToastStack
-        items={toasts}
-        onDismiss={(id) => setToasts(prev => prev.filter(t => t.id !== id))}
-      />
+      <ToastStack items={toasts} onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))} />
 
       {/* Overlay */}
-     <ResultOverlay
-      open={overlay.open}
-      kind={overlay.kind}
-      code={overlay.code}
-      msg={overlay.msg}
-      seq={overlay.seq}
-      excludeRef={tableRef}
-      onClose={() => setOverlay(o => ({ ...o, open:false }))}
-      anchor={overlay.anchor}
-    />
-
+      <ResultOverlay
+        open={overlay.open}
+        kind={overlay.kind}
+        code={overlay.code}
+        msg={overlay.msg}
+        seq={overlay.seq}
+        excludeRef={tableRef}
+        onClose={() => setOverlay((o) => ({ ...o, open: false }))}
+        anchor={overlay.anchor}
+      />
     </main>
   );
 }
 
+/* ================= Components ================= */
 
 type Props = {
   ariaLabel: string;
@@ -821,23 +858,16 @@ type Props = {
   flashKind?: "success" | "error" | null;
   flashId?: number;
 };
-export function ScanBoxAnimated({
-  ariaLabel,
-  height = 176,
-  flashKind,
-  flashId,
-}: Props) {
+
+export function ScanBoxAnimated({ ariaLabel, height = 176, flashKind, flashId }: Props) {
   const isOk = flashKind === "success";
   const isErr = flashKind === "error";
-
   const ring = isOk ? "rgba(34,197,94,.30)" : isErr ? "rgba(239,68,68,.30)" : "transparent";
   const tint = isOk ? "rgba(34,197,94,.08)" : isErr ? "rgba(239,68,68,.08)" : "transparent";
-
-  const slabH = Math.max(104, Math.min(Math.round(height * 0.60), 128));
+  const slabH = Math.max(104, Math.min(Math.round(height * 0.6), 128));
 
   return (
     <div aria-label={ariaLabel}>
-      {/* frame */}
       <div
         style={{
           position: "relative",
@@ -850,20 +880,16 @@ export function ScanBoxAnimated({
           boxShadow: "inset 0 0 0 1px rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.25)",
         }}
       >
-        {/* grid */}
         <div
           aria-hidden
           style={{
             position: "absolute",
             inset: 0,
             opacity: 0.22,
-            backgroundImage:
-              "repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)",
+            backgroundImage: "repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)",
             backgroundSize: "120px 100%",
           }}
         />
-
-        {/* flash ring */}
         {(isOk || isErr) && (
           <m.div
             key={flashId ?? flashKind}
@@ -871,16 +897,9 @@ export function ScanBoxAnimated({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              boxShadow: `0 0 0 6px ${ring} inset`,
-              background: tint,
-            }}
+            style={{ position: "absolute", inset: 0, boxShadow: `0 0 0 6px ${ring} inset`, background: tint }}
           />
         )}
-
-        {/* corner brackets */}
         {(["tl", "tr", "bl", "br"] as const).map((pos) => (
           <div
             key={pos}
@@ -899,7 +918,6 @@ export function ScanBoxAnimated({
           />
         ))}
 
-        {/* static barcode slab (no animation) */}
         <div
           aria-hidden
           style={{
@@ -910,65 +928,51 @@ export function ScanBoxAnimated({
             width: "min(100%, 1100px)",
             height: slabH,
             borderRadius: 12,
-            background:
-              "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)",
+            background: "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)",
             boxShadow: "inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)",
           }}
         >
-          {/* edge fade only */}
           <div
             style={{
               position: "absolute",
               inset: 0,
               borderRadius: 12,
-              background:
-                "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 8%, rgba(11,18,32,0) 92%, rgba(11,18,32,1) 100%)",
+              background: "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 8%, rgba(11,18,32,0) 92%, rgba(11,18,32,1) 100%)",
               pointerEvents: "none",
             }}
           />
         </div>
 
-        {/* brand text on black with bottom padding */}
-       <div
-  aria-label="KFB WIRELESS"
-  style={{
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,           // pin to bottom
-    paddingBottom: 6,    // minimal under-padding; lower than before
-    display: "flex",
-    justifyContent: "center",
-    pointerEvents: "none",
-  }}
->
-  <span
-    style={{
-      fontFamily:
-        'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial',
-      textTransform: "uppercase",
-      letterSpacing: 3,
-      fontWeight: 700,
-      fontSize: 12,
-      color: "#ffffff",
-      opacity: 0.6,
-      textShadow: "0 1px 0 rgba(0,0,0,.35)",
-      userSelect: "none",
-    }}
-  >
-    KFB WIRELESS
-  </span>
-</div>
+        <div
+          aria-label="KFB WIRELESS"
+          style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: 6, display: "flex", justifyContent: "center", pointerEvents: "none" }}
+        >
+          <span
+            style={{
+              fontFamily: 'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial',
+              textTransform: "uppercase",
+              letterSpacing: 3,
+              fontWeight: 700,
+              fontSize: 12,
+              color: "#ffffff",
+              opacity: 0.6,
+              textShadow: "0 1px 0 rgba(0,0,0,.35)",
+              userSelect: "none",
+            }}
+          >
+            KFB WIRELESS
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-
-/* ===== KSSK slots (compact, no animation in scan area) ===== */
+/* ===== KSSK slots ===== */
 const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
+  status,
   manualOpen,
   onManualToggle,
   onSubmit,
@@ -977,6 +981,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
 }: {
   index: 0 | 1 | 2;
   code: string | null;
+  status: "idle" | "pending" | "ok" | "error";
   manualOpen: boolean;
   onManualToggle: () => void;
   onSubmit: (v: string) => void;
@@ -984,23 +989,21 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   flashId?: number;
 }) {
   const prefersReduced = useReducedMotion();
-  const filled = !!code;
-  const isOk = flashKind === "success";
-  const isErr = flashKind === "error";
 
-  const cardBg = filled ? "#f0fdf4" : "#fbfdff";
-  const ring = isOk ? "0 0 0 6px rgba(16,185,129,0.22)" : isErr ? "0 0 0 6px rgba(239,68,68,0.22)" : "none";
+  const isOk = status === "ok";
+  const isErr = status === "error";
+  const isPending = status === "pending";
+
+  const cardBg = isOk ? "#f0fdf4" : isErr ? "#fef2f2" : "#fbfdff";
+  const ring =
+    isOk ? "0 0 0 6px rgba(16,185,129,0.22)" : isErr ? "0 0 0 6px rgba(239,68,68,0.22)" : isPending ? "0 0 0 6px rgba(37,99,235,0.18)" : "none";
   const border = isOk ? "#a7f3d0" : isErr ? "#fecaca" : "#edf2f7";
 
   return (
     <m.div
       key={flashId ?? `slot-${index}`}
       initial={false}
-      animate={
-        isErr && !prefersReduced
-          ? { x: [0, -8, 8, -6, 6, -3, 3, 0] }
-          : { x: 0 }
-      }
+      animate={isErr && !prefersReduced ? { x: [0, -8, 8, -6, 6, -3, 3, 0] } : { x: 0 }}
       transition={{ duration: 0.5, ease: "easeInOut" }}
       style={{
         border: `1px solid ${border}`,
@@ -1017,22 +1020,31 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div
           style={{
-            width: 56, height: 56, borderRadius: 14,
-            background: "#eef6ff", border: "1px solid #d9e7ff",
-            display: "grid", placeItems: "center",
+            width: 56,
+            height: 56,
+            borderRadius: 14,
+            background: "#eef6ff",
+            border: "1px solid #d9e7ff",
+            display: "grid",
+            placeItems: "center",
           }}
         >
-          <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>{index + 1 }</span>
+          <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>{index + 1}</span>
         </div>
-        <StateIcon state={filled ? "valid" : isErr ? "invalid" : "idle"} size={40} />
+        <StateIcon state={isOk ? "valid" : isErr ? "invalid" : "idle"} size={40} />
       </div>
 
       {/* code pill */}
       <div>
-        <CodePill value={code || "—"} highlight={isErr ? "danger" : filled ? "success" : "neutral"} big />
+        <CodePill value={code || "—"} highlight={isErr ? "danger" : isOk ? "success" : "neutral"} big />
       </div>
 
-      {/* Static scan stripes */}
+      {/* pending hint */}
+      {isPending && (
+        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7 }}>Processing…</div>
+      )}
+
+      {/* static scan stripes */}
       <div
         aria-label={`KSSK scan zone ${index + 1}`}
         style={{
@@ -1060,23 +1072,14 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
       <button
         type="button"
         onClick={onManualToggle}
-        style={{
-          fontSize: 12, color: "#2563eb", textDecoration: "underline",
-          cursor: "pointer", fontWeight: 700, background: "transparent", border: 0, justifySelf: "start"
-        }}
+        style={{ fontSize: 12, color: "#2563eb", textDecoration: "underline", cursor: "pointer", fontWeight: 700, background: "transparent", border: 0, justifySelf: "start" }}
       >
         Enter manually
       </button>
 
       <AnimatePresence initial={false}>
         {manualOpen && (
-          <m.div
-            key="manual"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.14 }}
-          >
+          <m.div key="manual" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.14 }}>
             <ManualInput
               placeholder={`Type KSSK for slot ${index + 1}`}
               onSubmit={onSubmit}
@@ -1096,30 +1099,26 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
             exit={{ opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 22 }}
             style={{ position: "absolute", top: 10, right: 10 }}
-          >
-          </m.div>
+          />
         )}
       </AnimatePresence>
     </m.div>
   );
 });
 
-
 /* ===== Shared bits ===== */
 
 function ManualInput({ placeholder, onSubmit, inputStyle }: { placeholder: string; onSubmit: (value: string) => void; inputStyle: CSSProperties }) {
   const [v, setV] = useState("");
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onSubmit(v); setV(""); }}>
-      <input
-        style={inputStyle}
-        placeholder={placeholder}
-        value={v}
-        onChange={(e) => setV(e.currentTarget.value)}
-        inputMode="text"
-        autoFocus
-        aria-label={placeholder}
-      />
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit(v);
+        setV("");
+      }}
+    >
+      <input style={inputStyle} placeholder={placeholder} value={v} onChange={(e) => setV(e.currentTarget.value)} inputMode="text" autoFocus aria-label={placeholder} />
     </form>
   );
 }
@@ -1189,19 +1188,7 @@ function NextStepIcon({ size = 20 }: { size?: number }) {
 }
 
 function SignalDot() {
-  return (
-    <span
-      aria-hidden
-      style={{
-        width: 14,
-        height: 14,
-        borderRadius: 999,
-        background: "linear-gradient(180deg,#34d399,#10b981)",
-        boxShadow: "0 0 0 2px rgba(16,185,129,0.18)",
-        display: "inline-block",
-      }}
-    />
-  );
+  return <span aria-hidden style={{ width: 14, height: 14, borderRadius: 999, background: "linear-gradient(180deg,#34d399,#10b981)", boxShadow: "0 0 0 2px rgba(16,185,129,0.18)", display: "inline-block" }} />;
 }
 
 function CodePill({
@@ -1261,19 +1248,16 @@ function CodePill({
     </div>
   );
 }
-function ToastStack({ items, onDismiss }: { items: FlashEvent[]; onDismiss:(id:number)=>void }) {
-  const [hover, setHover] = useState(false);
 
+function ToastStack({ items, onDismiss }: { items: FlashEvent[]; onDismiss: (id: number) => void }) {
+  const [hover, setHover] = useState(false);
   const latest = items[items.length - 1] ?? null;
   if (!latest) return null;
 
-  const errors = items.filter(t => t.kind === "error");
+  const errors = items.filter((t) => t.kind === "error");
   const isLatestErr = latest.kind === "error";
   const hiddenErrCount = Math.max(0, errors.length - (isLatestErr ? 1 : 0));
-  const history = errors
-    .filter(e => !(isLatestErr && e.id === latest.id))
-    .slice(-10)         // keep last 10
-    .reverse();         // newest first
+  const history = errors.filter((e) => !(isLatestErr && e.id === latest.id)).slice(-10).reverse();
 
   const ok = latest.kind === "success";
   const fg = ok ? "#065f46" : "#7f1d1d";
@@ -1282,23 +1266,17 @@ function ToastStack({ items, onDismiss }: { items: FlashEvent[]; onDismiss:(id:n
 
   const cardW = 520;
   const reserveH = 72;
-  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour12:false });
-const isOpen = hover && history.length > 0;
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString([], { hour12: false });
+  const isOpen = hover && history.length > 0;
+
   const clearAll = () => {
-    items.forEach(t => onDismiss(t.id));
+    items.forEach((t) => onDismiss(t.id));
     setHover(false);
   };
 
   return (
-   <div
-    style={{ position:"fixed", top:12, right:12, zIndex:90, pointerEvents:"auto" }}
-    aria-live="polite"
-    role="status"
-    onMouseEnter={() => setHover(true)}
-    onMouseLeave={() => setHover(false)}
-  >
-          <div style={{ position:"relative", width: cardW, height: reserveH, paddingBottom: isOpen ? 8 : 0 }}>
-        {/* Top (fixed) toast */}
+    <div style={{ position: "fixed", top: 12, right: 12, zIndex: 90, pointerEvents: "auto" }} aria-live="polite" role="status" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <div style={{ position: "relative", width: cardW, height: reserveH, paddingBottom: isOpen ? 8 : 0 }}>
         <AnimatePresence initial={false}>
           <m.div
             key={latest.id}
@@ -1307,124 +1285,101 @@ const isOpen = hover && history.length > 0;
             exit={{ opacity: 0, scale: 0.98 }}
             transition={{ duration: 0.18, ease: "easeOut" }}
             style={{
-              position:"absolute", inset:0,
-              background: bg, border:`3px solid ${bd}`, borderRadius: 14,
+              position: "absolute",
+              inset: 0,
+              background: bg,
+              border: `3px solid ${bd}`,
+              borderRadius: 14,
               padding: "16px 20px",
-              boxShadow:"0 10px 28px rgba(15,23,42,0.22)",
-              display:"flex", alignItems:"center", gap: 12
+              boxShadow: "0 10px 28px rgba(15,23,42,0.22)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
             }}
           >
-            <span aria-hidden style={{
-              width: 20, height: 20, borderRadius:999,
-              background: ok ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fb7185,#ef4444)",
-              boxShadow:`0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`
-            }}/>
-            <div style={{ color: fg, fontSize: 16, fontWeight: 900, lineHeight:1.2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-              {ok ? "OK" : "ERROR"} — {latest.code}{latest.msg ? ` — ${latest.msg}` : ""}
+            <span
+              aria-hidden
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 999,
+                background: ok ? "linear-gradient(180deg,#34d399,#10b981)" : "linear-gradient(180deg,#fb7185,#ef4444)",
+                boxShadow: `0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`,
+              }}
+            />
+            <div style={{ color: fg, fontSize: 16, fontWeight: 900, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {ok ? "OK" : "ERROR"} — {latest.code}
+              {latest.msg ? ` — ${latest.msg}` : ""}
             </div>
-
-            <time
-              dateTime={new Date(latest.ts).toISOString()}
-              style={{ marginLeft: 8, color: fg, opacity:.75, fontWeight:800, fontSize:12 }}
-            >
+            <time dateTime={new Date(latest.ts).toISOString()} style={{ marginLeft: 8, color: fg, opacity: 0.75, fontWeight: 800, fontSize: 12 }}>
               {fmtTime(latest.ts)}
             </time>
-
             {isLatestErr && hiddenErrCount > 0 && (
               <span
                 title={`${hiddenErrCount} more errors`}
-                style={{
-                  marginLeft: 8, padding:"4px 10px", borderRadius:999,
-                  background:"linear-gradient(180deg,#fecaca,#fca5a5)",
-                  border:"1px solid #fecaca", color:"#7f1d1d", fontWeight:900, fontSize:12
-                }}
+                style={{ marginLeft: 8, padding: "4px 10px", borderRadius: 999, background: "linear-gradient(180deg,#fecaca,#fca5a5)", border: "1px solid #fecaca", color: "#7f1d1d", fontWeight: 900, fontSize: 12 }}
               >
                 +{hiddenErrCount}
               </span>
             )}
-
-            <button
-              type="button"
-              aria-label="Dismiss"
-              onClick={() => onDismiss(latest.id)}
-              style={{ marginLeft:"auto", border:0, background:"transparent", cursor:"pointer", fontSize:20, color: fg }}
-            >
+            <button type="button" aria-label="Dismiss" onClick={() => onDismiss(latest.id)} style={{ marginLeft: "auto", border: 0, background: "transparent", cursor: "pointer", fontSize: 20, color: fg }}>
               ×
             </button>
           </m.div>
         </AnimatePresence>
 
-        {/* Dropdown history */}
-         <AnimatePresence>
-        {isOpen && (
-          <m.div
-            key="toast-history"
-            initial={{ height: 0, opacity: 0, y: 0 }}
-            animate={{ height: "auto", opacity: 1, y: 0 }}
-            exit={{ height: 0, opacity: 0, y: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
-            style={{
-              position:"absolute",
-              top: "100%",          // ⬅️ no gap (was calc(100% + 8px))
-              right: 0,
-              width: "100%",
-              overflow: "hidden",
-              borderRadius: 16,
-              border: "2px solid #fecaca",
-              background: "linear-gradient(180deg,#fff5f5,#fee2e2)",
-              boxShadow: "0 16px 36px rgba(15,23,42,0.18)"
-            }}
+        <AnimatePresence>
+          {isOpen && (
+            <m.div
+              key="toast-history"
+              initial={{ height: 0, opacity: 0, y: 0 }}
+              animate={{ height: "auto", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: 0,
+                width: "100%",
+                overflow: "hidden",
+                borderRadius: 16,
+                border: "2px solid #fecaca",
+                background: "linear-gradient(180deg,#fff5f5,#fee2e2)",
+                boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
+              }}
             >
-              {/* Sticky header */}
-              <div style={{
-                position:"sticky", top:0, zIndex:1,
-                display:"flex", alignItems:"center", gap:10,
-                padding:"12px 14px",
-                background:"rgba(255,255,255,0.65)",
-                backdropFilter:"saturate(160%) blur(8px)",
-                WebkitBackdropFilter:"saturate(160%) blur(8px)",
-                borderBottom:"1px solid #ffdada",
-                color:"#7f1d1d", fontWeight:900
-              }}>
-                <span style={{ display:"inline-flex", alignItems:"center", gap:8 }}>
-                  <span aria-hidden style={{
-                    width:10, height:10, borderRadius:999,
-                    background:"linear-gradient(180deg,#fb7185,#ef4444)",
-                    boxShadow:"0 0 0 2px rgba(239,68,68,.22)"
-                  }}/>
+              <div
+                style={{
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "12px 14px",
+                  background: "rgba(255,255,255,0.65)",
+                  backdropFilter: "saturate(160%) blur(8px)",
+                  WebkitBackdropFilter: "saturate(160%) blur(8px)",
+                  borderBottom: "1px solid #ffdada",
+                  color: "#7f1d1d",
+                  fontWeight: 900,
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span aria-hidden style={{ width: 10, height: 10, borderRadius: 999, background: "linear-gradient(180deg,#fb7185,#ef4444)", boxShadow: "0 0 0 2px rgba(239,68,68,.22)" }} />
                   Recent errors
-                  <span style={{
-                    marginLeft:8, padding:"2px 8px", borderRadius:999,
-                    background:"#ffe4e6", border:"1px solid #fecaca",
-                    fontSize:12, fontWeight:900
-                  }}>
-                    {history.length} shown
-                  </span>
+                  <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 999, background: "#ffe4e6", border: "1px solid #fecaca", fontSize: 12, fontWeight: 900 }}>{history.length} shown</span>
                 </span>
                 <button
                   type="button"
                   onClick={clearAll}
-                  style={{
-                    marginLeft:"auto",
-                    padding:"6px 12px",
-                    borderRadius:999,
-                    border:"1px solid #fecaca",
-                    background:"linear-gradient(180deg,#ffe4e6,#ffd7db)",
-                    color:"#7f1d1d",
-                    fontWeight:900,
-                    cursor:"pointer"
-                  }}
+                  style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 999, border: "1px solid #fecaca", background: "linear-gradient(180deg,#ffe4e6,#ffd7db)", color: "#7f1d1d", fontWeight: 900, cursor: "pointer" }}
                 >
                   Clear all
                 </button>
               </div>
 
-              {/* List */}
-              <div style={{
-                maxHeight: 340,
-                overflowY:"auto",
-                padding:"10px 12px 12px",
-              }}>
+              <div style={{ maxHeight: 340, overflowY: "auto", padding: "10px 12px 12px" }}>
                 {history.map((t, i) => (
                   <m.div
                     key={t.id}
@@ -1432,34 +1387,27 @@ const isOpen = hover && history.length > 0;
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.025, duration: 0.16 }}
                     style={{
-                      display:"flex", alignItems:"center", gap:12,
-                      padding:"12px 14px",
-                      background:"linear-gradient(180deg,#ffffff,rgba(255,255,255,0.75))",
-                      border:"1px solid #ffe1e1",
-                      borderRadius:12,
-                      color:"#7f1d1d", fontWeight:800,
-                      boxShadow:"0 1px 0 rgba(255,255,255,0.65) inset",
-                      marginBottom:8
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 14px",
+                      background: "linear-gradient(180deg,#ffffff,rgba(255,255,255,0.75))",
+                      border: "1px solid #ffe1e1",
+                      borderRadius: 12,
+                      color: "#7f1d1d",
+                      fontWeight: 800,
+                      boxShadow: "0 1px 0 rgba(255,255,255,0.65) inset",
+                      marginBottom: 8,
                     }}
                   >
-                    <span aria-hidden style={{
-                      width: 12, height: 12, borderRadius:999,
-                      background:"linear-gradient(180deg,#fb7185,#ef4444)",
-                      boxShadow:"0 0 0 2px rgba(239,68,68,.18)"
-                    }}/>
-                    <div style={{
-                      minWidth:0, flex:1,
-                      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"
-                    }}>
-                      ERROR — {t.code}{t.msg ? ` — ${t.msg}` : ""}
+                    <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, background: "linear-gradient(180deg,#fb7185,#ef4444)", boxShadow: "0 0 0 2px rgba(239,68,68,.18)" }} />
+                    <div style={{ minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      ERROR — {t.code}
+                      {t.msg ? ` — ${t.msg}` : ""}
                     </div>
                     <time
                       dateTime={new Date(t.ts).toISOString()}
-                      style={{
-                        fontSize:12, fontWeight:900, opacity:.75,
-                        padding:"2px 8px", borderRadius:999,
-                        background:"#ffe8ea", border:"1px solid #ffd2d6"
-                      }}
+                      style={{ fontSize: 12, fontWeight: 900, opacity: 0.75, padding: "2px 8px", borderRadius: 999, background: "#ffe8ea", border: "1px solid #ffd2d6" }}
                     >
                       {fmtTime(t.ts)}
                     </time>
@@ -1467,12 +1415,7 @@ const isOpen = hover && history.length > 0;
                 ))}
               </div>
 
-              {/* soft bottom fade */}
-              <div aria-hidden style={{
-                position:"sticky", bottom:0, height:18, pointerEvents:"none",
-                background:"linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55))",
-                borderTop:"1px solid rgba(255,255,255,.4)"
-              }}/>
+              <div aria-hidden style={{ position: "sticky", bottom: 0, height: 18, pointerEvents: "none", background: "linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55))", borderTop: "1px solid rgba(255,255,255,.4)" }} />
             </m.div>
           )}
         </AnimatePresence>
@@ -1481,9 +1424,8 @@ const isOpen = hover && history.length > 0;
   );
 }
 
-type SpotlightRect = { top:number; left:number; width:number; height:number };
+type SpotlightRect = { top: number; left: number; width: number; height: number };
 
-// 1) Props typing — drop React. and allow null
 function ResultOverlay({
   open,
   kind,
@@ -1500,33 +1442,33 @@ function ResultOverlay({
   msg?: string;
   seq: number;
   onClose: () => void;
-  // ↓ use the types you already import at top
   excludeRef?: RefObject<HTMLElement | null> | MutableRefObject<HTMLElement | null>;
   anchor: "table" | "viewport";
 }) {
   const [hole, setHole] = useState<SpotlightRect | null>(null);
   const [vw, setVw] = useState(0);
 
-  // viewport width (SSR-safe)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const update = () => setVw(window.innerWidth || 0);
     update();
-    window.addEventListener("resize", update, { passive:true });
+    window.addEventListener("resize", update, { passive: true });
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // measure the table only when anchoring to table
   useEffect(() => {
     if (!open || anchor !== "table") return;
     const calc = () => {
       const el = excludeRef?.current || null;
-      if (!el) { setHole(null); return; }
+      if (!el) {
+        setHole(null);
+        return;
+      }
       const r = el.getBoundingClientRect();
-      setHole({ top:r.top, left:r.left, width:r.width, height:r.height });
+      setHole({ top: r.top, left: r.left, width: r.width, height: r.height });
     };
     calc();
-    const opts = { passive:true } as AddEventListenerOptions;
+    const opts = { passive: true } as AddEventListenerOptions;
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(calc) : null;
     if (ro && excludeRef?.current) ro.observe(excludeRef.current);
     window.addEventListener("scroll", calc, opts);
@@ -1538,7 +1480,6 @@ function ResultOverlay({
     };
   }, [open, excludeRef, seq, anchor]);
 
-  // auto close
   useEffect(() => {
     if (!open) return;
     const t = setTimeout(onClose, 900);
@@ -1549,61 +1490,31 @@ function ResultOverlay({
 
   const isOk = kind === "success";
   const CURTAIN = isOk ? "rgba(16,185,129,.45)" : "rgba(239,68,68,.45)";
-  const BD      = isOk ? "#a7f3d0" : "#fecaca";
-  const FG      = isOk ? "#065f46" : "#7f1d1d";
-  const ACCENT  = isOk ? "#10b981" : "#ef4444";
   const ACCENT_SOFT = isOk ? "rgba(16,185,129,.28)" : "rgba(239,68,68,.28)";
 
   const haveHole = anchor === "table" && hole;
-const h = hole ?? { top: 0, left: 0, width: 0, height: 0 };
-const useViewport = anchor === "viewport" || !hole;
-
-
-  const PILL_CLEAR_Y = 12;
-// after
-const bannerTop = useViewport
-  ? 16
-  : Math.max(10, h.top + PILL_CLEAR_Y);
-const bannerRight = useViewport
-  ? 16
-  : Math.max(12, vw - (h.left + h.width) + 12);
-
-  // corner accent style (only for table-anchored)
-  const CORNER_SIZE = 70, CORNER_THICK = 4;
-  const cornerBase: CSSProperties = {
-    position:"absolute",
-    width:CORNER_SIZE, height:CORNER_SIZE,
-    borderRadius:12, pointerEvents:"none",
-    boxShadow:`0 10px 28px ${ACCENT_SOFT}`,
-  };
-
   return (
     <AnimatePresence>
       <m.div
         key={seq}
-        initial={{ opacity:0 }}
-        animate={{ opacity:1 }}
-        exit={{ opacity:0 }}
-        transition={{ duration:.12 }}
-        style={{ position:"fixed", inset:0, zIndex:80, pointerEvents:"none" }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.12 }}
+        style={{ position: "fixed", inset: 0, zIndex: 80, pointerEvents: "none" }}
         aria-live="assertive"
         aria-label={isOk ? "OK" : "ERROR"}
       >
-        {/* curtains only when anchoring to table */}
         {haveHole ? (
           <>
-            <div style={{ position:"absolute", left:0, right:0, top:0, height:hole!.top, background:CURTAIN }} />
-            <div style={{ position:"absolute", left:0, top:hole!.top, width:hole!.left, height:hole!.height, background:CURTAIN }} />
-            <div style={{ position:"absolute", left:hole!.left + hole!.width, right:0, top:hole!.top, height:hole!.height, background:CURTAIN }} />
-            <div style={{ position:"absolute", left:0, right:0, top:hole!.top + hole!.height, bottom:0, background:CURTAIN }} />
+            <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: hole!.top, background: CURTAIN }} />
+            <div style={{ position: "absolute", left: 0, top: hole!.top, width: hole!.left, height: hole!.height, background: CURTAIN }} />
+            <div style={{ position: "absolute", left: hole!.left + hole!.width, right: 0, top: hole!.top, height: hole!.height, background: CURTAIN }} />
+            <div style={{ position: "absolute", left: 0, right: 0, top: hole!.top + hole!.height, bottom: 0, background: CURTAIN }} />
           </>
         ) : anchor === "table" ? (
-          // while measuring, keep a soft full curtain; for viewport, no curtain
-          <div style={{ position:"absolute", inset:0, background:CURTAIN }} />
+          <div style={{ position: "absolute", inset: 0, background: CURTAIN }} />
         ) : null}
-
-        {/* compact banner */}
-      
       </m.div>
     </AnimatePresence>
   );

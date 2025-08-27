@@ -18,7 +18,8 @@ const Body = z.object({
 });
 
 // Fast turnaround. Scanner re-triggers checks, so don’t block long.
-const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 2000);
+// Keep handshake wait short for faster checks; override via env if needed
+const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 200);
 const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 5000);
 
 const locks = new Set<string>();
@@ -154,6 +155,9 @@ export async function POST(request: Request) {
     const signal = (request as any).signal;
 
     // Fire command
+    if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+      mon.info(`CHECK send mac=${macUp} cmd='CHECK ${macUp}'`);
+    }
     await sendToEsp(`CHECK ${macUp}`);
 
     // Optional handshake: don't fail if not seen
@@ -228,31 +232,77 @@ export async function POST(request: Request) {
       }
     }
 
+    // Defer alias enrichment until we have a terminal result to minimize latency.
+    let aliasesFromRedis: Record<string, string> | undefined;
+    let pinMeta: { normalPins?: number[]; latchPins?: number[] } | undefined;
+    let itemsAll: Array<{ kssk: string; aliases: Record<string,string>; normalPins: number[]; latchPins: number[]; ts?: number | null }> | undefined;
+
     if (!line) {
-      // No signal yet. Return empty failures. Scanner will re-trigger.
+      // No signal yet — return 504 pending quickly, without alias enrichment.
       log.info('CHECK no-result-yet', { rid, mac: macUp, durationMs: Date.now()-t0 });
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK pending mac=${macUp} no-result-yet`);
       }
-      return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
+      // Do NOT return OK on no result; indicate pending/timeout
+      return NextResponse.json(
+        { error: 'no-result-yet', pending: true, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) },
+        { status: 504, headers: { 'X-Req-Id': rid } }
+      );
     }
 
     // Terminal parse
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
     if (m1 && /^SUCCESS|OK/i.test(m1[1])) {
+      if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+        mon.info(`CHECK rx mac=${macUp} raw=${JSON.stringify(line)}`);
+      }
       log.info('CHECK success', { rid, mac: macUp, durationMs: Date.now()-t0 });
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
       }
+      // Fast path: success response without alias enrichment
       return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
     }
 
     // FAILURE → return pin list
+    if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+      mon.info(`CHECK rx mac=${macUp} raw=${JSON.stringify(line)}`);
+    }
     const failures = parseFailuresFromLine(line, pins);
+
+    // On failure, enrich with aliases and per-KSSK bundles (does not block success path)
+    try {
+      const { getRedis } = await import('@/lib/redis');
+      const r = getRedis();
+      const raw = await r.get(`kfb:aliases:${macUp}`);
+      if (raw) {
+        const parsedR = JSON.parse(raw);
+        if (parsedR?.names && typeof parsedR.names === 'object') aliasesFromRedis = parsedR.names as Record<string,string>;
+        const n = Array.isArray(parsedR?.normalPins) ? parsedR.normalPins : undefined;
+        const l = Array.isArray(parsedR?.latchPins) ? parsedR.latchPins : undefined;
+        pinMeta = { ...(n ? { normalPins: n } : {}), ...(l ? { latchPins: l } : {}) };
+      }
+      const members: string[] = await r.smembers(`kfb:aliases:index:${macUp}`).catch(() => []);
+      const rows = await Promise.all(members.map(async (kssk) => {
+        try {
+          const raw2 = await r.get(`kfb:aliases:${macUp}:${kssk}`);
+          if (!raw2) return null;
+          const d = JSON.parse(raw2);
+          return {
+            kssk,
+            aliases: d?.names || d?.aliases || {},
+            normalPins: Array.isArray(d?.normalPins) ? d.normalPins : [],
+            latchPins: Array.isArray(d?.latchPins) ? d.latchPins : [],
+            ts: d?.ts || null,
+          };
+        } catch { return null; }
+      }));
+      itemsAll = rows.filter(Boolean) as any;
+    } catch {}
     const unknown = !failures.length;
     log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });
     mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);
-    return NextResponse.json({ failures, unknownFailure: unknown }, { headers: { 'X-Req-Id': rid } });
+    return NextResponse.json({ failures, unknownFailure: unknown, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) }, { headers: { 'X-Req-Id': rid } });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status =

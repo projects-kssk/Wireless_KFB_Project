@@ -84,6 +84,7 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
 const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
 
 // JSON extractor
+// Only accept measType="default" for MONITOR pins and alias mapping
 function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
   const segRoot =
@@ -99,12 +100,11 @@ function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number
   for (const seg of segments) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
-      if (mt !== "default") continue; // 🔒 only default
-      // 🔒 match MAC in objGroup if present
+      if (mt !== "default") continue; // default only
+      // Strict MAC match: skip if objGroup has a MAC different from the scanned MAC
       const og = String(s?.objGroup ?? "");
-      const m = og.match(OBJGROUP_MAC);
-      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
-
+      const mm = og.match(OBJGROUP_MAC);
+      if (mm && wantMac && mm[1].toUpperCase() !== wantMac) continue;
       const objPosRaw = String(s?.objPos ?? "");
       const parts = objPosRaw.split(",");
       let isLatch = false;
@@ -122,6 +122,7 @@ function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number
 }
 
 // XML extractor
+// Only accept measType="default" for MONITOR pins and alias mapping
 function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
   const wantMac = String(macHint ?? "").toUpperCase();
   const normal: number[] = [];
@@ -151,12 +152,11 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
     if (!hasErr && nodes.length) {
       for (const el of nodes) {
         const mt = (el.getAttribute("measType") || "").toLowerCase();
-        if (mt !== "default") continue; // 🔒 only default
-        // 🔒 MAC filter via neighbouring objGroup if present
-        const og = el.parentElement?.querySelector?.("objGroup")?.textContent || "";
+        if (mt !== "default") continue; // default only
+        // Strict MAC match when present
+        const og = (el.getElementsByTagName("objGroup")[0]?.textContent || "").toString();
         const m = String(og).match(OBJGROUP_MAC);
         if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
-
         const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
         if (pos) pushPin(pos);
       }
@@ -165,10 +165,16 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
   } catch { /* fall back */ }
 
   if (!parsedOk) {
-    // Regex fallback: only default
-    const re = /<sequence\b[^>]*\bmeasType="default"[^>]*>[\s\S]*?<objPos>([^<]+)<\/objPos>/gi;
+    // Regex fallback: default only, strict MAC match when present
+    const re = /<sequence\b[^>]*\bmeasType="default"[^>]*>[\s\S]*?<objGroup>([^<]+)<\/objGroup>[\s\S]*?<objPos>([^<]+)<\/objPos>[\s\S]*?<\/sequence>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(xml))) pushPin(m[1]);
+    while ((m = re.exec(xml))) {
+      const og = m[1] || "";
+      const pos = m[2] || "";
+      const macM = String(og).match(OBJGROUP_MAC);
+      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+      pushPin(pos);
+    }
   }
 
   const uniq = (xs: number[]) => Array.from(new Set(xs));
@@ -528,7 +534,16 @@ export default function SetupPage() {
           ? extractPinsFromKrosyXML(resp.data.__xml, String(kfb).toUpperCase())
           : extractPinsFromKrosy(resp.data, String(kfb).toUpperCase());
         // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
-        try { localStorage.setItem(`PIN_ALIAS::${String(kfb).toUpperCase()}`, JSON.stringify(out.names || {})); } catch {}
+        const macUp = String(kfb).toUpperCase();
+        try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {})); } catch {}
+        // Also save to Redis so other clients can render after CHECK-only
+        try {
+          await fetch('/api/aliases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac: macUp, kssk: code, aliases: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], xml: resp.data?.__xml || undefined }),
+          });
+        } catch {}
 
         const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
         if (!hasPins) {

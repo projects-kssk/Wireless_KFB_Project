@@ -69,7 +69,7 @@ const getStatusInfo = (status: BranchDisplayData['testStatus']) => {
 };
 
 // --- CHILD COMPONENT: BRANCH CARD ---
-const BranchCard = ({ branch }: { branch: BranchDisplayData }) => {
+const BranchCard = ({ branch, kssk }: { branch: BranchDisplayData; kssk?: string }) => {
   const statusInfo = useMemo(() => getStatusInfo(branch.testStatus), [branch.testStatus]);
   const isNok = branch.testStatus === 'nok';
   const isBigStatus = branch.testStatus === 'nok' || branch.testStatus === 'not_tested';
@@ -77,7 +77,7 @@ const BranchCard = ({ branch }: { branch: BranchDisplayData }) => {
   return (
     <div
       key={branch.id}
-      className="group relative w-full max-w-[520px] rounded-2xl bg-white backdrop-blur-sm shadow-xl hover:shadow-2xl border-2 border-transparent hover:border-blue-500 transition-all duration-300 transform hover:-translate-y-2 flex flex-col overflow-hidden"
+      className="group relative w-full max-w-[520px] rounded-2xl bg-white backdrop-blur-sm shadow-xl hover:shadow-2xl border-2 border-transparent transition-all duration-300 flex flex-col overflow-hidden"
     >
       {isNok && <div className="h-[5px] w-full bg-red-600 flex-shrink-0"></div>}
       <div className="p-8 flex-grow flex flex-col justify-between">
@@ -95,6 +95,13 @@ const BranchCard = ({ branch }: { branch: BranchDisplayData }) => {
             </div>
           )}
         </div>
+        {kssk && (
+          <div className="mb-4">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-sm font-extrabold">
+              KSSK {kssk}
+            </span>
+          </div>
+        )}
         <h3 className="text-7xl font-bold text-slate-800 group-hover:text-blue-600 transition-colors duration-300 mt-6 text-center">
           {branch.branchName}
         </h3>
@@ -115,6 +122,8 @@ export interface BranchDashboardMainContentProps {
   showRemoveCable?: boolean; 
     onResetKfb?: () => void; // <-- add this
   macAddress?: string; // optional: needed for CHECK
+  groupedBranches?: Array<{ kssk: string; branches: BranchDisplayData[] }>;
+  checkFailures?: number[] | null;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -129,6 +138,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   showRemoveCable = false,
     onResetKfb, 
   macAddress,
+  groupedBranches = [],
+  checkFailures = null,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -419,6 +430,59 @@ useEffect(() => {
       );
     }
 
+    if (groupedBranches && groupedBranches.length > 0) {
+      return (
+        <div className="flex flex-col gap-6 w-full max-w-[1400px]">
+          <div className="flex flex-wrap items-center gap-3 px-1">
+            <span className="text-slate-600 font-extrabold tracking-wide">KSSKs:</span>
+            {groupedBranches.map((g) => (
+              <span key={`kssk-pill-${g.kssk}`} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-sm font-extrabold">
+                KSSK {g.kssk}
+              </span>
+            ))}
+          </div>
+          {Array.isArray(checkFailures) && checkFailures.length > 0 && (() => {
+            const known = new Set<number>();
+            for (const g of groupedBranches) for (const b of g.branches) if (typeof b.pinNumber === 'number') known.add(b.pinNumber);
+            const extras = checkFailures.filter((p) => Number.isFinite(p as number) && !known.has(p as number)) as number[];
+            if (extras.length === 0) return null;
+            return (
+              <section className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
+                <header className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
+                  <h2 className="text-3xl font-black tracking-wide text-blue-700">KSSK CHECK (unmapped)</h2>
+                  <span className="text-sm font-extrabold text-blue-600">{extras.length} pins</span>
+                </header>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {extras.map((pin) => (
+                      <BranchCard key={`CHECK:${pin}`} kssk={'CHECK'} branch={{ id: `CHECK:${pin}`, branchName: `PIN ${pin}`, testStatus: 'nok', pinNumber: pin }} />
+                    ))}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+          {groupedBranches.map((grp) => (
+            <section key={grp.kssk} className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
+              <header className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold shadow">{String(grp.kssk).slice(-2)}</span>
+                  <h2 className="text-3xl font-black tracking-wide text-blue-700">KSSK {grp.kssk}</h2>
+                </div>
+                <span className="text-sm font-extrabold text-blue-600">{grp.branches.length} pins</span>
+              </header>
+              <div className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {grp.branches.map((b) => (
+                    <BranchCard key={b.id} branch={b} kssk={grp.kssk} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className="flex flex-wrap justify-center items-start gap-8 w-full">
         {pending.map((branch) => (
@@ -436,29 +500,13 @@ useEffect(() => {
           {kfbInfo?.board ?? kfbNumber}
         </h1>
       ) : null}
-      {/* CHECK controls */}
+      {/* CHECK controls removed — show hint instead */}
       {macAddress && localBranches.length > 0 && (
         <div className="mt-6 flex items-center justify-center gap-4">
-          <button
-            type="button"
-            onClick={runCheck}
-            disabled={isChecking}
-            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-extrabold text-xl shadow hover:bg-blue-700 disabled:bg-slate-400"
-          >
-            {isChecking ? 'Checking…' : 'Run CHECK'}
-          </button>
-          <button
-            type="button"
-            onClick={handleScan}
-            disabled={isChecking}
-            className="px-6 py-3 rounded-xl bg-indigo-600 text-white font-extrabold text-xl shadow hover:bg-indigo-700 disabled:bg-slate-400"
-            title="Rescan and auto-check"
-          >
-            Rescan + Auto-Check
-          </button>
-          {checkError && (
-            <span className="text-red-600 text-lg font-bold">{checkError}</span>
-          )}
+          <span className="px-5 py-2 rounded-full border border-slate-300 bg-slate-50 text-slate-700 font-extrabold text-xl">
+            Scan again to re-check
+          </span>
+          {checkError && <span className="text-red-600 text-lg font-bold">{checkError}</span>}
         </div>
       )}
     </header>

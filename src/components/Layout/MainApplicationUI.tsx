@@ -51,6 +51,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
+  const [groupedBranches, setGroupedBranches] = useState<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
   const [kfbNumber, setKfbNumber] = useState('');
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
   const [macAddress, setMacAddress] = useState('');
@@ -60,8 +61,9 @@ const MainApplicationUI: React.FC = () => {
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [awaitingRelease, setAwaitingRelease] = useState(false);
-  const [showRemoveCable, setShowRemoveCable] = useState(false);
+  // Simplified flow: no UI polling; show OK for a few seconds, then hide
+  const [awaitingRelease, setAwaitingRelease] = useState(false); // deprecated
+  const [showRemoveCable, setShowRemoveCable] = useState(false); // deprecated
 
   // Settings flow
   const [currentConfigIdForProgram, setCurrentConfigIdForProgram] = useState<number | null>(null);
@@ -78,7 +80,10 @@ const MainApplicationUI: React.FC = () => {
     open: false, kind: 'success', code: ''
   });
   const showOverlay = (kind: OverlayKind, code: string) => setOverlay({ open: true, kind, code });
-  const hideOverlaySoon = () => { const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), 1200); return () => clearTimeout(t); };
+  const hideOverlaySoon = (ms = 1200) => {
+    const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), ms);
+    return () => clearTimeout(t);
+  };
   const lastScanRef = useRef('');
 
   // Serial events (SSE)
@@ -153,28 +158,113 @@ const MainApplicationUI: React.FC = () => {
               });
             }
             // Otherwise, build branch list from Setup-provided pin aliases
+            const macUp = mac.toUpperCase();
             let aliases: Record<string,string> = {};
-            try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac.toUpperCase()}`) || '{}') || {}; } catch {}
+            try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {}; } catch {}
+            // If no local aliases, try aggregated maps for all KSSKs from server and merge
+            if (!aliases || Object.keys(aliases).length === 0) {
+              const mergeAliases = (items: Array<{ aliases: Record<string,string> }>) => {
+                const merged: Record<string,string> = {};
+                for (const it of items) {
+                  for (const [pin, name] of Object.entries(it.aliases || {})) {
+                    if (!merged[pin]) merged[pin] = name;
+                    else if (merged[pin] !== name) merged[pin] = `${merged[pin]} / ${name}`;
+                  }
+                }
+                return merged;
+              };
+              let merged: Record<string,string> = {};
+              // Synchronous path: if API included aliases in this result
+              if (result?.items && Array.isArray(result.items)) {
+                merged = mergeAliases(result.items as Array<{ aliases: Record<string,string> }>);
+              } else if (result?.aliases && typeof result.aliases === 'object') {
+                merged = result.aliases as Record<string,string>;
+              }
+              aliases = merged;
+              try { if (Object.keys(aliases).length) localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aliases)); } catch {}
+            }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
-            return pins.map(pin => ({
+            const flat = pins.map(pin => ({
               id: String(pin),
               branchName: aliases[String(pin)] || `PIN ${pin}`,
               testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
               pinNumber: pin,
               kfbInfoValue: undefined,
             }));
+
+            // Build grouped sections per KSSK if available from API
+            const items = Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : [];
+            if (items.length) {
+              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
+              for (const it of items) {
+                const a = it.aliases || {};
+                const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+                const branchesG = pinsG.map(pin => ({
+                  id: `${it.kssk}:${pin}`,
+                  branchName: a[String(pin)] || `PIN ${pin}`,
+                  testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                } as BranchDisplayData));
+                groups.push({ kssk: String((it as any).kssk || ''), branches: branchesG });
+              }
+              // Add any failure pins that are not present in any group as an extra synthetic group
+              const knownPinsSet = new Set<number>();
+              for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') knownPinsSet.add(b.pinNumber);
+              const extraPins = failures.filter((p: number) => Number.isFinite(p) && !knownPinsSet.has(p));
+              if (extraPins.length) {
+                const extraBranches = extraPins.map((pin) => ({
+                  id: `CHECK:${pin}`,
+                  branchName: `PIN ${pin}`,
+                  testStatus: 'nok' as TestStatus,
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                } as BranchDisplayData));
+                groups.push({ kssk: 'CHECK', branches: extraBranches });
+              }
+              setGroupedBranches(groups);
+              // Also use union of all group pins for flat list
+              const unionMap: Record<number, string> = {};
+              for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
+              const unionPins = Object.keys(unionMap).map(n=>Number(n)).sort((x,y)=>x-y);
+              return unionPins.map(pin => ({
+                id: String(pin),
+                branchName: unionMap[pin] || `PIN ${pin}`,
+                testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+                pinNumber: pin,
+                kfbInfoValue: undefined,
+              }));
+            } else {
+              setGroupedBranches([]);
+            }
+            // No grouped items: include any failure pins not in alias map as synthetic entries
+            const knownFlat = new Set<number>(pins);
+            const extras = failures.filter((p: number) => Number.isFinite(p) && !knownFlat.has(p));
+            return extras.length
+              ? [
+                  ...flat,
+                  ...extras.map((pin:number) => ({
+                    id: String(pin),
+                    branchName: `PIN ${pin}`,
+                    testStatus: 'nok' as TestStatus,
+                    pinNumber: pin,
+                    kfbInfoValue: undefined,
+                  } as BranchDisplayData)),
+                ]
+              : flat;
           });
 
           if (!unknown && failures.length === 0) {
             showOverlay('success', lastScanRef.current);
-            setAwaitingRelease(true); // only wait for release on full success
+            // New flow: show OK for ~3s, then hide overlay. No UI polling.
+            hideOverlaySoon(3000);
           } else {
             const msg = unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`;
             showOverlay('error', msg);
             setAwaitingRelease(false);
           }
-          hideOverlaySoon();
+          if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
         } else {
           console.error('CHECK error:', result);
           showOverlay('error', 'CHECK failed');
@@ -365,45 +455,7 @@ const MainApplicationUI: React.FC = () => {
     };
   }, [mainView, isSettingsSidebarOpen, handleScan]);
 
-  // Listen for UI cues + SUCCESS after a CHECK until release
-  useEffect(() => {
-    if (!awaitingRelease || !macAddress) return;
-    let cancel = false;
-
-    const loop = async () => {
-      while (!cancel && awaitingRelease) {
-        try {
-          const r = await fetch(`/api/serial/ui?mac=${encodeURIComponent(macAddress)}&t=${Date.now()}`, { cache: 'no-store' });
-          if (r.ok) {
-            const { cue, result } = await r.json();
-
-            const cueNorm = String(cue || '').toUpperCase().replace(/\s+/g, ':');
-            if (cueNorm === 'UI:REMOVE_CABLE' || cueNorm === 'REMOVE_CABLE') {
-              setShowRemoveCable(true);
-
-              setCheckFailures([]);
-              setBranchesData(d =>
-                d.map(b =>
-                  (typeof b.pinNumber === 'number' && !b.notTested)
-                    ? { ...b, testStatus: 'ok' as TestStatus }
-                    : b
-                )
-              );
-            }
-
-            if (typeof result === 'string' && /^SUCCESS\b/i.test(result)) {
-              setShowRemoveCable(false);
-              setAwaitingRelease(false);
-            }
-          }
-        } catch {}
-        await new Promise(r => setTimeout(r, 600));
-      }
-    };
-
-    void loop();
-    return () => { cancel = true; };
-  }, [awaitingRelease, macAddress]);
+  // Removed UI polling; success overlay auto-hides after 3s.
 
   // Manual submit from a form/input
   const handleKfbSubmit = (e: FormEvent) => {
@@ -466,8 +518,8 @@ const MainApplicationUI: React.FC = () => {
         )}
 
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
-          {mainView === 'dashboard' ? (
-            <>
+      {mainView === 'dashboard' ? (
+        <>
               {desiredTail && (
                 <div className="px-4 pt-2">
                   {(() => {
@@ -487,14 +539,7 @@ const MainApplicationUI: React.FC = () => {
                   })()}
                 </div>
               )}
-              {showRemoveCable && (
-                <div className="px-8 pt-3">
-                  <div className="flex items-center gap-3 rounded-xl bg-amber-100 text-amber-900 px-5 py-3 font-extrabold shadow">
-                    <span className="inline-block h-3 w-3 rounded-full bg-amber-600 animate-pulse" />
-                    REMOVE CABLE
-                  </div>
-                </div>
-              )}
+              {/* UI cue banner removed (no UI polling) */}
 
               {errorMsg && <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>}
 
@@ -503,6 +548,8 @@ const MainApplicationUI: React.FC = () => {
                 onManualSubmit={handleManualSubmit}
                 onScanAgainRequest={() => loadBranchesData()}
                 branchesData={branchesData}
+                groupedBranches={groupedBranches}
+                checkFailures={checkFailures}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning}

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import serial from '@/lib/serial';
 import { LOG } from '@/lib/logger';
+import crypto from 'node:crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,6 +87,8 @@ function getTail(): string[] {
 }
 
 export async function POST(request: Request) {
+  const rid = (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,8);
+  const t0 = Date.now();
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success)
     return NextResponse.json({ error: 'Expected { pins, mac }' }, { status: 400 });
@@ -102,6 +105,8 @@ export async function POST(request: Request) {
     if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {
       throw new Error('serial-helpers-missing');
     }
+
+    log.info('CHECK begin', { rid, mac: macUp, pins: pins.length, pinsCsv });
 
     const {
       SENT_RE,
@@ -178,6 +183,7 @@ export async function POST(request: Request) {
             break;
           }
         }
+        log.warn('CHECK timeout; tail scan applied', { rid, mac: macUp, found: !!line, tailSize: tail.length });
       } else {
         throw e;
       }
@@ -185,17 +191,20 @@ export async function POST(request: Request) {
 
     if (!line) {
       // No signal yet. Return empty failures. Scanner will re-trigger.
+      log.info('CHECK no-result-yet', { rid, mac: macUp, durationMs: Date.now()-t0 });
       return NextResponse.json({ failures: [] });
     }
 
     // Terminal parse
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
     if (m1 && /^SUCCESS/i.test(m1[1])) {
+      log.info('CHECK success', { rid, mac: macUp, durationMs: Date.now()-t0 });
       return NextResponse.json({ failures: [] });
     }
 
     // FAILURE → return pin list
     const failures = parseFailuresFromLine(line, pins);
+    log.info('CHECK failure', { rid, mac: macUp, failures, durationMs: Date.now()-t0 });
     return NextResponse.json({ failures });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
@@ -215,15 +224,15 @@ export async function POST(request: Request) {
       const s = (serial as any).getEspLineStream?.();
         if (Array.isArray(s?.ring)) {
           const tail = s.ring.slice(-50);
-          log.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail });
+          log.error('[serial/check tail]', { rid, mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail });
         } else {
-          log.error('[serial/check tail]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail: [] });
+          log.error('[serial/check tail]', { rid, mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', tail: [] });
         }
     } catch (err) {
-      log.error('[serial/check tail] failed', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', error: String(err) });
+      log.error('[serial/check tail] failed', { rid, mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', error: String(err) });
     }
 
-    log.error('[serial/check]', { mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', msg, status });
+    log.error('[serial/check]', { rid, mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', msg, status, durationMs: Date.now()-t0 });
     return NextResponse.json({ error: msg }, { status });
   } finally {
     locks.delete(macUp);

@@ -8,7 +8,7 @@ import { LOG } from '@/lib/logger';
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const log = LOG.tag('api:serial');
-
+const mon = LOG.tag('monitor');
 /* ------------------------ schemas ------------------------ */
 const Mac = z.string().regex(/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/);
 
@@ -55,6 +55,7 @@ function logFilePath() {
   const dd = String(d.getDate()).padStart(2, "0");
   return path.join(LOG_DIR, `monitor-${yyyy}-${mm}-${dd}.log`);
 }
+
 async function appendLog(entry: Record<string, unknown>) {
   try {
     await ensureLogDir();
@@ -63,7 +64,21 @@ async function appendLog(entry: Record<string, unknown>) {
   } catch (err) {
     log.error("[monitor.log] append failed", err);
   }
+
+  // also emit to global logger
+  try {
+    mon.info(JSON.stringify(entry));   // shows up as {"level":"info","tag":"monitor","msg":"{...}"}
+  } catch {}
 }
+
+function pinDiff(requested: number[] = [], built: number[] = []) {
+  const r = new Set(requested);
+  const b = new Set(built);
+  const missing = [...r].filter(x => !b.has(x)); // asked but not sent
+  const added   = [...b].filter(x => !r.has(x)); // sent but not asked
+  return { missing, added };
+}
+
 
 /* ----------------- dynamic serial helper ----------------- */
 async function loadSerial(): Promise<{
@@ -145,60 +160,83 @@ export async function GET(req: Request) {
   }
 }
 
-/* ----------------- POST ----------------- */
+// ----------------- POST -----------------
 export async function POST(request: Request) {
   let body: unknown;
   try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
 
-  // Accept either pins or a raw sequence
+  // capture raw requested pins (for logging)
+  let src: "pins" | "sequence" = "pins";
   let mac: string;
   let normalPins: number[] = [];
   let latchPins: number[] = [];
   let kssk: string | undefined;
+  let reqNormal: number[] | undefined;
+  let reqLatch: number[] | undefined;
 
   const asPins = PinsBody.safeParse(body);
   if (asPins.success) {
+    src = "pins";
     mac = asPins.data.mac.toUpperCase();
-    normalPins = Array.from(new Set(asPins.data.normalPins ?? []));
-    latchPins = Array.from(new Set(asPins.data.latchPins ?? []));
+    reqNormal = asPins.data.normalPins ?? [];
+    reqLatch  = asPins.data.latchPins  ?? [];
+    normalPins = Array.from(new Set(reqNormal));
+    latchPins  = Array.from(new Set(reqLatch));
     kssk = asPins.data.kssk;
   } else {
+    src = "sequence";
     const asSeq = SequenceBody.safeParse(body);
     if (!asSeq.success) {
-      return json({
-        error:
-          "Expected { normalPins?: number[], latchPins?: number[], mac } OR { sequence: [...], mac }",
-      }, 400);
+      return json({ error:"Expected { normalPins?: number[], latchPins?: number[], mac } OR { sequence: [...], mac }" }, 400);
     }
     mac = asSeq.data.mac.toUpperCase();
     const pins = extractPinsFromSequence(asSeq.data.sequence, mac);
     normalPins = pins.normalPins;
     latchPins  = pins.latchPins;
+    // reqNormal/reqLatch undefined here (we didn't receive explicit pins)
     kssk = asSeq.data.kssk;
   }
 
-  // Fail fast if no pins
   if (!normalPins.length && !latchPins.length) {
     await appendLog({ event: "monitor.nopins", mac, kssk, normalPins, latchPins });
     return json({ error: "No default pins for this MAC" }, 422);
   }
 
-  // Sort for stable commands (optional)
   normalPins.sort((a,b)=>a-b);
   latchPins.sort((a,b)=>a-b);
 
-  // Build MONITOR command
   let cmd = "MONITOR";
   if (normalPins.length) cmd += " " + normalPins.join(",");
-  if (latchPins.length) cmd += " LATCH " + latchPins.join(",");
+  if (latchPins.length)  cmd += " LATCH " + latchPins.join(",");
   cmd += " " + mac;
 
-  await appendLog({ event: "monitor.prepare", mac, kssk, cmd, normalPins, latchPins });
+  // --- NEW: rich pre-send log (requested vs built) ---
+  const diffs = {
+    normal: pinDiff(reqNormal, normalPins),
+    latch:  pinDiff(reqLatch,  latchPins),
+  };
+  const counts = {
+    requestedNormal: reqNormal?.length ?? null,
+    requestedLatch:  reqLatch?.length  ?? null,
+    requestedTotal:  (reqNormal?.length ?? 0) + (reqLatch?.length ?? 0) || null,
+    builtNormal: normalPins.length,
+    builtLatch:  latchPins.length,
+    builtTotal:  normalPins.length + latchPins.length,
+  };
+  await appendLog({
+    event: "monitor.send",
+    source: src,
+    mac, kssk, cmd,
+    requested: { normalPins: reqNormal ?? null, latchPins: reqLatch ?? null },
+    built: { normalPins, latchPins },
+    counts,
+    diffs,
+  });
 
+  // send
   let sendToEsp: (cmd: string, opts?: { timeoutMs?: number }) => Promise<void>;
-  try {
-    ({ sendToEsp } = await loadSerial());
-  } catch (err) {
+  try { ({ sendToEsp } = await loadSerial()); }
+  catch (err) {
     await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
     log.error("load serial helper error", err);
     return json({ error: "Internal error" }, 500);
@@ -207,13 +245,14 @@ export async function POST(request: Request) {
   try {
     await sendToEsp(cmd, { timeoutMs: 3000 });
     health = { ts: now(), ok: true, raw: "WRITE_OK" };
-    await appendLog({ event: "monitor.success", mac, kssk, cmd });
+    // --- NEW: success log repeats the exact cmd & counts (easy to grep alongside device LED state) ---
+    await appendLog({ event: "monitor.success", mac, kssk, cmd, counts });
     return json({ success: true, cmd, normalPins, latchPins, mac });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
-    await appendLog({ event: "monitor.error", mac, kssk, cmd, error: message });
+    await appendLog({ event: "monitor.error", mac, kssk, cmd, counts, diffs, error: message });
     return json({ error: message, cmdTried: cmd }, 500);
   }
 }

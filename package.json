@@ -37,8 +37,10 @@
     "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
     "format": "prettier . --write",
     "postinstall": "npx electron-builder install-app-deps",
-    "locks": "node scripts/print-locks.mjs",
-    "locks:station": "STATION_ID=$npm_config_id node scripts/print-locks.mjs"
+    "locks": "node scripts/print-locks-redis.mjs",
+    "locks:station": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs",
+    "locks:watch": "node scripts/print-locks-redis.mjs --watch --clear",
+    "locks:station:watch": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs --watch --clear"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.6",

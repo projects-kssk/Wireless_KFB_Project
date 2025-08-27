@@ -1,71 +1,179 @@
 // scripts/print-locks-redis.mjs
+// Enhanced: respects STATION_ID to list only that station’s locks, or scans all.
 import Redis from 'ioredis';
 
-const url   = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const pref  = process.env.REDIS_LOCK_PREFIX || 'kssk:lock:';
+const url         = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+const pref        = process.env.REDIS_LOCK_PREFIX || 'kssk:lock:';          // lock value keys
+const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'kssk:station:';    // station index set
+let stationId     = process.env.STATION_ID || process.env.npm_config_id || '';
+
+// --- tiny argv parser ---
+const argv = process.argv.slice(2);
+const opts = Object.create(null);
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === '--watch' || a === '-w') opts.watch = true;
+  else if (a === '--clear' || a === '-c') opts.clear = true;
+  else if (a.startsWith('--interval=')) opts.interval = Number(a.split('=')[1]);
+  else if (a === '--interval' || a === '-i') opts.interval = Number(argv[++i]);
+  else if (a.startsWith('--id=')) stationId = a.split('=')[1];
+  else if (a === '--id') stationId = argv[++i];
+  else if (a.startsWith('--match=')) opts.match = a.split('=')[1];
+  else if (a === '--match' || a === '-m') opts.match = argv[++i];
+}
+
+function compileRegex(src) {
+  if (!src) return null;
+  try {
+    if (src.startsWith('/') && src.lastIndexOf('/') > 0) {
+      const i = src.lastIndexOf('/');
+      const body = src.slice(1, i);
+      const flags = src.slice(i + 1);
+      return new RegExp(body, flags);
+    }
+    return new RegExp(src);
+  } catch {
+    return null;
+  }
+}
+const matchRe = compileRegex(opts.match || process.env.KSSK_REGEX || process.env.KFB_REGEX);
+
 const redis = new Redis(url);
 
 function parseKey(key) {
-  // assumes kssk:lock:<KSSK>
-  return key.slice(pref.length);
+  return key.startsWith(pref) ? key.slice(pref.length) : key;
 }
 
-function expiryFromTTL(ttl) {
-  if (ttl <= 0) return null;
-  const d = new Date(Date.now() + ttl * 1000);
+function expiryFromPTTL(pttl) {
+  // pttl is milliseconds; -1 no expire, -2 no key
+  if (typeof pttl !== 'number' || pttl <= 0) return null;
+  const d = new Date(Date.now() + pttl);
   return d.toISOString();
 }
 
-const rows = [];
-const stream = redis.scanStream({ match: `${pref}*`, count: 200 });
+async function readLock(key) {
+  // Pipeline: PTTL + GET + HGETALL to support both string-json and hash storage
+  const res = await redis
+    .pipeline()
+    .pttl(key)
+    .get(key)
+    .hgetall(key)
+    .exec();
 
-stream.on('data', async (keys) => {
-  if (!keys.length) return;
-  const pipeline = redis.pipeline();
-  for (const k of keys) {
-    pipeline.ttl(k).get(k).hgetall(k); // support both JSON (GET) and HASH (HGETALL)
+  const pttl = res?.[0]?.[1];
+  const str  = res?.[1]?.[1];
+  const hash = res?.[2]?.[1] || {};
+
+  let mac = null, station = null, createdAt = null;
+  if (typeof str === 'string') {
+    try {
+      const j = JSON.parse(str);
+      mac       = j.mac || j.boardMac || null;
+      station   = j.stationId || null;
+      createdAt = j.createdAt || null;
+    } catch {}
   }
-  const results = await pipeline.exec();
+  if (!mac && hash && Object.keys(hash).length) {
+    mac       = hash.mac || hash.boardMac || null;
+    station   = hash.stationId || null;
+    createdAt = hash.createdAt || null;
+  }
 
-  for (let i = 0; i < keys.length; i++) {
-    const key   = keys[i];
-    const kssk  = parseKey(key);
-    const ttl   = results[i*3 + 0][1];      // TTL
-    const str   = results[i*3 + 1][1];      // GET (JSON?)
-    const hash  = results[i*3 + 2][1];      // HGETALL result
+  return {
+    key,
+    kssk: parseKey(key),
+    mac: mac ? String(mac).toUpperCase() : null,
+    stationId: station || null,
+    expiresAt: expiryFromPTTL(typeof pttl === 'number' ? pttl : null),
+    ttlSec: typeof pttl === 'number' && pttl > 0 ? Math.round(pttl / 1000) : pttl,
+    present: pttl !== -2,
+  };
+}
 
-    let mac = null, stationId = null, createdAt = null;
-    if (str) {
-      try {
-        const j = JSON.parse(str);
-        mac = j.mac || j.boardMac || null;
-        stationId = j.stationId || null;
-        createdAt = j.createdAt || null;
-      } catch {}
-    } else if (hash && Object.keys(hash).length) {
-      mac = hash.mac || hash.boardMac || null;
-      stationId = hash.stationId || null;
-      createdAt = hash.createdAt || null;
-    }
+async function listByStation(id) {
+  const setKey = stationPref + id;
+  const members = await redis.smembers(setKey);
+  const keys = members.map(k => pref + k);
+  const rows = [];
+  for (const key of keys) rows.push(await readLock(key));
+  return rows;
+}
 
-    rows.push({
-      kssk,
-      mac: mac?.toUpperCase?.() || null,
-      stationId,
-      expiresAt: expiryFromTTL(ttl),
-      ttlSec: ttl,
-      key,
+async function scanAll() {
+  const rows = [];
+  const stream = redis.scanStream({ match: `${pref}*`, count: 500 });
+  await new Promise((resolve, reject) => {
+    stream.on('data', async (keys) => {
+      if (!Array.isArray(keys) || keys.length === 0) return;
+      // Batch per chunk to keep order reasonable
+      const chunk = await Promise.all(keys.map(k => readLock(k)));
+      rows.push(...chunk);
     });
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+  return rows;
+}
+
+async function main() {
+  try {
+    // Wait for ready quickly
+    await new Promise((res) => {
+      if (redis.status === 'ready') return res();
+      const done = () => { redis.off('ready', done); res(); };
+      redis.once('ready', done);
+    });
+
+    const runOnce = async () => {
+      let rows = [];
+      if (stationId) rows = await listByStation(stationId);
+      else rows = await scanAll();
+
+      if (matchRe) rows = rows.filter(r => matchRe.test(String(r.kssk)));
+
+      // Sort by expires soonest first
+      rows.sort((a, b) => {
+        const ax = a.expiresAt ? Date.parse(a.expiresAt) : Infinity;
+        const bx = b.expiresAt ? Date.parse(b.expiresAt) : Infinity;
+        return ax - bx;
+      });
+
+      if (opts.clear) console.clear();
+      const hdr = [`Redis: ${url}`, stationId ? `station=${stationId}` : 'station=ALL'];
+      if (matchRe) hdr.push(`match=${matchRe}`);
+      console.log(hdr.join(' | '));
+
+      if (!rows.length) {
+        console.log('(no locks found)');
+      } else {
+        console.table(rows.map(r => ({
+          kssk: r.kssk,
+          mac: r.mac,
+          stationId: r.stationId,
+          ttlSec: r.ttlSec,
+          expiresAt: r.expiresAt,
+        })));
+      }
+    };
+
+    if (opts.watch) {
+      const interval = Number.isFinite(opts.interval) && opts.interval > 0 ? opts.interval : 2000;
+      console.log(`Watching${opts.clear ? ' (clearing)' : ''} every ${interval}ms... (Ctrl+C to exit)`);
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        // break on termination signals via thrown error on quit
+        await runOnce();
+        await new Promise(res => setTimeout(res, interval));
+      }
+    } else {
+      await runOnce();
+    }
+  } catch (e) {
+    console.error('Error:', e?.message || e);
+    process.exitCode = 1;
+  } finally {
+    try { await redis.quit(); } catch {}
   }
-});
+}
 
-stream.on('end', async () => {
-  console.table(rows);
-  await redis.quit();
-});
-
-stream.on('error', async (e) => {
-  console.error('Redis scan error:', e?.message || e);
-  await redis.quit();
-  process.exit(1);
-});
+main();

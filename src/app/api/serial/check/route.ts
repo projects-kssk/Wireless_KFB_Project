@@ -17,10 +17,11 @@ const Body = z.object({
   pins: z.array(z.number().int()).optional(),
 });
 
-// Fast turnaround. Scanner re-triggers checks, so don’t block long.
-// Keep handshake wait short for faster checks; override via env if needed
-const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 200);
-const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 5000);
+// Fast turnaround. Scanner re-triggers checks, tune as needed.
+// Handshake echo wait
+const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 400);
+// Terminal result wait (increase to wait more)
+const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 9000);
 
 const locks = new Set<string>();
 
@@ -127,18 +128,53 @@ export async function POST(request: Request) {
   locks.add(macUp);
 
   try {
-    // Leave undefined if client didn't provide pins, so we don't filter out everything
-    const pins = parsed.data.pins;
+    // Build effective pin list based on mode
+    // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins
+    // Default to client-provided pins (previous behavior). Can be overridden via env.
+    const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'client').toLowerCase();
+    let pins: number[] | undefined = undefined;
+    if (SEND_MODE === 'client') pins = Array.isArray(parsed.data.pins) ? parsed.data.pins : undefined;
+
+    let pinsArr: number[] = Array.isArray(pins) ? pins.filter((n)=>Number.isFinite(n) && n>0) : [];
+    if (SEND_MODE === 'union' && pinsArr.length === 0) {
+      try {
+        const { getRedis } = await import('@/lib/redis');
+        const r = getRedis();
+        const indexKey = `kfb:aliases:index:${macUp}`;
+        const members: string[] = await r.smembers(indexKey).catch(() => []);
+        const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
+        let targets = members;
+        if (stationId) {
+          const act: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
+          if (Array.isArray(act) && act.length > 0) {
+            const set = new Set(act.map(String));
+            const inter = members.filter(m => set.has(String(m)));
+            if (inter.length > 0) targets = inter;
+          }
+        }
+        const pinsSet = new Set<number>();
+        for (const id of targets) {
+          try {
+            const raw = await r.get(`kfb:aliases:${macUp}:${id}`);
+            if (!raw) continue;
+            const d = JSON.parse(raw);
+            const names = d?.names || d?.aliases || {};
+            for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
+          } catch {}
+        }
+        if (pinsSet.size > 0) pinsArr = Array.from(pinsSet).sort((a,b)=>a-b);
+      } catch {}
+    }
+    pins = (SEND_MODE === 'union' && pinsArr.length) ? pinsArr
+         : (SEND_MODE === 'client' && pinsArr.length ? pinsArr : undefined);
 
     const { sendToEsp, waitForNextLine } = serial as any;
     if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {
       throw new Error('serial-helpers-missing');
     }
 
-    log.info('CHECK begin', { rid, mac: macUp, pins: pins?.length ?? 0 });
-    if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
-      mon.info(`CHECK start mac=${macUp} pins=${pins?.length ?? 0}`);
-    }
+    log.info('CHECK begin', { rid, mac: macUp, mode: SEND_MODE, pins: pins?.length ?? 0 });
+    if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') mon.info(`CHECK start mac=${macUp} mode=${SEND_MODE} pins=${pins?.length ?? 0}`);
 
     const {
       SENT_RE,
@@ -152,13 +188,23 @@ export async function POST(request: Request) {
       OK_ONLY_RE,
     } = buildMatchers(macUp);
 
-    const signal = (request as any).signal;
+    // Do NOT couple device waiters to the HTTP client's abort — own the lifetime here
+    const ac = new AbortController();
+    const signal = ac.signal;
 
-    // Fire command
+    // Log current ESP path for visibility
+    try {
+      const s = (serial as any).getEspLineStream?.();
+      const espPath = s?.port?.path || process.env.ESP_TTY || process.env.ESP_TTY_PATH || 'unknown';
+      if (espPath && (process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') mon.info(`CHECK espPath=${espPath}`);
+    } catch {}
+
+    // Fire command (optionally with selected pins)
+    const cmdStr = (pins && pins.length) ? `CHECK ${pins.join(',')} ${macUp}` : `CHECK ${macUp}`;
     if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
-      mon.info(`CHECK send mac=${macUp} cmd='CHECK ${macUp}'`);
+      mon.info(`CHECK send mac=${macUp} cmd='${cmdStr}'`);
     }
-    await sendToEsp(`CHECK ${macUp}`);
+    await sendToEsp(cmdStr);
 
     // Optional handshake: don't fail if not seen
     try {
@@ -200,6 +246,8 @@ export async function POST(request: Request) {
       line = String(
         await Promise.race([pResult, pIgnored, pInvalid, pAddPeer, pSendFail, pOkOnly])
       ).trim();
+      // Cancel remaining matchers to avoid late rejections after return
+      try { ac.abort(); } catch {}
     } catch (e: any) {
       // Timeout or non-fatal error: scan tail for latest terminal line
       if (String(e?.message ?? e) === 'timeout') {
@@ -252,6 +300,7 @@ export async function POST(request: Request) {
 
     // Terminal parse
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
+    // SUCCESS/OK with RESULT wrapper
     if (m1 && /^SUCCESS|OK/i.test(m1[1])) {
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK rx mac=${macUp} raw=${JSON.stringify(line)}`);
@@ -331,6 +380,29 @@ export async function POST(request: Request) {
         : /station-(invalid-mac|add-peer-failed|send-failed)/.test(msg)
         ? 502
         : 500;
+
+    // Tail-fallback: if client aborted or timeout, try to salvage latest RESULT for this MAC
+    try {
+      if (msg === 'client-abort' || msg === 'timeout') {
+        const tail = getTail();
+        const MAC = escMac(parsed.success ? normMac(parsed.data.mac) : '');
+        const RESULT_RE2 = new RegExp(`\\bRESULT\\s+(SUCCESS|FAILURE[^\\n]*)\\b.*${MAC}\\b`, 'i');
+        const REPLY_RESULT_RE2 = new RegExp(`^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(?:RESULT\\s+)?(SUCCESS|FAILURE[^\\n]*)`, 'i');
+        let line: string | null = null;
+        for (let i = tail.length - 1; i >= 0; i--) {
+          const ln = tail[i];
+          const m = ln.match(RESULT_RE2) || ln.match(REPLY_RESULT_RE2);
+          if (m && (/^FAILURE/i.test(m[1]) || /^SUCCESS/i.test(m[1]))) { line = ln; break; }
+        }
+        if (line) {
+          // Parse failures
+          const failures = parseFailuresFromLine(line, Array.isArray((parsed as any)?.data?.pins) ? (parsed as any).data.pins : undefined);
+          const unknown = !Array.isArray(failures) ? true : false;
+          mon.info(`CHECK tail-fallback mac=${parsed.success ? normMac(parsed.data.mac) : '-'} line=${JSON.stringify(line)}`);
+          return NextResponse.json({ failures: Array.isArray(failures) ? failures : [], unknownFailure: unknown });
+        }
+      }
+    } catch {}
 
     // Safe diagnostics
     try {

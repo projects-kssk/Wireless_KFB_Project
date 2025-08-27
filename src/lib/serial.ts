@@ -325,6 +325,17 @@ function attachScannerHandlers(
 
 
 export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
+  const ALLOW_USB_SCANNER = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
+  if (!ALLOW_USB_SCANNER && /\/ttyUSB\d+$/i.test(path)) {
+    const espPath = process.env.ESP_TTY ?? process.env.ESP_TTY_PATH ?? "";
+    const LOG_SKIPS = (process.env.LOG_SCANNER_SKIPS ?? "0") === "1";
+    // Quietly skip by default; only log when explicitly enabled
+    if (LOG_SKIPS) {
+      if (espPath && path === espPath) LOG.tag('scanner').info(`skip scanner on ESP path ${path}`);
+      else LOG.tag('scanner').warn(`skip scanner open on USB path ${path} (set ALLOW_USB_SCANNER=1 to allow)`);
+    }
+    throw new Error(`SCANNER_SKIP_USB ${path}`);
+  }
   let rt = scanners.get(path);
   if (!rt) {
     rt = {

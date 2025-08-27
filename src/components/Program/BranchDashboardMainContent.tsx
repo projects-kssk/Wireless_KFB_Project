@@ -125,6 +125,9 @@ export interface BranchDashboardMainContentProps {
   groupedBranches?: Array<{ kssk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
   nameHints?: Record<string,string> | undefined;
+  activeKssks?: string[];
+  scanningError?: boolean;
+  disableOkAnimation?: boolean;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -142,6 +145,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   groupedBranches = [],
   checkFailures = null,
   nameHints,
+  activeKssks = [],
+  scanningError = false,
+  disableOkAnimation = false,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -166,26 +172,25 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     } catch {}
   }, []);
 
+  // Only show NOK branches in the main list
   const pending = useMemo(() =>
     localBranches
-      .filter((b) => b.testStatus !== 'ok')
-      .sort((a, b) =>
-        ({ nok: 0, not_tested: 1, in_progress: 2, ok: 3 }[a.testStatus] -
-         { nok: 0, not_tested: 1, in_progress: 2, ok: 3 }[b.testStatus])
-      )
-      .slice(0, 40),
+      .filter((b) => b.testStatus === 'nok')
+      .sort((a, b) => 0)
+      .slice(0, 120),
   [localBranches]);
 
  const allOk = useMemo(() => {
    // If caller reports any failed pins from CHECK, never show OK animation
    if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
+   if (disableOkAnimation) return false;
    return (
      hasMounted &&
      !isScanning && !isChecking &&
      localBranches.length > 0 &&
      localBranches.every(b => b.testStatus === 'ok')
    );
- }, [hasMounted, isScanning, isChecking, localBranches, checkFailures]);
+ }, [hasMounted, isScanning, isChecking, localBranches, checkFailures, disableOkAnimation]);
 
 useEffect(() => {
   if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -265,6 +270,23 @@ useEffect(() => {
   const macValid = MAC_RE.test(inputValue.trim());
 
   const mainContent = () => {
+    if (scanningError) {
+      return (
+        <div className="p-10 text-center w-full flex flex-col items-center justify-center">
+          <div className="relative">
+            <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-red-100 dark:bg-red-700/30 rounded-full flex items-center justify-center">
+              <svg width="120" height="120" viewBox="0 0 56 56" aria-hidden>
+                <circle cx="28" cy="28" r="26" fill="#ef4444" />
+                <path d="M18 18l20 20M38 18l-20 20" stroke="#fff" strokeWidth="6" strokeLinecap="round" />
+              </svg>
+            </div>
+          </div>
+          <h3 className="p-10 font-black text-red-500 uppercase tracking-widest text-6xl sm:text-7xl">
+            SCANNING ERROR
+          </h3>
+        </div>
+      );
+    }
     if (isScanning && localBranches.length > 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[500px]">
@@ -436,7 +458,7 @@ useEffect(() => {
 
     if (groupedBranches && groupedBranches.length > 0) {
       return (
-        <div className="flex flex-col gap-6 w-full max-w-[1400px]">
+        <div className="flex flex-col gap-6 w-full">
           <div className="flex flex-wrap items-center gap-3 px-1">
             <span className="text-slate-600 font-extrabold tracking-wide">KSSKs:</span>
             {groupedBranches.map((g) => (
@@ -457,7 +479,7 @@ useEffect(() => {
                   <span className="text-sm font-extrabold text-blue-600">{extras.length} pins</span>
                 </header>
                 <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
                     {extras.map((pin) => (
                       <BranchCard
                         key={`CHECK:${pin}`}
@@ -470,32 +492,37 @@ useEffect(() => {
               </section>
             );
           })()}
-          {groupedBranches.map((grp) => (
+          {groupedBranches.map((grp) => {
+            const onlyNok = grp.branches.filter(b => b.testStatus === 'nok');
+            if (onlyNok.length === 0) return null;
+            return (
             <section key={grp.kssk} className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
               <header className="px-6 py-4 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold shadow">{String(grp.kssk).slice(-2)}</span>
                   <h2 className="text-3xl font-black tracking-wide text-blue-700">KSSK {grp.kssk}</h2>
                 </div>
-                <span className="text-sm font-extrabold text-blue-600">{grp.branches.length} pins</span>
+                <span className="text-sm font-extrabold text-blue-600">{onlyNok.length} NOK</span>
               </header>
               <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {grp.branches.map((b) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                  {onlyNok.map((b) => (
                     <BranchCard key={b.id} branch={b} kssk={grp.kssk} />
                   ))}
                 </div>
               </div>
             </section>
-          ))}
+          )})}
         </div>
       );
     }
     return (
-      <div className="flex flex-wrap justify-center items-start gap-8 w-full">
-        {pending.map((branch) => (
-          <BranchCard key={branch.id} branch={branch} />
-        ))}
+      <div className="w-full p-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {pending.map((branch) => (
+            <BranchCard key={branch.id} branch={branch} />
+          ))}
+        </div>
       </div>
     );
   };
@@ -508,6 +535,16 @@ useEffect(() => {
           {kfbInfo?.board ?? kfbNumber}
         </h1>
       ) : null}
+      {activeKssks.length > 0 && (
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <span className="text-slate-600 font-extrabold tracking-wide text-sm">Active KSSKs:</span>
+          {activeKssks.map((id) => (
+            <span key={`active-kssk-${id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold">
+              {id}
+            </span>
+          ))}
+        </div>
+      )}
       {/* CHECK controls removed — show hint instead */}
       {macAddress && localBranches.length > 0 && (
         <div className="mt-6 flex items-center justify-center gap-4">

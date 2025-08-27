@@ -254,8 +254,9 @@ export async function POST(request: Request) {
     return json({ error: "No default pins for this MAC" }, 422);
   }
 
-  normalPins.sort((a,b)=>a-b);
-  latchPins.sort((a,b)=>a-b);
+  // Filter out invalid/zero pins and sort
+  normalPins = Array.from(new Set(normalPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
+  latchPins  = Array.from(new Set(latchPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
 
   let cmd = "MONITOR";
   if (normalPins.length) cmd += " " + normalPins.join(",");

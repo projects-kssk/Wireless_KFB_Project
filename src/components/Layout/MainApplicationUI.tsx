@@ -58,6 +58,8 @@ const MainApplicationUI: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<Record<string,string> | undefined>(undefined);
+  const [activeKssks, setActiveKssks] = useState<string[]>([]);
+  const [scanningError, setScanningError] = useState(false);
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
@@ -86,6 +88,9 @@ const MainApplicationUI: React.FC = () => {
     return () => clearTimeout(t);
   };
   const lastScanRef = useRef('');
+  const [okOverlayActive, setOkOverlayActive] = useState(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
 
   // Serial events (SSE)
   const serial = useSerialEvents();
@@ -128,23 +133,49 @@ const MainApplicationUI: React.FC = () => {
 
   // ----- RUN CHECK ON DEMAND OR AFTER EACH SCAN -----
   const runCheck = useCallback(
-    async (mac: string) => {
+    async (mac: string, attempt: number = 0) => {
       if (!mac) return;
 
       setIsChecking(true);
+      setScanningError(false);
       setCheckFailures(null);
       setShowRemoveCable(false);
       setAwaitingRelease(false);
 
       try {
+        const clientBudget = Number(process.env.NEXT_PUBLIC_CHECK_CLIENT_TIMEOUT_MS ?? '5000');
+        const ctrl = new AbortController();
+        const tAbort = setTimeout(() => ctrl.abort(), Math.max(1000, clientBudget));
+        
+        // Build the selected pins list from current grouped branches (active KSSKs) or aliases
+        const selectedPins: number[] = (() => {
+          if (groupedBranches && groupedBranches.length) {
+            const pins = new Set<number>();
+            for (const g of groupedBranches) {
+              if (!g || g.kssk === 'CHECK') continue;
+              for (const b of g.branches) if (typeof b.pinNumber === 'number' && b.pinNumber > 0) pins.add(b.pinNumber);
+            }
+            return Array.from(pins).sort((a,b)=>a-b);
+          }
+          try {
+            const macUp = mac.toUpperCase();
+            const aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {};
+            return Object.keys(aliases).map((k)=>Number(k)).filter((n)=>Number.isFinite(n) && n>0).sort((a,b)=>a-b);
+          } catch { return []; }
+        })();
+
         const res = await fetch('/api/serial/check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mac }),
+          // Send explicit pins → speed: ESP checks only selected
+          body: JSON.stringify({ mac, pins: selectedPins }),
+          signal: ctrl.signal,
         });
+        clearTimeout(tAbort);
         const result = await res.json();
 
         if (res.ok) {
+          clearRetryTimer();
           const failures: number[] = result.failures || [];
           const unknown = result?.unknownFailure === true;
           const hints = (result?.nameHints && typeof result.nameHints === 'object') ? (result.nameHints as Record<string,string>) : undefined;
@@ -236,6 +267,7 @@ const MainApplicationUI: React.FC = () => {
                 groups.push({ kssk: 'CHECK', branches: extraBranches });
               }
               setGroupedBranches(groups);
+              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
               // Also use union of all group pins for flat list
               const unionMap: Record<number, string> = {};
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
@@ -249,6 +281,7 @@ const MainApplicationUI: React.FC = () => {
               }));
             } else {
               setGroupedBranches([]);
+              setActiveKssks([]);
             }
             // No grouped items: include any failure pins not in alias map as synthetic entries
             const knownFlat = new Set<number>(pins);
@@ -269,8 +302,17 @@ const MainApplicationUI: React.FC = () => {
 
           if (!unknown && failures.length === 0) {
             showOverlay('success', lastScanRef.current);
-            // New flow: show OK for ~3s, then hide overlay. No UI polling.
-            hideOverlaySoon(3000);
+            setOkOverlayActive(true);
+            // Show OK for 2s, then hide and reset to default scan state
+            setTimeout(() => {
+              setOkOverlayActive(false);
+              handleResetKfb();
+              setMacAddress('');
+              setGroupedBranches([]);
+              setActiveKssks([]);
+              setNameHints(undefined);
+            }, 2000);
+            hideOverlaySoon(2000);
           } else {
             const msg = unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`;
             showOverlay('error', msg);
@@ -279,22 +321,75 @@ const MainApplicationUI: React.FC = () => {
           if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
         } else {
           // Distinguish no-result timeouts from other errors
+          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? '1'))
           if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
-            console.warn('CHECK pending/no-result');
-            showOverlay('error', 'SCANNING ERROR');
+            // Quick retry a couple of times to shave latency without long waits
+            // Quick retry a couple of times to shave latency without long waits
+            if (attempt < maxRetries) {
+              clearRetryTimer();
+              retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1); }, 250);
+            } else {
+              console.warn('CHECK pending/no-result');
+              setScanningError(true);
+              showOverlay('error', 'SCANNING ERROR');
+              // Reset view back to default scan state shortly after showing error
+              setTimeout(() => {
+                handleResetKfb();
+                setMacAddress('');
+                setGroupedBranches([]);
+                setActiveKssks([]);
+                setNameHints(undefined);
+              }, 1300);
+            }
           } else {
             console.error('CHECK error:', result);
+            setScanningError(true);
             showOverlay('error', 'CHECK ERROR');
+            // Reset view back to default scan state shortly after showing error
+            setTimeout(() => {
+              handleResetKfb();
+              setMacAddress('');
+              setGroupedBranches([]);
+              setActiveKssks([]);
+              setNameHints(undefined);
+            }, 1300);
           }
           setAwaitingRelease(false);
-          hideOverlaySoon();
+          if (!(res.status === 504 && attempt < 2)) hideOverlaySoon();
         }
       } catch (err) {
-        console.error('CHECK error', err);
-        showOverlay('error', 'CHECK exception');
-        setAwaitingRelease(false);
-        hideOverlaySoon();
+        if ((err as any)?.name === 'AbortError') {
+          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? '1'));
+          if (attempt < 1 || attempt < maxRetries) {
+            clearRetryTimer();
+            retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1); }, 300);
+          } else {
+            setScanningError(true);
+            showOverlay('error', 'SCANNING ERROR');
+            hideOverlaySoon();
+            setTimeout(() => {
+              handleResetKfb();
+              setMacAddress('');
+              setGroupedBranches([]);
+              setActiveKssks([]);
+              setNameHints(undefined);
+            }, 1300);
+          }
+        } else {
+          console.error('CHECK error', err);
+          showOverlay('error', 'CHECK exception');
+          setAwaitingRelease(false);
+          hideOverlaySoon();
+          setTimeout(() => {
+            handleResetKfb();
+            setMacAddress('');
+            setGroupedBranches([]);
+            setActiveKssks([]);
+            setNameHints(undefined);
+          }, 1300);
+        }
       } finally {
+        clearRetryTimer();
         setIsChecking(false);
       }
     },
@@ -393,26 +488,28 @@ const MainApplicationUI: React.FC = () => {
     await loadBranchesData(normalized);
   }, [loadBranchesData]);
 
-  // SSE → handle scans (gate by view and settings sidebar)
- useEffect(() => {
-   if (mainView !== 'dashboard') return;
-   if (isSettingsSidebarOpen) return;
-   if (!serial.lastScanTick) return;              // no event yet
-   if (lastScanPath && !isAcmPath(lastScanPath)) return;
-   const want = resolveDesiredPath();
-   if (want && lastScanPath && !pathsEqual(lastScanPath, want)) return; // ignore other scanner paths
-   const code = serial.lastScan;                   // the latest payload
-   if (!code) return;
-   void handleScan(code);
-   // optional: echo code for visibility
-   // console.debug('[SSE scan]', { code, path: lastScanPath, tick: serial.lastScanTick });
- // depend on the tick, not the string
- }, [serial.lastScanTick, lastScanPath, handleScan, mainView, isSettingsSidebarOpen]);
-
-  // Polling fallback (filters to ACM via returned path and gates by view + settings)
+  // SSE → handle scans (gate by view, settings sidebar, and pause during CHECK)
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
+    if (isChecking) return;
+    if (!serial.lastScanTick) return;              // no event yet
+    if (lastScanPath && !isAcmPath(lastScanPath)) return;
+    const want = resolveDesiredPath();
+    if (want && lastScanPath && !pathsEqual(lastScanPath, want)) return; // ignore other scanner paths
+    const code = serial.lastScan;                   // the latest payload
+    if (!code) return;
+    void handleScan(code);
+   // optional: echo code for visibility
+   // console.debug('[SSE scan]', { code, path: lastScanPath, tick: serial.lastScanTick });
+ // depend on the tick, not the string
+ }, [serial.lastScanTick, lastScanPath, handleScan, mainView, isSettingsSidebarOpen, isChecking]);
+
+  // Polling fallback (filters to ACM via returned path and gates by view + settings). Pause during CHECK.
+  useEffect(() => {
+    if (mainView !== 'dashboard') return;
+    if (isSettingsSidebarOpen) return;
+    if (isChecking) return;
     if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
 
     let stopped = false;
@@ -471,7 +568,7 @@ const MainApplicationUI: React.FC = () => {
       if (timer) window.clearTimeout(timer);
       if (ctrl) ctrl.abort();
     };
-  }, [mainView, isSettingsSidebarOpen, handleScan]);
+  }, [mainView, isSettingsSidebarOpen, handleScan, isChecking]);
 
   // Removed UI polling; success overlay auto-hides after 3s.
 

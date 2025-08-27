@@ -41,6 +41,7 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
 
 // ENV-configurable KFB regex (fallback: 4 alphanumerics)
 const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^[A-Z0-9]{4}$/);
+const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
 
 const MainApplicationUI: React.FC = () => {
   // UI state
@@ -101,8 +102,8 @@ const MainApplicationUI: React.FC = () => {
 
   // ----- RUN CHECK ON DEMAND OR AFTER EACH SCAN -----
   const runCheck = useCallback(
-    async (pins: number[], mac: string) => {
-      if (!pins.length || !mac) return;
+    async (mac: string) => {
+      if (!mac) return;
 
       setIsChecking(true);
       setCheckFailures(null);
@@ -113,21 +114,36 @@ const MainApplicationUI: React.FC = () => {
         const res = await fetch('/api/serial/check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pins, mac }),
+          body: JSON.stringify({ mac }),
         });
         const result = await res.json();
 
         if (res.ok) {
           const failures: number[] = result.failures || [];
           setCheckFailures(failures);
-          setBranchesData(data =>
-            data.map(b => {
-              if (typeof b.pinNumber !== 'number' || b.notTested) return b;
-              return failures.includes(b.pinNumber)
-                ? { ...b, testStatus: 'nok' as TestStatus }
-                : { ...b, testStatus: 'ok' as TestStatus };
-            })
-          );
+          setBranchesData(data => {
+            // If we already have branches, update their statuses
+            if (data.length > 0) {
+              return data.map(b => {
+                if (typeof b.pinNumber !== 'number' || b.notTested) return b;
+                return failures.includes(b.pinNumber)
+                  ? { ...b, testStatus: 'nok' as TestStatus }
+                  : { ...b, testStatus: 'ok' as TestStatus };
+              });
+            }
+            // Otherwise, build branch list from Setup-provided pin aliases
+            let aliases: Record<string,string> = {};
+            try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac.toUpperCase()}`) || '{}') || {}; } catch {}
+            const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
+            pins.sort((a,b)=>a-b);
+            return pins.map(pin => ({
+              id: String(pin),
+              branchName: aliases[String(pin)] || `PIN ${pin}`,
+              testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+              pinNumber: pin,
+              kfbInfoValue: undefined,
+            }));
+          });
 
           if (failures.length === 0) {
             showOverlay('success', lastScanRef.current);
@@ -208,15 +224,25 @@ const MainApplicationUI: React.FC = () => {
       if (!serialRes.ok) throw new Error(`Serial POST failed: ${await serialRes.text()}`);
 
       // e) AUTO-CHECK on every scan
-      await runCheck(pins, mac_address);
+      await runCheck(mac_address);
     } catch (e) {
-      setKfbNumber('');
-      setKfbInfo(null);
-      setMacAddress('');
-      setErrorMsg('No branches found or failed to load.');
       console.error('Load/MONITOR error:', e);
-      showOverlay('error', 'Load failed');
-      hideOverlaySoon();
+      // Fallback: if input looks like a MAC, run CHECK-only without branches
+      if (MAC_ONLY_REGEX.test(normalized)) {
+        setKfbNumber('');
+        setKfbInfo(null);
+        setBranchesData([]);
+        setErrorMsg(null);
+        setMacAddress(normalized);
+        try { await runCheck(normalized); } catch {}
+      } else {
+        setKfbNumber('');
+        setKfbInfo(null);
+        setMacAddress('');
+        setErrorMsg('No branches found or failed to load.');
+        showOverlay('error', 'Load failed');
+        hideOverlaySoon();
+      }
     } finally {
       setIsScanning(false);
     }
@@ -267,6 +293,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
+    if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
 
     let stopped = false;
     let timer: number | null = null;
@@ -275,13 +302,14 @@ const MainApplicationUI: React.FC = () => {
     const tick = async () => {
       try {
         if (isScanningRef.current) {
-          if (!stopped) timer = window.setTimeout(tick, 250);
+          if (!stopped) timer = window.setTimeout(tick, 500);
           return;
         }
         ctrl = new AbortController();
        const res = await fetch('/api/serial/scanner', { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
-           const { code, path, error } = await res.json();
+           const { code, path, error, retryInMs } = await res.json();
+           try { if (typeof retryInMs === 'number') (window as any).__scannerRetry = retryInMs; } catch {}
           const raw = typeof code === 'string' ? code.trim() : '';
           if (raw) {
             if (path && !isAcmPath(path)) return;
@@ -297,7 +325,9 @@ const MainApplicationUI: React.FC = () => {
           console.error('[SCANNER] poll error', e);
         }
       } finally {
-        if (!stopped) timer = window.setTimeout(tick, 250);
+        const delay = typeof (window as any).__scannerRetry === 'number' ? (window as any).__scannerRetry : undefined;
+        const nextMs = (typeof (delay) === 'number' && delay > 0) ? delay : 800;
+        if (!stopped) timer = window.setTimeout(tick, nextMs);
       }
     };
 

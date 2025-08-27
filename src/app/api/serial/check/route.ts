@@ -11,14 +11,15 @@ export const dynamic = 'force-dynamic';
 const log = LOG.tag('api:serial/check');
 const mon = LOG.tag('monitor');
 
+// Accept either { mac } or { mac, pins }
 const Body = z.object({
-  pins: z.array(z.number().int()),
   mac: z.string().min(1),
+  pins: z.array(z.number().int()).optional(),
 });
 
 // Fast turnaround. Scanner re-triggers checks, so don’t block long.
-const HANDSHAKE_TIMEOUT_MS = 1500;
-const RESULT_TIMEOUT_MS = 1500;
+const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 2000);
+const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 3000);
 
 const locks = new Set<string>();
 
@@ -26,12 +27,11 @@ const esc = (s: string) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
 const normMac = (s: string) => s.trim().toUpperCase();
 const escMac = (s: string) => esc(normMac(s));
 
-function buildMatchers(macUp: string, pinsCsv: string) {
+function buildMatchers(macUp: string) {
   const MAC = escMac(macUp);
-  const PINS = esc(pinsCsv);
 
-  // This CHECK handshake
-  const SENT_RE = new RegExp(`Sent\\s+'CHECK\\s+${PINS}'\\s+to\\s+${MAC}\\b`, 'i');
+  // This CHECK handshake — accept any content after CHECK inside quotes
+  const SENT_RE = new RegExp(`Sent\\s+'CHECK[^']*'\\s+to\\s+${MAC}\\b`, 'i');
 
   // Terminal results only
   const RESULT_RE = new RegExp(`\\bRESULT\\s+(SUCCESS|FAILURE[^\\n]*)\\b.*${MAC}\\b`, 'i');
@@ -62,8 +62,8 @@ function buildMatchers(macUp: string, pinsCsv: string) {
   };
 }
 
-function parseFailuresFromLine(line: string, pins: number[]) {
-  const want = new Set<number>(pins);
+function parseFailuresFromLine(line: string, pins?: number[]) {
+  const want = pins ? new Set<number>(pins) : null;
   const miss =
     line.match(/MISSING\s+([0-9,\s]+)/i) ||
     line.match(/FAILURES?\s*:\s*([0-9,\s]+)/i);
@@ -73,7 +73,9 @@ function parseFailuresFromLine(line: string, pins: number[]) {
     .split(/[,\s]+/)
     .forEach((x) => {
       const n = Number(x);
-      if (Number.isInteger(n) && want.has(n)) failures.add(n);
+      if (!Number.isInteger(n)) return;
+      if (want) { if (want.has(n)) failures.add(n); }
+      else failures.add(n);
     });
 
   return Array.from(failures).sort((a, b) => a - b);
@@ -93,22 +95,21 @@ export async function POST(request: Request) {
   const t0 = Date.now();
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success)
-    return NextResponse.json({ error: 'Expected { pins, mac }' }, { status: 400, headers: { 'X-Req-Id': rid } });
+    return NextResponse.json({ error: 'Expected { mac } or { mac, pins }' }, { status: 400, headers: { 'X-Req-Id': rid } });
 
   const macUp = normMac(parsed.data.mac);
   if (locks.has(macUp)) return NextResponse.json({ error: 'busy' }, { status: 429 });
   locks.add(macUp);
 
   try {
-    const { pins } = parsed.data;
-    const pinsCsv = pins.join(',');
+    const pins = parsed.data.pins ?? [];
 
     const { sendToEsp, waitForNextLine } = serial as any;
     if (typeof sendToEsp !== 'function' || typeof waitForNextLine !== 'function') {
       throw new Error('serial-helpers-missing');
     }
 
-    log.info('CHECK begin', { rid, mac: macUp, pins: pins.length, pinsCsv });
+    log.info('CHECK begin', { rid, mac: macUp, pins: pins.length });
     if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
       mon.info(`CHECK start mac=${macUp} pins=${pins.length}`);
     }
@@ -122,12 +123,12 @@ export async function POST(request: Request) {
       ADDPEER_RE,
       SENDFAIL_RE,
       isResult,
-    } = buildMatchers(macUp, pinsCsv);
+    } = buildMatchers(macUp);
 
     const signal = (request as any).signal;
 
     // Fire command
-    await sendToEsp(`CHECK ${pinsCsv} ${macUp}`);
+    await sendToEsp(`CHECK ${macUp}`);
 
     // Sync to this transaction quickly
     await waitForNextLine(SENT_RE, signal, HANDSHAKE_TIMEOUT_MS);

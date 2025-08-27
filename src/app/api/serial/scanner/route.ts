@@ -63,8 +63,8 @@ function readScan(peek: boolean) {
 
 // Keep ensure() cheap but frequent
 let NEXT_ENSURE_AT = 0;
-const ENSURE_INTERVAL_MS = 800;
-const CLIENT_RETRY_MS = 250;
+const ENSURE_INTERVAL_MS = Number(process.env.SCANNER_ENSURE_INTERVAL_MS ?? 1200);
+const CLIENT_RETRY_MS = Number(process.env.SCANNER_CLIENT_RETRY_MS ?? 800);
 
 export async function GET(req: Request) {
   try {

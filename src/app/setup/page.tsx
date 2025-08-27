@@ -83,7 +83,7 @@ function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => voi
 const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
 
 // JSON extractor
-function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number[]; latchPins: number[] } {
+function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
   const segRoot =
     data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment ??
@@ -93,6 +93,7 @@ function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number
   const segments = take(segRoot);
   const normal: number[] = [];
   const latch: number[] = [];
+  const names: Record<number,string> = {};
 
   for (const seg of segments) {
     for (const s of take(seg?.sequenceList?.sequence)) {
@@ -103,31 +104,39 @@ function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number
       const m = og.match(OBJGROUP_MAC);
       if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
 
-      const parts = String(s?.objPos ?? "").split(",");
+      const objPosRaw = String(s?.objPos ?? "");
+      const parts = objPosRaw.split(",");
       let isLatch = false;
       if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
       const last = parts[parts.length - 1] ?? "";
       const pin = Number(String(last).replace(/[^\d]/g, ""));
       if (!Number.isFinite(pin)) continue;
+      const label = String(objPosRaw).split(",")[0] || ""; // e.g. CL_2453
+      if (label) names[pin] = label;
       (isLatch ? latch : normal).push(pin);
     }
   }
   const uniq = (xs: number[]) => Array.from(new Set(xs));
-  return { normalPins: uniq(normal), latchPins: uniq(latch) };
+  return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
 // XML extractor
-function extractPinsFromKrosyXML(xml: string, macHint?: string) {
+function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
   const wantMac = String(macHint ?? "").toUpperCase();
   const normal: number[] = [];
   const latch: number[] = [];
+  const names: Record<number,string> = {};
 
   const pushPin = (pos: string) => {
     const parts = String(pos).split(",");
     let isLatch = false;
     if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
     const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
-    if (Number.isFinite(pin)) (isLatch ? latch : normal).push(pin);
+    if (Number.isFinite(pin)) {
+      (isLatch ? latch : normal).push(pin);
+      const label = String(pos).split(",")[0] || "";
+      if (label) names[pin] = label;
+    }
   };
 
   let parsedOk = false;
@@ -162,7 +171,7 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string) {
   }
 
   const uniq = (xs: number[]) => Array.from(new Set(xs));
-  return { normalPins: uniq(normal), latchPins: uniq(latch) };
+  return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
 
@@ -514,10 +523,13 @@ export default function SetupPage() {
           return;
         }
 
-        const pins = resp.data?.__xml
+        const out = resp.data?.__xml
           ? extractPinsFromKrosyXML(resp.data.__xml, String(kfb).toUpperCase())
           : extractPinsFromKrosy(resp.data, String(kfb).toUpperCase());
-        const hasPins = !!pins && ((pins.normalPins?.length ?? 0) + (pins.latchPins?.length ?? 0)) > 0;
+        // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
+        try { localStorage.setItem(`PIN_ALIAS::${String(kfb).toUpperCase()}`, JSON.stringify(out.names || {})); } catch {}
+
+        const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
         if (!hasPins) {
           await releaseLock(code);
           bump(target, null, "idle");
@@ -531,12 +543,12 @@ export default function SetupPage() {
           const r = await fetch("/api/serial", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              normalPins: pins.normalPins,
-              latchPins: pins.latchPins,
+              body: JSON.stringify({
+              normalPins: out.normalPins,
+              latchPins: out.latchPins,
               mac: String(kfb).toUpperCase(),
               kssk: code,
-            }),
+              }),
           });
           if (!r.ok) {
             espOk = false;

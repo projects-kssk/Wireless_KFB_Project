@@ -191,21 +191,13 @@ useEffect(() => {
       setCheckError('Missing MAC address for CHECK');
       return;
     }
-    // collect testable pins from current branches
-    const pins = localBranches
-      .filter(b => typeof b.pinNumber === 'number' && !b.notTested)
-      .map(b => b.pinNumber as number);
-    if (!pins.length) {
-      setCheckError('No pins to check');
-      return;
-    }
     setIsChecking(true);
     setCheckError(null);
     try {
       const res = await fetch('/api/serial/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pins, mac: macAddress.toUpperCase() }),
+        body: JSON.stringify({ mac: macAddress.toUpperCase() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || String(res.status));

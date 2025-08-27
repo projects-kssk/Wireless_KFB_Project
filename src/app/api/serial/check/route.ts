@@ -4,10 +4,12 @@ import { z } from 'zod';
 import serial from '@/lib/serial';
 import { LOG } from '@/lib/logger';
 import crypto from 'node:crypto';
+import { ridFrom } from '@/lib/rid';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const log = LOG.tag('api:serial/check');
+const mon = LOG.tag('monitor');
 
 const Body = z.object({
   pins: z.array(z.number().int()),
@@ -87,11 +89,11 @@ function getTail(): string[] {
 }
 
 export async function POST(request: Request) {
-  const rid = (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Math.random().toString(36).slice(2)).replace(/-/g,'').slice(0,8);
+  const rid = ridFrom(request);
   const t0 = Date.now();
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success)
-    return NextResponse.json({ error: 'Expected { pins, mac }' }, { status: 400 });
+    return NextResponse.json({ error: 'Expected { pins, mac }' }, { status: 400, headers: { 'X-Req-Id': rid } });
 
   const macUp = normMac(parsed.data.mac);
   if (locks.has(macUp)) return NextResponse.json({ error: 'busy' }, { status: 429 });
@@ -107,6 +109,7 @@ export async function POST(request: Request) {
     }
 
     log.info('CHECK begin', { rid, mac: macUp, pins: pins.length, pinsCsv });
+    mon.info(`CHECK start mac=${macUp} pins=${pins.length}`);
 
     const {
       SENT_RE,
@@ -192,20 +195,23 @@ export async function POST(request: Request) {
     if (!line) {
       // No signal yet. Return empty failures. Scanner will re-trigger.
       log.info('CHECK no-result-yet', { rid, mac: macUp, durationMs: Date.now()-t0 });
-      return NextResponse.json({ failures: [] });
+      mon.info(`CHECK pending mac=${macUp} no-result-yet`);
+      return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
     }
 
     // Terminal parse
     const m1 = line.match(RESULT_RE) || line.match(REPLY_RESULT_RE);
     if (m1 && /^SUCCESS/i.test(m1[1])) {
       log.info('CHECK success', { rid, mac: macUp, durationMs: Date.now()-t0 });
-      return NextResponse.json({ failures: [] });
+      mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
+      return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
     }
 
     // FAILURE → return pin list
     const failures = parseFailuresFromLine(line, pins);
     log.info('CHECK failure', { rid, mac: macUp, failures, durationMs: Date.now()-t0 });
-    return NextResponse.json({ failures });
+    mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);
+    return NextResponse.json({ failures }, { headers: { 'X-Req-Id': rid } });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status =
@@ -233,7 +239,8 @@ export async function POST(request: Request) {
     }
 
     log.error('[serial/check]', { rid, mac: parsed.success ? normMac(parsed.data.mac) : 'n/a', msg, status, durationMs: Date.now()-t0 });
-    return NextResponse.json({ error: msg }, { status });
+    mon.error(`CHECK error mac=${macUp} err=${msg} status=${status}`);
+    return NextResponse.json({ error: msg }, { status, headers: { 'X-Req-Id': rid } });
   } finally {
     locks.delete(macUp);
   }

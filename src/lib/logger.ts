@@ -10,6 +10,25 @@ const DIR     = process.env.LOG_DIR || "./logs";
 const BASE    = process.env.LOG_FILE_BASENAME || "app";
 const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
 
+// Monitor-only mode: show only tag=="monitor" (except allow errors always)
+const MONITOR_ONLY = (process.env.LOG_MONITOR_ONLY ?? "0") === "1";
+
+// Per-tag minimum overrides: e.g. "redis=warn,kssk-lock=warn,api:krosy-offline=warn"
+const TAG_LEVELS_RAW = process.env.LOG_TAG_LEVELS || "";
+const TAG_MIN: Record<string, Level> = {};
+for (const pair of TAG_LEVELS_RAW.split(",")) {
+  const [k, v] = pair.split("=").map(s => (s || "").trim());
+  if (!k || !v) continue;
+  const lv = v.toLowerCase();
+  if ((levels as any).includes(lv)) TAG_MIN[k] = lv as Level;
+}
+
+function levelIdx(l: Level) { return levels.indexOf(l); }
+function minFor(tag?: string): Level {
+  if (tag && TAG_MIN[tag] ) return TAG_MIN[tag];
+  return MIN;
+}
+
 let day = ""; let stream: fs.WriteStream | null = null;
 
 function ensureStream() {
@@ -25,7 +44,11 @@ function ensureStream() {
 }
 
 function write(level: Level, tag: string | undefined, msg: string, extra?: any) {
-  if (!ENABLED || levels.indexOf(level) < levels.indexOf(MIN)) return;
+  // Global filter: only monitor unless it's an error
+  if (MONITOR_ONLY && tag !== "monitor" && level !== "error") return;
+  // Per-tag & global min
+  const effMin = minFor(tag);
+  if (!ENABLED || levelIdx(level) < levelIdx(effMin)) return;
   const line = JSON.stringify({ ts: new Date().toISOString(), level, tag, msg, ...(extra?{extra}: {}) });
   // console
   (level === "debug" ? console.log : (console as any)[level])(`[${tag ?? "app"}] ${msg}`);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
 import { LOG } from '@/lib/logger';
+import { ridFrom } from '@/lib/rid';
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,16 +164,25 @@ function extractPinsFromSequence(
 /* ----------------- GET ----------------- */
 export async function GET(req: Request) {
   try {
+    const rid = ridFrom(req);
     const url = new URL(req.url);
     const probe = url.searchParams.get("probe") === "1";
 
     if (!probe) {
-      if (health) return json({ ok: health.ok, raw: health.raw, ageMs: now() - health.ts }, health.ok ? 200 : 503);
-      return json({ ok: false, error: "No telemetry yet" }, 503);
+      if (health) {
+        const resp = NextResponse.json({ ok: health.ok, raw: health.raw, ageMs: now() - health.ts }, { status: health.ok ? 200 : 503 });
+        resp.headers.set('X-Req-Id', rid);
+        return resp;
+      }
+      const resp = NextResponse.json({ ok: false, error: "No telemetry yet" }, { status: 503 });
+      resp.headers.set('X-Req-Id', rid);
+      return resp;
     }
 
     if (health && now() - lastProbeTs < PROBE_TTL_MS) {
-      return json({ ok: health.ok, raw: health.raw, ageMs: now() - health.ts }, health.ok ? 200 : 503);
+      const resp = NextResponse.json({ ok: health.ok, raw: health.raw, ageMs: now() - health.ts }, { status: health.ok ? 200 : 503 });
+      resp.headers.set('X-Req-Id', rid);
+      return resp;
     }
 
     const { sendAndReceive } = await loadSerial();
@@ -181,18 +191,27 @@ export async function GET(req: Request) {
 
     health = { ts: now(), ok, raw };
     lastProbeTs = now();
-    return json({ ok, raw }, ok ? 200 : 502);
+    const resp = NextResponse.json({ ok, raw }, { status: ok ? 200 : 502 });
+    resp.headers.set('X-Req-Id', rid);
+    return resp;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error("GET /api/serial error", err);
-    return json({ ok: false, error: msg }, 500);
+    const resp = NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    try { (resp.headers as any).set('X-Req-Id', ridFrom(req)); } catch {}
+    return resp;
   }
 }
 
 // ----------------- POST -----------------
 export async function POST(request: Request) {
   let body: unknown;
-  try { body = await request.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+  const rid = ridFrom(request);
+  try { body = await request.json(); } catch {
+    const resp = NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    resp.headers.set('X-Req-Id', rid);
+    return resp;
+  }
 
   // capture raw requested pins (for logging)
   let src: "pins" | "sequence" = "pins";
@@ -268,7 +287,9 @@ export async function POST(request: Request) {
   catch (err) {
     await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
     log.error("load serial helper error", err);
-    return json({ error: "Internal error" }, 500);
+    const resp = NextResponse.json({ error: "Internal error" }, { status: 500 });
+    resp.headers.set('X-Req-Id', rid);
+    return resp;
   }
 
   try {
@@ -276,12 +297,16 @@ export async function POST(request: Request) {
     health = { ts: now(), ok: true, raw: "WRITE_OK" };
     // --- NEW: success log repeats the exact cmd & counts (easy to grep alongside device LED state) ---
     await appendLog({ event: "monitor.success", mac, kssk, cmd, counts });
-    return json({ success: true, cmd, normalPins, latchPins, mac });
+    const resp = NextResponse.json({ success: true, cmd, normalPins, latchPins, mac });
+    resp.headers.set('X-Req-Id', rid);
+    return resp;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
     await appendLog({ event: "monitor.error", mac, kssk, cmd, counts, diffs, error: message });
-    return json({ error: message, cmdTried: cmd }, 500);
+    const resp = NextResponse.json({ error: message, cmdTried: cmd }, { status: 500 });
+    resp.headers.set('X-Req-Id', rid);
+    return resp;
   }
 }

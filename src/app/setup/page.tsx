@@ -11,10 +11,9 @@ import {
 } from "react";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
-import type { RefObject, MutableRefObject } from "react";
+import type { RefObject } from "react";
 
 /* ===== Config ===== */
-const OK_DISPLAY_MS = 3000;
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
@@ -1442,7 +1441,7 @@ function ResultOverlay({
   msg?: string;
   seq: number;
   onClose: () => void;
-  excludeRef?: RefObject<HTMLElement | null> | MutableRefObject<HTMLElement | null>;
+  excludeRef?: RefObject<HTMLElement | null> | RefObject<HTMLElement | null>;
   anchor: "table" | "viewport";
 }) {
   const [hole, setHole] = useState<SpotlightRect | null>(null);

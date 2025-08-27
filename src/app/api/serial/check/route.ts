@@ -19,7 +19,7 @@ const Body = z.object({
 
 // Fast turnaround. Scanner re-triggers checks, so don’t block long.
 const HANDSHAKE_TIMEOUT_MS = Number(process.env.CHECK_HANDSHAKE_TIMEOUT_MS ?? 2000);
-const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 3000);
+const RESULT_TIMEOUT_MS = Number(process.env.CHECK_RESULT_TIMEOUT_MS ?? 5000);
 
 const locks = new Set<string>();
 
@@ -34,11 +34,12 @@ function buildMatchers(macUp: string) {
   const SENT_RE = new RegExp(`Sent\\s+'CHECK[^']*'\\s+to\\s+${MAC}\\b`, 'i');
 
   // Terminal results only
-  const RESULT_RE = new RegExp(`\\bRESULT\\s+(SUCCESS|FAILURE[^\\n]*)\\b.*${MAC}\\b`, 'i');
+  const RESULT_RE = new RegExp(`\\bRESULT\\s+(SUCCESS|OK|FAIL(?:URE)?[^\\n]*)\\b.*${MAC}\\b`, 'i');
   const REPLY_RESULT_RE = new RegExp(
-    `^\\s*←\\s*reply\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|FAILURE[^\\n]*)`,
+    `^\\s*←\\s*(?:reply|resp|response)\\s+from\\s+${MAC}\\s*:\\s*(SUCCESS|OK|FAIL(?:URE)?[^\\n]*)`,
     'i'
   );
+  const OK_ONLY_RE = /^\s*(?:OK|SUCCESS)\s*$/i;
 
   // Errors
   const IGNORED_RE = new RegExp(
@@ -59,6 +60,7 @@ function buildMatchers(macUp: string) {
     ADDPEER_RE,
     SENDFAIL_RE,
     isResult,
+    OK_ONLY_RE,
   };
 }
 
@@ -123,6 +125,7 @@ export async function POST(request: Request) {
       ADDPEER_RE,
       SENDFAIL_RE,
       isResult,
+      OK_ONLY_RE,
     } = buildMatchers(macUp);
 
     const signal = (request as any).signal;
@@ -130,8 +133,13 @@ export async function POST(request: Request) {
     // Fire command
     await sendToEsp(`CHECK ${macUp}`);
 
-    // Sync to this transaction quickly
-    await waitForNextLine(SENT_RE, signal, HANDSHAKE_TIMEOUT_MS);
+    // Optional handshake: don't fail if not seen
+    try {
+      await waitForNextLine(SENT_RE, signal, HANDSHAKE_TIMEOUT_MS);
+    } catch (e: any) {
+      if (String(e?.message ?? e) !== 'timeout') throw e;
+      // proceed without handshake; device may not emit it
+    }
 
     // Wait briefly for a terminal RESULT from this transaction
     const pResult = waitForNextLine(isResult, signal, RESULT_TIMEOUT_MS);
@@ -148,6 +156,7 @@ export async function POST(request: Request) {
         throw new Error('station-invalid-mac');
       }
     );
+    const pOkOnly = waitForNextLine(OK_ONLY_RE, signal, RESULT_TIMEOUT_MS);
     const pAddPeer = waitForNextLine(ADDPEER_RE, signal, RESULT_TIMEOUT_MS).then(
       () => {
         throw new Error('station-add-peer-failed');
@@ -162,7 +171,7 @@ export async function POST(request: Request) {
     let line: string | null = null;
     try {
       line = String(
-        await Promise.race([pResult, pIgnored, pInvalid, pAddPeer, pSendFail])
+        await Promise.race([pResult, pIgnored, pInvalid, pAddPeer, pSendFail, pOkOnly])
       ).trim();
     } catch (e: any) {
       // Timeout or non-fatal error: scan tail for latest terminal line

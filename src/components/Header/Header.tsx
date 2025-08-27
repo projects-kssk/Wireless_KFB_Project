@@ -576,7 +576,7 @@ export const Header: React.FC<HeaderProps> = ({
   const s2Sub = subFor(s2);
 
   const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
-  const serverSub = server === 'connected' ? 'Online' : 'Offline';
+  const serverSub = server === 'connected' ? 'ESP + Redis' : 'Needs ESP+Redis';
 
   /* ESP discover/test state */
   const [discoverOpen, setDiscoverOpen] = useState(false);

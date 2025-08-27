@@ -15,6 +15,7 @@ type SerialEvent =
   | { type: "devices"; devices: DeviceInfo[] }
   | { type: "esp"; ok: boolean; raw?: string; error?: string; present?: boolean }
   | { type: "net"; iface: string; present: boolean; up: boolean; ip?: string | null; oper?: string | null }
+  | { type: "redis"; ready: boolean }
   | { type: "scan"; code: string; path?: string }
   | { type: "scanner/open"; path?: string }
   | { type: "scanner/close"; path?: string }
@@ -50,10 +51,11 @@ export function useSerialEvents() {
   const esRef = useRef<EventSource | null>(null);
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
+  const redisOkRef = useRef(false);
 
-  // derive server status from esp/net
+  // derive server status from esp+redis (both must be OK)
   useEffect(() => {
-    setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+    setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
   }, []); // initial
 
   // helper: upsert a port record
@@ -109,14 +111,21 @@ export function useSerialEvents() {
         case "esp": {
           const ok = Boolean((msg as any).ok) || Boolean((msg as any).present);
           espOkRef.current = ok;
-          setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+          setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           break;
         }
 
         case "net": {
           const upNow = Boolean(msg.up);
           netUpRef.current = upNow;
-          setServer(espOkRef.current || netUpRef.current ? "connected" : "offline");
+          // net no longer affects server LED directly
+          break;
+        }
+
+        case "redis": {
+          const ready = Boolean((msg as any).ready);
+          redisOkRef.current = ready;
+          setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           break;
         }
 

@@ -10,6 +10,7 @@ export type SerialEvent =
   | { type: 'devices'; devices: DeviceInfo[] }
   | { type: 'esp'; ok: boolean; raw?: string; present?: boolean; error?: string }
   | { type: 'net'; iface: string; present: boolean; up: boolean; ip?: string | null; oper?: string | null }
+  | { type: 'redis'; ready: boolean }
   | { type: 'scan'; code: string; path?: string }
   | { type: 'scanner/open'; path?: string }
   | { type: 'scanner/close'; path?: string }

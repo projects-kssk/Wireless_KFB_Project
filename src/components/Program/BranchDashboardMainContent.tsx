@@ -259,7 +259,7 @@ useEffect(() => {
         <rect x="4" y="7" width="16" height="10" rx="3" stroke="currentColor" />
         <path d="M8 7V5a4 4 0 0 1 8 0v2" stroke="currentColor" />
       </svg>
-      Enter KFB Board Number
+      Enter Mac Address
     </h2>
     <form onSubmit={handleManualSubmit} className="w-full flex flex-col items-center gap-6">
      <input

@@ -78,23 +78,32 @@ export async function GET(req: Request) {
     }
 
     const statusRaw = getScannerStatus();
-    const status = pickStatus(statusRaw, envScannerPaths());
+  const status = pickStatus(statusRaw, envScannerPaths());
 
-    const scan = readScan(!consume); // peek unless explicitly consuming
-    const code = scan?.code ?? null;
-    const path = scan?.path ?? null;
+  const scan = readScan(!consume); // peek unless explicitly consuming
+  const code = scan?.code ?? null;
+  const path = scan?.path ?? null;
 
-    let error: string | null = null;
-    // if (!code) {
-    //   if (!status) error = 'disconnected:not_present';
-    //   else if (!status.open) error = 'closed:not_open';
-    //   else if (status.inCooldown) error = status.lastError || 'cooldown';
-    // }
+  let error: string | null = null;
+  // Optional: convey a hint about state in error (for logs/debug)
+  if (!code) {
+    if (!status) error = 'disconnected:not_present';
+    else if (!status.open) error = 'closed:not_open';
+    else if (status.inCooldown) error = status.lastError || 'cooldown';
+  }
+  // Adaptive client retry suggestion
+  let advise = CLIENT_RETRY_MS;
+  if (!code) {
+    if (!status) advise = Math.max(advise, 1500);
+    else if (!status.open) advise = Math.max(advise, 1200);
+    else if (status.inCooldown) advise = Math.max(advise, 1200);
+    else advise = Math.max(advise, 900);
+  }
 
-    return NextResponse.json(
-      { code, path, error, retryInMs: CLIENT_RETRY_MS },
-      { headers: { 'Cache-Control': 'no-store' } }
-    );
+  return NextResponse.json(
+    { code, path, error, retryInMs: advise },
+    { headers: { 'Cache-Control': 'no-store' } }
+  );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     const busy = /BUSY|lock|COOLDOWN/i.test(message);

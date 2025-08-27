@@ -23,7 +23,7 @@ This README explains features, architecture, APIs, configuration, and how to run
 - Serial: Communicates with an ESP over a configured TTY for MONITOR/CHECK flows.
 - Scanners: Listens to barcode scanners on `/dev/ttyACM*` and consumes the scanned KFB.
 - Locks: Uses Redis for station-scoped KSSK locks with an in-memory fallback.
-- Data: Branch/config endpoints read from Postgres (pool) as used by the UI.
+- Setup derives pin → branch names from Krosy XML and stores them for CHECK-only flows.
 
 Flow summary
 - Scan KFB → fetch branches/config → send MONITOR to ESP (pins + MAC) → run CHECK → overlay OK/ERROR + failures.
@@ -39,7 +39,7 @@ Flow summary
 Prerequisites
 - Node 20+
 - Docker (for Redis helper script) or an accessible Redis instance
-- Postgres reachable by the env values in `.env`
+- Redis reachable; Postgres no longer required for the production flow.
 
 ## Key Environment Variables
 - Serial/ESP
@@ -53,8 +53,7 @@ Prerequisites
   - `KSSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
   - `KSSK_DEFAULT_TTL_SEC=172800` (server default TTL for locks; 2 days)
   - `NEXT_PUBLIC_KSSK_TTL_SEC=172800` (client TTL used by Setup page; 2 days)
-- Postgres (used by branches/configs endpoints)
-  - `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`
+// Postgres is no longer required for this flow.
 - UI behavior
   - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for KFB input)
   - `NEXT_PUBLIC_STATION_ID` (used for lock ownership)
@@ -120,13 +119,7 @@ KSSK Locks (Redis; in-memory fallback when Redis is unavailable)
 - `DELETE /api/kssk-lock?kssk=...&stationId=...`
   - Deletes if called by owner (or `force=1`)
 
-Branches / Configurations (Postgres)
-- `GET /api/branches?kfb=KFB123`
-  - Returns list of branches with optional pin and flags (used by dashboard)
-- `GET /api/configurations?kfb=KFB123`
-  - Returns configuration for a KFB (id, kfb, mac_address)
-- `POST /api/configurations` (admin workflows)
-  - Insert a full configuration with info details, branches, and pin mappings
+Note: Legacy Postgres-backed branches/config endpoints were removed in favor of using Krosy XML data from Setup.
 
 ## CLI Helpers
 - Start Redis (Docker): `npm run redis:up` (and `npm run redis:logs`)

@@ -280,6 +280,10 @@ const MainApplicationUI: React.FC = () => {
     if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
 
     let stopped = false;
+    // guard against duplicate pollers in StrictMode / re-renders
+    const key = '__scannerPollActive__';
+    if ((window as any)[key]) return;
+    (window as any)[key] = true;
     let timer: number | null = null;
     let ctrl: AbortController | null = null;
 
@@ -318,6 +322,7 @@ const MainApplicationUI: React.FC = () => {
     tick();
     return () => {
       stopped = true;
+      try { delete (window as any)[key]; } catch {}
       if (timer) window.clearTimeout(timer);
       if (ctrl) ctrl.abort();
     };

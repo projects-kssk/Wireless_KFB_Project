@@ -7,6 +7,7 @@ import {
   considerDevicesForScanner,
   espHealth,
 } from '@/lib/serial';
+import { getRedis } from '@/lib/redis';
 
 // Ensure bus → memory is wired once per process
 import '@/lib/scanSink';
@@ -96,6 +97,7 @@ export async function GET(req: Request) {
 
       // Initial payloads
       try { send({ type: 'net', ...(await ethStatus()) }); } catch {}
+      try { const r: any = getRedis(); send({ type: 'redis', ready: !!(r && (r.status === 'ready')) }); } catch {}
 
       const configured = envScannerPaths();
       let allPaths = configured.slice();
@@ -137,6 +139,7 @@ export async function GET(req: Request) {
         }
 
         try { send({ type: 'net', ...(await ethStatus()) }); } catch {}
+        try { const r: any = getRedis(); send({ type: 'redis', ready: !!(r && (r.status === 'ready')) }); } catch {}
 
         try {
           const devices = await listSerialDevices();

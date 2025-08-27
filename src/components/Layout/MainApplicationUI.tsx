@@ -57,6 +57,7 @@ const MainApplicationUI: React.FC = () => {
   const [macAddress, setMacAddress] = useState('');
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [nameHints, setNameHints] = useState<Record<string,string> | undefined>(undefined);
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
@@ -146,22 +147,32 @@ const MainApplicationUI: React.FC = () => {
         if (res.ok) {
           const failures: number[] = result.failures || [];
           const unknown = result?.unknownFailure === true;
+          const hints = (result?.nameHints && typeof result.nameHints === 'object') ? (result.nameHints as Record<string,string>) : undefined;
+          setNameHints(hints);
           setCheckFailures(failures);
-          setBranchesData(data => {
-            // If we already have branches, update their statuses
-            if (data.length > 0) {
-              return data.map(b => {
-                if (typeof b.pinNumber !== 'number' || b.notTested) return b;
-                return failures.includes(b.pinNumber)
-                  ? { ...b, testStatus: 'nok' as TestStatus }
-                  : { ...b, testStatus: 'ok' as TestStatus };
-              });
-            }
-            // Otherwise, build branch list from Setup-provided pin aliases
+          setBranchesData(_prev => {
+            // Always rebuild list so all KSSKs are reflected
             const macUp = mac.toUpperCase();
             let aliases: Record<string,string> = {};
-            try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {}; } catch {}
-            // If no local aliases, try aggregated maps for all KSSKs from server and merge
+            // Prefer API items (all KSSKs), else fallback
+            const itemsPref = Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive
+                              : (Array.isArray((result as any)?.items) ? (result as any).items : null);
+            if (itemsPref) {
+              const mergeAliases = (items: Array<{ aliases: Record<string,string> }>) => {
+                const merged: Record<string,string> = {};
+                for (const it of items) {
+                  for (const [pin, name] of Object.entries(it.aliases || {})) {
+                    if (!merged[pin]) merged[pin] = name;
+                    else if (merged[pin] !== name) merged[pin] = `${merged[pin]} / ${name}`;
+                  }
+                }
+                return merged;
+              };
+              aliases = mergeAliases(itemsPref as Array<{ aliases: Record<string,string> }>);
+            } else {
+              try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {}; } catch {}
+            }
+            // If still empty, try simple aliases from API union
             if (!aliases || Object.keys(aliases).length === 0) {
               const mergeAliases = (items: Array<{ aliases: Record<string,string> }>) => {
                 const merged: Record<string,string> = {};
@@ -194,7 +205,8 @@ const MainApplicationUI: React.FC = () => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            const items = Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : [];
+            const items = Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
+                        : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
             if (items.length) {
               const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
@@ -266,8 +278,14 @@ const MainApplicationUI: React.FC = () => {
           }
           if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
         } else {
-          console.error('CHECK error:', result);
-          showOverlay('error', 'CHECK failed');
+          // Distinguish no-result timeouts from other errors
+          if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
+            console.warn('CHECK pending/no-result');
+            showOverlay('error', 'SCANNING ERROR');
+          } else {
+            console.error('CHECK error:', result);
+            showOverlay('error', 'CHECK ERROR');
+          }
           setAwaitingRelease(false);
           hideOverlaySoon();
         }
@@ -550,6 +568,7 @@ const MainApplicationUI: React.FC = () => {
                 branchesData={branchesData}
                 groupedBranches={groupedBranches}
                 checkFailures={checkFailures}
+                nameHints={nameHints}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning}

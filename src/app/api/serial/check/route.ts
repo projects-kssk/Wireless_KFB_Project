@@ -245,7 +245,7 @@ export async function POST(request: Request) {
       }
       // Do NOT return OK on no result; indicate pending/timeout
       return NextResponse.json(
-        { error: 'no-result-yet', pending: true, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) },
+        { error: 'no-result-yet', code: 'NO_RESULT', symbol: 'X', pending: true, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) },
         { status: 504, headers: { 'X-Req-Id': rid } }
       );
     }
@@ -270,7 +270,7 @@ export async function POST(request: Request) {
     }
     const failures = parseFailuresFromLine(line, pins);
 
-    // On failure, enrich with aliases and per-KSSK bundles (does not block success path)
+    // On failure, enrich with aliases, name hints and per-KSSK bundles (does not block success path)
     try {
       const { getRedis } = await import('@/lib/redis');
       const r = getRedis();
@@ -281,6 +281,10 @@ export async function POST(request: Request) {
         const n = Array.isArray(parsedR?.normalPins) ? parsedR.normalPins : undefined;
         const l = Array.isArray(parsedR?.latchPins) ? parsedR.latchPins : undefined;
         pinMeta = { ...(n ? { normalPins: n } : {}), ...(l ? { latchPins: l } : {}) };
+        if (parsedR?.hints && typeof parsedR.hints === 'object') {
+          // pass through as nameHints for UI
+          (pinMeta as any).nameHints = parsedR.hints;
+        }
       }
       const members: string[] = await r.smembers(`kfb:aliases:index:${macUp}`).catch(() => []);
       const rows = await Promise.all(members.map(async (kssk) => {
@@ -298,6 +302,18 @@ export async function POST(request: Request) {
         } catch { return null; }
       }));
       itemsAll = rows.filter(Boolean) as any;
+      // Active KSSKs for this station (if configured)
+      try {
+        const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        if (stationId && itemsAll && itemsAll.length) {
+          const activeIds: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
+          if (activeIds && activeIds.length) {
+            const set = new Set(activeIds.map(String));
+            const filt = (itemsAll as any[]).filter(it => set.has(String(it.kssk)));
+            if (filt.length) (pinMeta as any) = { ...(pinMeta || {}), itemsActive: filt };
+          }
+        }
+      } catch {}
     } catch {}
     const unknown = !failures.length;
     log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });

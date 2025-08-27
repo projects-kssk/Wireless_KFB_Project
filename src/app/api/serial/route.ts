@@ -77,7 +77,11 @@ async function appendLog(entry: Record<string, unknown>) {
       const payload = (entry as any)?.sent ?? (entry as any)?.built; // ← prefer 'sent'
       const n = payload?.normalPins || [];
       const l = payload?.latchPins || [];
-      mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`);
+      if (l.length > 0) {
+        mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`);
+      } else {
+        mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}]`);
+      }
       return;
     }
     if (evt === 'monitor.success') {

@@ -69,14 +69,19 @@ export async function POST(req: Request) {
     const latchPins = Array.isArray(body?.latchPins) ? body.latchPins : [];
     const kssk = (body?.kssk ? String(body.kssk) : '').trim();
     const xml = typeof body?.xml === 'string' && body.xml.trim() ? String(body.xml) : null;
-    const value = JSON.stringify({ names: aliases, normalPins, latchPins, ts: Date.now() });
+    const hints = body?.hints && typeof body.hints === 'object' ? body.hints : undefined;
+    const value = JSON.stringify({ names: aliases, normalPins, latchPins, ...(hints?{hints}:{}) , ts: Date.now() });
     const r = getRedis();
-    await r.set(keyFor(mac), value);
+    try { await r.set(keyFor(mac), value); }
+    catch (e: any) { log.error('POST aliases set mac failed', { mac, error: String(e?.message ?? e) }); }
     if (kssk) {
-      await r.set(keyForKssk(mac, kssk), value);
-      await r.sadd(indexKey(mac), kssk);
+      try { await r.set(keyForKssk(mac, kssk), value); }
+      catch (e: any) { log.error('POST aliases set kssk failed', { mac, kssk, error: String(e?.message ?? e) }); }
+      try { await r.sadd(indexKey(mac), kssk); }
+      catch (e: any) { log.error('POST aliases index sadd failed', { mac, kssk, error: String(e?.message ?? e) }); }
       if (xml) {
-        try { await r.set(`kfb:aliases:xml:${mac}:${kssk}`, xml); } catch {}
+        try { await r.set(`kfb:aliases:xml:${mac}:${kssk}`, xml); }
+        catch (e: any) { log.error('POST aliases xml set failed', { mac, kssk, error: String(e?.message ?? e) }); }
       }
     }
     log.info('POST aliases saved', { mac, kssk: kssk || null, normalPins: normalPins.length, latchPins: latchPins.length });
@@ -86,6 +91,7 @@ export async function POST(req: Request) {
       const merged: Record<string,string> = {};
       let allN: number[] = [];
       let allL: number[] = [];
+      let unionHints: Record<string,string> = {};
       for (const id of members) {
         try {
           const raw = await r.get(keyForKssk(mac, id));
@@ -96,12 +102,18 @@ export async function POST(req: Request) {
             if (!merged[pin]) merged[pin] = name as string;
             else if (merged[pin] !== name) merged[pin] = `${merged[pin]} / ${name}`;
           }
+          if (d?.hints && typeof d.hints === 'object') {
+            for (const [pin, name] of Object.entries(d.hints as Record<string,string>)) {
+              if (!unionHints[pin]) unionHints[pin] = name as string;
+            }
+          }
           if (Array.isArray(d?.normalPins)) allN = Array.from(new Set([...allN, ...d.normalPins]));
           if (Array.isArray(d?.latchPins)) allL = Array.from(new Set([...allL, ...d.latchPins]));
         } catch {}
       }
-      const unionVal = JSON.stringify({ names: merged, normalPins: allN, latchPins: allL, ts: Date.now() });
-      await r.set(keyFor(mac), unionVal);
+      const unionVal = JSON.stringify({ names: merged, normalPins: allN, latchPins: allL, ...(Object.keys(unionHints).length?{hints: unionHints}:{}) , ts: Date.now() });
+      try { await r.set(keyFor(mac), unionVal); }
+      catch (e: any) { log.error('POST aliases union set failed', { mac, error: String(e?.message ?? e) }); }
       log.info('POST aliases union rebuilt', { mac, ksskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
     } catch {}
     return NextResponse.json({ ok: true });

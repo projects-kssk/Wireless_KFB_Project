@@ -124,6 +124,7 @@ export interface BranchDashboardMainContentProps {
   macAddress?: string; // optional: needed for CHECK
   groupedBranches?: Array<{ kssk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
+  nameHints?: Record<string,string> | undefined;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -140,6 +141,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   macAddress,
   groupedBranches = [],
   checkFailures = null,
+  nameHints,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -174,14 +176,16 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       .slice(0, 40),
   [localBranches]);
 
- const allOk = useMemo(
-  () =>
-    hasMounted &&
-    !isScanning &&
-    localBranches.length > 0 &&
-    localBranches.every(b => b.testStatus === 'ok'),
-  [hasMounted, isScanning, localBranches]
-);
+ const allOk = useMemo(() => {
+   // If caller reports any failed pins from CHECK, never show OK animation
+   if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
+   return (
+     hasMounted &&
+     !isScanning && !isChecking &&
+     localBranches.length > 0 &&
+     localBranches.every(b => b.testStatus === 'ok')
+   );
+ }, [hasMounted, isScanning, isChecking, localBranches, checkFailures]);
 
 useEffect(() => {
   if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -198,7 +202,7 @@ useEffect(() => {
     setShowOkAnimation(false);
   }
   return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-}, [allOk]);
+}, [allOk, onResetKfb]);
 
 
   const handleScan = useCallback(() => {
@@ -455,7 +459,11 @@ useEffect(() => {
                 <div className="p-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {extras.map((pin) => (
-                      <BranchCard key={`CHECK:${pin}`} kssk={'CHECK'} branch={{ id: `CHECK:${pin}`, branchName: `PIN ${pin}`, testStatus: 'nok', pinNumber: pin }} />
+                      <BranchCard
+                        key={`CHECK:${pin}`}
+                        kssk={'CHECK'}
+                        branch={{ id: `CHECK:${pin}`, branchName: (nameHints && nameHints[String(pin)]) || `PIN ${pin}`, testStatus: 'nok', pinNumber: pin }}
+                      />
                     ))}
                   </div>
                 </div>

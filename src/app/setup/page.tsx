@@ -181,6 +181,35 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
   return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
+// Hints: include names from default and no_check, strict MAC
+function extractNameHintsFromKrosyXML(xml: string, macHint?: string): Record<number,string> {
+  const wantMac = String(macHint ?? "").toUpperCase();
+  const names: Record<number,string> = {};
+  try {
+    const doc = new DOMParser().parseFromString(xml, "application/xml");
+    let nodes: Element[] = Array.from(doc.getElementsByTagName("sequence"));
+    if (nodes.length === 0 && (doc as any).getElementsByTagNameNS) {
+      nodes = Array.from((doc as any).getElementsByTagNameNS("*", "sequence"));
+    }
+    for (const el of nodes) {
+      const mt = (el.getAttribute("measType") || "").toLowerCase();
+      if (!(mt === "default" || mt === "no_check")) continue;
+      const og = el.getElementsByTagName("objGroup")[0]?.textContent || "";
+      const m = String(og).match(OBJGROUP_MAC);
+      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
+      const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
+      const parts = String(pos).split(",");
+      let isLatch = false;
+      if (parts.at(-1)?.trim().toUpperCase() === "C") parts.pop();
+      const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
+      if (!Number.isFinite(pin)) continue;
+      const label = String(pos).split(",")[0] || "";
+      if (label) names[pin] = label;
+    }
+  } catch {}
+  return names;
+}
+
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
@@ -538,10 +567,12 @@ export default function SetupPage() {
         try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {})); } catch {}
         // Also save to Redis so other clients can render after CHECK-only
         try {
+          const xmlRaw = resp.data?.__xml || undefined;
+          const hints = xmlRaw ? extractNameHintsFromKrosyXML(xmlRaw, macUp) : undefined;
           await fetch('/api/aliases', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mac: macUp, kssk: code, aliases: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], xml: resp.data?.__xml || undefined }),
+            body: JSON.stringify({ mac: macUp, kssk: code, aliases: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], xml: xmlRaw, hints }),
           });
         } catch {}
 

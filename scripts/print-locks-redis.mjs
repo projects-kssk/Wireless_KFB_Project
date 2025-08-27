@@ -124,6 +124,26 @@ async function main() {
       redis.once('ready', done);
     });
 
+    const pad = (n) => String(n).padStart(2, '0');
+    const fmtLocal = (iso) => {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+    const fmtIn = (ttlSec) => {
+      const s = Number(ttlSec);
+      if (!Number.isFinite(s) || s <= 0) return '';
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = Math.floor(s % 60);
+      const parts = [];
+      if (h) parts.push(`${h}h`);
+      if (m) parts.push(`${m}m`);
+      parts.push(`${sec}s`);
+      return 'in ' + parts.join(' ');
+    };
+
     const runOnce = async () => {
       let rows = [];
       if (stationId) rows = await listByStation(stationId);
@@ -151,7 +171,8 @@ async function main() {
           mac: r.mac,
           stationId: r.stationId,
           ttlSec: r.ttlSec,
-          expiresAt: r.expiresAt,
+          expiresAt: fmtLocal(r.expiresAt),
+          expiresIn: fmtIn(r.ttlSec),
         })));
       }
     };

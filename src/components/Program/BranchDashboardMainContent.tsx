@@ -114,6 +114,7 @@ export interface BranchDashboardMainContentProps {
   allowManualInput?: boolean;
   showRemoveCable?: boolean; 
     onResetKfb?: () => void; // <-- add this
+  macAddress?: string; // optional: needed for CHECK
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -127,32 +128,38 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   allowManualInput = true,
   showRemoveCable = false,
     onResetKfb, 
+  macAddress,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  const [localBranches, setLocalBranches] = useState<BranchDisplayData[]>(branchesData);
+
+  useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
 
   useEffect(() => { setHasMounted(true); }, []);
 
   const pending = useMemo(() =>
-    branchesData
+    localBranches
       .filter((b) => b.testStatus !== 'ok')
       .sort((a, b) =>
         ({ nok: 0, not_tested: 1, in_progress: 2, ok: 3 }[a.testStatus] -
          { nok: 0, not_tested: 1, in_progress: 2, ok: 3 }[b.testStatus])
       )
       .slice(0, 40),
-  [branchesData]);
+  [localBranches]);
 
  const allOk = useMemo(
   () =>
     hasMounted &&
     !isScanning &&
-    branchesData.length > 0 &&
-    branchesData.every(b => b.testStatus === 'ok'),
-  [hasMounted, isScanning, branchesData]
+    localBranches.length > 0 &&
+    localBranches.every(b => b.testStatus === 'ok'),
+  [hasMounted, isScanning, localBranches]
 );
 
 useEffect(() => {
@@ -178,6 +185,44 @@ useEffect(() => {
     setShowOkAnimation(false);
     onScanAgainRequest();
   }, [onScanAgainRequest]);
+
+  const runCheck = useCallback(async () => {
+    if (!macAddress) {
+      setCheckError('Missing MAC address for CHECK');
+      return;
+    }
+    // collect testable pins from current branches
+    const pins = localBranches
+      .filter(b => typeof b.pinNumber === 'number' && !b.notTested)
+      .map(b => b.pinNumber as number);
+    if (!pins.length) {
+      setCheckError('No pins to check');
+      return;
+    }
+    setIsChecking(true);
+    setCheckError(null);
+    try {
+      const res = await fetch('/api/serial/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pins, mac: macAddress.toUpperCase() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || String(res.status));
+      const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
+      // update local statuses
+      setLocalBranches(prev => prev.map(b => {
+        if (typeof b.pinNumber !== 'number' || b.notTested) return b;
+        return failures.includes(b.pinNumber)
+          ? { ...b, testStatus: 'nok' }
+          : { ...b, testStatus: 'ok' };
+      }));
+    } catch (e: any) {
+      setCheckError(e?.message || 'CHECK failed');
+    } finally {
+      setIsChecking(false);
+    }
+  }, [macAddress, localBranches]);
   
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,7 +232,7 @@ useEffect(() => {
   };
 
   const mainContent = () => {
-    if (isScanning && branchesData.length > 0) {
+    if (isScanning && localBranches.length > 0) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[500px]">
           <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
@@ -212,7 +257,7 @@ useEffect(() => {
       );
     }
 
-    if (hasMounted && branchesData.length === 0) {
+    if (hasMounted && localBranches.length === 0) {
       if (isManualEntry) {
         return (
     <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-2xl p-0">
@@ -300,6 +345,22 @@ useEffect(() => {
           {kfbInfo?.board ?? kfbNumber}
         </h1>
       ) : null}
+      {/* CHECK controls */}
+      {macAddress && localBranches.length > 0 && (
+        <div className="mt-6 flex items-center justify-center gap-4">
+          <button
+            type="button"
+            onClick={runCheck}
+            disabled={isChecking}
+            className="px-6 py-3 rounded-xl bg-blue-600 text-white font-extrabold text-xl shadow hover:bg-blue-700 disabled:bg-slate-400"
+          >
+            {isChecking ? 'Checking…' : 'Run CHECK'}
+          </button>
+          {checkError && (
+            <span className="text-red-600 text-lg font-bold">{checkError}</span>
+          )}
+        </div>
+      )}
     </header>
 
       {mainContent()}

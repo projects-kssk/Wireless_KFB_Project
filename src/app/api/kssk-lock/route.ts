@@ -230,7 +230,8 @@ export async function POST(req: NextRequest) {
   const id = rid(); const t0 = Date.now();
 
   try {
-    const { kssk, mac, stationId, ttlSec = 900 } = await req.json();
+    const DEFAULT_TTL_SEC = Math.max(5, Number(process.env.KSSK_DEFAULT_TTL_SEC ?? '900'));
+    const { kssk, mac, stationId, ttlSec = DEFAULT_TTL_SEC } = await req.json();
     log.info('POST begin', { rid: id, action: 'create', kssk, mac: String(mac||'').toUpperCase(), stationId, ttlSec: Number(ttlSec) });
 
     if (!kssk || !stationId)
@@ -322,7 +323,8 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const id = rid(); const t0 = Date.now();
   try {
-    const { kssk, stationId, ttlSec = 900 } = await req.json();
+    const DEFAULT_TTL_SEC = Math.max(5, Number(process.env.KSSK_DEFAULT_TTL_SEC ?? '900'));
+    const { kssk, stationId, ttlSec = DEFAULT_TTL_SEC } = await req.json();
     if (!kssk || !stationId) return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
 
     const key = K(String(kssk));

@@ -18,6 +18,7 @@ const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? 
 const KROSY_OFFLINE_URL =
   process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
+const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
@@ -271,7 +272,7 @@ export default function SetupPage() {
       fetch("/api/kssk-lock", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: 1800 }),
+        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
       }).catch(() => {});
     }, 60_000);
     hb.current.set(kssk, id);
@@ -484,7 +485,7 @@ export default function SetupPage() {
         const lockRes = await fetch("/api/kssk-lock", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: 1800 }),
+          body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
         });
 
         if (!lockRes.ok) {

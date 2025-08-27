@@ -37,6 +37,8 @@ Prerequisites
 - Redis
   - `REDIS_URL=redis://127.0.0.1:6379`
   - `KSSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
+  - `KSSK_DEFAULT_TTL_SEC=172800` (server default TTL for locks; 2 days)
+  - `NEXT_PUBLIC_KSSK_TTL_SEC=172800` (client TTL used by Setup page; 2 days)
 - Postgres (used by branches/configs endpoints)
   - `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`
 - UI behavior

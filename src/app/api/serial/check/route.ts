@@ -451,6 +451,37 @@ export async function POST(request: Request) {
               }
             } catch {}
           }
+
+          // 4) Belt-and-suspenders: scan all kssk:lock:* keys and delete any whose mac matches this MAC,
+          //    also removing from their recorded station set if present.
+          try {
+            const lockKeys: string[] = [];
+            if (typeof r.scan === 'function') {
+              let cursor = '0';
+              do {
+                const res = await r.scan(cursor, 'MATCH', 'kssk:lock:*', 'COUNT', 300);
+                cursor = res[0];
+                const chunk: string[] = res[1] || [];
+                lockKeys.push(...chunk);
+              } while (cursor !== '0');
+            } else {
+              const keys: string[] = await r.keys('kssk:lock:*').catch(() => []);
+              lockKeys.push(...keys);
+            }
+            for (const key of lockKeys) {
+              try {
+                const raw = await r.get(key).catch(() => null);
+                if (!raw) continue;
+                const v = JSON.parse(raw);
+                const macLock = String(v?.mac || '').toUpperCase();
+                if (macLock === macUp) {
+                  await r.del(key).catch(() => {});
+                  const sid = (v && v.stationId) ? String(v.stationId) : null;
+                  if (sid) await r.srem(`kssk:station:${sid}`, String(v.kssk || '').trim()).catch(() => {});
+                }
+              } catch {}
+            }
+          } catch {}
         }
       } catch {}
       // Fast path: success response (also include raw line for UI display if desired)

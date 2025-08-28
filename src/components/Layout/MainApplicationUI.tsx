@@ -173,7 +173,8 @@ const MainApplicationUI: React.FC = () => {
     if (!current) return;
     const match = (!!evMac && evMac === current) || isZeroMac;
     if (ev.kind === 'DONE' && ev.ok && match) {
-      // Clear station locks in background; child component will show OK/pipe and call onResetKfb
+      // Do not show overlay here; child view shows the success pipe + OK and then resets.
+      // Clear station locks in background; child component will still show success pipe and reset
       (async () => {
         try {
           const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -548,7 +549,7 @@ const MainApplicationUI: React.FC = () => {
       let aliases: Record<string,string> = {};
       try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
       let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
-      if (pins.length === 0) {
+      {
         // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
         try {
           try {
@@ -569,7 +570,7 @@ const MainApplicationUI: React.FC = () => {
               if (Array.isArray(it.normalPins)) for (const n of it.normalPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
               if (Array.isArray(it.latchPins)) for (const n of it.latchPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
             }
-            if (pinSet.size) pins = Array.from(pinSet).sort((x,y)=>x-y);
+            if (pinSet.size && pins.length === 0) pins = Array.from(pinSet).sort((x,y)=>x-y);
             // Also persist union aliases for UI rendering if available via single GET
             try {
               const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
@@ -586,7 +587,7 @@ const MainApplicationUI: React.FC = () => {
                   const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
                   setNormalPins(n);
                   setLatchPins(l);
-                  // IMPORTANT: merge union pins into the pins we send to CHECK so first scan uses all KSSKs
+                  // Always merge union pins into the pins we send to CHECK so first scan uses all KSSKs
                   const acc = new Set<number>(pins);
                   if (Array.isArray(n)) for (const p of n) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
                   if (Array.isArray(l)) for (const p of l) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }

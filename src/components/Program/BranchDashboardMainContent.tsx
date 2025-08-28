@@ -133,6 +133,8 @@ export interface BranchDashboardMainContentProps {
   // Optional pin type context (from aliases union)
   normalPins?: number[];
   latchPins?: number[];
+  // Force success animation regardless of computed allOk
+  forceOkTick?: number;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -157,6 +159,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   lastEvTick,
   normalPins,
   latchPins,
+  forceOkTick,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -167,6 +170,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [checkError, setCheckError] = useState<string | null>(null);
   const [localBranches, setLocalBranches] = useState<BranchDisplayData[]>(branchesData);
   const [recentMacs, setRecentMacs] = useState<string[]>([]);
+  const lastForcedOkRef = useRef<number>(0);
 
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
 
@@ -273,6 +277,22 @@ useEffect(() => {
   }
   return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
 }, [allOk, onResetKfb]);
+
+// Force path: parent can nudge animation even if allOk debounce misses
+useEffect(() => {
+  const t = Number(forceOkTick || 0);
+  if (!t || t === lastForcedOkRef.current) return;
+  lastForcedOkRef.current = t;
+  if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  setShowOkAnimation(true);
+  timeoutRef.current = setTimeout(() => {
+    setShowOkAnimation(false);
+    if (typeof onResetKfb === 'function') onResetKfb();
+    setIsManualEntry(false);
+    setInputValue('');
+  }, 2000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [forceOkTick]);
 
 
   const handleScan = useCallback(() => {

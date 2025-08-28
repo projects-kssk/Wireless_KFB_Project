@@ -101,6 +101,7 @@ const MainApplicationUI: React.FC = () => {
   };
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
+  const [okAnimationTick, setOkAnimationTick] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
   const scanOverlayTimerRef = useRef<number | null>(null);
@@ -163,18 +164,45 @@ const MainApplicationUI: React.FC = () => {
     } catch {}
   }, [serial.lastUnion, macAddress]);
 
-  // Live EV updates: on DONE SUCCESS, trigger lock cleanup only; child shows OK/pipe and resets.
+  // Live EV updates: normalize legacy RESULT lines; on SUCCESS, mark branches OK and trigger lock cleanup.
   useEffect(() => {
-    const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean } | null;
+    const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean; raw?: string } | null;
     if (!ev) return;
     const current = (macAddress || '').toUpperCase();
     const evMac = String(ev.mac || '').toUpperCase();
     const isZeroMac = evMac === '00:00:00:00:00:00';
     if (!current) return;
-    const match = (!!evMac && evMac === current) || isZeroMac;
-    if (ev.kind === 'DONE' && ev.ok && match) {
-      // Do not show overlay here; child view shows the success pipe + OK and then resets.
-      // Clear station locks in background; child component will still show success pipe and reset
+
+    // Normalize legacy RESULT lines where kind may not be DONE and mac may be 00:.. .
+    const raw = String((ev as any).raw || '');
+    const rxResult = /\bRESULT\s+(SUCCESS|OK|FAIL(?:URE)?)/i;
+    const rxReplyFrom = /reply\s+from\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i;
+    const rxAnyMac = /([0-9A-F]{2}(?::[0-9A-F]{2}){5})/gi;
+    const looksResult = rxResult.test(raw);
+    const okFromRaw = looksResult ? /\b(SUCCESS|OK)\b/i.test(raw) : undefined;
+    let realMac: string | null = null;
+    // Prefer "reply from <MAC>" when present
+    const mFrom = raw.match(rxReplyFrom);
+    if (mFrom && mFrom[1]) realMac = mFrom[1].toUpperCase();
+    // Fallback: first non-zero MAC token in the line
+    if (!realMac) {
+      const tokens = Array.from(raw.matchAll(rxAnyMac)).map(m => String(m[1]).toUpperCase());
+      const nonZero = tokens.find(t => t !== '00:00:00:00:00:00');
+      if (nonZero) realMac = nonZero;
+    }
+    const kindNorm = (String(ev.kind || '').toUpperCase() === 'DONE' || looksResult) ? 'DONE' : String(ev.kind || '').toUpperCase();
+    const okNorm = (ev.ok === true) || (okFromRaw === true);
+    const macEff = isZeroMac && realMac ? realMac : (evMac || realMac || '');
+    const match = (!!macEff && macEff === current) || (isZeroMac && !!realMac && realMac === current);
+
+    if (kindNorm === 'DONE' && okNorm && match) {
+      // Ensure the in-content success pipe animation can run by marking all branches OK
+      setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' })));
+      // Clear any remembered failures so child considers this a full success
+      try { setCheckFailures([]); } catch {}
+      try { setIsChecking(false); setIsScanning(false); } catch {}
+      try { setOkAnimationTick((x) => x + 1); } catch {}
+      // Clear station locks in background
       (async () => {
         try {
           const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -898,12 +926,13 @@ const MainApplicationUI: React.FC = () => {
                 isScanning={isScanning}
                 macAddress={macAddress}
                 activeKssks={activeKssks}
-                lastEv={(serial as any).lastEv}
-                lastEvTick={(serial as any).lastEvTick}
-                normalPins={normalPins}
-                latchPins={latchPins}
-                onResetKfb={handleResetKfb}
-              />
+              lastEv={(serial as any).lastEv}
+              lastEvTick={(serial as any).lastEvTick}
+              normalPins={normalPins}
+              latchPins={latchPins}
+              forceOkTick={okAnimationTick}
+              onResetKfb={handleResetKfb}
+            />
 
               {/* Hidden form target if you submit manually elsewhere */}
               <form onSubmit={handleKfbSubmit} className="hidden" />

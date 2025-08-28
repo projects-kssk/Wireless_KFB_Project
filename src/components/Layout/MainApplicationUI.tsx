@@ -58,7 +58,8 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-
+  const [session, setSession] = useState(0);
+  const bumpSession = () => setSession(s => s + 1);
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
   const [groupedBranches, setGroupedBranches] = useState<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
@@ -283,8 +284,9 @@ useEffect(() => {
   // Guard to avoid forcing OK multiple times per cycle
   const okForcedRef = useRef<boolean>(false);
 
-  const handleResetKfb = () => {
-    cancelOkReset();
+  const handleResetKfb = useCallback(() => {
+    cancelOkReset?.();
+ setOkFlashTick(0);
     setKfbNumber('');
     setKfbInfo(null);
     setBranchesData([]);
@@ -294,7 +296,8 @@ useEffect(() => {
     setNameHints(undefined);
     setMacAddress('');
     okForcedRef.current = false;
-  };
+     bumpSession();   
+  }, []);
 
 
 
@@ -468,9 +471,9 @@ useEffect(() => {
 
         if (!unknown && failures.length === 0) {
               clearScanOverlayTimeout();
-okForcedRef.current = true;
- setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-scheduleOkReset();  
+            okForcedRef.current = true;
+            setOkFlashTick(t => t + 1);     // show OK in child, then child resets
+            scheduleOkReset();  
             void fetch('/api/kssk-lock/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -572,6 +575,7 @@ scheduleOkReset();
   // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
   const loadBranchesData = useCallback(async (value?: string) => {
     cancelOkReset();
+    setOkFlashTick(0);
     const kfbRaw = (value ?? kfbInputRef.current).trim();
     if (!kfbRaw) return;
 
@@ -629,6 +633,26 @@ scheduleOkReset();
           if (rAll.ok) {
             const jAll = await rAll.json();
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            
+             if (items.length) {
+              const groups = items.map((it: any) => {
+                const aliases = it.aliases || {};
+                const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+                const branches = pins.map(pin => ({
+                  id: `${it.kssk}:${pin}`,
+                  branchName: aliases[String(pin)] || `PIN ${pin}`,
+                  testStatus: 'not_tested',
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                }));
+                return { kssk: String(it.kssk || ''), branches };
+              });
+              setGroupedBranches(groups);
+              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+            }
+                        
+            
+            
             const pinSet = new Set<number>();
             for (const it of items) {
               const a = (it.aliases && typeof it.aliases === 'object') ? it.aliases : {};
@@ -952,6 +976,7 @@ scheduleOkReset();
               {errorMsg && <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>}
 
               <BranchDashboardMainContent
+               key={session}
                 appHeaderHeight={actualHeaderHeight}
                 onManualSubmit={handleManualSubmit}
                 onScanAgainRequest={() => loadBranchesData()}

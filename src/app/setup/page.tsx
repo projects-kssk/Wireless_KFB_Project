@@ -37,50 +37,6 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   }
 }
 
-function InlineErrorBadge({ text, onClear }: { text: string; onClear?: () => void }) {
-  const base: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "12px 16px",
-    borderRadius: 999,
-    background: "rgba(239,68,68,0.12)",
-    border: "3px solid #fca5a5",
-    boxShadow: "0 2px 10px rgba(239,68,68,0.18), inset 0 1px 0 #fff",
-    color: "#7f1d1d",
-    fontWeight: 1000,
-    fontSize: 18,
-    letterSpacing: "0.01em",
-    lineHeight: 1,
-    whiteSpace: "nowrap",
-  };
-  const iconWrap: CSSProperties = {
-    width: 22, height: 22, borderRadius: 999,
-    background: "linear-gradient(180deg,#fb7185,#ef4444)",
-    boxShadow: "0 0 0 3px rgba(239,68,68,0.20)",
-    display: "grid", placeItems: "center", flex: "0 0 auto",
-  };
-  const closeBtn: CSSProperties = {
-    marginLeft: 6, border: 0, background: "transparent",
-    color: "#7f1d1d", fontSize: 22, lineHeight: 1, cursor: "pointer",
-  };
-  return (
-    <div style={base} role="status" aria-live="polite" title={text}>
-      <span aria-hidden style={iconWrap}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <path d="M12 7v6m0 4h.01" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-        </svg>
-      </span>
-      <span style={{ maxWidth: 760, overflow: "hidden", textOverflow: "ellipsis" }}>{text}</span>
-      {onClear && (
-        <button type="button" onClick={onClear} aria-label="Dismiss error" style={closeBtn}>
-          ×
-        </button>
-      )}
-    </div>
-  );
-}
-
 // put near the top of the file (reuse if already present)
 const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
 
@@ -1018,15 +974,9 @@ export default function SetupPage() {
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
                 <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
+                <h2 style={heading}>PLEASE SCAN BARCODE (MAC ADDRESS)</h2>
               </div>
 
-              <ScanBoxAnimated
-                ariaLabel="KFB scan zone"
-                height={160}
-                flashKind={flash?.panel === "kfb" ? flash.kind : null}
-                flashId={flash?.panel === "kfb" ? flash.id : undefined}
-              />
 
               {allowManual && (
                 <button

@@ -57,17 +57,17 @@ const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+// --- HELPERS ---
 type ChipTone = 'ok' | 'bad' | 'warn' | 'neutral';
 type ChipProps = React.PropsWithChildren<{ tone?: ChipTone }>;
 
-// --- HELPERS ---
 const getStatusInfo = (status: BranchDisplayData['testStatus']) => {
   switch (status) {
     case 'ok':
       return { Icon: CheckCircleIcon, text: 'OK', color: 'text-emerald-600', bgColor: 'bg-emerald-500/10' };
     case 'nok':
       return { Icon: XCircleIcon, text: 'NOK', color: 'text-red-600', bgColor: 'bg-red-500/10' };
-    default: // not_tested
+    default:
       return { Icon: HelpCircleIcon, text: 'Not Tested', color: 'text-slate-600', bgColor: 'bg-slate-500/10' };
   }
 };
@@ -103,10 +103,14 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
     </div>
   );
 };
-const BranchCard = React.memo(BranchCardBase, (prev, next) => {
-  const a = prev.branch; const b = next.branch;
-  return a.id === b.id && a.testStatus === b.testStatus && a.branchName === b.branchName && a.pinNumber === b.pinNumber;
-});
+
+const BranchCard = React.memo(
+  BranchCardBase,
+  (prev, next) => {
+    const a = prev.branch; const b = next.branch;
+    return a.id === b.id && a.testStatus === b.testStatus && a.branchName === b.branchName && a.pinNumber === b.pinNumber;
+  }
+);
 
 // --- PROPS ---
 export interface BranchDashboardMainContentProps {
@@ -129,7 +133,7 @@ export interface BranchDashboardMainContentProps {
   scanningError?: boolean;
   disableOkAnimation?: boolean;
   // Live hub events (forwarded via SSE)
-  lastEv?: { kind?: string; ch?: number | null; val?: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number } | null;
+  lastEv?: { kind?: string; ch?: number | null; val?: number | null; ok?: boolean; mac?: string | null; raw?: string; line?: string; ts?: number } | null;
   lastEvTick?: number;
   // Optional pin type context (from aliases union)
   normalPins?: number[];
@@ -165,11 +169,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   forceOkTick,
   flashOkTick,
 }) => {
+  // --- Refs and core state
   const [hasMounted, setHasMounted] = useState(false);
-  const [showOkAnimation, setShowOkAnimation] = useState(false); // retained to preserve flow, but gated
+  const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [localBranches, setLocalBranches] = useState<BranchDisplayData[]>(branchesData);
@@ -182,25 +187,32 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Flash management refs (declare before any effect that reads them)
+  const flashInProgressRef = useRef(false);
+  const okBoardRef = useRef<string>("");
+  const lastFlashTickRef = useRef(0);
+
+  // --- Lifecycles
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
   useEffect(() => { setHasMounted(true); }, []);
+  useEffect(() => { initialPaintRef.current = false; }, []);
 
+  // --- Data presence
   const hasData = useMemo(() => {
     if (Array.isArray(groupedBranches) && groupedBranches.some(g => (g?.branches?.length ?? 0) > 0)) return true;
     return localBranches.length > 0;
   }, [groupedBranches, localBranches]);
 
-  useEffect(() => { initialPaintRef.current = false; }, []);
-
-  // Busy debounce: enter after 250ms, exit after 350ms. Only overlay when no data yet.
+  // --- Busy debounce: enter after 250ms, exit after 350ms. Overlay only when no content yet.
   useEffect(() => {
     const wantBusy = (isScanning || isChecking) && !hasData;
     if (wantBusy) {
-      if (busyEnterTimer.current) return;
-      busyEnterTimer.current = setTimeout(() => {
-        setBusy(true);
-        setIsManualEntry(false);
-      }, 250);
+      if (!busyEnterTimer.current) {
+        busyEnterTimer.current = setTimeout(() => {
+          setBusy(true);
+          setIsManualEntry(false);
+        }, 250);
+      }
     } else {
       if (busyEnterTimer.current) { clearTimeout(busyEnterTimer.current); busyEnterTimer.current = null; }
       if (clearBusyTimer.current) clearTimeout(clearBusyTimer.current);
@@ -212,7 +224,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     };
   }, [isScanning, isChecking, hasData]);
 
-  // Live EV updates
+  // --- Live hub events
   useEffect(() => {
     if (!lastEv || !macAddress) return;
 
@@ -220,38 +232,48 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const evMac = String(lastEv.mac || '').toUpperCase();
     const ZERO = '00:00:00:00:00:00';
 
-    const kindRaw = String((lastEv as any).kind || '').toUpperCase();
-    const text = String((lastEv as any).line || (lastEv as any).raw || '');
+    const kindRaw = String(lastEv.kind || '').toUpperCase();
+    const text = String(lastEv.line || lastEv.raw || '');
     const isLegacyResult = kindRaw === 'RESULT' || /\bRESULT\b/i.test(text);
     const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
     const kind = isLegacyResult ? 'DONE' : kindRaw;
 
-    // Helper: parse failure pins from legacy RESULT text
+    // Parse failure pins robustly from free-form strings
     const parseFailures = (s: string): number[] => {
       const out = new Set<number>();
-      const cleanMacs = s.replace(/\b([0-9A-F]{2}(?::[0-9A-F]{2}){5})\b/gi, '');
+      const cleaned = s
+        .replace(/\b([0-9A-F]{2}(?::[0-9A-F]{2}){5})\b/gi, '') // strip MACs
+        .replace(/\[|\]|\(|\)/g, ' ');
       const patterns = [
-        /MISSING\s+([0-9,\s]+)/i,
+        /MISSING\s*:?\s*([0-9,\s]+)/i,
         /FAILURES?\s*:?\s*([0-9,\s]+)/i,
         /FAILED\s+PINS?\s*:?\s*([0-9,\s]+)/i,
         /OPEN\s+PINS?\s*:?\s*([0-9,\s]+)/i,
         /BAD\s+PINS?\s*:?\s*([0-9,\s]+)/i,
+        /\bPINS?\s*:?\s*([0-9,\s]+)/i,
       ];
       let captured: string | null = null;
-      for (const rx of patterns) { const m = s.match(rx); if (m && m[1]) { captured = m[1]; break; } }
-      const addNum = (n: unknown) => { const x = Number(n); if (Number.isFinite(x) && x > 0) out.add(x); };
-      if (captured) captured.split(/[\s,]+/).forEach(addNum); else (cleanMacs.match(/\b\d{1,4}\b/g) || []).forEach(addNum);
-      return Array.from(out).sort((a,b)=>a-b);
+      for (const rx of patterns) {
+        const m = cleaned.match(rx);
+        if (m?.[1]) { captured = m[1]; break; }
+      }
+      const add = (n: unknown) => {
+        const x = Number(n);
+        if (Number.isFinite(x) && x > 0) out.add(x);
+      };
+      const source = captured ?? (cleaned.match(/\b\d{1,4}\b/g)?.join(' ') || '');
+      source.split(/[\s,]+/).forEach(add);
+      return Array.from(out).sort((a, b) => a - b);
     };
 
     if (kind === 'DONE') {
       const matchMac = !evMac || evMac === ZERO || evMac === current;
       if (!matchMac) return;
-      const okFlag = String((lastEv as any).ok).toLowerCase() === 'true' || okFromText;
+      const okFlag = lastEv.ok === true || okFromText;
       if (okFlag) {
-        setLocalBranches(prev => prev.map(b => (
-          typeof b.pinNumber === 'number' ? { ...b, testStatus: 'ok' } : b
-        )));
+        setLocalBranches(prev =>
+          prev.map(b => (typeof b.pinNumber === 'number' ? { ...b, testStatus: 'ok' } : b))
+        );
       } else {
         const fails = parseFailures(text);
         if (fails.length) {
@@ -264,13 +286,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       }
     }
 
-    const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;
-    const val = typeof (lastEv as any).val === 'number' ? (lastEv as any).val : null;
+    const ch = typeof lastEv.ch === 'number' ? lastEv.ch : null;
+    const val = typeof lastEv.val === 'number' ? lastEv.val : null;
 
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[GUI] apply EV', { kind, ch, val, mac: evMac });
-    } catch {}
+    try { console.log('[GUI] apply EV', { kind, ch, val, mac: evMac }); } catch {}
 
     const normSet = new Set<number>((normalPins || []).filter((n) => Number.isFinite(n)) as number[]);
     const latchSet = new Set<number>((latchPins || []).filter((n) => Number.isFinite(n)) as number[]);
@@ -283,11 +302,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         // Accept L or P with val=1 as OK for snappy UX
         if ((kind === 'L' || kind === 'P') && ch != null && b.pinNumber === ch && val === 1) {
           changed = true;
-          return { ...b, testStatus: 'ok' } as any;
+          return { ...b, testStatus: 'ok' } as BranchDisplayData;
         }
         // For NORMAL channels, treat release as missing
         if (kind === 'P' && ch != null && b.pinNumber === ch && val === 0) {
-          if (normSet.has(ch)) { changed = true; return { ...b, testStatus: 'nok' } as any; }
+          if (normSet.has(ch)) { changed = true; return { ...b, testStatus: 'nok' } as BranchDisplayData; }
         }
         // Latch channels are sticky by design; no revert to nok on release
         if (kind === 'L' && ch != null && b.pinNumber === ch && val === 0) {
@@ -297,11 +316,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       });
       return changed ? next : prev;
     }));
-
-    // (The DONE path above handles both success and failure)
   }, [lastEvTick, lastEv, macAddress, normalPins, latchPins]);
 
-  // load recent macs
+  // --- Recent MACs
   useEffect(() => {
     try {
       const raw = localStorage.getItem('RECENT_MACS') || '[]';
@@ -310,33 +327,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     } catch {}
   }, []);
 
-  // Only NOK in the main flat list. Sort by pin then name to help operators.
-  const pending = useMemo(() =>
-    localBranches
-      .filter((b) => b.testStatus === 'nok')
-      .sort((a, b) => {
-        const ap = typeof a.pinNumber === 'number' ? a.pinNumber : Number.POSITIVE_INFINITY;
-        const bp = typeof b.pinNumber === 'number' ? b.pinNumber : Number.POSITIVE_INFINITY;
-        if (ap !== bp) return ap - bp;
-        return String(a.branchName).localeCompare(String(b.branchName));
-      }),
-  [localBranches]);
+  // --- Derived views
+  const pending = useMemo(
+    () =>
+      localBranches
+        .filter((b) => b.testStatus === 'nok')
+        .sort((a, b) => {
+          const ap = typeof a.pinNumber === 'number' ? a.pinNumber : Number.POSITIVE_INFINITY;
+          const bp = typeof b.pinNumber === 'number' ? b.pinNumber : Number.POSITIVE_INFINITY;
+          if (ap !== bp) return ap - bp;
+          return String(a.branchName).localeCompare(String(b.branchName));
+        }),
+    [localBranches]
+  );
 
-  // Failures from server or derived from pending
-  const failurePins: number[] = useMemo(() => {
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-      return [...new Set((checkFailures as number[]).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b);
-    }
-    const pins = pending.map((b) => b.pinNumber).filter((n): n is number => typeof n === 'number');
-    return [...new Set(pins)].sort((a, b) => a - b);
-  }, [checkFailures, pending]);
-
-  // All-OK gates
-  const flatAllOk = useMemo(() => (
-    settled &&
-    localBranches.length > 0 &&
-    localBranches.every((b) => b.testStatus === 'ok')
-  ), [settled, localBranches]);
+  const flatAllOk = useMemo(
+    () => settled && localBranches.length > 0 && localBranches.every((b) => b.testStatus === 'ok'),
+    [settled, localBranches]
+  );
 
   const groupedAllOk = useMemo(() => {
     if (!settled) return false;
@@ -350,9 +358,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return groupedBranches.every((g) =>
       g.branches.length > 0 &&
       g.branches.every((b) => {
-        const s =
-          (typeof b.pinNumber === 'number' ? byPin.get(b.pinNumber) : undefined) ??
-          b.testStatus;
+        const s = (typeof b.pinNumber === 'number' ? byPin.get(b.pinNumber) : undefined) ?? b.testStatus;
         return s === 'ok';
       })
     );
@@ -364,25 +370,23 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
-  // Snap helper used by multiple flows; define before effects that depend on it
+  // --- Reset helper
   const returnToScan = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     setShowOkAnimation(false);
     setLocalBranches([]);
     if (typeof onResetKfb === 'function') onResetKfb();
-    setIsManualEntry(false);
-    setInputValue('');
+    // Keep manual entry mode and input value to persist MAC across flow
   }, [onResetKfb]);
 
-  // Transition: when allOK detected in live mode, show OK flash (~1.5s) then reset
+  // --- Auto transition on all OK
   useEffect(() => {
     if (initialPaintRef.current) { prevAllOkRef.current = allOk; return; }
     if (!allOk || prevAllOkRef.current) { prevAllOkRef.current = allOk; return; }
-    // If a dedicated CHECK flash is already running, do nothing here
     if (flashInProgressRef.current) { prevAllOkRef.current = allOk; return; }
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     if (disableOkAnimation) {
-      // Snap back immediately if animations disabled
       returnToScan();
     } else {
       setShowOkAnimation(true);
@@ -392,9 +396,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       }, 1500);
     }
     prevAllOkRef.current = allOk;
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [allOk, onResetKfb, disableOkAnimation, returnToScan]);
+    return () => { if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; } };
+  }, [allOk, disableOkAnimation, returnToScan]);
 
+  // --- External force OK
   useEffect(() => {
     if (!settled) return;
     const t = Number(forceOkTick || 0);
@@ -403,26 +408,25 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     returnToScan();
   }, [forceOkTick, settled, returnToScan]);
 
-  // Flash success pipe for CHECK success specifically
- const flashInProgressRef = useRef(false);
- const okBoardRef = useRef<string>("");
- const lastFlashTickRef = useRef(0);
- useEffect(() => {
-   const tick = Number(flashOkTick || 0);
-   if (!tick || tick === lastFlashTickRef.current) return;
-   lastFlashTickRef.current = tick;
-    // If disableOkAnimation, skip flash and snap
+  // --- Flash success pipe for CHECK success
+  useEffect(() => {
+    const tick = Number(flashOkTick || 0);
+    if (!settled || !tick) return;
+    if (localBranches.length === 0 && !macAddress && !kfbNumber) return;
+    if (tick === lastFlashTickRef.current) return;
+    lastFlashTickRef.current = tick;
+
     if (disableOkAnimation) { returnToScan(); return; }
-    // Show short OK pipe then reset
+
     flashInProgressRef.current = true;
-    // Capture a stable board id for the duration of the flash to avoid flicker
     try {
       const id = (macAddress && macAddress.trim())
         ? macAddress.toUpperCase()
         : (kfbInfo?.board || kfbNumber || '').toString().toUpperCase();
       okBoardRef.current = id;
     } catch { okBoardRef.current = (macAddress || '').toUpperCase(); }
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     setShowOkAnimation(true);
     timeoutRef.current = setTimeout(() => {
       setShowOkAnimation(false);
@@ -432,8 +436,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flashOkTick, disableOkAnimation]);
 
+  // --- Actions
   const handleScan = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
     setShowOkAnimation(false);
     onScanAgainRequest();
   }, [onScanAgainRequest]);
@@ -465,10 +470,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       // update local statuses
       startTransition(() => setLocalBranches(prev => prev.map(b => {
-        if (typeof b.pinNumber !== 'number' || (b as any).notTested) return b;
-        return failures.includes(b.pinNumber)
-          ? { ...b, testStatus: 'nok' }
-          : { ...b, testStatus: 'ok' };
+        if (typeof b.pinNumber !== 'number') return b;
+        return failures.includes(b.pinNumber) ? { ...b, testStatus: 'nok' } : { ...b, testStatus: 'ok' };
       })));
     } catch (e: any) {
       setCheckError(e?.message || 'CHECK failed');
@@ -525,7 +528,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             animate={{ scale: [1, 1.2, 1] }}
             transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
           />
-          SCANNING…
+          SCANNING
         </m.span>
       );
     }
@@ -557,16 +560,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[500px]" aria-busy="true" aria-live="polite">
           <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
-            {label}...
+            {label}
           </h2>
           <p className="mt-3 text-slate-500 text-2xl">Hold device steady. Auto-advance on success.</p>
         </div>
       );
     }
 
-    // Success overlay — production‑subtle, larger stamp; flashes ~1.5s on CHECK success
+    // Success overlay — flashes ~1.5s on success
     if (showOkAnimation) {
-      const okBoard = okBoardRef.current;
       return (
         <div className="p-10 text-center w-full flex flex-col items-center justify-center select-none">
           <div className="relative">
@@ -581,7 +583,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               <CheckCircleIcon className="relative w-56 h-56 sm:w-60 sm:h-60 text-emerald-600" />
             </m.div>
           </div>
-          {/* Board ID intentionally omitted in overlay; header stays visible to avoid flicker */}
           <div className="mt-6">
             <h3 className="font-extrabold text-emerald-700 tracking-widest text-7xl sm:text-8xl">OK</h3>
           </div>
@@ -727,7 +728,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             <p className="text-6xl md:text-7xl text-slate-700 font-extrabold uppercase tracking-widest text-center select-none">Please Scan Barcode</p>
             {isScanning && (
               <div className="flex flex-col items-center gap-3">
-                <p className="text-slate-600 text-3xl md:text-4xl font-bold tracking-wide">SCANNING…</p>
+                <p className="text-slate-600 text-3xl md:text-4xl font-bold tracking-wide">SCANNING</p>
                 <m.div
                   className="h-1 w-56 md:w-72 rounded-full bg-slate-300/50 overflow-hidden"
                   initial={{ opacity: 0 }}
@@ -753,7 +754,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
 
     if (groupedBranches && groupedBranches.length > 0) {
-      // Small UI primitives
       const Chip: React.FC<ChipProps> = ({ children, tone = 'neutral' }) => {
         const base = 'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold';
         const tones: Record<ChipTone, string> = {
@@ -765,7 +765,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         return <span className={`${base} ${tones[tone]}`}>{children}</span>;
       };
 
-      // Build a status map from the live localBranches so socket events can hide CLs on success
+      // Map live status by pin so socket events collapse items as they pass
       const statusByPin = new Map<number, 'ok' | 'nok' | 'not_tested'>();
       for (const b of localBranches) if (typeof b.pinNumber === 'number') statusByPin.set(b.pinNumber, b.testStatus as any);
 
@@ -809,7 +809,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             <div className="p-4 grid gap-4">
               {failedItems.length > 0 && (
                 <div>
-                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
+                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing</div>
                   <div className="grid gap-2">
                     {failedItems.map((f) => (
                       <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
@@ -861,7 +861,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   };
 
-  // Compute a stable key for content transitions
+  // --- Stable key for content transitions
   const viewKey = useMemo(() => {
     if (showOkAnimation) return 'ok';
     if (scanningError) return 'error';
@@ -871,8 +871,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [showOkAnimation, scanningError, busy, hasMounted, localBranches.length, isManualEntry, groupedBranches]);
 
   return (
-    <div className="flex-grow flex flex-col items-center justify-start p-2">
-     <header className="w-full mb-1 min-h-[56px]">
+    <div className="flex-grow flex flex-col items-center justify-start p-2" style={{ paddingTop: appHeaderHeight }}>
+      <header className="w-full mb-1 min-h-[56px]">
         {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
           <div className="flex items-center justify-between gap-1">
             {(macAddress || kfbInfo?.board || kfbNumber) ? (
@@ -884,26 +884,51 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               </div>
             ) : <div />}
 
-            {!showOkAnimation && macAddress && localBranches.length > 0 && (
-              <div className="flex items-center justify-end gap-4 w-full">
+            {!showOkAnimation && (
+              <div className="flex items-center gap-2">
+                {macAddress && localBranches.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={runCheck}
+                      disabled={isChecking}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold"
+                      title="Re-run check"
+                    >
+                      <ClockIcon className="w-4 h-4" />
+                      CHECK NOW
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleScan}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                      title="Scan another"
+                    >
+                      <BarcodeIcon className="w-4 h-4" />
+                      SCAN AGAIN
+                    </button>
+                  </>
+                )}
                 {/* Active KSSKs */}
-                <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-                  <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
-                  <div className="flex flex-wrap gap-2 mt-1 justify-end">
-                    {(activeKssks && activeKssks.length > 0) ? (
-                      activeKssks.map((id) => (
-                        <span
-                          key={`used-${id}`}
-                          className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow"
-                        >
-                          {id}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-slate-400 text-xs">—</span>
-                    )}
+                {macAddress && localBranches.length > 0 && (
+                  <div className="ml-4 flex flex-col items-end leading-tight">
+                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
+                      {(activeKssks && activeKssks.length > 0) ? (
+                        activeKssks.map((id) => (
+                          <span
+                            key={`used-${id}`}
+                            className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-3 py-1.5 text-sm md:text-base font-extrabold shadow"
+                          >
+                            {id}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-slate-400 text-xs">—</span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
           </div>

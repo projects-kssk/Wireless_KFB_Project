@@ -404,11 +404,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [forceOkTick, settled, returnToScan]);
 
   // Flash success pipe for CHECK success specifically
-  const flashInProgressRef = useRef(false);
-  const okBoardRef = useRef<string>("");
-  useEffect(() => {
-    const tick = Number(flashOkTick || 0);
-    if (!settled || !tick || tick === 0) return;
+ const flashInProgressRef = useRef(false);
+ const okBoardRef = useRef<string>("");
+ const lastFlashTickRef = useRef(0);
+ useEffect(() => {
+   const tick = Number(flashOkTick || 0);
+   if (!tick || tick === lastFlashTickRef.current) return;
+   lastFlashTickRef.current = tick;
     // If disableOkAnimation, skip flash and snap
     if (disableOkAnimation) { returnToScan(); return; }
     // Show short OK pipe then reset
@@ -428,7 +430,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       returnToScan();
     }, 1500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flashOkTick, settled, disableOkAnimation]);
+  }, [flashOkTick, disableOkAnimation]);
 
   const handleScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);

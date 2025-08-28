@@ -102,6 +102,19 @@ const MainApplicationUI: React.FC = () => {
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const [okAnimationTick, setOkAnimationTick] = useState(0);
+
+  const okResetTimerRef = useRef<number | null>(null);
+  const scheduleOkReset = (ms = 1500) => {
+    if (okResetTimerRef.current) clearTimeout(okResetTimerRef.current);
+    okResetTimerRef.current = window.setTimeout(() => {
+      handleResetKfb();
+      okResetTimerRef.current = null;
+    }, ms + 100);
+  };
+  const cancelOkReset = () => {
+    if (okResetTimerRef.current) { clearTimeout(okResetTimerRef.current); okResetTimerRef.current = null; }
+  };
+
   const [okFlashTick, setOkFlashTick] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
@@ -194,7 +207,8 @@ useEffect(() => {
  setCheckFailures([]); setIsChecking(false); setIsScanning(false);
  okForcedRef.current = true;
  setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-      void fetch('/api/kssk-lock/clear', {
+      scheduleOkReset();  
+ void fetch('/api/kssk-lock/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mac: current })
@@ -232,6 +246,7 @@ useEffect(() => {
       // In live mode when everything is OK, show OK flash then reset
     okForcedRef.current = true;
   setOkFlashTick(t => t + 1);     // same unified path
+   scheduleOkReset();   
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -269,6 +284,7 @@ useEffect(() => {
   const okForcedRef = useRef<boolean>(false);
 
   const handleResetKfb = () => {
+    cancelOkReset();
     setKfbNumber('');
     setKfbInfo(null);
     setBranchesData([]);
@@ -280,20 +296,9 @@ useEffect(() => {
     okForcedRef.current = false;
   };
 
-  const resetAfterDelay = useCallback((ms = 1200) => {
-    const t = window.setTimeout(() => handleResetKfb(), ms);
-    return () => window.clearTimeout(t);
-  }, [handleResetKfb]);
 
-  // shows big OK for 1.5s, then clears to barcode state
-const flashOkThenReset = useCallback((code?: string) => {
-  setOverlay({ open: true, kind: 'success', code: code || '' });
-  const t = window.setTimeout(() => {
-    setOverlay(o => ({ ...o, open: false }));
-    handleResetKfb();           // <- returns UI to fresh scan/barcode
-  }, 1500);
-  return () => window.clearTimeout(t);
-}, [handleResetKfb]);
+
+
 
 
   // Narrowing guard
@@ -465,7 +470,7 @@ const flashOkThenReset = useCallback((code?: string) => {
               clearScanOverlayTimeout();
 okForcedRef.current = true;
  setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-
+scheduleOkReset();  
             void fetch('/api/kssk-lock/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -566,6 +571,7 @@ okForcedRef.current = true;
 
   // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
   const loadBranchesData = useCallback(async (value?: string) => {
+    cancelOkReset();
     const kfbRaw = (value ?? kfbInputRef.current).trim();
     if (!kfbRaw) return;
 

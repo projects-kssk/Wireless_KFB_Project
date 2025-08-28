@@ -320,6 +320,19 @@ export async function GET(req: NextRequest) {
     const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
     if (rows.length > 0) log.info('GET list', info);
     else log.debug('GET list (empty)', info);
+
+    // Optional verbose detail logging for terminal visibility
+    if ((process.env.KSSK_LOCK_LOG_DETAIL ?? '0') === '1') {
+      const now = Date.now();
+      const brief = rows.slice(0, 12).map(r => ({
+        kssk: r.kssk,
+        mac: r.mac,
+        stationId: r.stationId,
+        ttlSec: typeof r.expiresAt === 'number' ? Math.max(0, Math.round((r.expiresAt - now)/1000)) : null,
+      }));
+      log.info('GET list detail', { rid: id, stationId: stationId ?? null, items: brief });
+      if (rows.length > brief.length) log.info('GET list detail (truncated)', { rid: id, more: rows.length - brief.length });
+    }
     return withMode(NextResponse.json({ locks: rows }), mode);
   } catch (e: unknown) {
     log.info('GET error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });

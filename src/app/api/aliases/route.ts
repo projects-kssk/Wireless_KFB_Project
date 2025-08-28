@@ -1,6 +1,7 @@
 // src/app/api/aliases/route.ts
 import { NextResponse } from 'next/server';
 import { getRedis } from '@/lib/redis';
+import { broadcast } from '@/lib/bus';
 import { LOG } from '@/lib/logger';
 const log = LOG.tag('aliases');
 
@@ -165,6 +166,7 @@ export async function POST(req: Request) {
       try { await r.set(keyFor(mac), unionVal); }
       catch (e: any) { log.error('POST aliases union set failed', { mac, error: String(e?.message ?? e) }); }
       log.info('POST aliases union rebuilt', { mac, ksskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
+      try { broadcast({ type: 'aliases/union', mac, names: merged, normalPins: allN, latchPins: allL }); } catch {}
     } catch {}
     return NextResponse.json({ ok: true });
   } catch (e: any) {

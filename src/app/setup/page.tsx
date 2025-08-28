@@ -632,6 +632,17 @@ export default function SetupPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mac: macUp, kssk: code, aliases: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], xml: xmlRaw, hints }),
           });
+          // Pull fresh union and cache locally so dashboard has full set without refresh
+          try {
+            const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}`, { cache: 'no-store' });
+            if (ru.ok) {
+              const ju = await ru.json();
+              const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
+              if (Object.keys(aU).length) {
+                try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU)); } catch {}
+              }
+            }
+          } catch {}
         } catch {}
 
         const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;

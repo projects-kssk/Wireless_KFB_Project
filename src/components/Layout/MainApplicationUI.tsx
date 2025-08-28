@@ -41,7 +41,17 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
 
 // ENV-configurable KFB regex (fallback: 4 alphanumerics)
 const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^[A-Z0-9]{4}$/);
+// Accept common MAC formats and normalize to colon-separated uppercase
 const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+const canonicalMac = (raw: string): string | null => {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  // Strip non-hex chars and reformat as XX:XX:XX:XX:XX:XX when length is 12
+  const hex = s.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  if (hex.length !== 12) return null;
+  const mac = hex.match(/.{1,2}/g)?.join(':') || '';
+  return MAC_ONLY_REGEX.test(mac) ? mac : null;
+};
 
 const MainApplicationUI: React.FC = () => {
   // UI state
@@ -146,10 +156,14 @@ const MainApplicationUI: React.FC = () => {
       if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
       if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
       if (u.names && typeof u.names === 'object') setNameHints(u.names as any);
+      // Persist union names locally for immediate reuse without refresh
+      if (u.names && typeof u.names === 'object') {
+        try { localStorage.setItem(`PIN_ALIAS::${cur}`, JSON.stringify(u.names)); } catch {}
+      }
     } catch {}
   }, [serial.lastUnion, macAddress]);
 
-  // Live EV updates: on DONE SUCCESS, show OK and reset; also clear station locks.
+  // Live EV updates: on DONE SUCCESS, trigger lock cleanup only; child shows OK/pipe and resets.
   useEffect(() => {
     const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean } | null;
     if (!ev) return;
@@ -159,33 +173,20 @@ const MainApplicationUI: React.FC = () => {
     if (!current) return;
     const match = (!!evMac && evMac === current) || isZeroMac;
     if (ev.kind === 'DONE' && ev.ok && match) {
-      try {
-        // Show a short SUCCESS overlay, then reset view back to default
-        clearScanOverlayTimeout();
-        setOverlay({ open: true, kind: 'success', code: 'OK' });
-        hideOverlaySoon(1200);
-        setTimeout(() => {
-          handleResetKfb();
-          setMacAddress('');
-          setGroupedBranches([]);
-          setActiveKssks([]);
-          setNameHints(undefined);
-        }, 1200);
-        // Clear station locks for current station in background
-        (async () => {
-          try {
-            const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            const mac = current;
-            if (stationId && mac) {
-              await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac, force: true }),
-              }).catch(() => {});
-            }
-          } catch {}
-        })();
-      } catch {}
+      // Clear station locks in background; child component will show OK/pipe and call onResetKfb
+      (async () => {
+        try {
+          const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+          const mac = current;
+          if (stationId && mac) {
+            await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac, force: true }),
+            }).catch(() => {});
+          }
+        } catch {}
+      })();
     }
   }, [serial.lastEvTick, macAddress]);
 
@@ -232,6 +233,8 @@ const MainApplicationUI: React.FC = () => {
   const lastHandledScanRef = useRef<string>('');
   const scanDebounceRef = useRef<number>(0);
   const lastErrorStampRef = useRef<number>(0);
+  // Prevent concurrent scan flows (SSE connect + poll race on refresh)
+  const scanInFlightRef = useRef<boolean>(false);
 
   const handleResetKfb = () => {
     setKfbNumber('');
@@ -273,6 +276,7 @@ const MainApplicationUI: React.FC = () => {
         });
         clearTimeout(tAbort);
         const result = await res.json();
+        try { if (Array.isArray((result as any)?.pinsUsed)) console.log('[GUI] CHECK used pins', (result as any).pinsUsed, 'mode', (result as any)?.sendMode); } catch {}
 
         if (res.ok) {
           clearRetryTimer();
@@ -510,7 +514,8 @@ const MainApplicationUI: React.FC = () => {
 
     const normalized = kfbRaw.toUpperCase();
     // Accept MAC directly for production run; otherwise require KFB pattern
-    const isMac = MAC_ONLY_REGEX.test(normalized);
+    const macCanon = canonicalMac(normalized);
+    const isMac = !!macCanon;
     if (!isMac && !KFB_REGEX.test(normalized)) {
       showOverlay('error', `Invalid code: ${normalized}`);
       console.warn('[SCAN] rejected by patterns', { normalized });
@@ -535,7 +540,7 @@ const MainApplicationUI: React.FC = () => {
 
     try {
       // MAC-first flow: build branch list from Setup pin aliases and run CHECK-only
-      const mac = isMac ? normalized : normalized; // if KFB code equals MAC form, treat as MAC
+      const mac = isMac ? (macCanon as string) : normalized; // use normalized MAC when available
       setKfbNumber(mac);
       setMacAddress(mac);
 
@@ -581,6 +586,11 @@ const MainApplicationUI: React.FC = () => {
                   const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
                   setNormalPins(n);
                   setLatchPins(l);
+                  // IMPORTANT: merge union pins into the pins we send to CHECK so first scan uses all KSSKs
+                  const acc = new Set<number>(pins);
+                  if (Array.isArray(n)) for (const p of n) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
+                  if (Array.isArray(l)) for (const p of l) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
+                  pins = Array.from(acc).sort((a,b)=>a-b);
                 } catch {}
               }
             } catch {}
@@ -626,7 +636,7 @@ const MainApplicationUI: React.FC = () => {
       return;
     }
     lastHandledScanRef.current = normalized;
-    scanDebounceRef.current = nowDeb + 1200;
+    scanDebounceRef.current = nowDeb + 2000;
 
     // keep fields in sync
     if (normalized !== kfbInputRef.current) {
@@ -634,15 +644,21 @@ const MainApplicationUI: React.FC = () => {
       setKfbNumber(normalized);
     }
 
-    // Accept either MAC or KFB pattern; reject only if neither matches
-    if (!(MAC_ONLY_REGEX.test(normalized) || KFB_REGEX.test(normalized))) {
+    // Accept either MAC (flex) or KFB pattern; reject only if neither matches
+    if (!(canonicalMac(normalized) || KFB_REGEX.test(normalized))) {
       showOverlay('error', normalized);
       hideOverlaySoon();
       return;
     }
 
-    if (isScanningRef.current) return; // avoid overlapping flows
-    await loadBranchesData(normalized);
+    if (isScanningRef.current || scanInFlightRef.current) return; // avoid overlapping flows
+    scanInFlightRef.current = true;
+    try {
+      await loadBranchesData(normalized);
+    } finally {
+      // small delay before allowing next scan to avoid quick double-trigger
+      setTimeout(() => { scanInFlightRef.current = false; }, 300);
+    }
   }, [loadBranchesData]);
 
   // SSE → handle scans (gate by view, settings sidebar, and pause during CHECK)
@@ -686,7 +702,10 @@ const MainApplicationUI: React.FC = () => {
         }
         ctrl = new AbortController();
         const want = resolveDesiredPath();
-        const url = want ? `/api/serial/scanner?path=${encodeURIComponent(want)}` : '/api/serial/scanner';
+        // Consume scan once so polling doesn't re-play the same code forever before SSE connects
+        const url = want
+          ? `/api/serial/scanner?path=${encodeURIComponent(want)}&consume=1`
+          : '/api/serial/scanner?consume=1';
        const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
            const { code, path, error, retryInMs } = await res.json();
@@ -750,14 +769,16 @@ const MainApplicationUI: React.FC = () => {
   const handleManualSubmit = (submittedNumber: string) => {
     const val = submittedNumber.trim().toUpperCase();
     if (!val) return;
-    if (!(MAC_ONLY_REGEX.test(val) || KFB_REGEX.test(val))) {
+    if (!(canonicalMac(val) || KFB_REGEX.test(val))) {
       showOverlay('error', val);
       hideOverlaySoon();
       return;
     }
-    setKfbInput(val);
-    setKfbNumber(val);
-    void loadBranchesData(val);
+    const mac = canonicalMac(val);
+    const next = mac || val;
+    setKfbInput(next);
+    setKfbNumber(next);
+    void loadBranchesData(next);
   };
 
   // Layout helpers

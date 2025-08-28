@@ -172,7 +172,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   useEffect(() => { setHasMounted(true); }, []);
 
-  // Live updates from EV events: apply only for current MAC
+  // Live updates from EV events: apply only for current MAC (or zero-mac broadcast)
   useEffect(() => {
     if (!lastEv || !macAddress) return;
     const evMac = String(lastEv.mac || '').toUpperCase();
@@ -180,7 +180,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const kind = String((lastEv as any).kind || '').toUpperCase();
     // Strict for DONE; permissive for P/L (server may remap mac for P/L to current via filter)
     if (kind === 'DONE') {
-      if (!current || !evMac || evMac !== current) return;
+      const isZeroMac = evMac === '00:00:00:00:00:00';
+      if (!current || !evMac || (evMac !== current && !isZeroMac)) return;
     }
     // Map channel to pinNumber directly
     const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;

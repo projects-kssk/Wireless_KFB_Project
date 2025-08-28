@@ -407,8 +407,36 @@ export async function POST(request: Request) {
       }
       // Fire-and-forget: build a checkpoint XML from aliases and send it to Krosy only on SUCCESS
       try { void sendCheckpointFromAliases(macUp, rid); } catch {}
+      // On SUCCESS: clear any KSSK locks for this MAC at this station so Setup can proceed next time
+      try {
+        const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        if (stationId) {
+          const { getRedis } = await import('@/lib/redis');
+          const r: any = getRedis();
+          const setKey = `kssk:station:${stationId}`;
+          const members: string[] = await r.smembers(setKey).catch(() => []);
+          await Promise.all(
+            members.map(async (kssk) => {
+              try {
+                const key = `kssk:lock:${kssk}`;
+                const raw = await r.get(key).catch(() => null);
+                if (!raw) {
+                  await r.srem(setKey, kssk).catch(() => {});
+                  return;
+                }
+                const v = JSON.parse(raw);
+                const macLock = String(v?.mac || '').toUpperCase();
+                if (macLock === macUp) {
+                  await r.del(key).catch(() => {});
+                  await r.srem(setKey, kssk).catch(() => {});
+                }
+              } catch {}
+            })
+          );
+        }
+      } catch {}
       // Fast path: success response (also include raw line for UI display if desired)
-      return NextResponse.json({ failures: [], raw: line }, { headers: { 'X-Req-Id': rid } });
+      return NextResponse.json({ failures: [], raw: line, pinsUsed: Array.isArray(pins) ? pins : [], sendMode: SEND_MODE }, { headers: { 'X-Req-Id': rid } });
     }
 
     // FAILURE → return pin list
@@ -497,7 +525,7 @@ export async function POST(request: Request) {
     const unknown = !failures.length;
     log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });
     mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);
-    return NextResponse.json({ failures, unknownFailure: unknown, raw: line, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) }, { headers: { 'X-Req-Id': rid } });
+    return NextResponse.json({ failures, unknownFailure: unknown, raw: line, pinsUsed: Array.isArray(pins) ? pins : [], sendMode: SEND_MODE, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) }, { headers: { 'X-Req-Id': rid } });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status =

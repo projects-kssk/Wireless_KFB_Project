@@ -134,6 +134,45 @@ const MainApplicationUI: React.FC = () => {
     return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
   })();
 
+  // Load station KSSKs as a fallback source for "KSSKs used" display
+  useEffect(() => {
+    let stop = false;
+    const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+    if (!stationId) return;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const ids: string[] = Array.isArray(j?.locks) ? j.locks.map((l: any) => String(l.kssk)) : [];
+        if (ids.length && !stop) setActiveKssks((prev) => {
+          const set = new Set<string>([...prev, ...ids]);
+          return Array.from(set);
+        });
+      } catch {}
+    };
+    tick();
+    const h = setInterval(tick, 5000);
+    return () => { stop = true; clearInterval(h); };
+  }, []);
+
+  // Load KSSKs used for the current MAC from aliases index (authoritative per-MAC list)
+  useEffect(() => {
+    const mac = (macAddress || '').trim().toUpperCase();
+    if (!mac) return;
+    let stop = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+        const j = await r.json().catch(() => ({}));
+        const items = Array.isArray(j?.items) ? j.items : [];
+        const ids = items.map((it: any) => String(it.kssk)).filter(Boolean);
+        if (!stop && ids.length) setActiveKssks(ids);
+      } catch {}
+    })();
+    return () => { stop = true; };
+  }, [macAddress]);
+
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
 
@@ -713,6 +752,7 @@ const MainApplicationUI: React.FC = () => {
                 kfbInfo={kfbInfo}
                 isScanning={isScanning}
                 macAddress={macAddress}
+                activeKssks={activeKssks}
                 onResetKfb={handleResetKfb}
               />
 

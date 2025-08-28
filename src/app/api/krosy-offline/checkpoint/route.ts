@@ -45,6 +45,8 @@ function cors(req: NextRequest) {
 const isoNoMs = (d = new Date()) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const nowStamp = () => isoNoMs().replace(/[:T]/g, "-").replace("Z", "");
 
+
+
 async function ensureDir(p: string) { await fs.mkdir(p, { recursive: true }); }
 async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);

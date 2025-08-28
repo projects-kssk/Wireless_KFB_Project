@@ -23,7 +23,29 @@ export async function GET(req: Request) {
     log.info('GET aliases', { mac: macRaw, all });
     if (all) {
       // Return all KSSK-specific alias bundles we know for this MAC
-      const members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
+      let members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
+      // Fallback/augment: scan keys if index is empty or incomplete
+      try {
+        const pattern = `${keyForKssk(macRaw, '*')}`;
+        if (typeof (r as any).scan === 'function') {
+          let cursor = '0';
+          const keys: string[] = [];
+          do {
+            const res = await (r as any).scan(cursor, 'MATCH', pattern, 'COUNT', 300);
+            cursor = res[0];
+            const chunk: string[] = res[1] || [];
+            keys.push(...chunk);
+          } while (cursor !== '0');
+          const ids = keys.map(k => String(k).split(':').pop()!).filter(Boolean);
+          const set = new Set([...(members||[]), ...ids]);
+          members = Array.from(set);
+        } else {
+          const keys: string[] = await (r as any).keys(pattern).catch(() => []);
+          const ids = keys.map(k => String(k).split(':').pop()!).filter(Boolean);
+          const set = new Set([...(members||[]), ...ids]);
+          members = Array.from(set);
+        }
+      } catch {}
       const rows = await Promise.all(
         members.map(async (kssk) => {
           try {
@@ -87,7 +109,35 @@ export async function POST(req: Request) {
     log.info('POST aliases saved', { mac, kssk: kssk || null, normalPins: normalPins.length, latchPins: latchPins.length });
     // Rebuild union for MAC key from all KSSK entries so UI has complete map
     try {
-      const members: string[] = await r.smembers(indexKey(mac)).catch(() => []);
+      // Rehydrate index by scanning keys and SADD any missing KSSKs
+      const curMembers: string[] = await r.smembers(indexKey(mac)).catch(() => []);
+      let foundIds: string[] = [];
+      try {
+        const pattern = `${keyForKssk(mac, '*')}`;
+        if (typeof (r as any).scan === 'function') {
+          let cursor = '0';
+          const keys: string[] = [];
+          do {
+            const res = await (r as any).scan(cursor, 'MATCH', pattern, 'COUNT', 300);
+            cursor = res[0];
+            const chunk: string[] = res[1] || [];
+            keys.push(...chunk);
+          } while (cursor !== '0');
+          foundIds = keys.map(k => String(k).split(':').pop()!).filter(Boolean);
+        } else {
+          const keys: string[] = await (r as any).keys(pattern).catch(() => []);
+          foundIds = keys.map(k => String(k).split(':').pop()!).filter(Boolean);
+        }
+      } catch {}
+      // Union sets and ensure index contains all discovered ids
+      const setAll = new Set([...(curMembers||[]), ...foundIds]);
+      const allMembers = Array.from(setAll);
+      const toAdd = allMembers.filter(id => !(curMembers||[]).includes(id));
+      if (toAdd.length) {
+        try { await r.sadd(indexKey(mac), ...toAdd); log.info('POST aliases rehydrate index', { mac, added: toAdd.length }); } catch {}
+      }
+
+      const members: string[] = allMembers;
       const merged: Record<string,string> = {};
       let allN: number[] = [];
       let allL: number[] = [];

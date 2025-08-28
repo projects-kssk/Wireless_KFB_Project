@@ -513,7 +513,6 @@ useEffect(() => {
                 <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String(grp.kssk).slice(-2)}</span>
                 <div className="flex flex-col">
                   <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
-                  <div className="text-[11px] uppercase tracking-wide text-slate-500">{isActive ? 'Active' : 'Idle'}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -580,49 +579,37 @@ useEffect(() => {
      <header className="w-full mb-1 min-h-[56px]">
       {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
         <div className="flex items-center justify-between gap-1">
-          {(kfbInfo?.board || kfbNumber) ? (
-            <h1 className="text-5xl md:text-6xl font-bold uppercase tracking-wider text-slate-700 truncate">
-              {kfbInfo?.board ?? kfbNumber}
+          {(macAddress || kfbInfo?.board || kfbNumber) ? (
+            <h1 className="font-mono text-4xl md:text-5xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full">
+              {macAddress ? macAddress.toUpperCase() : (kfbInfo?.board ?? kfbNumber)}
             </h1>
           ) : <div />}
           {macAddress && localBranches.length > 0 && (
-            <div className="flex items-center gap-3">
-              <span
-                aria-label="Scan again to re-check"
-                className="inline-flex items-center gap-3 rounded-full border-2 border-slate-900 bg-slate-900 text-white px-6 py-3 text-2xl md:text-3xl font-black tracking-widest uppercase shadow-[0_8px_28px_rgba(0,0,0,0.35)] select-none"
-              >
-                <BarcodeIcon className="w-8 h-8 text-white" />
-                Scan again to re-check
-              </span>
-              {checkError && (
-                <span className="text-red-600 text-base md:text-lg font-bold whitespace-nowrap">
-                  {checkError}
-                </span>
-              )}
+            <div className="flex items-center justify-end gap-6 w-full">
+              {/* Active KSSKs (right) — occupies the space of the removed scan pill */}
+              <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
+                <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+                <div className="flex flex-wrap gap-2 mt-1 justify-end">
+                  {(activeKssks && activeKssks.length > 0) ? (
+                    activeKssks.map((id) => (
+                      <span
+                        key={`used-${id}`}
+                        className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow"
+                      >
+                        {id}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-slate-400 text-xs">—</span>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
       ) : null}
-      {failurePins.length > 0 && macAddress && (
-        <div className="mt-0.5 px-1 flex items-center justify-between gap-2">
-          <span className="text-red-700 font-extrabold text-xl md:text-2xl whitespace-normal">
-            RESULT FAILURE MISSING {failurePins.join(', ')}
-          </span>
-          <span className="text-slate-600 font-extrabold text-lg md:text-xl whitespace-nowrap">
-            {macAddress.toUpperCase()}
-          </span>
-        </div>
-      )}
-      {activeKssks.length > 0 && (
-        <div className="mt-0 flex items-center justify-center gap-2">
-          <span className="text-slate-600 font-extrabold tracking-wide text-sm">Active KSSKs:</span>
-          {activeKssks.map((id) => (
-            <span key={`active-kssk-${id}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 text-xs font-extrabold">
-              {id}
-            </span>
-          ))}
-        </div>
-      )}
+      {/* In-page failure banner intentionally removed; errors show via overlay */}
+      {/* Removed duplicate center banner for active KSSKs (shown in header) */}
     </header>
 
       {mainContent()}

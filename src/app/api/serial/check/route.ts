@@ -152,7 +152,33 @@ export async function POST(request: Request) {
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
       const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
       // Union of station-active and indexed KSSKs to be safe
-      const targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
+      let targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
+      // Fallback: if both station + index empty, scan Redis keys for per-KSSK alias entries
+      if (!targets.length) {
+        try {
+          const pattern = `kfb:aliases:${macUp}:*`;
+          let cursor = '0';
+          const found: string[] = [];
+          if (typeof (r as any).scan === 'function') {
+            do {
+              const res = await (r as any).scan(cursor, 'MATCH', pattern, 'COUNT', 300);
+              cursor = res[0];
+              const keys: string[] = res[1] || [];
+              for (const k of keys) {
+                const id = String(k).slice(pattern.length - 1).replace(/^:/, '');
+                if (id) found.push(id);
+              }
+            } while (cursor !== '0');
+          } else {
+            const keys: string[] = await (r as any).keys(pattern).catch(() => []);
+            for (const k of keys) {
+              const id = String(k).slice(pattern.length - 1).replace(/^:/, '');
+              if (id) found.push(id);
+            }
+          }
+          targets = Array.from(new Set(found));
+        } catch {}
+      }
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK kssk targets count=${targets.length} station=${stationId || 'n/a'}`);
       }

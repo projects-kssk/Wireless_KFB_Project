@@ -165,59 +165,49 @@ const MainApplicationUI: React.FC = () => {
   }, [serial.lastUnion, macAddress]);
 
   // Live EV updates: normalize legacy RESULT lines; on SUCCESS, mark branches OK and trigger lock cleanup.
+
+// Live EV updates (MainApplicationUI)
+useEffect(() => {
+  const ev = (serial as any).lastEv as { kind?: string; mac?: string|null; ok?: any; line?: string; raw?: string; msg?: string; text?: string } | null;
+  if (!ev) return;
+
+  const current = (macAddress || '').toUpperCase();
+  if (!current) return;
+
+  const ZERO = '00:00:00:00:00:00';
+  const kindRaw = String(ev.kind || '').toUpperCase();
+  const text = String(ev.line ?? ev.raw ?? ev.text ?? ev.msg ?? '');  // <—
+  const isLegacyResult = kindRaw === 'RESULT' || /\bRESULT\b/i.test(text);
+  const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
+  let evMac = String(ev.mac || '').toUpperCase();
+  if (!evMac || evMac === ZERO) {
+    const m = text.toUpperCase().match(/FROM\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
+    if (m) evMac = m[1];
+  }
+  const matches = (!!evMac && evMac === current) || evMac === ZERO || !evMac;
+
+  if ((kindRaw === 'DONE' || isLegacyResult) && (okFromText || String(ev.ok).toLowerCase() === 'true') && matches) {
+    setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
+    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+    setOkAnimationTick(t => t + 1);
+  }
+}, [serial.lastEvTick, macAddress]);
+
+
+  // Fallback force-OK: if UI already reflects all branches OK and no failures, show OK + reset.
   useEffect(() => {
-    const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean; raw?: string } | null;
-    if (!ev) return;
-    const current = (macAddress || '').toUpperCase();
-    const evMac = String(ev.mac || '').toUpperCase();
-    const isZeroMac = evMac === '00:00:00:00:00:00';
-    if (!current) return;
-
-    // Normalize legacy RESULT lines where kind may not be DONE and mac may be 00:.. .
-    const raw = String((ev as any).raw || '');
-    const rxResult = /\bRESULT\s+(SUCCESS|OK|FAIL(?:URE)?)/i;
-    const rxReplyFrom = /reply\s+from\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i;
-    const rxAnyMac = /([0-9A-F]{2}(?::[0-9A-F]{2}){5})/gi;
-    const looksResult = rxResult.test(raw);
-    const okFromRaw = looksResult ? /\b(SUCCESS|OK)\b/i.test(raw) : undefined;
-    let realMac: string | null = null;
-    // Prefer "reply from <MAC>" when present
-    const mFrom = raw.match(rxReplyFrom);
-    if (mFrom && mFrom[1]) realMac = mFrom[1].toUpperCase();
-    // Fallback: first non-zero MAC token in the line
-    if (!realMac) {
-      const tokens = Array.from(raw.matchAll(rxAnyMac)).map(m => String(m[1]).toUpperCase());
-      const nonZero = tokens.find(t => t !== '00:00:00:00:00:00');
-      if (nonZero) realMac = nonZero;
-    }
-    const kindNorm = (String(ev.kind || '').toUpperCase() === 'DONE' || looksResult) ? 'DONE' : String(ev.kind || '').toUpperCase();
-    const okNorm = (ev.ok === true) || (okFromRaw === true);
-    const macEff = isZeroMac && realMac ? realMac : (evMac || realMac || '');
-    const match = (!!macEff && macEff === current) || (isZeroMac && !!realMac && realMac === current);
-
-    if (kindNorm === 'DONE' && okNorm && match) {
-      // Ensure the in-content success pipe animation can run by marking all branches OK
-      setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' })));
-      // Clear any remembered failures so child considers this a full success
-      try { setCheckFailures([]); } catch {}
-      try { setIsChecking(false); setIsScanning(false); } catch {}
+    // Reset guard when a new scan/check starts
+    if (isScanning || isChecking) { okForcedRef.current = false; return; }
+    if (okForcedRef.current) return;
+    const anyFailures = Array.isArray(checkFailures) && checkFailures.length > 0;
+    if (anyFailures) return;
+    const flatOk = Array.isArray(branchesData) && branchesData.length > 0 && branchesData.every((b) => b.testStatus === 'ok');
+    const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
+    if (flatOk || groupedOk) {
       try { setOkAnimationTick((x) => x + 1); } catch {}
-      // Clear station locks in background
-      (async () => {
-        try {
-          const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-          const mac = current;
-          if (stationId && mac) {
-            await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac, force: true }),
-            }).catch(() => {});
-          }
-        } catch {}
-      })();
+      okForcedRef.current = true;
     }
-  }, [serial.lastEvTick, macAddress]);
+  }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
   // Load station KSSKs as a fallback source for "KSSKs used" display
   useEffect(() => {
@@ -264,6 +254,8 @@ const MainApplicationUI: React.FC = () => {
   const lastErrorStampRef = useRef<number>(0);
   // Prevent concurrent scan flows (SSE connect + poll race on refresh)
   const scanInFlightRef = useRef<boolean>(false);
+  // Guard to avoid forcing OK multiple times per cycle
+  const okForcedRef = useRef<boolean>(false);
 
   const handleResetKfb = () => {
     setKfbNumber('');
@@ -274,6 +266,7 @@ const MainApplicationUI: React.FC = () => {
     setActiveKssks([]);
     setNameHints(undefined);
     setMacAddress('');
+    okForcedRef.current = false;
   };
 
   // Narrowing guard

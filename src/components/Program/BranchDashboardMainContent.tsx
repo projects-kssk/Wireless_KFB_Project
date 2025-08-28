@@ -178,15 +178,25 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   // Live updates from EV events: apply only for current MAC (or zero-mac broadcast)
   useEffect(() => {
-    if (!lastEv || !macAddress) return;
-    const evMac = String(lastEv.mac || '').toUpperCase();
-    const current = String(macAddress).toUpperCase();
-    const kind = String((lastEv as any).kind || '').toUpperCase();
-    // Strict for DONE; permissive for P/L (server may remap mac for P/L to current via filter)
-    if (kind === 'DONE') {
-      const isZeroMac = evMac === '00:00:00:00:00:00';
-      if (!current || !evMac || (evMac !== current && !isZeroMac)) return;
-    }
+  if (!lastEv || !macAddress) return;
+
+  const current = String(macAddress).toUpperCase();
+  const evMac = String(lastEv.mac || '').toUpperCase();
+  const ZERO = '00:00:00:00:00:00';
+
+  const kindRaw = String((lastEv as any).kind || '').toUpperCase();
+  const text = String((lastEv as any).line || (lastEv as any).raw || '');
+  const isLegacyResult = kindRaw === 'RESULT' || /\bRESULT\b/i.test(text);
+  const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
+  const kind = isLegacyResult ? 'DONE' : kindRaw;   // normalize
+
+if (kind === 'DONE') {
+  const match = !evMac || evMac === ZERO || evMac === current;
+  const okFlag = String((lastEv as any).ok).toLowerCase() === 'true' || okFromText;  // <—
+  if (!(match && okFlag)) return;
+}
+
+
     // Map channel to pinNumber directly
     const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;
     const val = typeof (lastEv as any).val === 'number' ? (lastEv as any).val : null;
@@ -218,10 +228,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return changed ? next : prev;
     });
 
-    if (kind === 'DONE' && (lastEv as any).ok === true) {
-      // Mark everything OK on terminal success
-      setLocalBranches((prev) => prev.map((b) => (typeof b.pinNumber === 'number' ? { ...b, testStatus: 'ok' } : b)));
-    }
+
+    if (kind === 'DONE' && (String((lastEv as any).ok).toLowerCase() === 'true' || okFromText)) {
+  setLocalBranches(prev => prev.map(b =>
+    (typeof b.pinNumber === 'number' ? { ...b, testStatus: 'ok' } : b)
+  ));
+}
+
   }, [lastEvTick, lastEv, macAddress]);
 
   // load recent macs list (if any)
@@ -249,17 +262,26 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return [...new Set(pins)].sort((a,b)=>a-b);
   }, [checkFailures, pending]);
 
+ // Consider both flat and grouped views for "all OK"
+ const flatAllOk = useMemo(() => (
+   hasMounted &&
+   !isScanning && !isChecking &&
+   localBranches.length > 0 &&
+   localBranches.every((b) => b.testStatus === 'ok')
+ ), [hasMounted, isScanning, isChecking, localBranches]);
+
+ const groupedAllOk = useMemo(() => (
+   hasMounted &&
+   !isScanning && !isChecking &&
+   Array.isArray(groupedBranches) && groupedBranches.length > 0 &&
+   groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'))
+ ), [hasMounted, isScanning, isChecking, groupedBranches]);
+
  const allOk = useMemo(() => {
-   // If caller reports any failed pins from CHECK, never show OK animation
-   if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
    if (disableOkAnimation) return false;
-   return (
-     hasMounted &&
-     !isScanning && !isChecking &&
-     localBranches.length > 0 &&
-     localBranches.every(b => b.testStatus === 'ok')
-   );
- }, [hasMounted, isScanning, isChecking, localBranches, checkFailures, disableOkAnimation]);
+   if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
+   return flatAllOk || groupedAllOk;
+ }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
 useEffect(() => {
   if (timeoutRef.current) clearTimeout(timeoutRef.current);

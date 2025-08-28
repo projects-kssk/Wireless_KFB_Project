@@ -524,8 +524,20 @@ const MainApplicationUI: React.FC = () => {
             await handleScan(raw);
           }
               else if (error) {
-     setErrorMsg(String(error));
-     console.warn('[SCANNER] poll error', error);
+                const str = String(error);
+                const lower = str.toLowerCase();
+                // Suppress noisy "not present/disconnected" class of errors; badge already reflects state
+                const isNotPresent =
+                  lower.includes('scanner port not present') ||
+                  lower.includes('disconnected:not_present') ||
+                  lower.includes('not present') ||
+                  lower.includes('not_present');
+                if (isNotPresent) {
+                  setErrorMsg(null);
+                } else {
+                  setErrorMsg(str);
+                }
+                console.warn('[SCANNER] poll error', error);
               }
         }
       } catch (e) {

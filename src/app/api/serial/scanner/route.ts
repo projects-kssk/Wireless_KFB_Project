@@ -90,7 +90,7 @@ export async function GET(req: Request) {
       if (!code) {
         const st = (statusRaw as any)[wantedPath] as ScannerStatus | undefined;
         if (!st) error = 'disconnected:not_present';
-        else if (!st.open) error = 'closed:not_open';
+       
         else if (st.inCooldown) error = st.lastError || 'cooldown';
       }
       const advise = CLIENT_RETRY_MS;

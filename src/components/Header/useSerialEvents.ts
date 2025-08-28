@@ -63,6 +63,42 @@ export function useSerialEvents(macFilter?: string) {
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
   const redisOkRef = useRef(false);
+  // rAF coalescing for high-frequency events
+  const pendingRef = useRef<{ scan?: { code: string; path?: string }; ev?: any } | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const flush = () => {
+    const p = pendingRef.current;
+    pendingRef.current = null;
+    rafRef.current = null;
+    if (!p) return;
+    if (p.scan) {
+      const { code, path } = p.scan;
+      tickRef.current += 1;
+      setLastScan(String(code));
+      setLastScanPath(path ?? null);
+      setLastScanAt(Date.now());
+      setLastScanTick(tickRef.current);
+      if (path) up(path, { lastScanTs: Date.now(), open: true, lastError: null });
+    }
+    if (p.ev) {
+      try {
+        if ((process.env.NEXT_PUBLIC_EV_LOG || '') === '1') {
+          // eslint-disable-next-line no-console
+          console.log('[GUI] EV', p.ev);
+        }
+      } catch {}
+      setLastEv(p.ev);
+      tickRef.current += 1;
+      setLastEvTick(tickRef.current);
+      setEvCount((c) => c + 1);
+    }
+  };
+  const schedule = (patch: (p: any) => void) => {
+    if (!pendingRef.current) pendingRef.current = {} as any;
+    patch(pendingRef.current);
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(flush);
+  };
 
   // derive server status from esp+redis (both must be OK)
   useEffect(() => {
@@ -197,24 +233,7 @@ export function useSerialEvents(macFilter?: string) {
         }
 
         case "ev": {
-          // Always store the last event; UI can decide to filter by MAC
-          try {
-            const m = msg as any;
-            // Lightweight dev console log to trace live events in the GUI
-            // Example: [GUI] EV kind=L ch=10 val=1 mac=AA:BB:CC:DD:EE:FF
-            // eslint-disable-next-line no-console
-            console.log(
-              '[GUI] EV',
-              `kind=${String(m.kind || '')}`,
-              `ch=${m.ch != null ? m.ch : '-'}`,
-              `val=${m.val != null ? m.val : '-'}`,
-              `mac=${m.mac || '-'}`
-            );
-          } catch {}
-          setLastEv(msg);
-          tickRef.current += 1;
-          setLastEvTick(tickRef.current);
-          setEvCount((c) => c + 1);
+          schedule((p) => { (p as any).ev = msg; });
           break;
         }
 
@@ -225,13 +244,7 @@ export function useSerialEvents(macFilter?: string) {
         }
 
         case "scan": {
-          // always advance tick so identical codes still trigger UI effects
-          tickRef.current += 1;
-          setLastScan(String(msg.code));
-          setLastScanPath(msg.path ?? null);
-          setLastScanAt(Date.now());
-          setLastScanTick(tickRef.current);
-          if (msg.path) up(msg.path, { lastScanTs: Date.now(), open: true, lastError: null });
+          schedule((p) => { (p as any).scan = { code: String((msg as any).code), path: (msg as any).path ?? null }; });
           break;
         }
 

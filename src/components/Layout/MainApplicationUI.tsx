@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, FormEvent } from 'react';
+import React, { useState, useEffect, useCallback, useRef, FormEvent, startTransition } from 'react';
 import dynamic from 'next/dynamic';
 import { m, AnimatePresence } from 'framer-motion';
 
@@ -102,6 +102,7 @@ const MainApplicationUI: React.FC = () => {
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const [okAnimationTick, setOkAnimationTick] = useState(0);
+  const [okFlashTick, setOkFlashTick] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
   const scanOverlayTimerRef = useRef<number | null>(null);
@@ -198,13 +199,30 @@ useEffect(() => {
   useEffect(() => {
     // Reset guard when a new scan/check starts
     if (isScanning || isChecking) { okForcedRef.current = false; return; }
+    // If the latest live event indicates a failure for the current MAC, do not force OK
+    try {
+      const ev: any = (serial as any).lastEv;
+      const cur = (macAddress || '').toUpperCase();
+      if (ev && cur) {
+        const evMac = String(ev.mac || '').toUpperCase();
+        const ZERO = '00:00:00:00:00:00';
+        const raw = String(ev.line || ev.raw || '');
+        const kindRaw = String(ev.kind || '').toUpperCase();
+        const isResult = /\bRESULT\b/i.test(raw) || kindRaw === 'RESULT';
+        const isFailText = /\bFAIL(?:URE)?\b/i.test(raw);
+        const isDoneFail = kindRaw === 'DONE' && String(ev.ok).toLowerCase() === 'false';
+        const macMatch = !evMac || evMac === ZERO || evMac === cur || /reply\s+from\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i.test(raw);
+        if (macMatch && (isDoneFail || (isResult && isFailText))) return; // abort force OK
+      }
+    } catch {}
     if (okForcedRef.current) return;
     const anyFailures = Array.isArray(checkFailures) && checkFailures.length > 0;
     if (anyFailures) return;
     const flatOk = Array.isArray(branchesData) && branchesData.length > 0 && branchesData.every((b) => b.testStatus === 'ok');
     const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
     if (flatOk || groupedOk) {
-      try { setOkAnimationTick((x) => x + 1); } catch {}
+      // In live mode when everything is OK, show OK flash then reset
+      try { setOkFlashTick((x) => x + 1); } catch {}
       okForcedRef.current = true;
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
@@ -313,7 +331,7 @@ useEffect(() => {
             setLatchPins(l);
           } catch {}
           setCheckFailures(failures);
-          setBranchesData(_prev => {
+          startTransition(() => setBranchesData(_prev => {
             // Always rebuild list so all KSSKs are reflected
             const macUp = mac.toUpperCase();
             let aliases: Record<string,string> = {};
@@ -431,12 +449,13 @@ useEffect(() => {
                   } as BranchDisplayData)),
                 ]
               : flat;
-          });
+          }));
 
           if (!unknown && failures.length === 0) {
             // Success: close SCANNING overlay; let the in-content SVG OK animation run and handle reset
             clearScanOverlayTimeout();
             setOverlay((o) => ({ ...o, open: false }));
+            try { setOkFlashTick((t) => t + 1); } catch {}
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
             const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
@@ -545,17 +564,21 @@ useEffect(() => {
       return;
     }
 
-    // show SCANNING immediately
+    // show SCANNING only if we have no content yet; otherwise keep UI and just highlight
     lastScanRef.current = normalized;
-    showOverlay('scanning', normalized);
-    startScanOverlayTimeout(5000);
+    if (branchesData.length === 0 && groupedBranches.length === 0) {
+      showOverlay('scanning', normalized);
+      startScanOverlayTimeout(5000);
+    }
 
     setIsScanning(true);
     setErrorMsg(null);
-    setBranchesData([]);
+    // Do not clear existing view; keep content while rescanning
+    // setBranchesData([]);
     setKfbInfo(null);
-    setKfbNumber('');
-    setMacAddress('');
+    // Keep previous identifiers until we assign the new MAC below
+    // setKfbNumber('');
+    // setMacAddress('');
     setCheckFailures(null);
     setShowRemoveCable(false);
     setAwaitingRelease(false);
@@ -924,6 +947,7 @@ useEffect(() => {
               normalPins={normalPins}
               latchPins={latchPins}
               forceOkTick={okAnimationTick}
+              flashOkTick={okFlashTick}
               onResetKfb={handleResetKfb}
             />
 

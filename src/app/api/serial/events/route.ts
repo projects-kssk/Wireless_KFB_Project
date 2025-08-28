@@ -10,6 +10,18 @@ import {
 import { getRedis } from '@/lib/redis';
 import serial from '@/lib/serial';
 
+// Lightweight log de-dupe to avoid spamming identical RESULT/EV lines
+const __LAST_LOG = {
+  map: new Map<string, number>(),
+  shouldLog(key: string, windowMs = 1500) {
+    const now = Date.now();
+    const last = this.map.get(key) || 0;
+    if (now - last < windowMs) return false;
+    this.map.set(key, now);
+    return true;
+  }
+};
+
 // Ensure bus → memory is wired once per process
 import '@/lib/scanSink';
 
@@ -175,7 +187,10 @@ export async function GET(req: Request) {
               const ok = /^SUCCESS$/i.test(m[1]);
               const mac = m[2].toUpperCase();
               if (macAllowed(mac)) {
-                try { console.log('[events] EV DONE', { ok, mac, line }); } catch {}
+                try {
+                  const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
+                  if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
+                } catch {}
                 send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
               }
               return;
@@ -186,7 +201,10 @@ export async function GET(req: Request) {
               const mac = matches.length ? matches[matches.length - 1]![1] : null;
               const ok = /\bSUCCESS\b/i.test(line);
               if (macAllowed(mac || undefined)) {
-                try { console.log('[events] RESULT legacy', { ok, mac, line }); } catch {}
+                try {
+                  const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
+                  if (__LAST_LOG.shouldLog(key)) console.log('[events] RESULT legacy', { ok, mac, line });
+                } catch {}
                 send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
               }
               return;

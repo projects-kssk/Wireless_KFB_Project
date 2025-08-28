@@ -176,6 +176,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   useEffect(() => { setHasMounted(true); }, []);
 
+  useEffect(() => {
+    if (isScanning) setIsManualEntry(false);
+  }, [isScanning]);
+
   // Live updates from EV events: apply only for current MAC (or zero-mac broadcast)
   useEffect(() => {
   if (!lastEv || !macAddress) return;
@@ -270,12 +274,27 @@ if (kind === 'DONE') {
    localBranches.every((b) => b.testStatus === 'ok')
  ), [hasMounted, isScanning, isChecking, localBranches]);
 
- const groupedAllOk = useMemo(() => (
-   hasMounted &&
-   !isScanning && !isChecking &&
-   Array.isArray(groupedBranches) && groupedBranches.length > 0 &&
-   groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'))
- ), [hasMounted, isScanning, isChecking, groupedBranches]);
+// → Use live statusByPin from localBranches so EV updates count toward allOk
+const groupedAllOk = useMemo(() => {
+  if (!hasMounted || isScanning || isChecking) return false;
+  if (!Array.isArray(groupedBranches) || groupedBranches.length === 0) return false;
+
+  const byPin = new Map<number, BranchDisplayData['testStatus']>();
+  for (const b of localBranches) {
+    if (typeof b.pinNumber === 'number') byPin.set(b.pinNumber, b.testStatus);
+  }
+
+  return groupedBranches.every((g) =>
+    g.branches.length > 0 &&
+    g.branches.every((b) => {
+      const s =
+        (typeof b.pinNumber === 'number' ? byPin.get(b.pinNumber) : undefined) ??
+        b.testStatus; // fall back to prop if no live status
+      return s === 'ok';
+    })
+  );
+}, [hasMounted, isScanning, isChecking, groupedBranches, localBranches]);
+
 
  const allOk = useMemo(() => {
    if (disableOkAnimation) return false;
@@ -394,16 +413,15 @@ useEffect(() => {
         </div>
       );
     }
-    if (isScanning && localBranches.length > 0) {
+    if (isScanning) {
       return (
-        <div className="flex flex-col items-center justify-center h-full min-h-[500px]">
+        <div className="flex flex-col items-center justify-center h-full min-h-[500px]" aria-busy="true">
           <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
             SELF CHECKING...
           </h2>
         </div>
       );
     }
-
     if (showOkAnimation) {
       return (
         <div className="p-10 text-center w-full flex flex-col items-center justify-center">
@@ -558,7 +576,7 @@ useEffect(() => {
             <p className="text-6xl md:text-7xl text-slate-600 font-extrabold uppercase tracking-widest text-center select-none">Please Scan KFB Board</p>
             {isScanning && <p className="text-slate-500 text-4xl md:text-5xl animate-pulse text-center">Scanning…</p>}
           </div>
-          {allowManualInput && (
+          {allowManualInput && !isScanning && (
             <button onClick={() => setIsManualEntry(true)} className="mt-10 text-xl md:text-2xl text-slate-500 hover:text-blue-600 transition-colors underline">
               Or enter MAC manually
             </button>

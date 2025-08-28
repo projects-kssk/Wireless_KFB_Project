@@ -20,7 +20,8 @@ type SerialEvent =
   | { type: "scanner/open"; path?: string }
   | { type: "scanner/close"; path?: string }
   | { type: "scanner/error"; error: string; path?: string }
-  | { type: "scanner/paths"; paths: string[] };
+  | { type: "scanner/paths"; paths: string[] }
+  | { type: "ev"; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number };
 
 type ScannerPortState = {
   present: boolean;          // from SerialPort.list()
@@ -31,7 +32,7 @@ type ScannerPortState = {
 
 const SSE_PATH = "/api/serial/events";
 
-export function useSerialEvents() {
+export function useSerialEvents(macFilter?: string) {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [netIface, setNetIface] = useState<string | null>(null);
@@ -48,6 +49,9 @@ export function useSerialEvents() {
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
   const [redisReady, setRedisReady] = useState<boolean>(false);
+  const [lastEv, setLastEv] = useState<any>(null);
+  const [lastEvTick, setLastEvTick] = useState(0);
+  const [evCount, setEvCount] = useState(0);
 
   const [sseConnected, setSseConnected] = useState<boolean>(false);
 
@@ -94,8 +98,12 @@ export function useSerialEvents() {
       esRef.current = null;
     }
 
-    const es = new EventSource(SSE_PATH);
+    const url = macFilter && macFilter.trim()
+      ? `${SSE_PATH}?mac=${encodeURIComponent(macFilter.trim().toUpperCase())}`
+      : SSE_PATH;
+    const es = new EventSource(url);
     esRef.current = es;
+    setEvCount(0);
 
     es.onopen = () => setSseConnected(true);
 
@@ -186,6 +194,28 @@ export function useSerialEvents() {
           break;
         }
 
+        case "ev": {
+          // Always store the last event; UI can decide to filter by MAC
+          try {
+            const m = msg as any;
+            // Lightweight dev console log to trace live events in the GUI
+            // Example: [GUI] EV kind=L ch=10 val=1 mac=AA:BB:CC:DD:EE:FF
+            // eslint-disable-next-line no-console
+            console.log(
+              '[GUI] EV',
+              `kind=${String(m.kind || '')}`,
+              `ch=${m.ch != null ? m.ch : '-'}`,
+              `val=${m.val != null ? m.val : '-'}`,
+              `mac=${m.mac || '-'}`
+            );
+          } catch {}
+          setLastEv(msg);
+          tickRef.current += 1;
+          setLastEvTick(tickRef.current);
+          setEvCount((c) => c + 1);
+          break;
+        }
+
         case "scan": {
           // always advance tick so identical codes still trigger UI effects
           tickRef.current += 1;
@@ -213,7 +243,7 @@ export function useSerialEvents() {
       esRef.current = null;
       setSseConnected(false);
     };
-  }, []);
+  }, [macFilter]);
 
   // roll-ups
   const scannersDetected = useMemo(
@@ -257,5 +287,11 @@ export function useSerialEvents() {
 
     // connection indicators
     redisReady,
+
+    // hub events
+    lastEv,
+    lastEvTick,
+
+    evCount,
   };
 }

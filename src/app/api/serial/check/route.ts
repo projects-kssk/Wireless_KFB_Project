@@ -183,6 +183,9 @@ export async function POST(request: Request) {
         mon.info(`CHECK kssk targets count=${targets.length} station=${stationId || 'n/a'}`);
       }
       const pinsSet = new Set<number>();
+      const unionNames: Record<string, string> = {};
+      const unionN = new Set<number>();
+      const unionL = new Set<number>();
       for (const id of targets) {
         try {
           const raw = await r.get(`kfb:aliases:${macUp}:${id}`);
@@ -190,6 +193,10 @@ export async function POST(request: Request) {
           const d = JSON.parse(raw);
           const names = d?.names || d?.aliases || {};
           for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
+          // merge first-seen name per pin (preserve earlier)
+          for (const [k, v] of Object.entries(names)) { if (!unionNames[k]) unionNames[k] = String(v); }
+          if (Array.isArray(d?.normalPins)) for (const n of d.normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) { pinsSet.add(x); unionN.add(x); } }
+          if (Array.isArray(d?.latchPins)) for (const n of d.latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) { pinsSet.add(x); unionL.add(x); } }
         } catch {}
       }
       // Always merge the union-from-MAC key as a safety net, so we never
@@ -209,21 +216,46 @@ export async function POST(request: Request) {
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK union pins count=${pinsUnion.length}`);
       }
+      // Persist union back to Redis (strengthen consistency for subsequent sessions)
+      try {
+        const { getRedis } = await import('@/lib/redis');
+        const rr: any = getRedis();
+        const key = `kfb:aliases:${macUp}`;
+        const prevRaw = await rr.get(key).catch(() => null);
+        let prev: any = null;
+        try { prev = prevRaw ? JSON.parse(prevRaw) : null; } catch {}
+        const hints = (prev?.hints && typeof prev.hints === 'object') ? prev.hints : undefined;
+        const outNames = Object.keys(unionNames).length ? unionNames : (prev?.names && typeof prev.names === 'object' ? prev.names : {});
+        const nArr = Array.from(unionN).sort((a,b)=>a-b);
+        const lArr = Array.from(unionL).sort((a,b)=>a-b);
+        const payload = JSON.stringify({ names: outNames, normalPins: nArr, latchPins: lArr, ...(hints?{hints}:{}) , ts: Date.now() });
+        await rr.set(key, payload).catch(()=>{});
+      } catch {}
     } catch {}
 
     // Choose which pins to send:
     // 1) union (preferred)
     // 2) client pins (fallback if union is empty)
-    // 3) MAC-only
+    // 3) env default (CHECK_DEFAULT_PINS)
+    // 4) MAC-only
     let pins: number[] | undefined = undefined;
     if (pinsUnion.length) {
       pins = pinsUnion;
     } else if (Array.isArray(clientPins) && clientPins.length) {
       pins = clientPins;
-    } else if (SEND_MODE === 'client') {
-      pins = clientPins;
     } else {
-      pins = undefined;
+      const rawDef = (process.env.CHECK_DEFAULT_PINS || '').trim();
+      if (rawDef) {
+        const defPins = rawDef
+          .split(',')
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        if (defPins.length) pins = Array.from(new Set(defPins)).sort((a, b) => a - b);
+      }
+      if (!pins && SEND_MODE === 'client') {
+        pins = clientPins;
+      }
+      // else leave undefined → MAC-only
     }
 
     const { sendToEsp, waitForNextLine } = serial as any;

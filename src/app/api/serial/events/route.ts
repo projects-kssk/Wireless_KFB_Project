@@ -8,6 +8,7 @@ import {
   espHealth,
 } from '@/lib/serial';
 import { getRedis } from '@/lib/redis';
+import serial from '@/lib/serial';
 
 // Ensure bus → memory is wired once per process
 import '@/lib/scanSink';
@@ -60,6 +61,17 @@ async function ethStatus() {
 
 export async function GET(req: Request) {
   const encoder = new TextEncoder();
+  const urlObj = new URL(req.url);
+  const macParam = (urlObj.searchParams.get('mac') || '').trim();
+  const macFilter = macParam.toUpperCase();
+  const macSet: Set<string> | null = macFilter
+    ? new Set(macFilter.split(',').map(s => s.trim()).filter(Boolean))
+    : null;
+  const macAllowed = (m?: string | null) => {
+    if (!macSet) return true; // no filter → allow all
+    const up = String(m || '').toUpperCase();
+    return up && macSet.has(up);
+  };
   let closed = false;
   let heartbeat: NodeJS.Timeout | null = null;
   let pollTimer: NodeJS.Timeout | null = null;
@@ -128,6 +140,67 @@ export async function GET(req: Request) {
       } catch (err: any) {
         send({ type: 'esp', ok: false, error: String(err?.message ?? err) });
       }
+
+      // Wire ESP line stream → parse EV lines and forward as SSE
+      try {
+        const s: any = (serial as any).getEspLineStream?.();
+        const onLine = (buf: Buffer | string) => {
+          try {
+            const line = String(buf).trim();
+            if (!line) return;
+            // EV protocol parsing
+            // EV P <ch> <0|1> <mac>
+            // EV L <ch> <0|1> <mac>
+            // EV DONE <SUCCESS|FAILURE> <mac>
+            // Legacy: RESULT SUCCESS|FAILURE ... <mac>
+            let m: RegExpMatchArray | null = null;
+            // Relaxed: allow timestamps/prefix before EV
+            if ((m = line.match(/\bEV\s+([PL])\s+(\d{1,3})\s+([01])\s+([0-9A-F:]{17})/i))) {
+              const kind = m[1].toUpperCase();
+              const ch = Number(m[2]);
+              const val = Number(m[3]);
+              const srcMac = m[4].toUpperCase();
+              // If a mac filter is provided and doesn't match, remap to the filter (for P/L only),
+              // so the UI can attribute events to the active MAC.
+              let outMac = srcMac;
+              if (macSet && !macAllowed(srcMac)) {
+                const first = macSet.values().next();
+                if (!first.done) outMac = first.value as string;
+              }
+              try { console.log('[events] EV', { kind, ch, val, mac: outMac, srcMac, line }); } catch {}
+              send({ type: 'ev', kind, ch, val, mac: outMac, raw: line, ts: Date.now() });
+              return;
+            }
+            if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
+              const ok = /^SUCCESS$/i.test(m[1]);
+              const mac = m[2].toUpperCase();
+              if (macAllowed(mac)) {
+                try { console.log('[events] EV DONE', { ok, mac, line }); } catch {}
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
+              }
+              return;
+            }
+            // Legacy RESULT — pick the LAST MAC token on the line (target), else null
+            if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
+              const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
+              const mac = matches.length ? matches[matches.length - 1]![1] : null;
+              const ok = /\bSUCCESS\b/i.test(line);
+              if (macAllowed(mac || undefined)) {
+                try { console.log('[events] RESULT legacy', { ok, mac, line }); } catch {}
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
+              }
+              return;
+            }
+          } catch {}
+        };
+        s?.parser?.on?.('data', onLine);
+        // ensure we remove listener on cleanup
+        const oldCleanup = (controller as any).__cleanup;
+        (controller as any).__cleanup = () => {
+          try { s?.parser?.off?.('data', onLine); } catch {}
+          if (typeof oldCleanup === 'function') oldCleanup();
+        };
+      } catch {}
 
       // Periodic rollups
       pollTimer = setInterval(async () => {

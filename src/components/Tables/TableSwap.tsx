@@ -232,6 +232,14 @@ useEffect(() => {
     };
   }, [cycleKey, incomingTitle, swapDelayMs, pendingTitle]);
 
+  // When board is cleared (default state), ensure header title resets immediately
+  useEffect(() => {
+    if (!hasBoard) {
+      setPendingTitle("");
+      setVisibleTitle("");
+    }
+  }, [hasBoard]);
+
   /* in-table OK/NOT OK overlay */
   const [phase, setPhase] = useState<"idle" | "ok">("idle");
   const [okKind, setOkKind] = useState<"success" | "error">("success");

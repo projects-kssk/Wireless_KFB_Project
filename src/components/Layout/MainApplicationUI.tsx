@@ -58,6 +58,8 @@ const MainApplicationUI: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<Record<string,string> | undefined>(undefined);
+  const [normalPins, setNormalPins] = useState<number[] | undefined>(undefined);
+  const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
   const [scanningError, setScanningError] = useState(false);
 
@@ -110,7 +112,7 @@ const MainApplicationUI: React.FC = () => {
   };
 
   // Serial events (SSE)
-  const serial = useSerialEvents();
+  const serial = useSerialEvents((macAddress || '').toUpperCase() || undefined);
   const lastScan = serial.lastScan;
   const lastScanPath = (serial as any).lastScanPath as string | null | undefined;
   const DASH_SCANNER_INDEX = Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0');
@@ -133,6 +135,18 @@ const MainApplicationUI: React.FC = () => {
     const key = Object.keys(map).find((k) => pathsEqual(k, desiredPath || ''));
     return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
   })();
+
+  // Live EV updates: ignore events for other MACs. On DONE SUCCESS, close SCANNING overlay.
+  useEffect(() => {
+    const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean } | null;
+    if (!ev) return;
+    const current = (macAddress || '').toUpperCase();
+    const evMac = String(ev.mac || '').toUpperCase();
+    if (!current || !evMac || evMac !== current) return; // strict match only
+    if (ev.kind === 'DONE' && ev.ok) {
+      try { setOverlay((o) => ({ ...o, open: false })); } catch {}
+    }
+  }, [serial.lastEvTick, macAddress]);
 
   // Load station KSSKs as a fallback source for "KSSKs used" display
   useEffect(() => {
@@ -219,6 +233,12 @@ const MainApplicationUI: React.FC = () => {
           const unknown = result?.unknownFailure === true;
           const hints = (result?.nameHints && typeof result.nameHints === 'object') ? (result.nameHints as Record<string,string>) : undefined;
           setNameHints(hints);
+          try {
+            const n = Array.isArray(result?.normalPins) ? (result.normalPins as number[]) : undefined;
+            const l = Array.isArray(result?.latchPins) ? (result.latchPins as number[]) : undefined;
+            setNormalPins(n);
+            setLatchPins(l);
+          } catch {}
           setCheckFailures(failures);
           setBranchesData(_prev => {
             // Always rebuild list so all KSSKs are reflected
@@ -473,17 +493,39 @@ const MainApplicationUI: React.FC = () => {
       try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
       let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
       if (pins.length === 0) {
-        // Fallback to Redis union if local cache empty
+        // Fallback to Redis (prefer all KSSK items union)
         try {
-          const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
-          if (r.ok) {
-            const j = await r.json();
-            const a = (j?.aliases && typeof j.aliases === 'object') ? (j.aliases as Record<string,string>) : {};
-            if (a && Object.keys(a).length) {
-              aliases = a;
-              try { localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases)); } catch {}
-              pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+          const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+          if (rAll.ok) {
+            const jAll = await rAll.json();
+            const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            const pinSet = new Set<number>();
+            for (const it of items) {
+              const a = (it.aliases && typeof it.aliases === 'object') ? it.aliases : {};
+              for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinSet.add(n); }
+              if (Array.isArray(it.normalPins)) for (const n of it.normalPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
+              if (Array.isArray(it.latchPins)) for (const n of it.latchPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
             }
+            if (pinSet.size) pins = Array.from(pinSet).sort((x,y)=>x-y);
+            // Also persist union aliases for UI rendering if available via single GET
+            try {
+              const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+              if (rUnion.ok) {
+                const jU = await rUnion.json();
+                const aU = (jU?.aliases && typeof jU.aliases === 'object') ? (jU.aliases as Record<string,string>) : {};
+                if (Object.keys(aU).length) {
+                  aliases = aU;
+                  try { localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases)); } catch {}
+                }
+                // capture pin type context
+                try {
+                  const n = Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : undefined;
+                  const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
+                  setNormalPins(n);
+                  setLatchPins(l);
+                } catch {}
+              }
+            } catch {}
           }
         } catch {}
       }
@@ -499,6 +541,8 @@ const MainApplicationUI: React.FC = () => {
         setBranchesData([]);
       }
 
+      // Debug: log pins being sent for first CHECK
+      try { console.log('[GUI] CHECK pins', pins); } catch {}
       await runCheck(mac, 0, pins);
     } catch (e) {
       console.error('Load/MONITOR error:', e);
@@ -733,6 +777,24 @@ const MainApplicationUI: React.FC = () => {
                       </span>
                     );
                   })()}
+                  {/* Live monitor badge (debug) */}
+                  {(() => {
+                    const mac = (macAddress || '').toUpperCase();
+                    const on = !!((serial as any).sseConnected && mac);
+                    const cnt = Number((serial as any).evCount || 0);
+                    const badgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
+                    const badgeColor = on
+                      ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
+                      : 'border border-slate-300 bg-slate-50 text-slate-700 dark:bg-slate-800/40 dark:text-slate-200';
+                    return (
+                      <span className={`${badgeBase} ${badgeColor}`} title={mac ? `MAC ${mac}` : 'inactive'}>
+                        Live:
+                        <span className={on ? 'text-emerald-700' : 'text-slate-600'}>
+                          {on ? `on (EV ${cnt})` : 'off'}
+                        </span>
+                      </span>
+                    );
+                  })()}
                   {/* Only show desired scanner + Redis on this page */}
                 </div>
               )}
@@ -753,6 +815,10 @@ const MainApplicationUI: React.FC = () => {
                 isScanning={isScanning}
                 macAddress={macAddress}
                 activeKssks={activeKssks}
+                lastEv={(serial as any).lastEv}
+                lastEvTick={(serial as any).lastEvTick}
+                normalPins={normalPins}
+                latchPins={latchPins}
                 onResetKfb={handleResetKfb}
               />
 

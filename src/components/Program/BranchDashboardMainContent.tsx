@@ -127,6 +127,12 @@ export interface BranchDashboardMainContentProps {
   activeKssks?: string[];
   scanningError?: boolean;
   disableOkAnimation?: boolean;
+  // Live hub events (forwarded via SSE)
+  lastEv?: { kind?: string; ch?: number | null; val?: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number } | null;
+  lastEvTick?: number;
+  // Optional pin type context (from aliases union)
+  normalPins?: number[];
+  latchPins?: number[];
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -147,6 +153,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   activeKssks = [],
   scanningError = false,
   disableOkAnimation = false,
+  lastEv,
+  lastEvTick,
+  normalPins,
+  latchPins,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -161,6 +171,53 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
 
   useEffect(() => { setHasMounted(true); }, []);
+
+  // Live updates from EV events: apply only for current MAC
+  useEffect(() => {
+    if (!lastEv || !macAddress) return;
+    const evMac = String(lastEv.mac || '').toUpperCase();
+    const current = String(macAddress).toUpperCase();
+    const kind = String((lastEv as any).kind || '').toUpperCase();
+    // Strict for DONE; permissive for P/L (server may remap mac for P/L to current via filter)
+    if (kind === 'DONE') {
+      if (!current || !evMac || evMac !== current) return;
+    }
+    // Map channel to pinNumber directly
+    const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;
+    const val = typeof (lastEv as any).val === 'number' ? (lastEv as any).val : null;
+
+    // Dev log: show how we're applying updates
+    try {
+      // eslint-disable-next-line no-console
+      console.log('[GUI] apply EV', { kind, ch, val, mac: evMac });
+    } catch {}
+
+    const normSet = new Set<number>((normalPins || []).filter((n) => Number.isFinite(n)) as number[]);
+    const latchSet = new Set<number>((latchPins || []).filter((n) => Number.isFinite(n)) as number[]);
+
+    setLocalBranches((prev) => {
+      let changed = false;
+      const next = prev.map((b) => {
+        if (typeof b.pinNumber !== 'number') return b;
+        // Consider both L (latch) and P (press) with val=1 as success for instant UI feedback
+        if ((kind === 'L' || kind === 'P') && ch != null && b.pinNumber === ch && val === 1) {
+          changed = true;
+          return { ...b, testStatus: 'ok' } as any;
+        }
+        // For NORMAL channels, track release (val=0) by re-adding to missing until pressed again
+        if (kind === 'P' && ch != null && b.pinNumber === ch && val === 0) {
+          if (normSet.has(ch)) { changed = true; return { ...b, testStatus: 'nok' } as any; }
+        }
+        return b;
+      });
+      return changed ? next : prev;
+    });
+
+    if (kind === 'DONE' && (lastEv as any).ok === true) {
+      // Mark everything OK on terminal success
+      setLocalBranches((prev) => prev.map((b) => (typeof b.pinNumber === 'number' ? { ...b, testStatus: 'ok' } : b)));
+    }
+  }, [lastEvTick, lastEv, macAddress]);
 
   // load recent macs list (if any)
   useEffect(() => {
@@ -493,9 +550,20 @@ useEffect(() => {
         </span>
       );
 
+      // Build a status map from the live localBranches so socket events can hide CLs on success
+      const statusByPin = new Map<number, 'ok' | 'nok' | 'not_tested'>();
+      for (const b of localBranches) if (typeof b.pinNumber === 'number') statusByPin.set(b.pinNumber, b.testStatus as any);
+
       const ksskCards = groupedBranches.map((grp) => {
-        const nok = grp.branches.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
-        const okBranches = grp.branches.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
+        // Re-evaluate branch status using live map when available
+        const branchesLive = grp.branches.map((b) => {
+          if (typeof b.pinNumber !== 'number') return b;
+          const s = statusByPin.get(b.pinNumber);
+          return s ? { ...b, testStatus: s } : b;
+        });
+
+        const nok = branchesLive.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
+        const okBranches = branchesLive.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
         const okNames = okBranches.map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName).filter(Boolean);
         const failedItems = nok
           .map(b => ({

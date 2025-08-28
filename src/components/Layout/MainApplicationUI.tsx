@@ -231,8 +231,8 @@ useEffect(() => {
     const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
     if (flatOk || groupedOk) {
       // In live mode when everything is OK, show OK flash then reset
-      try { setOkFlashTick((x) => x + 1); } catch {}
       okForcedRef.current = true;
+      resetAfterDelay();    // <<< clear to barcode
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -462,8 +462,10 @@ const flashOkThenReset = useCallback((code?: string) => {
               : flat;
           }));
 
-          if (!unknown && failures.length === 0) {
-            // Success: close SCANNING overlay; let the in-content SVG OK animation run and handle reset
+        if (!unknown && failures.length === 0) {
+            clearScanOverlayTimeout();
+            okForcedRef.current = true;
+            resetAfterDelay();                     // <<< back to barcode
             void fetch('/api/kssk-lock/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -960,8 +962,7 @@ const flashOkThenReset = useCallback((code?: string) => {
               lastEvTick={(serial as any).lastEvTick}
               normalPins={normalPins}
               latchPins={latchPins}
-              forceOkTick={okAnimationTick}
-              flashOkTick={okFlashTick}
+          
               onResetKfb={handleResetKfb}
             />
 

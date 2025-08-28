@@ -154,7 +154,9 @@ const MainApplicationUI: React.FC = () => {
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
     if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
-    return `/dev/ttyACM${DASH_SCANNER_INDEX}`;
+    // If no path is known for the desired index, do not force a fallback path
+    // to avoid filtering out real scans from other ACM ports.
+    return null;
   };
   const desiredPath = resolveDesiredPath();
   const desiredTail = (desiredPath || '').split('/').pop() || desiredPath || '';
@@ -294,7 +296,7 @@ useEffect(() => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
-    setMacAddress('');
+    // Keep MAC address to persist scanned value through the flow
     okForcedRef.current = false;
      bumpSession();   
   }, []);
@@ -505,10 +507,9 @@ useEffect(() => {
               setScanningError(true);
               showOverlay('error', 'SCANNING ERROR');
               clearScanOverlayTimeout();
-              // Reset view back to default scan state shortly after showing error
+              // Reset view back to default scan state shortly after showing error (preserve MAC)
               setTimeout(() => {
                 handleResetKfb();
-                setMacAddress('');
                 setGroupedBranches([]);
                 setActiveKssks([]);
                 setNameHints(undefined);
@@ -519,10 +520,9 @@ useEffect(() => {
             setScanningError(true);
             showOverlay('error', 'CHECK ERROR');
             clearScanOverlayTimeout();
-            // Reset view back to default scan state shortly after showing error
+            // Reset view back to default scan state shortly after showing error (preserve MAC)
             setTimeout(() => {
               handleResetKfb();
-              setMacAddress('');
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
@@ -544,7 +544,6 @@ useEffect(() => {
             hideOverlaySoon();
             setTimeout(() => {
               handleResetKfb();
-              setMacAddress('');
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
@@ -558,7 +557,6 @@ useEffect(() => {
           hideOverlaySoon();
           setTimeout(() => {
             handleResetKfb();
-            setMacAddress('');
             setGroupedBranches([]);
             setActiveKssks([]);
             setNameHints(undefined);
@@ -641,7 +639,7 @@ useEffect(() => {
                 const branches = pins.map(pin => ({
                   id: `${it.kssk}:${pin}`,
                   branchName: aliases[String(pin)] || `PIN ${pin}`,
-                  testStatus: 'not_tested',
+                  testStatus: 'not_tested' as TestStatus,
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                 }));
@@ -707,7 +705,7 @@ useEffect(() => {
       console.error('Load/MONITOR error:', e);
       setKfbNumber('');
       setKfbInfo(null);
-      setMacAddress('');
+      // Preserve MAC to keep scanned value across the flow
       setErrorMsg('Failed to load setup data. Please run Setup or scan MAC again.');
       showOverlay('error', 'Load failed');
       hideOverlaySoon();
@@ -760,7 +758,13 @@ useEffect(() => {
     if (!serial.lastScanTick) return;              // no event yet
     if (lastScanPath && !isAcmPath(lastScanPath)) return;
     const want = resolveDesiredPath();
-    if (want && lastScanPath && !pathsEqual(lastScanPath, want)) return; // ignore other scanner paths
+    // If a desired path is known, prefer it; otherwise accept any ACM path
+    if (want && lastScanPath && !pathsEqual(lastScanPath, want)) {
+      // Relax gating: accept any ACM path if desired path is unknown in list
+      // or if env does not enforce strict path matching
+      const strict = String(process.env.NEXT_PUBLIC_STRICT_SCANNER || '').trim() === '1';
+      if (strict) return;
+    }
     const code = serial.lastScan;                   // the latest payload
     if (!code) return;
     void handleScan(code);
@@ -804,7 +808,10 @@ useEffect(() => {
           const raw = typeof code === 'string' ? code.trim() : '';
           if (raw) {
             if (path && !isAcmPath(path)) return;
-            if (want && path && !pathsEqual(path, want)) return;
+            if (want && path && !pathsEqual(path, want)) {
+              const strict = String(process.env.NEXT_PUBLIC_STRICT_SCANNER || '').trim() === '1';
+              if (strict) return;
+            }
             await handleScan(raw);
           }
               else if (error) {

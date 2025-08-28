@@ -365,8 +365,9 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
     }
 
   state.starting = new Promise<void>((resolve, reject) => {
-      LOG.tag('scanner').info(`opening ${path} @${baudRate}`);
-    const port = new SerialPort({ path, baudRate, autoOpen: false, lock: false });
+    const effBaud = Number(process.env.SCANNER_BAUD ?? baudRate ?? 115200) || 115200;
+    LOG.tag('scanner').info(`opening ${path} @${effBaud}`);
+    const port = new SerialPort({ path, baudRate: effBaud, autoOpen: false, lock: false });
 const normalizer = new Transform({
   transform(chunk, _enc, cb) {
     const s = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
@@ -377,7 +378,7 @@ const normalizer = new Transform({
 
 const parser = port
   .pipe(normalizer)
-  .pipe(new ReadlineParser({ delimiter: "\n" }));
+  .pipe(new ReadlineParser({ delimiter: /[\r\n]+/ } as any));
     port.open((err) => {
       if (err) {
         LOG.tag('scanner').error(`open error ${path}`, err);

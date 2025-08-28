@@ -251,22 +251,7 @@ useEffect(() => {
     return () => { stop = true; clearInterval(h); };
   }, []);
 
-  // Load KSSKs used for the current MAC from aliases index (authoritative per-MAC list)
-  useEffect(() => {
-    const mac = (macAddress || '').trim().toUpperCase();
-    if (!mac) return;
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
-        const j = await r.json().catch(() => ({}));
-        const items = Array.isArray(j?.items) ? j.items : [];
-        const ids = items.map((it: any) => String(it.kssk)).filter(Boolean);
-        if (!stop && ids.length) setActiveKssks(ids);
-      } catch {}
-    })();
-    return () => { stop = true; };
-  }, [macAddress]);
+  // Do NOT override Active KSSKs from Redis with aliases index; show only station-active
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
@@ -388,9 +373,10 @@ useEffect(() => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            const items = Array.isArray((result as any)?.items)
-              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }>
-              : (Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }> : []);
+            // Prefer itemsActive (station-active KSSKs), fallback to all items
+            const items = Array.isArray((result as any)?.itemsActive)
+              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
+              : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
             if (items.length) {
               const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {

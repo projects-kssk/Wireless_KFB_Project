@@ -744,7 +744,15 @@ export default function SetupPage() {
     if (a === b) return true;
     const ta = a.split('/').pop() || a;
     const tb = b.split('/').pop() || b;
-    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+    if (ta === tb || a.endsWith(tb) || b.endsWith(ta)) return true;
+    // Accept by-id paths like /dev/serial/by-id/...ACM1 when the target is /dev/ttyACM1
+    const getAcmIdx = (p: string) => {
+      const m = p.match(/ACM(\d+)/i);
+      return m ? Number(m[1]) : null;
+    };
+    const ia = getAcmIdx(a) ?? getAcmIdx(ta) ?? null;
+    const ib = getAcmIdx(b) ?? getAcmIdx(tb) ?? null;
+    return ia != null && ib != null && ia === ib;
   };
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];

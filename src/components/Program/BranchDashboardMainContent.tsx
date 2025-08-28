@@ -364,24 +364,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
-  // Transition: on OK, snap back to scan state without success overlay
-  useEffect(() => {
-    if (initialPaintRef.current) { prevAllOkRef.current = allOk; return; }
-    // If a dedicated flash is running, don't snap; let the flash complete then reset
-    if (flashInProgressRef.current) { prevAllOkRef.current = allOk; return; }
-    if (allOk && !prevAllOkRef.current) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setShowOkAnimation(false);
-      if (typeof onResetKfb === 'function') onResetKfb();
-      setIsManualEntry(false);
-      setInputValue('');
-      setLocalBranches([]); // empty list -> scan box
-    }
-    prevAllOkRef.current = allOk;
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [allOk, onResetKfb]);
-
-  // Force snap via parent tick
+  // Snap helper used by multiple flows; define before effects that depend on it
   const returnToScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(false);
@@ -390,6 +373,27 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     setIsManualEntry(false);
     setInputValue('');
   }, [onResetKfb]);
+
+  // Transition: when allOK detected in live mode, show OK flash (~1.5s) then reset
+  useEffect(() => {
+    if (initialPaintRef.current) { prevAllOkRef.current = allOk; return; }
+    if (!allOk || prevAllOkRef.current) { prevAllOkRef.current = allOk; return; }
+    // If a dedicated CHECK flash is already running, do nothing here
+    if (flashInProgressRef.current) { prevAllOkRef.current = allOk; return; }
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (disableOkAnimation) {
+      // Snap back immediately if animations disabled
+      returnToScan();
+    } else {
+      setShowOkAnimation(true);
+      timeoutRef.current = setTimeout(() => {
+        setShowOkAnimation(false);
+        returnToScan();
+      }, 1500);
+    }
+    prevAllOkRef.current = allOk;
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+  }, [allOk, onResetKfb, disableOkAnimation, returnToScan]);
 
   useEffect(() => {
     if (!settled) return;
@@ -878,24 +882,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               </div>
             ) : <div />}
 
-            {macAddress && localBranches.length > 0 && (
+            {!showOkAnimation && macAddress && localBranches.length > 0 && (
               <div className="flex items-center justify-end gap-4 w-full">
-                {/* CHECK trigger */}
-                <button
-                  type="button"
-                  onClick={runCheck}
-                  disabled={isChecking}
-                  className={[
-                    'inline-flex items-center rounded-xl border px-3 py-2 text-sm font-bold',
-                    isChecking
-                      ? 'border-amber-300 bg-amber-50 text-amber-700'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  ].join(' ')}
-                  aria-busy={isChecking}
-                >
-                  {isChecking ? 'Checking' : 'Run CHECK'}
-                </button>
-
                 {/* Active KSSKs */}
                 <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
                   <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>

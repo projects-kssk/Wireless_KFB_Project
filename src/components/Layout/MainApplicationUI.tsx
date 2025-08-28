@@ -191,10 +191,9 @@ useEffect(() => {
 
   if ((kindRaw === 'DONE' || isLegacyResult) && (okFromText || String(ev.ok).toLowerCase() === 'true') && matches) {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
-    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
-    // Flash OK immediately (~1.5s), then reset to barcode like CHECK success
-      okForcedRef.current = true;
-      resetAfterDelay();
+ setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+ okForcedRef.current = true;
+ setOkFlashTick(t => t + 1);     // show OK in child, then child resets
       void fetch('/api/kssk-lock/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -231,8 +230,8 @@ useEffect(() => {
     const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
     if (flatOk || groupedOk) {
       // In live mode when everything is OK, show OK flash then reset
-      okForcedRef.current = true;
-      resetAfterDelay();    // <<< clear to barcode
+    okForcedRef.current = true;
+  setOkFlashTick(t => t + 1);     // same unified path
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -463,9 +462,10 @@ const flashOkThenReset = useCallback((code?: string) => {
           }));
 
         if (!unknown && failures.length === 0) {
-            clearScanOverlayTimeout();
-            okForcedRef.current = true;
-            resetAfterDelay();                     // <<< back to barcode
+              clearScanOverlayTimeout();
+okForcedRef.current = true;
+ setOkFlashTick(t => t + 1);     // show OK in child, then child resets
+
             void fetch('/api/kssk-lock/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -962,8 +962,9 @@ const flashOkThenReset = useCallback((code?: string) => {
               lastEvTick={(serial as any).lastEvTick}
               normalPins={normalPins}
               latchPins={latchPins}
-          
               onResetKfb={handleResetKfb}
+              flashOkTick={okFlashTick}
+
             />
 
               {/* Hidden form target if you submit manually elsewhere */}

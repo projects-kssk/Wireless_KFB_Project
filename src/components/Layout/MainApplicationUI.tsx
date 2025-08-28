@@ -160,22 +160,28 @@ const MainApplicationUI: React.FC = () => {
     const match = (!!evMac && evMac === current) || isZeroMac;
     if (ev.kind === 'DONE' && ev.ok && match) {
       try {
-        // Close any scanning/overlay; in-content SVG OK will handle reset
-        setOverlay((o) => ({ ...o, open: false }));
+        // Show a short SUCCESS overlay, then reset view back to default
+        clearScanOverlayTimeout();
+        setOverlay({ open: true, kind: 'success', code: 'OK' });
+        hideOverlaySoon(1200);
+        setTimeout(() => {
+          handleResetKfb();
+          setMacAddress('');
+          setGroupedBranches([]);
+          setActiveKssks([]);
+          setNameHints(undefined);
+        }, 1200);
         // Clear station locks for current station in background
         (async () => {
           try {
             const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            if (stationId && Array.isArray(activeKssks) && activeKssks.length) {
-              await Promise.all(
-                activeKssks.map((k) =>
-                  fetch('/api/kssk-lock', {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ kssk: k, stationId }),
-                  }).catch(() => {})
-                )
-              );
+            const mac = current;
+            if (stationId && mac) {
+              await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac, force: true }),
+              }).catch(() => {});
             }
           } catch {}
         })();
@@ -224,6 +230,8 @@ const MainApplicationUI: React.FC = () => {
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
+  const scanDebounceRef = useRef<number>(0);
+  const lastErrorStampRef = useRef<number>(0);
 
   const handleResetKfb = () => {
     setKfbNumber('');
@@ -406,7 +414,11 @@ const MainApplicationUI: React.FC = () => {
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
             const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
-            showOverlay('error', msg);
+            const nowErr = Date.now();
+            if (nowErr - lastErrorStampRef.current > 800) {
+              showOverlay('error', msg);
+              lastErrorStampRef.current = nowErr;
+            }
             setAwaitingRelease(false);
           }
           if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
@@ -609,10 +621,12 @@ const MainApplicationUI: React.FC = () => {
     if (!normalized) return;
 
     // De-bounce identical value while idle, but allow new scan once previous finished
-    if (normalized === lastHandledScanRef.current && !isScanningRef.current) {
-      // allow manual re-check by clearing lastHandledScanRef if desired
+    const nowDeb = Date.now();
+    if (normalized === lastHandledScanRef.current && nowDeb < scanDebounceRef.current) {
+      return;
     }
     lastHandledScanRef.current = normalized;
+    scanDebounceRef.current = nowDeb + 1200;
 
     // keep fields in sync
     if (normalized !== kfbInputRef.current) {
@@ -620,7 +634,8 @@ const MainApplicationUI: React.FC = () => {
       setKfbNumber(normalized);
     }
 
-    if (!KFB_REGEX.test(normalized)) {
+    // Accept either MAC or KFB pattern; reject only if neither matches
+    if (!(MAC_ONLY_REGEX.test(normalized) || KFB_REGEX.test(normalized))) {
       showOverlay('error', normalized);
       hideOverlaySoon();
       return;
@@ -735,7 +750,7 @@ const MainApplicationUI: React.FC = () => {
   const handleManualSubmit = (submittedNumber: string) => {
     const val = submittedNumber.trim().toUpperCase();
     if (!val) return;
-    if (!KFB_REGEX.test(val)) {
+    if (!(MAC_ONLY_REGEX.test(val) || KFB_REGEX.test(val))) {
       showOverlay('error', val);
       hideOverlaySoon();
       return;

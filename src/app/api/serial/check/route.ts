@@ -138,9 +138,9 @@ export async function POST(request: Request) {
 
   try {
     // Build effective pin list based on mode
-    // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins
-    // Build union of active KSSK pins (preferred), then fall back to client pins, then MAC-only
-    const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'union').toLowerCase();
+    // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins; merge → superset of both
+    // Default to 'merge' to avoid under-sending when Redis union is stale while client has a more complete set
+    const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'merge').toLowerCase();
     let clientPins: number[] | undefined = Array.isArray(parsed.data.pins)
       ? parsed.data.pins.filter((n) => Number.isFinite(n) && n > 0)
       : undefined;
@@ -235,17 +235,24 @@ export async function POST(request: Request) {
       } catch {}
     } catch {}
 
-    // Choose which pins to send:
-    // 1) union (preferred)
-    // 2) client pins (fallback if union is empty)
-    // 3) env default (CHECK_DEFAULT_PINS)
-    // 4) MAC-only
+    // Choose which pins to send based on SEND_MODE ('merge'|'union'|'client'):
+    // 1) merge: union of server union and client pins
+    // 2) union: server union if available; else client pins
+    // 3) client: client pins if provided; else server union
+    // Fallback: CHECK_DEFAULT_PINS → MAC-only
     let pins: number[] | undefined = undefined;
-    if (pinsUnion.length) {
-      pins = pinsUnion;
-    } else if (Array.isArray(clientPins) && clientPins.length) {
-      pins = clientPins;
-    } else {
+    const uniqSort = (arr: number[] | undefined) => Array.from(new Set((arr || []).filter((n) => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
+    if (SEND_MODE === 'merge') {
+      const merged = uniqSort([...(pinsUnion || []), ...((clientPins || []) as number[])] as number[]);
+      if (merged.length) pins = merged;
+    } else if (SEND_MODE === 'client') {
+      if (Array.isArray(clientPins) && clientPins.length) pins = uniqSort(clientPins);
+      else if (pinsUnion.length) pins = uniqSort(pinsUnion);
+    } else { // 'union' (legacy default)
+      if (pinsUnion.length) pins = uniqSort(pinsUnion);
+      else if (Array.isArray(clientPins) && clientPins.length) pins = uniqSort(clientPins);
+    }
+    if (!pins) {
       const rawDef = (process.env.CHECK_DEFAULT_PINS || '').trim();
       if (rawDef) {
         const defPins = rawDef
@@ -254,10 +261,7 @@ export async function POST(request: Request) {
           .filter((n) => Number.isFinite(n) && n > 0);
         if (defPins.length) pins = Array.from(new Set(defPins)).sort((a, b) => a - b);
       }
-      if (!pins && SEND_MODE === 'client') {
-        pins = clientPins;
-      }
-      // else leave undefined → MAC-only
+      // if still no pins → MAC-only
     }
 
     const { sendToEsp, waitForNextLine } = serial as any;
@@ -411,7 +415,39 @@ export async function POST(request: Request) {
     if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
       mon.info(`CHECK rx mac=${macUp} raw=${JSON.stringify(line)}`);
     }
-    const failures = parseFailuresFromLine(line, pins);
+    let failures = parseFailuresFromLine(line, pins);
+
+    // Enrich failures by mapping alias names (e.g., CL_2455) seen in the line back to pin numbers via Redis aliases
+    try {
+      const { getRedis } = await import('@/lib/redis');
+      const r = getRedis();
+      const rawUnion = await r.get(`kfb:aliases:${macUp}`).catch(() => null as any);
+      if (rawUnion) {
+        const d = JSON.parse(rawUnion);
+        const names = (d?.names && typeof d.names === 'object') ? (d.names as Record<string,string>) : {};
+        // Build reverse map: label -> pins[]
+        const rev = new Map<string, number[]>();
+        const norm = (s: string) => String(s || '').trim().toUpperCase();
+        for (const [pinStr, label] of Object.entries(names)) {
+          const pin = Number(pinStr);
+          if (!Number.isFinite(pin) || pin <= 0) continue;
+          const key = norm(label);
+          const arr = rev.get(key) || [];
+          arr.push(pin);
+          rev.set(key, arr);
+        }
+        // Scan line for any alias labels present; if found, add matching pins
+        const hay = norm(line);
+        const have = new Set<number>(failures);
+        for (const [label, pinsList] of rev.entries()) {
+          if (!label) continue;
+          if (hay.includes(label)) {
+            for (const p of pinsList) have.add(p);
+          }
+        }
+        failures = Array.from(have).sort((a,b)=>a-b);
+      }
+    } catch {}
 
     // On failure, enrich with aliases, name hints and per-KSSK bundles (does not block success path)
     try {

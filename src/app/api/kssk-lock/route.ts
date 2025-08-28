@@ -376,6 +376,7 @@ export async function DELETE(req: NextRequest) {
     let kssk: string | null = null;
     let stationId: string | null = null;
     let force = false;
+    let macFilter: string | null = null;
 
     try {
       if ((req.headers.get("content-type") || "").includes("application/json")) {
@@ -383,12 +384,15 @@ export async function DELETE(req: NextRequest) {
         kssk = b?.kssk ?? null;
         stationId = b?.stationId ?? null;
         force = b?.force === true || b?.force === 1 || b?.force === "1";
+        if (typeof b?.mac === 'string') macFilter = String(b.mac).toUpperCase();
       }
     } catch {}
     const sp = new URL(req.url).searchParams;
     kssk ??= sp.get("kssk");
     stationId ??= sp.get("stationId");
     force ||= sp.get("force") === "1";
+    macFilter ??= sp.get('mac');
+    if (macFilter) macFilter = macFilter.toUpperCase();
 
     if (!kssk) return NextResponse.json({ error: "kssk required" }, { status: 400 });
 
@@ -402,6 +406,14 @@ export async function DELETE(req: NextRequest) {
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
 
     if (haveRedis) {
+      // Bulk delete by MAC for a station
+      if (!kssk && macFilter && stationId) {
+        const rows = await redisList(stationId);
+        const targets = rows.filter(r => String(r.mac || '').toUpperCase() === macFilter);
+        await Promise.all(targets.map(async (row) => { await rDel(K(row.kssk)); await rSRem(S(row.stationId), row.kssk); }));
+        log.info('DELETE bulk mac', { rid: id, mac: macFilter, stationId, count: targets.length, mode, durationMs: Date.now()-t0 });
+        return withMode(NextResponse.json({ ok: true, count: targets.length }), mode);
+      }
       const existing = await rGet(key);
       if (!existing) { log.info('DELETE none', { rid: id, kssk, mode, durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
       if (!force && (!stationId || existing.stationId !== String(stationId))) {
@@ -414,6 +426,13 @@ export async function DELETE(req: NextRequest) {
       return withMode(NextResponse.json({ ok: true, deleted: existing }), mode);
     }
 
+    // mem fallback bulk
+    if (!kssk && macFilter && stationId) {
+      const rows = memList(stationId).filter(r => String(r.mac || '').toUpperCase() === macFilter);
+      for (const row of rows) { memLocks.delete(K(row.kssk)); memStations.get(S(row.stationId))?.delete(row.kssk); }
+      log.info('DELETE bulk mac (mem)', { rid: id, mac: macFilter, stationId, count: rows.length, durationMs: Date.now()-t0 });
+      return withMode(NextResponse.json({ ok: true, count: rows.length }), 'mem');
+    }
     const cur = memGet(key);
     if (!cur) { log.info('DELETE none', { rid: id, kssk, mode: 'mem', durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
     if (!force && (!stationId || cur.stationId !== String(stationId))) {

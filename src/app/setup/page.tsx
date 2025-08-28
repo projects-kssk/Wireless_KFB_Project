@@ -24,6 +24,7 @@ const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
   (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
+const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSSK_REQUIRE_REDIS ?? "0") === "1";
 
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
@@ -298,6 +299,7 @@ export default function SetupPage() {
 
   const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
   const loadLocalLocks = (): Set<string> => {
+    if (REQUIRE_REDIS_ONLY) return new Set();
     try {
       return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
     } catch {
@@ -305,6 +307,7 @@ export default function SetupPage() {
     }
   };
   const saveLocalLocks = (s: Set<string>) => {
+    if (REQUIRE_REDIS_ONLY) return; // do not persist client locks when Redis-only
     try {
       localStorage.setItem(LS_KEY, JSON.stringify([...s]));
     } catch {}
@@ -370,7 +373,10 @@ export default function SetupPage() {
           hydrated = true;
         }
       } catch {}
-      if (!hydrated) activeLocks.current = loadLocalLocks();
+      if (!hydrated) {
+        // Redis-only: do not fall back to local cache
+        activeLocks.current = loadLocalLocks();
+      }
       activeLocks.current.forEach((k) => startHeartbeat(k));
     })();
   }, []);
@@ -535,6 +541,11 @@ export default function SetupPage() {
 
         if (!lockRes.ok) {
           const j = await lockRes.json().catch(() => ({}));
+          if (lockRes.status === 503 && String(j?.error || '').includes('redis')) {
+            bump(target, null, "idle");
+            showErr(code, "Lock service unavailable — start Redis", panel);
+            return;
+          }
           const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
           const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
           const msg =
@@ -860,14 +871,40 @@ export default function SetupPage() {
               SETUP: A56N_KFB_WIRELESS
             </m.div>
           </m.div>
-          {desiredTail && (
-            <div style={{ marginTop: 8 }}>
-              <span
-                style={(desiredState && desiredState.present) ? scannerPillGreen : scannerPillRed}
-                title={desiredPath || undefined}
-              >
-                Scanner: {desiredTail} {(desiredState && desiredState.present) ? 'detected' : 'not detected'}
-              </span>
+          {(desiredTail || true) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {desiredTail && (
+                (() => {
+                  const present = !!desiredState?.present;
+                  const badgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
+                  const badgeColor = present
+                    ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
+                    : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';
+                  return (
+                    <span className={`${badgeBase} ${badgeColor}`} title={desiredPath || undefined}>
+                      Scanner: {desiredTail}
+                      <span className={present ? 'text-emerald-700' : 'text-red-700'}>
+                        {present ? 'detected' : 'not detected'}
+                      </span>
+                    </span>
+                  );
+                })()
+              )}
+              {(() => {
+                const ready = !!serial.redisReady;
+                const badgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
+                const badgeColor = ready
+                  ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
+                  : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';
+                return (
+                  <span className={`${badgeBase} ${badgeColor}`} title={ready ? 'Redis connected' : 'Redis offline'}>
+                    Redis:
+                    <span className={ready ? 'text-emerald-700' : 'text-red-700'}>
+                      {ready ? 'connected' : 'offline'}
+                    </span>
+                  </span>
+                );
+              })()}
             </div>
           )}
           </>

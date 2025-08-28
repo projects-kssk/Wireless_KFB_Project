@@ -243,6 +243,10 @@ export async function POST(req: NextRequest) {
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
+    if (REQUIRE_REDIS && !haveRedis) {
+      log.info('POST redis_unavailable (require_redis)', { rid: id, kssk, durationMs: Date.now()-t0 });
+      return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
+    }
 
     if (haveRedis) {
       const ok = await rSetNXPX(key, val, ttlMs);
@@ -291,6 +295,10 @@ export async function GET(req: NextRequest) {
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
+    if (REQUIRE_REDIS && !haveRedis) {
+      log.info('GET redis_unavailable (require_redis)', { rid: id, durationMs: Date.now()-t0 });
+      return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
+    }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
 
     if (kssk) {
@@ -332,6 +340,10 @@ export async function PATCH(req: NextRequest) {
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
+    if (REQUIRE_REDIS && !haveRedis) {
+      log.info('PATCH redis_unavailable (require_redis)', { rid: id, kssk, durationMs: Date.now()-t0 });
+      return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
+    }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
 
     if (haveRedis) {
@@ -383,6 +395,10 @@ export async function DELETE(req: NextRequest) {
     const key = K(String(kssk));
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
+    if (REQUIRE_REDIS && !haveRedis) {
+      log.info('DELETE redis_unavailable (require_redis)', { rid: id, kssk, durationMs: Date.now()-t0 });
+      return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
+    }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
 
     if (haveRedis) {

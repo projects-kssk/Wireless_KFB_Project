@@ -139,23 +139,19 @@ export async function POST(request: Request) {
     // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins
     // Build union of active KSSK pins (preferred), then fall back to client pins, then MAC-only
     const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'union').toLowerCase();
-    let clientPins: number[] | undefined = Array.isArray(parsed.data.pins) ? parsed.data.pins : undefined;
+    let clientPins: number[] | undefined = Array.isArray(parsed.data.pins)
+      ? parsed.data.pins.filter((n) => Number.isFinite(n) && n > 0)
+      : undefined;
     let pinsUnion: number[] = [];
     try {
       const { getRedis } = await import('@/lib/redis');
       const r = getRedis();
       const indexKey = `kfb:aliases:index:${macUp}`;
       const members: string[] = await r.smembers(indexKey).catch(() => []);
+      // Prefer current station's active KSSKs; else fall back to index; else empty
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
-      let targets = members;
-      if (stationId) {
-        const act: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
-        if (Array.isArray(act) && act.length > 0) {
-          const set = new Set(act.map(String));
-          const inter = members.filter(m => set.has(String(m)));
-          if (inter.length > 0) targets = inter;
-        }
-      }
+      const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
+      let targets: string[] = Array.isArray(act) && act.length > 0 ? act : members;
       const pinsSet = new Set<number>();
       for (const id of targets) {
         try {
@@ -166,18 +162,33 @@ export async function POST(request: Request) {
           for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
         } catch {}
       }
+      // Always merge the union-from-MAC key as a safety net, so we never
+      // under-send when some per-KSSK alias records are missing.
+      try {
+        const rawUnion = await r.get(`kfb:aliases:${macUp}`);
+        if (rawUnion) {
+          const u = JSON.parse(rawUnion);
+          const allPins = [
+            ...(Array.isArray(u?.normalPins) ? u.normalPins : []),
+            ...(Array.isArray(u?.latchPins) ? u.latchPins : []),
+          ];
+          for (const p of allPins) { const n = Number(p); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
+        }
+      } catch {}
       pinsUnion = Array.from(pinsSet).sort((a,b)=>a-b);
     } catch {}
 
     // Choose which pins to send:
     // 1) union (preferred)
-    // 2) client (if SEND_MODE=client and provided)
+    // 2) client pins (fallback if union is empty)
     // 3) MAC-only
     let pins: number[] | undefined = undefined;
     if (pinsUnion.length) {
       pins = pinsUnion;
-    } else if (SEND_MODE === 'client' && Array.isArray(clientPins)) {
-      pins = clientPins.filter((n) => Number.isFinite(n) && n > 0);
+    } else if (Array.isArray(clientPins) && clientPins.length) {
+      pins = clientPins;
+    } else if (SEND_MODE === 'client') {
+      pins = clientPins;
     } else {
       pins = undefined;
     }
@@ -323,8 +334,8 @@ export async function POST(request: Request) {
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
       }
-      // Fast path: success response without alias enrichment
-      return NextResponse.json({ failures: [] }, { headers: { 'X-Req-Id': rid } });
+      // Fast path: success response (also include raw line for UI display if desired)
+      return NextResponse.json({ failures: [], raw: line }, { headers: { 'X-Req-Id': rid } });
     }
 
     // FAILURE → return pin list
@@ -381,7 +392,7 @@ export async function POST(request: Request) {
     const unknown = !failures.length;
     log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });
     mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);
-    return NextResponse.json({ failures, unknownFailure: unknown, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) }, { headers: { 'X-Req-Id': rid } });
+    return NextResponse.json({ failures, unknownFailure: unknown, raw: line, ...(aliasesFromRedis ? { aliases: aliasesFromRedis } : {}), ...(pinMeta || {}), ...(itemsAll ? { items: itemsAll } : {}) }, { headers: { 'X-Req-Id': rid } });
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     const status =

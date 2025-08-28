@@ -133,7 +133,7 @@ const MainApplicationUI: React.FC = () => {
 
   // ----- RUN CHECK ON DEMAND OR AFTER EACH SCAN -----
   const runCheck = useCallback(
-    async (mac: string, attempt: number = 0) => {
+    async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
 
       setIsChecking(true);
@@ -150,8 +150,8 @@ const MainApplicationUI: React.FC = () => {
         const res = await fetch('/api/serial/check', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // Send only MAC; server will select pins via CHECK_SEND_MODE
-          body: JSON.stringify({ mac }),
+          // Send MAC plus optional pins as a fallback if union not ready on server
+          body: JSON.stringify(pins && pins.length ? { mac, pins } : { mac }),
           signal: ctrl.signal,
         });
         clearTimeout(tAbort);
@@ -219,8 +219,9 @@ const MainApplicationUI: React.FC = () => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            const items = Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
-                        : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
+            const items = Array.isArray((result as any)?.items)
+              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }>
+              : (Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }> : []);
             if (items.length) {
               const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
@@ -297,7 +298,8 @@ const MainApplicationUI: React.FC = () => {
             }, 2000);
             hideOverlaySoon(2000);
           } else {
-            const msg = unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`;
+            const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
+            const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
             showOverlay('error', msg);
             setAwaitingRelease(false);
           }
@@ -310,7 +312,7 @@ const MainApplicationUI: React.FC = () => {
             // Quick retry a couple of times to shave latency without long waits
             if (attempt < maxRetries) {
               clearRetryTimer();
-              retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1); }, 250);
+              retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1, pins); }, 250);
             } else {
               console.warn('CHECK pending/no-result');
               setScanningError(true);
@@ -345,7 +347,7 @@ const MainApplicationUI: React.FC = () => {
           const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? '1'));
           if (attempt < 1 || attempt < maxRetries) {
             clearRetryTimer();
-            retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1); }, 300);
+            retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1, pins); }, 300);
           } else {
             setScanningError(true);
             showOverlay('error', 'SCANNING ERROR');
@@ -417,7 +419,22 @@ const MainApplicationUI: React.FC = () => {
       // build from aliases if present
       let aliases: Record<string,string> = {};
       try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
-      const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+      let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+      if (pins.length === 0) {
+        // Fallback to Redis union if local cache empty
+        try {
+          const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+          if (r.ok) {
+            const j = await r.json();
+            const a = (j?.aliases && typeof j.aliases === 'object') ? (j.aliases as Record<string,string>) : {};
+            if (a && Object.keys(a).length) {
+              aliases = a;
+              try { localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases)); } catch {}
+              pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+            }
+          }
+        } catch {}
+      }
       if (pins.length) {
         setBranchesData(pins.map(pin => ({
           id: String(pin),
@@ -430,7 +447,7 @@ const MainApplicationUI: React.FC = () => {
         setBranchesData([]);
       }
 
-      await runCheck(mac);
+      await runCheck(mac, 0, pins);
     } catch (e) {
       console.error('Load/MONITOR error:', e);
       setKfbNumber('');
@@ -630,11 +647,12 @@ const MainApplicationUI: React.FC = () => {
         <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
       {mainView === 'dashboard' ? (
         <>
-              {desiredTail && (
-                <div className="px-2 pt-0">
-                  {(() => {
+              {(desiredTail || true) && (
+                <div className="px-2 pt-0 flex flex-wrap gap-2">
+                  {/* Primary desired scanner badge (bigger) */}
+                  {desiredTail && (() => {
                     const present = !!desiredPortState?.present;
-                    const badgeBase = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-extrabold';
+                    const badgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
                     const badgeColor = present
                       ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
                       : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';
@@ -647,6 +665,23 @@ const MainApplicationUI: React.FC = () => {
                       </span>
                     );
                   })()}
+                  {/* Redis badge (bigger) */}
+                  {(() => {
+                    const ready = !!(serial as any).redisReady;
+                    const badgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
+                    const badgeColor = ready
+                      ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200'
+                      : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200';
+                    return (
+                      <span className={`${badgeBase} ${badgeColor}`}>
+                        Redis:
+                        <span className={ready ? 'text-emerald-700' : 'text-red-700'}>
+                          {ready ? 'connected' : 'offline'}
+                        </span>
+                      </span>
+                    );
+                  })()}
+                  {/* Only show desired scanner + Redis on this page */}
                 </div>
               )}
               {/* UI cue banner removed (no UI polling) */}

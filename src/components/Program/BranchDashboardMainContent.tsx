@@ -170,8 +170,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const pending = useMemo(() =>
     localBranches
       .filter((b) => b.testStatus === 'nok')
-      .sort((a, b) => 0)
-      .slice(0, 120),
+      .sort((a, b) => 0),
   [localBranches]);
 
   // Build current failure pin list from props or from pending branches
@@ -482,9 +481,8 @@ useEffect(() => {
               });
             })()}
           </div>
-          {/* Groups remain separate; lay multiple groups per row; cap overall cards to 8 */}
+          {/* Groups remain separate; lay multiple groups per row; show ALL NOK pins */}
           {(() => {
-            let remaining = 8;
             const colClass = (n: number) => {
               const cols = Math.min(6, Math.max(1, n));
               const map: Record<number, string> = {
@@ -500,12 +498,10 @@ useEffect(() => {
             return (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
                 {groupedBranches.map((grp) => {
-                  if (remaining <= 0) return null;
                   const onlyNok = grp.branches.filter((b) => b.testStatus === 'nok');
                   if (onlyNok.length === 0) return null;
-                  const visible = onlyNok.slice(0, remaining);
+                  const visible = onlyNok; // show all NOK pins for this group
                   const gridCols = colClass(visible.length);
-                  remaining -= visible.length;
                   return (
             <section key={grp.kssk} className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
               <header className="px-3 py-2 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">

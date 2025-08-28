@@ -1,11 +1,38 @@
 // scripts/print-locks-redis.mjs
 // Enhanced: respects STATION_ID to list only that station’s locks, or scans all.
+import fs from 'node:fs';
+import path from 'node:path';
 import Redis from 'ioredis';
+
+// Lightweight .env loader (no deps). Loads before reading env vars.
+function loadEnvFiles() {
+  try {
+    const cwd = process.cwd();
+    const files = ['.env', '.env.local', '.env.production'];
+    for (const f of files) {
+      const p = path.join(cwd, f);
+      if (!fs.existsSync(p)) continue;
+      const txt = fs.readFileSync(p, 'utf8');
+      for (const line of txt.split(/\r?\n/)) {
+        const s = line.trim();
+        if (!s || s.startsWith('#')) continue;
+        const i = s.indexOf('=');
+        if (i <= 0) continue;
+        const k = s.slice(0, i).trim();
+        let v = s.slice(i + 1).trim();
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith('\'') && v.endsWith('\''))) v = v.slice(1, -1);
+        if (!(k in process.env)) process.env[k] = v;
+      }
+    }
+  } catch {}
+}
+
+loadEnvFiles();
 
 const url         = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const pref        = process.env.REDIS_LOCK_PREFIX || 'kssk:lock:';          // lock value keys
 const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'kssk:station:';    // station index set
-let stationId     = process.env.STATION_ID || process.env.npm_config_id || '';
+let stationId     = process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || process.env.npm_config_id || process.env.HOSTNAME || '';
 
 // --- tiny argv parser ---
 const argv = process.argv.slice(2);
@@ -115,6 +142,29 @@ async function scanAll() {
   return rows;
 }
 
+async function scanStations() {
+  const stations = [];
+  // Scan station index sets
+  const stream = redis.scanStream({ match: `${stationPref}*`, count: 200 });
+  await new Promise((resolve, reject) => {
+    stream.on('data', async (keys) => {
+      if (!Array.isArray(keys) || keys.length === 0) return;
+      for (const skey of keys) {
+        try {
+          const id = skey.slice(stationPref.length);
+          const members = await redis.smembers(skey);
+          stations.push({ stationId: id, members });
+        } catch {}
+      }
+    });
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+  // Sort by stationId for stable output
+  stations.sort((a,b) => String(a.stationId).localeCompare(String(b.stationId)));
+  return stations;
+}
+
 async function main() {
   try {
     // Wait for ready quickly
@@ -174,6 +224,24 @@ async function main() {
           expiresAt: fmtLocal(r.expiresAt),
           expiresIn: fmtIn(r.ttlSec),
         })));
+      }
+
+      // Always print station index summary to help discover station IDs
+      try {
+        const stations = await scanStations();
+        if (stations.length) {
+          console.log('\nStation index summary:');
+          console.table(stations.map(s => ({
+            stationId: s.stationId,
+            count: Array.isArray(s.members) ? s.members.length : 0,
+            members: Array.isArray(s.members) ? (s.members.length > 8 ? (s.members.slice(0,8).join(',') + ` …(+${s.members.length-8})`) : s.members.join(',')) : '',
+          })));
+          if (!stationId) console.log('Tip: pass --id <stationId> to view lock details for a station.');
+        } else {
+          console.log('\n(no station index keys found)');
+        }
+      } catch (e) {
+        console.error('Failed to scan stations:', e?.message || e);
       }
     };
 

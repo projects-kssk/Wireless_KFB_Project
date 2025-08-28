@@ -47,6 +47,7 @@ export function useSerialEvents() {
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
+  const [redisReady, setRedisReady] = useState<boolean>(false);
 
   const [sseConnected, setSseConnected] = useState<boolean>(false);
 
@@ -134,6 +135,7 @@ export function useSerialEvents() {
           const ready = Boolean((msg as any).ready);
           redisOkRef.current = ready;
           setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
+          setRedisReady(ready);
           break;
         }
 
@@ -252,5 +254,8 @@ export function useSerialEvents() {
     scannersOpen,
 
     clearLastScan,
+
+    // connection indicators
+    redisReady,
   };
 }

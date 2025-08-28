@@ -190,7 +190,9 @@ useEffect(() => {
   if ((kindRaw === 'DONE' || isLegacyResult) && (okFromText || String(ev.ok).toLowerCase() === 'true') && matches) {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
     setCheckFailures([]); setIsChecking(false); setIsScanning(false);
-    setOkAnimationTick(t => t + 1);
+    // Flash OK immediately (~1.5s), then reset to barcode like CHECK success
+    setOkFlashTick(t => t + 1);
+    okForcedRef.current = true;
   }
 }, [serial.lastEvTick, macAddress]);
 

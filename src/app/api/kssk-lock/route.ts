@@ -325,11 +325,11 @@ export async function GET(req: NextRequest) {
     if ((process.env.KSSK_LOCK_LOG_DETAIL ?? '0') === '1') {
       const g: any = globalThis as any;
       if (!g.__kssk_list_detail_last) g.__kssk_list_detail_last = 0;
-      const now = Date.now();
-      if (now - g.__kssk_list_detail_last < 2000) {
+      const tsNow = Date.now();
+      if (tsNow - g.__kssk_list_detail_last < 2000) {
         return withMode(NextResponse.json({ locks: rows }), mode);
       }
-      g.__kssk_list_detail_last = now;
+      g.__kssk_list_detail_last = tsNow;
       const now = Date.now();
       const brief = rows.slice(0, 12).map(r => ({
         kssk: r.kssk,

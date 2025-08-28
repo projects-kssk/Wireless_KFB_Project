@@ -407,32 +407,50 @@ export async function POST(request: Request) {
       }
       // Fire-and-forget: build a checkpoint XML from aliases and send it to Krosy only on SUCCESS
       try { void sendCheckpointFromAliases(macUp, rid); } catch {}
-      // On SUCCESS: clear any KSSK locks for this MAC at this station so Setup can proceed next time
+      // On SUCCESS: clear any KSSK locks for this MAC across ALL stations so Setup can proceed next time anywhere
       try {
-        const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-        if (stationId) {
-          const { getRedis } = await import('@/lib/redis');
-          const r: any = getRedis();
-          const setKey = `kssk:station:${stationId}`;
-          const members: string[] = await r.smembers(setKey).catch(() => []);
-          await Promise.all(
-            members.map(async (kssk) => {
-              try {
-                const key = `kssk:lock:${kssk}`;
-                const raw = await r.get(key).catch(() => null);
-                if (!raw) {
-                  await r.srem(setKey, kssk).catch(() => {});
-                  return;
-                }
-                const v = JSON.parse(raw);
-                const macLock = String(v?.mac || '').toUpperCase();
-                if (macLock === macUp) {
-                  await r.del(key).catch(() => {});
-                  await r.srem(setKey, kssk).catch(() => {});
-                }
-              } catch {}
-            })
-          );
+        const { getRedis } = await import('@/lib/redis');
+        const r: any = getRedis();
+        if (r) {
+          const explicitStation = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+          const stationSetKeys: string[] = [];
+          // 1) Include explicit current station if set
+          if (explicitStation) stationSetKeys.push(`kssk:station:${explicitStation}`);
+          // 2) Discover any other station sets
+          try {
+            if (typeof r.scan === 'function') {
+              let cursor = '0';
+              do {
+                const res = await r.scan(cursor, 'MATCH', 'kssk:station:*', 'COUNT', 300);
+                cursor = res[0];
+                const chunk: string[] = res[1] || [];
+                for (const k of chunk) if (!stationSetKeys.includes(k)) stationSetKeys.push(k);
+              } while (cursor !== '0');
+            } else {
+              const keys: string[] = await r.keys('kssk:station:*').catch(() => []);
+              for (const k of keys) if (!stationSetKeys.includes(k)) stationSetKeys.push(k);
+            }
+          } catch {}
+
+          // 3) For each station set, remove locks that belong to this MAC
+          for (const setKey of stationSetKeys) {
+            try {
+              const members: string[] = await r.smembers(setKey).catch(() => []);
+              for (const kssk of members) {
+                try {
+                  const lockKey = `kssk:lock:${kssk}`;
+                  const raw = await r.get(lockKey).catch(() => null);
+                  if (!raw) { await r.srem(setKey, kssk).catch(() => {}); continue; }
+                  const v = JSON.parse(raw);
+                  const macLock = String(v?.mac || '').toUpperCase();
+                  if (macLock === macUp) {
+                    await r.del(lockKey).catch(() => {});
+                    await r.srem(setKey, kssk).catch(() => {});
+                  }
+                } catch {}
+              }
+            } catch {}
+          }
         }
       } catch {}
       // Fast path: success response (also include raw line for UI display if desired)

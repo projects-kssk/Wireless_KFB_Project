@@ -417,6 +417,16 @@ export async function ensureScanners(pathsInput?: string | string[], baudRate = 
   const s2 = (process.env.SCANNER2_TTY_PATH ?? process.env.SECOND_SCANNER_TTY_PATH ?? "").trim();
   if (s2 && !paths.includes(s2)) paths.push(s2);
 
+  // Auto-discover additional ACM devices if present (helps when device index changes)
+  try {
+    const list = await SerialPort.list();
+    const acmPaths = list
+      .map((d) => d.path)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+      .filter((p) => /(^|\/)ttyACM\d+$/.test(p) || /\/by-id\/.*ACM\d+/i.test(p));
+    for (const p of acmPaths) if (!paths.includes(p)) paths.push(p);
+  } catch {}
+
   await Promise.all(paths.map((p) => ensureScannerForPath(p, baudRate).catch(() => {})));
 }
 

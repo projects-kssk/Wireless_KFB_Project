@@ -756,15 +756,6 @@ useEffect(() => {
     if (isSettingsSidebarOpen) return;
     if (isChecking) return;
     if (!serial.lastScanTick) return;              // no event yet
-    if (lastScanPath && !isAcmPath(lastScanPath)) return;
-    const want = resolveDesiredPath();
-    // If a desired path is known, prefer it; otherwise accept any ACM path
-    if (want && lastScanPath && !pathsEqual(lastScanPath, want)) {
-      // Relax gating: accept any ACM path if desired path is unknown in list
-      // or if env does not enforce strict path matching
-      const strict = String(process.env.NEXT_PUBLIC_STRICT_SCANNER || '').trim() === '1';
-      if (strict) return;
-    }
     const code = serial.lastScan;                   // the latest payload
     if (!code) return;
     void handleScan(code);

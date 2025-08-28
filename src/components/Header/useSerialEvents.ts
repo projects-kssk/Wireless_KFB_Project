@@ -21,7 +21,8 @@ type SerialEvent =
   | { type: "scanner/close"; path?: string }
   | { type: "scanner/error"; error: string; path?: string }
   | { type: "scanner/paths"; paths: string[] }
-  | { type: "ev"; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number };
+  | { type: "ev"; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number }
+  | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
 
 type ScannerPortState = {
   present: boolean;          // from SerialPort.list()
@@ -52,6 +53,7 @@ export function useSerialEvents(macFilter?: string) {
   const [lastEv, setLastEv] = useState<any>(null);
   const [lastEvTick, setLastEvTick] = useState(0);
   const [evCount, setEvCount] = useState(0);
+  const [lastUnion, setLastUnion] = useState<{ mac: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null>(null);
 
   const [sseConnected, setSseConnected] = useState<boolean>(false);
 
@@ -216,6 +218,12 @@ export function useSerialEvents(macFilter?: string) {
           break;
         }
 
+        case "aliases/union": {
+          const m = msg as any;
+          setLastUnion({ mac: String(m.mac||'').toUpperCase(), normalPins: Array.isArray(m.normalPins)?m.normalPins:undefined, latchPins: Array.isArray(m.latchPins)?m.latchPins:undefined, names: (m.names&&typeof m.names==='object')?m.names:undefined });
+          break;
+        }
+
         case "scan": {
           // always advance tick so identical codes still trigger UI effects
           tickRef.current += 1;
@@ -293,5 +301,7 @@ export function useSerialEvents(macFilter?: string) {
     lastEvTick,
 
     evCount,
+
+    lastUnion,
   };
 }

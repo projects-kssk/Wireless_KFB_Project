@@ -15,7 +15,11 @@ export type SerialEvent =
   | { type: 'scanner/open'; path?: string }
   | { type: 'scanner/close'; path?: string }
   | { type: 'scanner/error'; error: string; path?: string }
-  | { type: 'scanner/paths'; paths: string[] };
+  | { type: 'scanner/paths'; paths: string[] }
+  // Live hub events (optional additional stream)
+  | { type: 'ev'; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number }
+  // Union aliases broadcast (after CHECK or manual rehydrate)
+  | { type: 'aliases/union'; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
 
 type Sub = (e: SerialEvent) => void;
 

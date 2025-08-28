@@ -72,6 +72,7 @@ export async function GET(req: Request) {
     const up = String(m || '').toUpperCase();
     return up && macSet.has(up);
   };
+  const EV_STRICT = (process.env.EV_STRICT ?? '0') === '1';
   let closed = false;
   let heartbeat: NodeJS.Timeout | null = null;
   let pollTimer: NodeJS.Timeout | null = null;
@@ -159,16 +160,15 @@ export async function GET(req: Request) {
               const kind = m[1].toUpperCase();
               const ch = Number(m[2]);
               const val = Number(m[3]);
-              const srcMac = m[4].toUpperCase();
-              // If a mac filter is provided and doesn't match, remap to the filter (for P/L only),
-              // so the UI can attribute events to the active MAC.
-              let outMac = srcMac;
-              if (macSet && !macAllowed(srcMac)) {
+              let mac = m[4].toUpperCase();
+              if (!macAllowed(mac)) {
+                if (EV_STRICT || !macSet) return;
+                // Permissive mode: remap P/L to the first requested MAC
                 const first = macSet.values().next();
-                if (!first.done) outMac = first.value as string;
+                if (first && !first.done) mac = first.value as string;
               }
-              try { console.log('[events] EV', { kind, ch, val, mac: outMac, srcMac, line }); } catch {}
-              send({ type: 'ev', kind, ch, val, mac: outMac, raw: line, ts: Date.now() });
+              try { console.log('[events] EV', { kind, ch, val, mac, line }); } catch {}
+              send({ type: 'ev', kind, ch, val, mac, raw: line, ts: Date.now() });
               return;
             }
             if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {

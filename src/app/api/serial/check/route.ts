@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import serial from '@/lib/serial';
+import { broadcast } from '@/lib/bus';
 import { LOG } from '@/lib/logger';
 import crypto from 'node:crypto';
 import os from 'node:os';
@@ -230,6 +231,7 @@ export async function POST(request: Request) {
         const lArr = Array.from(unionL).sort((a,b)=>a-b);
         const payload = JSON.stringify({ names: outNames, normalPins: nArr, latchPins: lArr, ...(hints?{hints}:{}) , ts: Date.now() });
         await rr.set(key, payload).catch(()=>{});
+        try { broadcast({ type: 'aliases/union', mac: macUp, names: outNames, normalPins: nArr, latchPins: lArr }); } catch {}
       } catch {}
     } catch {}
 

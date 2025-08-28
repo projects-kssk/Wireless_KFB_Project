@@ -136,15 +136,50 @@ const MainApplicationUI: React.FC = () => {
     return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
   })();
 
-  // Live EV updates: ignore events for other MACs. On DONE SUCCESS, close SCANNING overlay.
+  // Apply union updates from SSE if they match current MAC
+  useEffect(() => {
+    const u = (serial as any).lastUnion as { mac?: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null;
+    if (!u) return;
+    const cur = (macAddress || '').toUpperCase();
+    if (!cur || String(u.mac||'').toUpperCase() !== cur) return;
+    try {
+      if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
+      if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
+      if (u.names && typeof u.names === 'object') setNameHints(u.names as any);
+    } catch {}
+  }, [serial.lastUnion, macAddress]);
+
+  // Live EV updates: on DONE SUCCESS, show OK and reset; also clear station locks.
   useEffect(() => {
     const ev = (serial as any).lastEv as { kind?: string; mac?: string | null; ok?: boolean } | null;
     if (!ev) return;
     const current = (macAddress || '').toUpperCase();
     const evMac = String(ev.mac || '').toUpperCase();
-    if (!current || !evMac || evMac !== current) return; // strict match only
-    if (ev.kind === 'DONE' && ev.ok) {
-      try { setOverlay((o) => ({ ...o, open: false })); } catch {}
+    const isZeroMac = evMac === '00:00:00:00:00:00';
+    if (!current) return;
+    const match = (!!evMac && evMac === current) || isZeroMac;
+    if (ev.kind === 'DONE' && ev.ok && match) {
+      try {
+        // Close any scanning/overlay; in-content SVG OK will handle reset
+        setOverlay((o) => ({ ...o, open: false }));
+        // Clear station locks for current station in background
+        (async () => {
+          try {
+            const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+            if (stationId && Array.isArray(activeKssks) && activeKssks.length) {
+              await Promise.all(
+                activeKssks.map((k) =>
+                  fetch('/api/kssk-lock', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kssk: k, stationId }),
+                  }).catch(() => {})
+                )
+              );
+            }
+          } catch {}
+        })();
+      } catch {}
     }
   }, [serial.lastEvTick, macAddress]);
 
@@ -195,6 +230,10 @@ const MainApplicationUI: React.FC = () => {
     setKfbInfo(null);
     setBranchesData([]);
     setKfbInput('');
+    setGroupedBranches([]);
+    setActiveKssks([]);
+    setNameHints(undefined);
+    setMacAddress('');
   };
 
   // Narrowing guard
@@ -493,8 +532,15 @@ const MainApplicationUI: React.FC = () => {
       try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
       let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
       if (pins.length === 0) {
-        // Fallback to Redis (prefer all KSSK items union)
+        // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
         try {
+          try {
+            await fetch('/api/aliases/rehydrate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac }),
+            }).catch(() => {});
+          } catch {}
           const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
           if (rAll.ok) {
             const jAll = await rAll.json();

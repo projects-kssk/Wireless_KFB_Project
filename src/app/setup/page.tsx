@@ -293,6 +293,7 @@ export default function SetupPage() {
 
   const [tableCycle, setTableCycle] = useState(0);
   const [kbdBuffer, setKbdBuffer] = useState("");
+  const [setupName, setSetupName] = useState<string>("");
   const sendBusyRef = useRef(false);
 
   const hb = useRef<Map<string, number>>(new Map());
@@ -381,6 +382,42 @@ export default function SetupPage() {
     })();
   }, []);
 
+  // Helper to reconcile just-in-time before decisions
+  const reconcileLocksNow = async () => {
+    try {
+      const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+      if (!stationId) return;
+      const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json();
+      const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
+      activeLocks.current = new Set(ks);
+      saveLocalLocks(activeLocks.current);
+    } catch {}
+  };
+
+  // Periodically reconcile locks with server so local cache stays fresh
+  useEffect(() => {
+    let stop = false;
+    const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+    if (!stationId) return;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
+        if (!stop) {
+          activeLocks.current = new Set(ks);
+          saveLocalLocks(activeLocks.current);
+        }
+      } catch {}
+    };
+    const iv = setInterval(tick, 3000);
+    tick();
+    return () => { stop = true; clearInterval(iv); };
+  }, []);
+
   const [lastError, setLastError] = useState<string | null>(null);
 
   const showOk = (code: string, msg?: string, panel: PanelTarget = "global") => {
@@ -406,6 +443,7 @@ export default function SetupPage() {
     setKsskStatus(["idle", "idle", "idle"]);
     setShowManualFor({});
     setLastError(null);
+    setSetupName("");
   }, []);
 
   /* ===== Network ===== */
@@ -511,6 +549,8 @@ export default function SetupPage() {
       sendBusyRef.current = true;
 
       try {
+        // Reconcile locks with server before local duplicate check
+        await reconcileLocksNow();
         const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
         const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
 
@@ -573,6 +613,13 @@ export default function SetupPage() {
         const out = resp.data?.__xml
           ? extractPinsFromKrosyXML(resp.data.__xml, String(kfb).toUpperCase())
           : extractPinsFromKrosy(resp.data, String(kfb).toUpperCase());
+        try {
+          const xmlRaw = resp.data?.__xml || '';
+          if (xmlRaw) {
+            const m = String(xmlRaw).match(/\bsetup=\"([^\"]+)\"/i);
+            if (m && m[1]) setSetupName(m[1]);
+          }
+        } catch {}
         // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
         const macUp = String(kfb).toUpperCase();
         try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {})); } catch {}
@@ -849,6 +896,7 @@ export default function SetupPage() {
         setKsskStatus(["idle", "idle", "idle"]);
         setShowManualFor({});
         setTableCycle((n) => n + 1);
+        setSetupName("");
       }, 2000);
       return () => clearTimeout(t);
     }
@@ -868,7 +916,7 @@ export default function SetupPage() {
               transition={{ type: "spring", stiffness: 520, damping: 30, mass: 0.7 }}
               style={heroBoard}
             >
-              SETUP: A56N_KFB_WIRELESS
+              {setupName ? `SETUP: ${setupName}` : ""}
             </m.div>
           </m.div>
           {(desiredTail || true) && (
@@ -1727,5 +1775,6 @@ function ResultOverlay({
         ) : null}
       </m.div>
     </AnimatePresence>
+
   );
 }

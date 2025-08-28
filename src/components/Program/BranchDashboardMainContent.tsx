@@ -44,17 +44,22 @@ const HelpCircleIcon = ({ className = "w-5 h-5" }) => (
 );
 
 const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} viewBox="0 0 100 50" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="0" width="100" height="50" rx="5" fill="currentColor" className="animate-pulse-gray-background"/>
-    <g fill="currentColor">
-      {[10,14,17,22,26,29,34,38,41,46,50,53,58,62,65,70,74,77,82,86].map((x,i) => (
-        <rect key={i} x={x} y="10" width={i%3===2?3:i%2===1?1:2} height="30" />
-      ))}
-      <text x="50" y="47" fontSize="6" textAnchor="middle" fill="currentColor">IWTESTBOARD</text>
-    </g>
+  <svg {...props} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+    {/* Minimal, crisp barcode bars using currentColor */}
+    <rect x="2" y="5" width="1" height="14" fill="currentColor" />
+    <rect x="4" y="5" width="2" height="14" fill="currentColor" />
+    <rect x="7" y="5" width="1" height="14" fill="currentColor" />
+    <rect x="9" y="5" width="3" height="14" fill="currentColor" />
+    <rect x="13" y="5" width="1" height="14" fill="currentColor" />
+    <rect x="15" y="5" width="2" height="14" fill="currentColor" />
+    <rect x="18" y="5" width="1" height="14" fill="currentColor" />
+    <rect x="20" y="5" width="2" height="14" fill="currentColor" />
   </svg>
 );
-
+type ChipTone = 'ok' | 'bad' | 'warn' | 'neutral';
+type ChipProps = React.PropsWithChildren<{
+  tone?: ChipTone;
+}>;
 // --- HELPER FUNCTIONS ---
 const getStatusInfo = (status: BranchDisplayData['testStatus']) => {
   switch (status) {
@@ -204,7 +209,7 @@ useEffect(() => {
       if (typeof onResetKfb === 'function') onResetKfb();
       setIsManualEntry(false); // also reset manual entry mode in this component
       setInputValue(''); // clear the manual input field
-    }, 5000); // your OK duration
+    }, 2000); // OK duration reduced to 2s
   } else {
     setShowOkAnimation(false);
   }
@@ -303,11 +308,15 @@ useEffect(() => {
       return (
         <div className="p-10 text-center w-full flex flex-col items-center justify-center">
           <div className="relative">
-            <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-green-100 dark:bg-green-700/30 rounded-full flex items-center justify-center animate-pulse">
-              <CheckCircleIcon className="w-150 h-150 sm:w-160 sm:h-160 text-green-600 dark:text-green-400" />
+            <div className="w-80 h-80 sm:w-[350px] sm:h-[350px] bg-green-100 dark:bg-green-700/30 rounded-full flex items-center justify-center shadow-[0_0_60px_rgba(16,185,129,0.45)]">
+              <CheckCircleIcon className="w-150 h-150 sm:w-160 sm:h-160 text-green-600 dark:text-green-400 drop-shadow-[0_0_18px_rgba(16,185,129,.55)]" />
             </div>
           </div>
-          <h3 className="p-10 font-black text-green-500 uppercase tracking-widest text-8xl sm:text-9xl">
+          {/* Refined success pipe (professional pill with subtle sheen) */}
+          <div className="relative mt-6 h-2.5 w-64 sm:w-80 rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 border border-emerald-300/60 shadow-[0_8px_24px_rgba(16,185,129,0.28)]">
+            <div className="pointer-events-none absolute inset-0 rounded-full bg-gradient-to-b from-white/60 to-transparent opacity-50"></div>
+          </div>
+          <h3 className="p-6 font-black text-green-500 uppercase tracking-widest text-8xl sm:text-9xl drop-shadow-[0_0_14px_rgba(16,185,129,.45)]">
             OK
           </h3>
         </div>
@@ -459,73 +468,99 @@ useEffect(() => {
     }
 
     if (groupedBranches && groupedBranches.length > 0) {
+      // Small UI primitives
+  const Chip: React.FC<ChipProps> = ({ children, tone = 'neutral' }) => {
+  const base =
+    'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold';
+
+  const tones: Record<ChipTone, string> = {
+    bad: 'bg-red-50 text-red-700 border border-red-200',
+    ok: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    warn: 'bg-amber-50 text-amber-800 border border-amber-200',
+    neutral: 'bg-slate-50 text-slate-700 border border-slate-200',
+  };
+
+  return <span className={`${base} ${tones[tone]}`}>{children}</span>;
+};
+      const Tooltip: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+        <span className="relative group inline-flex">
+          {children}
+          {title && (
+            <span className="pointer-events-none absolute bottom-full mb-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 text-white text-[11px] font-medium px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {title}
+            </span>
+          )}
+        </span>
+      );
+
+      const ksskCards = groupedBranches.map((grp) => {
+        const nok = grp.branches.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
+        const okBranches = grp.branches.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
+        const okNames = okBranches.map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName).filter(Boolean);
+        const failedItems = nok
+          .map(b => ({
+            pin: b.pinNumber as number,
+            name: (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
+          }))
+          .sort((a,b)=> a.name.localeCompare(b.name));
+        const missingNames = failedItems.map(f => f.name);
+        const activeSet = new Set((activeKssks || []).map(String));
+        const isActive = activeSet.has(String(grp.kssk));
+        return (
+          <section key={grp.kssk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+            <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String(grp.kssk).slice(-2)}</span>
+                <div className="flex flex-col">
+                  <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">{isActive ? 'Active' : 'Idle'}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {missingNames.length > 0 ? <Chip tone="bad">{missingNames.length} missing</Chip> : <Chip tone="ok">OK</Chip>}
+              </div>
+            </header>
+            <div className="p-4 grid gap-4">
+              {failedItems.length > 0 && (
+                <div>
+                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
+                  <div className="grid gap-2">
+                    {failedItems.map((f) => (
+                      <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
+                        <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">{f.name}</div>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
+                          <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px]">PIN {f.pin}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {okNames.length > 0 && (
+                <div>
+                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Passed</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {okNames.slice(0, 24).map((nm, i) => (
+                      <span key={`ok-${grp.kssk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
+                    ))}
+                    {okNames.length > 24 && (
+                      <span className="text-[11px] text-slate-500">+{okNames.length-24} more</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* footer intentionally minimal; operators re-scan with scanner */}
+          </section>
+        );
+      });
+
       return (
-        <div className="flex flex-col gap-3 w-full mt-0">
-          <div className="flex flex-wrap items-center gap-2 px-1">
-            <span className="text-slate-800 font-black tracking-wide text-4xl">KSSKs:</span>
-            {(() => {
-              const activeSet = new Set((activeKssks || []).map(String));
-              return groupedBranches.map((g) => {
-                const isActive = activeSet.has(String(g.kssk));
-                return (
-                  <span
-                    key={`kssk-pill-${g.kssk}`}
-                    className={[
-                      "inline-flex items-center gap-3 px-4 py-2 rounded-full border-2 text-2xl md:text-3xl font-black tracking-wide",
-                      isActive ? "bg-blue-600 text-white border-blue-600" : "bg-blue-50 text-blue-700 border-blue-200",
-                    ].join(" ")}
-                  >
-                    {g.kssk}
-                  </span>
-                );
-              });
-            })()}
+        <div className="flex flex-col gap-4 w-full mt-0">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {ksskCards}
           </div>
-          {/* Groups remain separate; lay multiple groups per row; show ALL NOK pins */}
-          {(() => {
-            const colClass = (n: number) => {
-              const cols = Math.min(6, Math.max(1, n));
-              const map: Record<number, string> = {
-                1: 'grid-cols-1',
-                2: 'grid-cols-2',
-                3: 'grid-cols-3',
-                4: 'grid-cols-4',
-                5: 'grid-cols-5',
-                6: 'grid-cols-6',
-              };
-              return map[cols];
-            };
-            return (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                {groupedBranches.map((grp) => {
-                  const onlyNok = grp.branches.filter((b) => b.testStatus === 'nok');
-                  if (onlyNok.length === 0) return null;
-                  const visible = onlyNok; // show all NOK pins for this group
-                  const gridCols = colClass(visible.length);
-                  return (
-            <section key={grp.kssk} className="rounded-3xl border-2 border-blue-400 bg-white shadow-lg overflow-hidden">
-              <header className="px-3 py-2 bg-gradient-to-r from-blue-50 to-white border-b border-blue-200 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 text-white font-extrabold shadow">{String(grp.kssk).slice(-2)}</span>
-                  <h2 className="text-3xl font-black tracking-wide text-blue-700">{grp.kssk}</h2>
-                </div>
-                <span className="text-xs md:text-sm font-extrabold text-blue-600">{onlyNok.length} NOK</span>
-              </header>
-              <div className="p-3">
-                <div className="flex flex-col w-full gap-1">
-                  {visible.map((b) => (
-                    <div key={b.id} className="w-full">
-                      <BranchCard branch={b} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </section>
-                  );
-                })}
-              </div>
-            );
-          })()}
         </div>
       );
     }
@@ -541,7 +576,7 @@ useEffect(() => {
   };
 
   return (
-    <div className="flex-grow flex flex-col items-center justify-start p-8" style={{ paddingTop: appHeaderHeight }}>
+    <div className="flex-grow flex flex-col items-center justify-start p-2">
      <header className="w-full mb-1 min-h-[56px]">
       {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
         <div className="flex items-center justify-between gap-1">
@@ -551,11 +586,19 @@ useEffect(() => {
             </h1>
           ) : <div />}
           {macAddress && localBranches.length > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-700 font-black text-3xl md:text-4xl tracking-wider uppercase whitespace-nowrap">
+            <div className="flex items-center gap-3">
+              <span
+                aria-label="Scan again to re-check"
+                className="inline-flex items-center gap-3 rounded-full border-2 border-slate-900 bg-slate-900 text-white px-6 py-3 text-2xl md:text-3xl font-black tracking-widest uppercase shadow-[0_8px_28px_rgba(0,0,0,0.35)] select-none"
+              >
+                <BarcodeIcon className="w-8 h-8 text-white" />
                 Scan again to re-check
               </span>
-              {checkError && <span className="text-red-600 text-xl md:text-2xl font-bold whitespace-nowrap">{checkError}</span>}
+              {checkError && (
+                <span className="text-red-600 text-base md:text-lg font-bold whitespace-nowrap">
+                  {checkError}
+                </span>
+              )}
             </div>
           )}
         </div>

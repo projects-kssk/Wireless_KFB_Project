@@ -91,6 +91,23 @@ const MainApplicationUI: React.FC = () => {
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
+  const scanOverlayTimerRef = useRef<number | null>(null);
+  const startScanOverlayTimeout = (ms = 5000) => {
+    if (scanOverlayTimerRef.current != null) {
+      try { clearTimeout(scanOverlayTimerRef.current); } catch {}
+      scanOverlayTimerRef.current = null;
+    }
+    scanOverlayTimerRef.current = window.setTimeout(() => {
+      scanOverlayTimerRef.current = null;
+      setOverlay((o) => ({ ...o, open: false }));
+    }, ms);
+  };
+  const clearScanOverlayTimeout = () => {
+    if (scanOverlayTimerRef.current != null) {
+      try { clearTimeout(scanOverlayTimerRef.current); } catch {}
+      scanOverlayTimerRef.current = null;
+    }
+  };
 
   // Serial events (SSE)
   const serial = useSerialEvents();
@@ -285,18 +302,9 @@ const MainApplicationUI: React.FC = () => {
           });
 
           if (!unknown && failures.length === 0) {
-            showOverlay('success', lastScanRef.current);
-            setOkOverlayActive(true);
-            // Show OK for 2s, then hide and reset to default scan state
-            setTimeout(() => {
-              setOkOverlayActive(false);
-              handleResetKfb();
-              setMacAddress('');
-              setGroupedBranches([]);
-              setActiveKssks([]);
-              setNameHints(undefined);
-            }, 2000);
-            hideOverlaySoon(2000);
+            // Success: close SCANNING overlay; let the in-content SVG OK animation run and handle reset
+            clearScanOverlayTimeout();
+            setOverlay((o) => ({ ...o, open: false }));
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
             const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
@@ -317,6 +325,7 @@ const MainApplicationUI: React.FC = () => {
               console.warn('CHECK pending/no-result');
               setScanningError(true);
               showOverlay('error', 'SCANNING ERROR');
+              clearScanOverlayTimeout();
               // Reset view back to default scan state shortly after showing error
               setTimeout(() => {
                 handleResetKfb();
@@ -330,6 +339,7 @@ const MainApplicationUI: React.FC = () => {
             console.error('CHECK error:', result);
             setScanningError(true);
             showOverlay('error', 'CHECK ERROR');
+            clearScanOverlayTimeout();
             // Reset view back to default scan state shortly after showing error
             setTimeout(() => {
               handleResetKfb();
@@ -351,6 +361,7 @@ const MainApplicationUI: React.FC = () => {
           } else {
             setScanningError(true);
             showOverlay('error', 'SCANNING ERROR');
+            clearScanOverlayTimeout();
             hideOverlaySoon();
             setTimeout(() => {
               handleResetKfb();
@@ -364,6 +375,7 @@ const MainApplicationUI: React.FC = () => {
           console.error('CHECK error', err);
           showOverlay('error', 'CHECK exception');
           setAwaitingRelease(false);
+          clearScanOverlayTimeout();
           hideOverlaySoon();
           setTimeout(() => {
             handleResetKfb();
@@ -399,6 +411,7 @@ const MainApplicationUI: React.FC = () => {
     // show SCANNING immediately
     lastScanRef.current = normalized;
     showOverlay('scanning', normalized);
+    startScanOverlayTimeout(5000);
 
     setIsScanning(true);
     setErrorMsg(null);

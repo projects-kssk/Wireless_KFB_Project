@@ -4,6 +4,7 @@ import { z } from 'zod';
 import serial from '@/lib/serial';
 import { LOG } from '@/lib/logger';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { ridFrom } from '@/lib/rid';
 
 export const runtime = 'nodejs';
@@ -148,10 +149,13 @@ export async function POST(request: Request) {
       const r = getRedis();
       const indexKey = `kfb:aliases:index:${macUp}`;
       const members: string[] = await r.smembers(indexKey).catch(() => []);
-      // Prefer current station's active KSSKs; else fall back to index; else empty
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
       const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
-      let targets: string[] = Array.isArray(act) && act.length > 0 ? act : members;
+      // Union of station-active and indexed KSSKs to be safe
+      const targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
+      if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+        mon.info(`CHECK kssk targets count=${targets.length} station=${stationId || 'n/a'}`);
+      }
       const pinsSet = new Set<number>();
       for (const id of targets) {
         try {
@@ -176,6 +180,9 @@ export async function POST(request: Request) {
         }
       } catch {}
       pinsUnion = Array.from(pinsSet).sort((a,b)=>a-b);
+      if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
+        mon.info(`CHECK union pins count=${pinsUnion.length}`);
+      }
     } catch {}
 
     // Choose which pins to send:
@@ -334,6 +341,8 @@ export async function POST(request: Request) {
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK ok mac=${macUp} failures=0 durMs=${Date.now()-t0}`);
       }
+      // Fire-and-forget: build a checkpoint XML from aliases and send it to Krosy only on SUCCESS
+      try { void sendCheckpointFromAliases(macUp, rid); } catch {}
       // Fast path: success response (also include raw line for UI display if desired)
       return NextResponse.json({ failures: [], raw: line }, { headers: { 'X-Req-Id': rid } });
     }
@@ -448,4 +457,64 @@ export async function POST(request: Request) {
   } finally {
     locks.delete(macUp);
   }
+}
+
+/** Build a minimal workingData XML from Redis aliases and post it to the offline checkpoint route. */
+async function sendCheckpointFromAliases(macUp: string, requestId: string) {
+  try {
+    const { getRedis } = await import('@/lib/redis');
+    const r: any = getRedis();
+    const raw = await r.get(`kfb:aliases:${macUp}`).catch(() => null as any);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const hints = (data?.hints && typeof data.hints === 'object') ? (data.hints as Record<string,string>) : {};
+    const namesMap: Record<string,string> = (data?.names && typeof data.names === 'object') ? data.names : {};
+    // Prefer CL name hints; fall back to alias names
+    let names: string[] = [];
+    const seen = new Set<string>();
+    const pushName = (nm?: string) => { if (!nm) return; const key = String(nm).trim(); if (!key) return; if (seen.has(key)) return; seen.add(key); names.push(key); };
+    for (const v of Object.values(hints)) pushName(String(v));
+    for (const v of Object.values(namesMap)) pushName(String(v));
+    names = names.filter(Boolean);
+    if (!names.length) return;
+
+    const srcHost = os.hostname();
+    const targetHost = (process.env.KROSY_XML_TARGET || 'kssksun01').trim();
+    const nowIso = new Date().toISOString().replace(/\..*Z$/, 'Z');
+
+    // Build a compact workingData XML that the checkpoint route knows how to convert to workingResult
+    const seqXml = names.map((nm, i) => (
+      `<sequence index="${i+1}" compType="clip" reference="1" result="true">`+
+      `<objGroup>CL</objGroup><objPos>${escapeXml(nm)}</objPos>`+
+      `</sequence>`
+    )).join('');
+    const workingDataXml =
+      `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1" xmlns:xsd="http://www.w3.org/2001/XMLSchema">`+
+      `<header><requestID>${escapeXml(requestId)}</requestID>`+
+      `<sourceHost><hostname>${escapeXml(srcHost)}</hostname></sourceHost>`+
+      `<targetHost><hostname>${escapeXml(targetHost)}</hostname></targetHost></header>`+
+      `<body><visualControl>`+
+      `<workingData device="${escapeXml(srcHost)}" intksk="" scanned="${escapeXml(nowIso)}">`+
+      `<sequencer><segmentList count="1">`+
+      `<segment index="1" name="1"><sequenceList count="${names.length}">${seqXml}</sequenceList></segment>`+
+      `</segmentList></sequencer>`+
+      `</workingData>`+
+      `</visualControl></body>`+
+      `</krosy>`;
+
+    await fetch('http://localhost:3000/api/krosy-offline/checkpoint', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workingDataXml, requestID: requestId, sourceHostname: srcHost }),
+    }).catch(() => {});
+  } catch {}
+}
+
+function escapeXml(s: string) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }

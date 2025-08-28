@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, screen } from 'electron'
 import path from 'node:path'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
@@ -31,21 +31,61 @@ async function ensureServerInProd() {
   await waitForPort(PORT)
 }
 
-async function createWindow() {
+async function createWindows() {
   await ensureServerInProd()
-
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: { contextIsolation: true, nodeIntegration: false }
-  })
-
   await waitForPort(PORT)
-  await win.loadURL(`http://127.0.0.1:${PORT}`)
 
-  if (isDev) win.webContents.openDevTools({ mode: 'detach' })
+  // Main layout
+  const mainWin = new BrowserWindow({
+    width: 1280,
+    height: 820,
+    x: 0,
+    y: 0,
+    show: false,
+    fullscreenable: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    title: 'Dashboard',
+  })
+  await mainWin.loadURL(`http://127.0.0.1:${PORT}/`)
+  if (isDev) mainWin.webContents.openDevTools({ mode: 'detach' })
+
+  // Setup page
+  const setupWin = new BrowserWindow({
+    width: 1100,
+    height: 820,
+    x: 80,
+    y: 60,
+    show: false,
+    fullscreenable: true,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    title: 'Setup',
+  })
+  await setupWin.loadURL(`http://127.0.0.1:${PORT}/setup`)
+  if (isDev) setupWin.webContents.openDevTools({ mode: 'detach' })
+
+  // Auto fullscreen/maximize across displays
+  try {
+    const displays = screen.getAllDisplays();
+    const primary = screen.getPrimaryDisplay();
+    const secondary = displays.find((d) => d.id !== primary.id) || primary;
+
+    // Place windows on displays' work areas
+    mainWin.setBounds(primary.workArea);
+    setupWin.setBounds(secondary.workArea);
+
+    if (displays.length >= 2) {
+      mainWin.setFullScreen(true);
+      setupWin.setFullScreen(true);
+    } else {
+      mainWin.maximize();
+      setupWin.maximize();
+    }
+  } catch {}
+
+  mainWin.show();
+  setupWin.show();
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindows)
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindows() })

@@ -527,50 +527,139 @@ export async function POST(request: Request) {
     } catch {}
 
     // On failure, enrich with aliases, name hints and per-KSSK bundles (does not block success path)
-    try {
-      const { getRedis } = await import('@/lib/redis');
-      const r = getRedis();
-      const raw = await r.get(`kfb:aliases:${macUp}`);
-      if (raw) {
-        const parsedR = JSON.parse(raw);
-        if (parsedR?.names && typeof parsedR.names === 'object') aliasesFromRedis = parsedR.names as Record<string,string>;
-        const n = Array.isArray(parsedR?.normalPins) ? parsedR.normalPins : undefined;
-        const l = Array.isArray(parsedR?.latchPins) ? parsedR.latchPins : undefined;
-        pinMeta = { ...(n ? { normalPins: n } : {}), ...(l ? { latchPins: l } : {}) };
-        if (parsedR?.hints && typeof parsedR.hints === 'object') {
-          // pass through as nameHints for UI
-          (pinMeta as any).nameHints = parsedR.hints;
+   // On failure, enrich with aliases, name hints and per-KSSK bundles (does not block success path)
+try {
+  const { getRedis } = await import('@/lib/redis');
+  const r = getRedis();
+
+  // union aliases + pin meta
+  const raw = await r.get(`kfb:aliases:${macUp}`);
+  if (raw) {
+    const parsedR = JSON.parse(raw);
+    if (parsedR?.names && typeof parsedR.names === 'object') aliasesFromRedis = parsedR.names as Record<string,string>;
+    const n = Array.isArray(parsedR?.normalPins) ? parsedR.normalPins : undefined;
+    const l = Array.isArray(parsedR?.latchPins) ? parsedR.latchPins : undefined;
+    pinMeta = { ...(n ? { normalPins: n } : {}), ...(l ? { latchPins: l } : {}) };
+    if (parsedR?.hints && typeof parsedR.hints === 'object') (pinMeta as any).nameHints = parsedR.hints;
+  }
+
+  // build itemsAll with index + scan fallback
+  let members: string[] = await r.smembers(`kfb:aliases:index:${macUp}`).catch(() => []);
+  try {
+    const pattern = `kfb:aliases:${macUp}:*`;
+    let cursor = '0';
+    const found: string[] = [];
+    if (typeof (r as any).scan === 'function') {
+      do {
+        const res = await (r as any).scan(cursor, 'MATCH', pattern, 'COUNT', 300);
+        cursor = res[0];
+        for (const k of (res[1] || [])) {
+          const id = String(k).split(':').pop();
+          if (id) found.push(id);
         }
+      } while (cursor !== '0');
+    } else {
+      const keys: string[] = await (r as any).keys(pattern).catch(() => []);
+      for (const k of keys) {
+        const id = String(k).split(':').pop();
+        if (id) found.push(id);
       }
-      const members: string[] = await r.smembers(`kfb:aliases:index:${macUp}`).catch(() => []);
-      const rows = await Promise.all(members.map(async (kssk) => {
-        try {
-          const raw2 = await r.get(`kfb:aliases:${macUp}:${kssk}`);
-          if (!raw2) return null;
-          const d = JSON.parse(raw2);
-          return {
-            kssk,
-            aliases: d?.names || d?.aliases || {},
-            normalPins: Array.isArray(d?.normalPins) ? d.normalPins : [],
-            latchPins: Array.isArray(d?.latchPins) ? d.latchPins : [],
-            ts: d?.ts || null,
-          };
-        } catch { return null; }
-      }));
-      itemsAll = rows.filter(Boolean) as any;
-      // Active KSSKs for this station (if configured)
+    }
+    members = Array.from(new Set([...(members || []), ...found]));
+  } catch {}
+
+  const rows = await Promise.all(
+    (members || []).map(async (kssk) => {
       try {
-        const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-        if (stationId && itemsAll && itemsAll.length) {
-          const activeIds: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
-          if (activeIds && activeIds.length) {
-            const set = new Set(activeIds.map(String));
-            const filt = (itemsAll as any[]).filter(it => set.has(String(it.kssk)));
-            if (filt.length) (pinMeta as any) = { ...(pinMeta || {}), itemsActive: filt };
-          }
-        }
-      } catch {}
+        const raw2 = await r.get(`kfb:aliases:${macUp}:${kssk}`);
+        if (!raw2) return null;
+        const d = JSON.parse(raw2);
+        return {
+          kssk,
+          aliases: d?.names || d?.aliases || {},
+          normalPins: Array.isArray(d?.normalPins) ? d.normalPins : [],
+          latchPins: Array.isArray(d?.latchPins) ? d.latchPins : [],
+          ts: d?.ts || null,
+        };
+      } catch { return null; }
+    })
+  );
+  itemsAll = rows.filter(Boolean) as any;
+
+  // derive itemsActive; widen to include any KSSK hosting a failing pin
+  // derive itemsActive strictly from station locks (fallback if station set empty)
+// derive itemsActive from station locks; synthesize missing groups
+let itemsActive: any[] = [];
+try {
+  const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+
+  // 1) locked KSSKs for this MAC (+station filter)
+  const lockKeys: string[] = [];
+  if (typeof (r as any).scan === 'function') {
+    let cursor = '0';
+    do {
+      const res = await (r as any).scan(cursor, 'MATCH', 'kssk:lock:*', 'COUNT', 300);
+      cursor = res[0];
+      lockKeys.push(...(res[1] || []));
+    } while (cursor !== '0');
+  } else {
+    lockKeys.push(...(await (r as any).keys('kssk:lock:*').catch(() => [])));
+  }
+  const activeIds: string[] = [];
+  for (const k of lockKeys) {
+    try {
+      const vRaw = await r.get(k).catch(() => null);
+      if (!vRaw) continue;
+      const v = JSON.parse(vRaw);
+      if (String(v?.mac || '').toUpperCase() !== macUp) continue;
+      if (stationId && String(v?.stationId || '') !== stationId) continue;
+      activeIds.push(String(v?.kssk || '').trim());
     } catch {}
+  }
+  const activeSet = new Set(activeIds.filter(Boolean).map(String));
+
+  // 2) normal path: take itemsAll ∩ active
+  if (itemsAll?.length) {
+    itemsActive = (itemsAll as any[]).filter(it => activeSet.has(String(it.kssk)));
+  }
+
+  // 3) synthesize groups for any active KSSK missing from itemsAll
+  const presentIds = new Set(itemsActive.map(it => String(it.kssk)));
+  const coveredPins = new Set<number>(
+    itemsActive.flatMap(it => Object.keys(it.aliases || {})).map(Number)
+  );
+  const missingIds = [...activeSet].filter(id => !presentIds.has(id));
+
+  if (missingIds.length) {
+    // use union aliases (if any) to label the failing pins
+    const unionAliases: Record<string, string> = (aliasesFromRedis || {});
+    for (const id of missingIds) {
+      const pinsForThis = (failures || []).filter(p => !coveredPins.has(p));
+      if (!pinsForThis.length) continue;
+      const aliases: Record<string, string> = {};
+      for (const p of pinsForThis) {
+        aliases[String(p)] = unionAliases[String(p)] || `PIN ${p}`;
+        coveredPins.add(p);
+      }
+      itemsActive.push({ kssk: id, aliases, normalPins: [], latchPins: [], ts: null, synthetic: true });
+    }
+  }
+
+  // optional widen, behind a flag
+  if ((process.env.CHECK_WIDEN_NONSTATION_FAILS ?? '0') === '1' && failures?.length && itemsAll?.length) {
+    const need = (itemsAll as any[]).filter(it =>
+      Object.keys(it.aliases || {}).some(k => failures.includes(+k)) &&
+      !itemsActive.some(a => a.kssk === it.kssk)
+    );
+    if (need.length) itemsActive = itemsActive.concat(need);
+  }
+} catch {}
+
+if (itemsActive.length) (pinMeta as any) = { ...(pinMeta || {}), itemsActive };
+
+  } catch {}
+
+
     const unknown = !failures.length;
     log.info('CHECK failure', { rid, mac: macUp, failures, unknown, durationMs: Date.now()-t0 });
     mon.info(`CHECK fail mac=${macUp} failures=[${failures.join(',')}] durMs=${Date.now()-t0}`);

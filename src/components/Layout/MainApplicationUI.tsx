@@ -123,6 +123,8 @@ const MainApplicationUI: React.FC = () => {
     }
   };
 
+
+
   // Serial events (SSE)
   const serial = useSerialEvents((macAddress || '').toUpperCase() || undefined);
   const lastScan = serial.lastScan;
@@ -191,8 +193,13 @@ useEffect(() => {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
     setCheckFailures([]); setIsChecking(false); setIsScanning(false);
     // Flash OK immediately (~1.5s), then reset to barcode like CHECK success
-    setOkFlashTick(t => t + 1);
-    okForcedRef.current = true;
+      okForcedRef.current = true;
+      resetAfterDelay();
+      void fetch('/api/kssk-lock/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: current })
+    }).catch(()=>{});
   }
 }, [serial.lastEvTick, macAddress]);
 
@@ -273,6 +280,22 @@ useEffect(() => {
     setMacAddress('');
     okForcedRef.current = false;
   };
+
+  const resetAfterDelay = useCallback((ms = 1200) => {
+    const t = window.setTimeout(() => handleResetKfb(), ms);
+    return () => window.clearTimeout(t);
+  }, [handleResetKfb]);
+
+  // shows big OK for 1.5s, then clears to barcode state
+const flashOkThenReset = useCallback((code?: string) => {
+  setOverlay({ open: true, kind: 'success', code: code || '' });
+  const t = window.setTimeout(() => {
+    setOverlay(o => ({ ...o, open: false }));
+    handleResetKfb();           // <- returns UI to fresh scan/barcode
+  }, 1500);
+  return () => window.clearTimeout(t);
+}, [handleResetKfb]);
+
 
   // Narrowing guard
   const isTestablePin = (b: BranchDisplayData): b is BranchDisplayData & { pinNumber: number } =>
@@ -441,9 +464,12 @@ useEffect(() => {
 
           if (!unknown && failures.length === 0) {
             // Success: close SCANNING overlay; let the in-content SVG OK animation run and handle reset
-            clearScanOverlayTimeout();
-            setOverlay((o) => ({ ...o, open: false }));
-            try { setOkFlashTick((t) => t + 1); } catch {}
+            void fetch('/api/kssk-lock/clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac })
+            }).catch(()=>{});
+
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
             const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
@@ -965,7 +991,7 @@ useEffect(() => {
 
       {/* SCANNING / OK / ERROR overlay */}
       <AnimatePresence>
-        {overlay.open && (
+          {overlay.open && overlay.kind === 'error' && (   // ← only error
           <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -982,7 +1008,7 @@ useEffect(() => {
             }}
             aria-live="assertive"
             aria-label={
-              overlay.kind === 'success' ? 'OK' :
+              
               overlay.kind === 'error' ? 'ERROR' : 'SCANNING'
             }
           >
@@ -1002,7 +1028,7 @@ useEffect(() => {
                   fontWeight: 900,
                   letterSpacing: '0.02em',
                   color:
-                    overlay.kind === 'success' ? '#10b981' :
+                    
                     overlay.kind === 'error' ? '#ef4444' :
                     '#60a5fa',
                   textShadow: '0 8px 24px rgba(0,0,0,0.45)',
@@ -1010,7 +1036,7 @@ useEffect(() => {
                     'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
                 }}
               >
-                {overlay.kind === 'success' ? 'OK' :
+                {
                  overlay.kind === 'error' ? 'ERROR' : 'SCANNING'}
               </m.div>
               {overlay.code && (

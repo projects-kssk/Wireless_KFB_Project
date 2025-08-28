@@ -494,6 +494,44 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const onMacChange = (v: string) => setInputValue(formatMac(v));
   const macValid = MAC_RE.test(inputValue.trim());
 
+  // Auto-trigger flow when a valid MAC is scanned/typed
+  const lastSubmittedRef = useRef<string>("");
+  useEffect(() => {
+    const v = inputValue.trim().toUpperCase();
+    if (!v || !macValid) return;
+    if (isChecking || isScanning) return;
+    if (localBranches.length > 0) return;
+    if (lastSubmittedRef.current === v) return;
+    lastSubmittedRef.current = v;
+    // Emulate manual submit so it follows the same path
+    try { onManualSubmit(v); } catch {}
+  }, [inputValue, macValid, isChecking, isScanning, localBranches.length, onManualSubmit]);
+
+  // Keyboard-wedge capture: accept digits/hex and ':' even if input is not focused
+  useEffect(() => {
+    if (!hasMounted) return;
+    if (localBranches.length > 0) return; // only on scan screen
+    const onKey = (e: KeyboardEvent) => {
+      const k = e.key;
+      if (k === 'Enter') {
+        // submit current input if valid
+        if (MAC_RE.test(inputValue.trim())) {
+          e.preventDefault();
+          try { onManualSubmit(inputValue.trim()); } catch {}
+        }
+        return;
+      }
+      // collect hex digits and ':'
+      if (/^[0-9a-fA-F:]$/.test(k)) {
+        e.preventDefault();
+        const next = (inputValue + k.toUpperCase()).slice(0, 17);
+        setInputValue(next);
+      }
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => { window.removeEventListener('keydown', onKey, { capture: true } as any); };
+  }, [hasMounted, localBranches.length, inputValue, onManualSubmit]);
+
   // --- STATUS PILL ---
   const StatusPill: React.FC = () => {
     if (isChecking) {

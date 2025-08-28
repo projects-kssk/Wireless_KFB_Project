@@ -425,6 +425,15 @@ export async function ensureScanners(pathsInput?: string | string[], baudRate = 
       .filter((p): p is string => typeof p === 'string' && p.length > 0)
       .filter((p) => /(^|\/)ttyACM\d+$/.test(p) || /\/by-id\/.*ACM\d+/i.test(p));
     for (const p of acmPaths) if (!paths.includes(p)) paths.push(p);
+    // Optionally include ttyUSB devices when allowed
+    const allowUsb = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
+    if (allowUsb) {
+      const usbPaths = list
+        .map((d) => d.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0)
+        .filter((p) => /(^|\/)ttyUSB\d+$/i.test(p));
+      for (const p of usbPaths) if (!paths.includes(p)) paths.push(p);
+    }
   } catch {}
 
   await Promise.all(paths.map((p) => ensureScannerForPath(p, baudRate).catch(() => {})));

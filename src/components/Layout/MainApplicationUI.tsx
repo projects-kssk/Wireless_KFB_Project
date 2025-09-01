@@ -376,6 +376,7 @@ useEffect(() => {
               try {
                 localStorage.removeItem(`PIN_ALIAS::${macUp}`);
                 localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
               } catch {}
               // Also clear any KSSK locks for this MAC across stations (force)
               try {
@@ -806,6 +807,7 @@ useEffect(() => {
                 try {
                   localStorage.removeItem(`PIN_ALIAS::${macUp}`);
                   localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                  localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
                 } catch {}
               } catch {}
 

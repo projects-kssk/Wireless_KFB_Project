@@ -624,10 +624,10 @@ useEffect(() => {
       if (!res.ok) throw new Error(data?.error || String(res.status));
       const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
 
+      // No localStorage of recent MACs; keep in-memory if needed
       try {
         const mac = macAddress.toUpperCase();
         const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
-        localStorage.setItem('RECENT_MACS', JSON.stringify(now));
         setRecentMacs(now);
       } catch {}
 

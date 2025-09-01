@@ -118,7 +118,12 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
       const mt = (getAttr(el, "measType") || "").toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
-      const ct = ((el.getElementsByTagName("compType")[0]?.textContent) || "").toLowerCase();
+      const ct = (
+        getAttr(el, "compType") ||
+        el.getElementsByTagName("compType")[0]?.textContent ||
+        ""
+      ).toLowerCase();
+
       if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
@@ -141,7 +146,12 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
       const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
-      const ct = (body.match(/<compType>([^<]*)<\/compType>/i)?.[1] || "").toLowerCase();
+     const ct = (
+        body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
+        attrs.match(/\bcompType="([^"]*)"/i)?.[1] ||
+        ""
+      ).toLowerCase();
+
       if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
@@ -255,7 +265,12 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       const mt = (getAttr(el, "measType") || "").toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
-      const ct = ((el.getElementsByTagName("compType")[0]?.textContent) || "").toLowerCase();
+     const ct = (
+      getAttr(el, "compType") ||
+      el.getElementsByTagName("compType")[0]?.textContent ||
+      ""
+    ).toLowerCase();
+
       if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
@@ -276,8 +291,12 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       const body = m[2] || "";
       const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      const ct = (
+        body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
+        attrs.match(/\bcompType="([^"]*)"/i)?.[1] ||
+        ""
+      ).toLowerCase();
 
-      const ct = (body.match(/<compType>([^<]*)<\/compType>/i)?.[1] || "").toLowerCase();
       if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
@@ -726,8 +745,9 @@ const acceptKsskToIndex = useCallback(
       const extractOpts: KrosyOpts = {
         macHint: macUp,
         includeLatch: false,              // drop "... ,C"
-        includeLabelPrefixes: ["CN"],     // keep contacts only; adjust if needed
+        includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
         allowedMeasTypes: ["default"],    // keep ONLY default
+        allowedCompTypes: ["clip"],
         // allowedCompTypes: ["contact"],  // uncomment if compType is reliable and desired
       };
 

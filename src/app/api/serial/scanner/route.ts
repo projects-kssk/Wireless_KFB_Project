@@ -2,9 +2,11 @@
 import { NextResponse } from 'next/server';
 import { getLastScanAndClear, getLastScanAndClearFor, peekLastScanFor } from '@/lib/scannerMemory';
 import { ensureScanners, getScannerStatus } from '@/lib/serial';
+import { LOG } from '@/lib/logger';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+const log = LOG.tag('api:serial/scanner');
 
 type ScannerStatus = {
   open: boolean;
@@ -94,6 +96,11 @@ export async function GET(req: Request) {
         else if (st.inCooldown) error = st.lastError || 'cooldown';
       }
       const advise = CLIENT_RETRY_MS;
+      // Log only when we actually have a scan to avoid noisy polling logs
+      if (code) {
+        try { log.info('SCAN', { code, path }); } catch {}
+        try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
+      }
       return NextResponse.json(
         { code, path, error, retryInMs: advise },
         { headers: { 'Cache-Control': 'no-store' } }
@@ -108,7 +115,7 @@ export async function GET(req: Request) {
   // Optional: convey a hint about state in error (for logs/debug)
   if (!code) {
     if (!status) error = 'disconnected:not_present';
-    else if (!status.open) error = 'closed:not_open';
+    else if (!status.open) error = '';
     else if (status.inCooldown) error = status.lastError || 'cooldown';
   }
   // Adaptive client retry suggestion
@@ -120,6 +127,11 @@ export async function GET(req: Request) {
     else advise = Math.max(advise, 1500);
   }
 
+  // Log only when a scan is present
+  if (code) {
+    try { log.info('SCAN', { code, path }); } catch {}
+    try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
+  }
   return NextResponse.json(
     { code, path, error, retryInMs: advise },
     { headers: { 'Cache-Control': 'no-store' } }

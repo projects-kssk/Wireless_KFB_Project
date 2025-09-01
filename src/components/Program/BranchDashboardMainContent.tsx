@@ -44,18 +44,7 @@ const HelpCircleIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
-const BarcodeIcon = (props: React.SVGProps<SVGSVGElement>) => (
-  <svg {...props} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-    <rect x="2" y="5" width="1" height="14" fill="currentColor" />
-    <rect x="4" y="5" width="2" height="14" fill="currentColor" />
-    <rect x="7" y="5" width="1" height="14" fill="currentColor" />
-    <rect x="9" y="5" width="3" height="14" fill="currentColor" />
-    <rect x="13" y="5" width="1" height="14" fill="currentColor" />
-    <rect x="15" y="5" width="2" height="14" fill="currentColor" />
-    <rect x="18" y="5" width="1" height="14" fill="currentColor" />
-    <rect x="20" y="5" width="2" height="14" fill="currentColor" />
-  </svg>
-);
+// Removed decorative barcode SVG icon per request
 
 // --- HELPERS ---
 type ChipTone = 'ok' | 'bad' | 'warn' | 'neutral';
@@ -727,42 +716,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         );
       }
 
-      // Scan box
-      const ScanBox = ({ ariaLabel, height = 220 }: { ariaLabel: string; height?: number }) => {
-        const slabH = Math.max(120, Math.min(Math.round(height * 0.6), 140));
-        return (
-          <div aria-label={ariaLabel} className="w-full max-w-4xl">
-            <div
-              style={{
-                position: 'relative',
-                width: '100%',
-                height,
-                borderRadius: 18,
-                overflow: 'hidden',
-                background: '#0b1220',
-                border: '1px solid #1f2937',
-                boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.25)'
-              }}
-            >
-              <div aria-hidden style={{ position: 'absolute', inset: 0, opacity: .22, backgroundImage: 'repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)', backgroundSize: '120px 100%' }} />
-              {(['tl','tr','bl','br'] as const).map(pos => (
-                <div key={pos} aria-hidden style={{ position: 'absolute', width: 18, height: 18, ...(pos==='tl' && { left:10, top:10, borderLeft:'2px solid #e5e7eb', borderTop:'2px solid #e5e7eb' }), ...(pos==='tr' && { right:10, top:10, borderRight:'2px solid #e5e7eb', borderTop:'2px solid #e5e7eb' }), ...(pos==='bl' && { left:10, bottom:10, borderLeft:'2px solid #e5e7eb', borderBottom:'2px solid #e5e7eb' }), ...(pos==='br' && { right:10, bottom:10, borderRight:'2px solid #e5e7eb', borderBottom:'2px solid #e5e7eb' }), opacity:.7, borderRadius:2 }} />
-              ))}
-              <div aria-hidden style={{ position: 'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)', width: 'min(100%, 1100px)', height: slabH, borderRadius: 12, background: 'repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)' }}>
-                <div style={{ position:'absolute', inset:0, borderRadius: 12, background: 'linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 8%, rgba(11,18,32,0) 92%, rgba(11,18,32,1) 100%)', pointerEvents:'none' }} />
-              </div>
-              <div aria-label="KFB WIRELESS" style={{ position:'absolute', left:0, right:0, bottom:0, paddingBottom: 6, display:'flex', justifyContent:'center', pointerEvents:'none' }}>
-                <span style={{ fontFamily:'Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial', textTransform:'uppercase', letterSpacing: 3, fontWeight: 700, fontSize: 12, color:'#ffffff', opacity:.6, textShadow: '0 1px 0 rgba(0,0,0,.35)', userSelect:'none' }}>KFB WIRELESS</span>
-              </div>
-            </div>
-          </div>
-        );
-      };
+      // Removed decorative scan box (barcode-like stripes) per request
 
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
           <div className="w-full flex flex-col items-center gap-8">
-            <ScanBox ariaLabel="Scan Barcode" />
             <p className="text-6xl md:text-7xl text-slate-700 font-extrabold uppercase tracking-widest text-center select-none">Please Scan Barcode</p>
             {isScanning && (
               <div className="flex flex-col items-center gap-3">
@@ -942,7 +900,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-600 bg-blue-600 hover:bg-blue-700 text-white font-bold"
                       title="Scan another"
                     >
-                      <BarcodeIcon className="w-4 h-4" />
                       SCAN AGAIN
                     </button>
                   </>

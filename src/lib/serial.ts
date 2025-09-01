@@ -379,6 +379,29 @@ const normalizer = new Transform({
 const parser = port
   .pipe(normalizer)
   .pipe(new ReadlineParser({ delimiter: /[\r\n]+/ } as any));
+    // Watchdog: detect stuck-open (no callback) and surface an error
+    let opened = false;
+    const watchdogMs = Number(process.env.SCANNER_OPEN_TIMEOUT_MS ?? 4000);
+    const watchdog = setTimeout(() => {
+      if (opened) return;
+      const msg = `open timeout ${path} after ${watchdogMs}ms`;
+      LOG.tag('scanner').error(msg);
+      broadcastScannerErrorOnce(retry, msg, path);
+      try { port.close(() => {}); } catch {}
+      state.port = null;
+      state.parser = null;
+      state.starting = null;
+      bumpCooldown(retry);
+      reject(new Error(msg));
+    }, watchdogMs);
+
+    // Also log on 'open' event for visibility
+    port.on('open', () => {
+      opened = true;
+      try { clearTimeout(watchdog); } catch {}
+      LOG.tag('scanner').info(`opened ${path}`);
+    });
+
     port.open((err) => {
       if (err) {
         LOG.tag('scanner').error(`open error ${path}`, err);
@@ -389,6 +412,8 @@ const parser = port
         bumpCooldown(retry);
         return reject(err);
       }
+      opened = true;
+      try { clearTimeout(watchdog); } catch {}
       LOG.tag('scanner').info(`opened ${path}`);
       resetCooldown(retry);
       state.port = port;

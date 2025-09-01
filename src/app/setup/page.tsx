@@ -1287,16 +1287,16 @@ const acceptKsskToIndex = useCallback(
                 const code = ksskSlots[idx];
                 const status = ksskStatus[idx];
                 // only light the slot that matches, not "global"
-                const hit = flash && flash.panel === (`kssk${idx}` as PanelKey);
+                const hit = flash && flash.panel === (`ksk${idx}` as PanelKey);
                 return (
                   <KsskSlotCompact
                     key={idx}
                     index={idx}
                     code={code}
                     status={status}
-                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
-                    manualOpen={!!(showManualFor as any)[`kssk${idx}`]}
-                    onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
+                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`ksk${idx}`]: !s[`ksk${idx}`] }))}
+                    manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
+                    onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
                     flashKind={hit ? flash!.kind : null}
                     flashId={hit ? flash!.id : undefined}
                   />

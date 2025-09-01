@@ -13,7 +13,7 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim());
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
-const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
 const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
 /** newline | fin | null | none */
 const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
@@ -170,16 +170,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/**
- * POST JSON:
- * {
- *   intksk?: "950023158903",
- *   requestID?: "1",
- *   sourceHostname?: "ksskkfb01",
- *   targetHostName?: "kssksun01",
- *   targetAddress?: "172.26.192.1:10080"
- * }
- */
+
 export async function POST(req: NextRequest) {
   const accept = req.headers.get("accept") || "application/json";
   const body = (await req.json().catch(() => ({}))) as any;

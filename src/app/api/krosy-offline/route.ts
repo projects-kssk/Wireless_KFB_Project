@@ -104,7 +104,7 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
-const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
 const OGLIEN_URL = (process.env.KROSY_OGLIEN_URL || "http://localhost:3000/api/krosy").trim();
 const VC_NS = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 const TIMEOUT_MS = Number(process.env.KROSY_TIMEOUT_MS ?? 5000);

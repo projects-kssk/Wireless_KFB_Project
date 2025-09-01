@@ -16,8 +16,12 @@ import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
-const KROSY_OFFLINE_URL =
-  process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline";
+// Resolve Krosy endpoint: prefer live checkpoint when ONLINE, otherwise offline
+const DEFAULT_KROSY_CHECKPOINT = "/api/krosy/checkpoint";
+const KROSY_URL =
+  process.env.NEXT_PUBLIC_KROSY_ONLINE === "true"
+    ? process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ?? DEFAULT_KROSY_CHECKPOINT
+    : process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline/checkpoint";
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
 const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =
@@ -591,7 +595,7 @@ export default function SetupPage() {
   const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
     return withTimeout(async (signal) => {
       try {
-        const res = await fetch(KROSY_OFFLINE_URL, {
+        const res = await fetch(KROSY_URL, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

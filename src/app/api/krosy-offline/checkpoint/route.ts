@@ -15,7 +15,7 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
-const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
 
 const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim(); // request leg (TCP)
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
@@ -28,6 +28,16 @@ const DEFAULT_CHECKPOINT_URL = (process.env.KROSY_RESULT_URL || "http://localhos
 
 /* ===== VC NS ===== */
 const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
+
+
+
+const FORCE_RESULT_RAW = (process.env.KROSY_FORCE_CHECKPOINT_RESULT || "").trim().toLowerCase();
+const FORCE_RESULT: boolean | null =
+  ["ok","true","1"].includes(FORCE_RESULT_RAW)  ? true  :
+  ["nok","false","0"].includes(FORCE_RESULT_RAW)? false :
+  null; // null => don't force; default to OK below
+
+const b2s = (b: boolean) => (b ? "true" : "false");
 
 /* ===== CORS ===== */
 function cors(req: NextRequest) {
@@ -183,15 +193,17 @@ function buildWorkingRequestXML(args: {
     `</krosy>`
   );
 }
-function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
-  requestID?: string; resultTimeIso?: string; sourceIp?: string; sourceMac?: string;
-}) {
-  const parser = new Xmldom({
-  errorHandler: {
-    warning: () => {}, error: () => {}, fatalError: () => {},
-  },
-} as any);
+
+function buildWorkingResultFromWorkingData(
+  workingDataXml: string,
+  overrides?: { requestID?: string; resultTimeIso?: string; sourceIp?: string; sourceMac?: string; },
+  opts?: { forceResult?: boolean | null }
+) {
+  const parser = new Xmldom({ errorHandler: { warning(){}, error(){}, fatalError(){} } } as any);
   const doc = parser.parseFromString(workingDataXml, "text/xml");
+
+  const forced = opts?.forceResult ?? null;     // true / false / null
+  const resultStr = b2s(forced ?? true);        // default to "true" (OK)
 
   const header = firstDesc(doc, "header");
   if (!header) throw new Error("No <header> in workingData XML");
@@ -226,12 +238,12 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
         const reference = seq.getAttribute("reference") || "";
         const objGroup = textOf(seq, "objGroup", "");
         const objPos = textOf(seq, "objPos", "");
-        seqOut += `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(compType)}" reference="${xmlEsc(reference)}" result="true">` +
+        seqOut += `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(compType)}" reference="${xmlEsc(reference)}" result="${resultStr}">` +
                   (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
                   (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
                   `</sequence>`;
       }
-      segmentsOut += `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="true" resultTime="${xmlEsc(resultTime)}">` +
+      segmentsOut += `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="${resultStr}" resultTime="${xmlEsc(resultTime)}">` +
                      `<sequenceList count="${sequences.length}">${seqOut}</sequenceList>` +
                      `</segmentResult>`;
     }
@@ -246,7 +258,7 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
     clipCount = clips.length;
     for (const clip of clips) {
       const idx = clip.getAttribute("index") || "";
-      clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="true" />`;
+      clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="${resultStr}" />`;
     }
   }
 
@@ -262,7 +274,7 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
         `<targetHost><hostname>${xmlEsc(srcHostname_prev)}</hostname></targetHost>` +
       `</header>` +
       `<body><visualControl>` +
-        `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="true" resultTime="${xmlEsc(resultTime)}">` +
+        `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="${resultStr}" resultTime="${xmlEsc(resultTime)}">` +
           (segCount ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>` : ``) +
           (clipCount ? `<componentResult><clipResultList count="${clipCount}">${clipResultsOut}</clipResultList></componentResult>` : ``) +
         `</workingResult>` +
@@ -271,6 +283,8 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
 
   return { xml, meta: { requestID, device, intksk, scanned, resultTime, toHost: srcHostname_prev } };
 }
+
+
 
 /* ===== Handlers ===== */
 export async function OPTIONS(req: NextRequest) {
@@ -283,18 +297,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/**
- * POST JSON:
- * {
- *   workingDataXml?: "<krosy ...><workingData ...>...</workingData></krosy>",  // preferred
- *   // or derive workingData by sending workingRequest first (TCP):
- *   intksk?: "830569527900", requestID?: "1", sourceHostname?: "ksskkfb01", targetHostName?: "kssksun01",
- *   // TCP bridge for request leg:
- *   targetAddress?: "172.26.192.1:10080",
- *   // HTTP or TCP for checkpoint leg (defaults to http://localhost:3001/checkpoint):
- *   checkpointUrl?: "http://localhost:3001/checkpoint" | "172.26.192.1:10080"
- * }
- */
+
 export async function POST(req: NextRequest) {
   const accept = req.headers.get("accept") || "application/json";
   const body = (await req.json().catch(() => ({}))) as any;

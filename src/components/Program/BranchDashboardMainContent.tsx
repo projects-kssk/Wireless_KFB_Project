@@ -178,13 +178,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const lastForcedOkRef = useRef<number>(0);
   const [busy, setBusy] = useState(false);
   // After terminal OK, ignore further realtime EV edges until we reset
-  const suppressRealtimeRef = useRef<boolean>(false);
   // Internal trigger to flash OK immediately on successful RESULT from live mode
   // no-op: internal flash tick removed; rely on allOk watcher
   const settled = hasMounted && !busy;
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showingGrouped = useMemo(() => Array.isArray(groupedBranches) && groupedBranches.length > 0, [groupedBranches]);
+const HIDE_KSSK_IDS = (process.env.NEXT_PUBLIC_HIDE_KSSK_IDS ?? '1') === '1'; // default: hide
+const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') === '1'; // default: don't show
 
   // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
   const pinStateRef = useRef<Map<number, number>>(new Map());
@@ -392,6 +393,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     } catch {}
   }, []);
 
+
   // Only NOK in the main flat list. Sort by pin then name
   const pending = useMemo(() =>
     localBranches
@@ -511,6 +513,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (tick === lastFlashTickRef.current) return;
     triggerOkFlash(tick);
   }, [flashOkTick, settled, triggerOkFlash]);
+
+  // If grouped view shows all cards "OK", fire the flash & return to scan
+useEffect(() => {
+  if (!settled || !showingGrouped) return;
+  if (!groupedAllOk) return;
+  if (flashInProgressRef.current || showOkAnimation) return;
+  triggerOkFlash(Date.now()); // this already calls returnToScan() after OK_FLASH_MS
+}, [settled, showingGrouped, groupedAllOk, showOkAnimation, triggerOkFlash]);
+
 
   // Drain queued flash when settled
   useEffect(() => {
@@ -863,7 +874,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         });
 
         const nok = branchesLive.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
-        const okBranches = branchesLive.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
+        const okBranches = branchesLive.filter(b => {
+          if (b.testStatus !== 'ok' || typeof b.pinNumber !== 'number') return false;
+          const isContactless = (b as any).isLatch === true || isLatchPin(b.pinNumber);
+          const noCheck = (b as any).noCheck === true || (b as any).notTested === true;
+          return !(isContactless || noCheck);
+        });
         const okNames = okBranches
           .map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
           .filter(Boolean);
@@ -983,26 +999,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               </div>
             ) : <div />}
 
-            {macAddress && localBranches.length > 0 && (
-              <div className="flex items-center justify-end gap-4 w-full">
-         
-
-                {!showingGrouped && (
-                  <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
-                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
-                      {(activeKssks && activeKssks.length > 0)
-                        ? activeKssks.map(id => (
-                            <span key={id} className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow">
-                              {id}
-                            </span>
-                          ))
-                        : <span className="text-slate-400 text-xs">—</span>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+      {macAddress && localBranches.length > 0 && (
+  <div className="flex items-center justify-end gap-4 w-full">
+    {!showingGrouped && SHOW_ACTIVE_KSSKS && (
+      <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
+        <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+        <div className="flex flex-wrap gap-2 mt-1 justify-end">
+          {(activeKssks && activeKssks.length > 0)
+            ? activeKssks.map(id => (
+                <span key={id} className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow">
+                  {id}
+                </span>
+              ))
+            : <span className="text-slate-400 text-xs">—</span>}
+        </div>
+      </div>
+    )}
+  </div>
+)}
           </div>
         ) : null}
       </header>

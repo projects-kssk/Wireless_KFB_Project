@@ -654,7 +654,7 @@ async function sendCheckpointFromAliases(macUp: string, requestId: string) {
     if (!names.length) return;
 
     const srcHost = os.hostname();
-    const targetHost = (process.env.KROSY_XML_TARGET || 'kssksun01').trim();
+    const targetHost = (process.env.KROSY_XML_TARGET || 'ksskkfb01').trim();
     const nowIso = new Date().toISOString().replace(/\..*Z$/, 'Z');
 
     // Build a compact workingData XML that the checkpoint route knows how to convert to workingResult

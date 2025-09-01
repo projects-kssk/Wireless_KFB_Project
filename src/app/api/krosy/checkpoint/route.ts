@@ -35,7 +35,8 @@ const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080")
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 
 /* ===== Namespaces ===== */
-const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
+const VC_NS_V01 =
+  "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 
 /* ===== CORS ===== */
 function cors(req: NextRequest) {
@@ -55,7 +56,9 @@ function cors(req: NextRequest) {
 const isoNoMs = (d = new Date()) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const nowStamp = () => isoNoMs().replace(/[:T]/g, "-").replace("Z", "");
 
-async function ensureDir(p: string) { await fs.mkdir(p, { recursive: true }); }
+async function ensureDir(p: string) {
+  await fs.mkdir(p, { recursive: true });
+}
 async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
@@ -63,8 +66,15 @@ async function writeLog(base: string, name: string, content: string) {
 function pickIpAndMac() {
   const want = (process.env.KROSY_NET_IFACE || "").trim();
   const ifs = os.networkInterfaces();
-  const rows: { name: string; address?: string; mac?: string; internal?: boolean; family?: string }[] = [];
-  for (const [name, arr] of Object.entries(ifs)) for (const ni of arr || []) rows.push({ name, ...ni });
+  const rows: {
+    name: string;
+    address?: string;
+    mac?: string;
+    internal?: boolean;
+    family?: string;
+  }[] = [];
+  for (const [name, arr] of Object.entries(ifs))
+    for (const ni of arr || []) rows.push({ name, ...ni });
   const candidates = rows.filter((r) => !r.internal && r.family === "IPv4" && r.address);
   const chosen =
     (want && candidates.find((r) => r.name === want)) ||
@@ -75,16 +85,21 @@ function pickIpAndMac() {
   return { ip: addr, mac };
 }
 function parseHostPort(raw: string, defPort: number) {
-  let host = raw, port = defPort;
+  let host = raw,
+    port = defPort;
   const m = raw.match(/^\[?([^\]]+)\]:(\d+)$/);
-  if (m) { host = m[1]; port = Number(m[2]); }
+  if (m) {
+    host = m[1];
+    port = Number(m[2]);
+  }
   return { host, port };
 }
 function prettyXml(xml: string) {
   try {
     const compact = xml.replace(/\r?\n/g, "").replace(/>\s+</g, "><").trim();
     const withNl = compact.replace(/(>)(<)(\/*)/g, "$1\n$2$3");
-    let indent = 0; const out: string[] = [];
+    let indent = 0;
+    const out: string[] = [];
     for (const raw of withNl.split("\n")) {
       const line = raw.trim();
       if (line.startsWith("</")) indent = Math.max(indent - 1, 0);
@@ -92,12 +107,17 @@ function prettyXml(xml: string) {
       if (/^<[^!?\/][^>]*[^\/]>$/.test(line)) indent++;
     }
     return out.join("\n");
-  } catch { return xml; }
+  } catch {
+    return xml;
+  }
 }
 const xmlEsc = (s: string) =>
   String(s ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 const hasWorkingDataTag = (s: string) => /<workingData[\s>]/i.test(s || "");
 
 /* ===== TCP ===== */
@@ -113,7 +133,13 @@ const isAckToken = (s: string) => {
   return ACK_TOKENS.includes(t);
 };
 function sendTcp(host: string, port: number, xml: string) {
-  return new Promise<{ ok: boolean; status: number; text: string; error: string | null; used: string }>((resolve) => {
+  return new Promise<{
+    ok: boolean;
+    status: number;
+    text: string;
+    error: string | null;
+    used: string;
+  }>((resolve) => {
     const socket = new net.Socket();
     let buf = "";
     let done = false;
@@ -124,15 +150,21 @@ function sendTcp(host: string, port: number, xml: string) {
     const finish = (ok: boolean, status = 200, err: string | null = null) => {
       if (done) return;
       done = true;
-      try { if (idleTimer) clearTimeout(idleTimer); } catch {}
-      try { socket.destroy(); } catch {}
+      try {
+        if (idleTimer) clearTimeout(idleTimer);
+      } catch {}
+      try {
+        socket.destroy();
+      } catch {}
       resolve({ ok, status, text: buf, error: err, used });
     };
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
-      if (READ_IDLE_MS > 0) idleTimer = setTimeout(() => {
-        if (!done && (ANY_DATA_ACK ? buf.length > 0 : isAckToken(buf))) finish(true, 200, null);
-      }, READ_IDLE_MS);
+      if (READ_IDLE_MS > 0)
+        idleTimer = setTimeout(() => {
+          if (!done && (ANY_DATA_ACK ? buf.length > 0 : isAckToken(buf)))
+            finish(true, 200, null);
+        }, READ_IDLE_MS);
     };
 
     socket.setNoDelay(true);
@@ -150,7 +182,10 @@ function sendTcp(host: string, port: number, xml: string) {
       if (xmlDone(t) || isAckToken(t)) return finish(true, 200, null);
       armIdle();
     });
-    socket.on("end", () => { if (buf.length) finish(true); else finish(false, 0, "no data"); });
+    socket.on("end", () => {
+      if (buf.length) finish(true);
+      else finish(false, 0, "no data");
+    });
     socket.on("timeout", () => finish(false, 0, "tcp timeout"));
     socket.on("error", (e) => finish(false, 0, e?.message || "tcp error"));
   });
@@ -168,52 +203,74 @@ const firstDesc = (n: AnyNode, local: string): AnyNode | null => {
   }
   return null;
 };
-const textOf = (n: AnyNode, local: string, dflt = "") => (firstDesc(n, local)?.textContent ?? dflt).trim();
+const textOf = (n: AnyNode, local: string, dflt = "") =>
+  (firstDesc(n, local)?.textContent ?? dflt).trim();
 const childrenByLocal = (n: AnyNode, local: string): AnyNode[] => {
   const out: AnyNode[] = [];
   const kids = n?.childNodes || [];
-  for (let i = 0; i < kids.length; i++) if (kids[i]?.localName === local) out.push(kids[i]);
+  for (let i = 0; i < kids.length; i++)
+    if (kids[i]?.localName === local) out.push(kids[i]);
   return out;
 };
 
 /* ===== XML builders ===== */
-function buildWorkingRequestXML(args: {
-  requestID: string; srcHost: string; targetHost: string; scanned: string; ip: string; mac: string; intksk: string;
+function apikingRequestXML(args: {
+  requestID: string;
+  srcHost: string;
+  targetHost: string;
+  scanned: string;
+  ip: string;
+  mac: string;
+  intksk: string;
 }) {
   const { requestID, srcHost, targetHost, scanned, ip, mac, intksk } = args;
   return (
     `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="${VC_NS_V01}" xmlns:xsd="http://www.w3.org/2001/XMLSchema">` +
-      `<header>` +
-        `<requestID>${xmlEsc(requestID)}</requestID>` +
-        `<sourceHost>` +
-          `<hostname>${xmlEsc(srcHost)}</hostname>` +
-          `<ipAddress>${xmlEsc(ip)}</ipAddress>` +
-          `<macAddress>${xmlEsc(mac)}</macAddress>` +
-        `</sourceHost>` +
-        `<targetHost><hostname>${xmlEsc(targetHost)}</hostname></targetHost>` +
-      `</header>` +
-      `<body>` +
-        `<visualControl>` +
-          `<workingRequest intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" device="${xmlEsc(srcHost)}"/>` +
-        `</visualControl>` +
-      `</body>` +
+    `<header>` +
+    `<requestID>${xmlEsc(requestID)}</requestID>` +
+    `<sourceHost>` +
+    `<hostname>${xmlEsc(srcHost)}</hostname>` +
+    `<ipAddress>${xmlEsc(ip)}</ipAddress>` +
+    `<macAddress>${xmlEsc(mac)}</macAddress>` +
+    `</sourceHost>` +
+    `<targetHost><hostname>${xmlEsc(targetHost)}</hostname></targetHost>` +
+    `</header>` +
+    `<body>` +
+    `<visualControl>` +
+    `<workingRequest intksk="${xmlEsc(
+      intksk
+    )}" scanned="${xmlEsc(scanned)}" device="${xmlEsc(srcHost)}"/>` +
+    `</visualControl>` +
+    `</body>` +
     `</krosy>`
   );
 }
 
-function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
-  requestID?: string;
-  resultTimeIso?: string;
-  sourceIp?: string;
-  sourceMac?: string;
-}) {
+function apikingResultFromWorkingData(
+  workingDataXml: string,
+  overrides?: {
+    requestID?: string;
+    resultTimeIso?: string;
+    sourceIp?: string;
+    sourceMac?: string;
+  }
+) {
   const parser = new Xmldom();
   const doc = parser.parseFromString(workingDataXml, "text/xml");
 
   const header = firstDesc(doc, "header")!;
-  const requestID = overrides?.requestID || textOf(header, "requestID", String(Date.now()));
-  const srcHostname_prev = textOf(firstDesc(header, "sourceHost")!, "hostname", "unknown-source");
-  const tgtHostname_prev = textOf(firstDesc(header, "targetHost")!, "hostname", "unknown-target");
+  const requestID =
+    overrides?.requestID || textOf(header, "requestID", String(Date.now()));
+  const srcHostname_prev = textOf(
+    firstDesc(header, "sourceHost")!,
+    "hostname",
+    "unknown-source"
+  );
+  const tgtHostname_prev = textOf(
+    firstDesc(header, "targetHost")!,
+    "hostname",
+    "unknown-target"
+  );
 
   const workingData = firstDesc(doc, "workingData");
   if (!workingData) throw new Error("No <workingData> in payload");
@@ -227,12 +284,12 @@ function buildWorkingResultFromWorkingData(workingDataXml: string, overrides?: {
   const sourceIp = overrides?.sourceIp || ip;
   const sourceMac = overrides?.sourceMac || mac;
 
-  // ===== Build sequencer results: exactly one "false" globally =====
+  // ===== Build sequencer results; mark CL_2452 (reference="2") as false =====
   let segmentsOut = "";
   let segCount = 0;
-  let totalSeqCount = 0;
-  let markedFalse = false; // ensure only one failure across sequences and clips
-const failingClipRefs = new Set<string>(); // add
+  let markedFalse = false; // ensure we still allow only one failure globally unless more desired
+  const failingClipRefs = new Set<string>(); // collect clip indices to mark false later
+
   const sequencer = firstDesc(workingData, "sequencer");
   if (sequencer) {
     const segList = firstDesc(sequencer, "segmentList") || sequencer;
@@ -245,7 +302,6 @@ const failingClipRefs = new Set<string>(); // add
 
       const seqListNode = firstDesc(seg, "sequenceList") || seg;
       const sequences = childrenByLocal(seqListNode, "sequence");
-      totalSeqCount += sequences.length;
 
       let seqOut = "";
       let segHasFalse = false;
@@ -259,89 +315,106 @@ const failingClipRefs = new Set<string>(); // add
         const objGroup = textOf(seq, "objGroup", "");
         const objPos = textOf(seq, "objPos", "");
 
+        // Robust match for CL_2452: reference="2" OR objPos starts with "CL_2452", measType=default, compType=clip
         const isTarget =
           compType === "clip" &&
-          reference === "2" &&
-          idx === "10" &&
-          measType === "default";
+          measType === "default" &&
+          (reference === "2" || /^CL_2452\b/i.test(objPos));
 
-
-
-        // flip exactly one sequence to false, rest true
-       // inside the sequence loop, after computing `thisIsFalse`
         const thisIsFalse = !markedFalse && isTarget;
         if (thisIsFalse) {
           markedFalse = true;
           segHasFalse = true;
-          if (reference) failingClipRefs.add(reference); // add
+          if (reference) failingClipRefs.add(reference); // sequence.reference -> clip.index
         }
 
         seqOut +=
-          `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(compType)}" reference="${xmlEsc(reference)}" result="${thisIsFalse ? "false" : "true"}">` +
-            (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
-            (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
+          `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(
+            compType
+          )}" reference="${xmlEsc(reference)}" result="${
+            thisIsFalse ? "false" : "true"
+          }">` +
+          (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
+          (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
           `</sequence>`;
       }
 
       segmentsOut +=
-        `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="${segHasFalse ? "false" : "true"}" resultTime="${xmlEsc(resultTime)}">` +
-          `<sequenceList count="${sequences.length}">` +
-            seqOut +
-          `</sequenceList>` +
+        `<segmentResult index="${xmlEsc(
+          segIdx
+        )}" name="${xmlEsc(segName)}" result="${
+          segHasFalse ? "false" : "true"
+        }" resultTime="${xmlEsc(resultTime)}">` +
+        `<sequenceList count="${sequences.length}">` +
+        seqOut +
+        `</sequenceList>` +
         `</segmentResult>`;
     }
   }
 
-  // ===== Build component clip results if present; only mark false if none already marked =====
-// ===== Component -> clips
-const component = firstDesc(workingData, "component");
-let clipResultsOut = "";
-let clipCount = 0;
-if (component) {
-  const clipList = firstDesc(component, "clipList");
-  const clips = clipList ? childrenByLocal(clipList, "clip") : [];
-  clipCount = clips.length;
-  for (const clip of clips) {
-    const idx = clip.getAttribute("index") || "";
-  
-    const isFalse = failingClipRefs.has(idx); // seq.reference === clip.index
-    if (isFalse) markedFalse = true;          // ensure overall result=false
-    clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="${isFalse ? "false" : "true"}" />`;
-
+  // ===== Build component clip results: mark those with index in failingClipRefs false =====
+  const component = firstDesc(workingData, "component");
+  let clipResultsOut = "";
+  let clipCount = 0;
+  if (component) {
+    const clipList = firstDesc(component, "clipList");
+    const clips = clipList ? childrenByLocal(clipList, "clip") : [];
+    clipCount = clips.length;
+    for (const clip of clips) {
+      const idx = clip.getAttribute("index") || "";
+      const isFalse = failingClipRefs.has(idx);
+      if (isFalse) markedFalse = true;
+      clipResultsOut += `<clipResult index="${xmlEsc(
+        idx
+      )}" result="${isFalse ? "false" : "true"}" />`;
+    }
   }
-}
 
-  // WorkingResult result reflects any child failure
+  // Overall workingResult result reflects any child failure
   const workingResultOverall = markedFalse ? "false" : "true";
 
   const xml =
     `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="${VC_NS_V01}">` +
-      `<header>` +
-        `<requestID>${xmlEsc(requestID)}</requestID>` +
-        `<sourceHost>` +
-          `<hostname>${xmlEsc(device)}</hostname>` +
-          `<ipAddress>${xmlEsc(sourceIp)}</ipAddress>` +
-          `<macAddress>${xmlEsc(sourceMac)}</macAddress>` +
-        `</sourceHost>` +
-        `<targetHost>` +
-          `<hostname>${xmlEsc(srcHostname_prev)}</hostname>` +
-        `</targetHost>` +
-      `</header>` +
-      `<body>` +
-        `<visualControl>` +
-          `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="${workingResultOverall}" resultTime="${xmlEsc(resultTime)}">` +
-            (segCount
-              ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>`
-              : ``) +
-            (clipCount
-              ? `<componentResult><clipResultList count="${clipCount}">${clipResultsOut}</clipResultList></componentResult>`
-              : ``) +
-          `</workingResult>` +
-        `</visualControl>` +
-      `</body>` +
+    `<header>` +
+    `<requestID>${xmlEsc(requestID)}</requestID>` +
+    `<sourceHost>` +
+    `<hostname>${xmlEsc(device)}</hostname>` +
+    `<ipAddress>${xmlEsc(sourceIp)}</ipAddress>` +
+    `<macAddress>${xmlEsc(sourceMac)}</macAddress>` +
+    `</sourceHost>` +
+    `<targetHost>` +
+    `<hostname>${xmlEsc(srcHostname_prev)}</hostname>` +
+    `</targetHost>` +
+    `</header>` +
+    `<body>` +
+    `<visualControl>` +
+    `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(
+      intksk
+    )}" scanned="${xmlEsc(scanned)}" result="${xmlEsc(
+      workingResultOverall
+    )}" resultTime="${xmlEsc(resultTime)}">` +
+    (segCount
+      ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>`
+      : ``) +
+    (clipCount
+      ? `<componentResult><clipResultList count="${clipCount}">${clipResultsOut}</clipResultList></componentResult>`
+      : ``) +
+    `</workingResult>` +
+    `</visualControl>` +
+    `</body>` +
     `</krosy>`;
 
-  return { xml, meta: { requestID, device, intksk, scanned, resultTime, toHost: srcHostname_prev } };
+  return {
+    xml,
+    meta: {
+      requestID,
+      device,
+      intksk,
+      scanned,
+      resultTime,
+      toHost: srcHostname_prev,
+    },
+  };
 }
 
 /* ===== Handlers ===== */
@@ -353,7 +426,11 @@ export async function GET(req: NextRequest) {
   const { ip, mac } = pickIpAndMac();
   return new Response(JSON.stringify({ hostname: os.hostname(), ip, mac }), {
     status: 200,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors(req) },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      ...cors(req),
+    },
   });
 }
 
@@ -395,8 +472,14 @@ export async function POST(req: NextRequest) {
     const { ip, mac } = pickIpAndMac();
     const scanned = isoNoMs();
 
-    const reqXml = buildWorkingRequestXML({
-      requestID: reqId, srcHost: sourceHostname, targetHost: xmlTargetHost, scanned, ip, mac, intksk,
+    const reqXml = apikingRequestXML({
+      requestID: reqId,
+      srcHost: sourceHostname,
+      targetHost: xmlTargetHost,
+      scanned,
+      ip,
+      mac,
+      intksk,
     });
     const prettyReq = prettyXml(reqXml);
 
@@ -405,36 +488,65 @@ export async function POST(req: NextRequest) {
     const dur1 = Date.now() - t1;
 
     let reqRespPretty: string | null = null;
-    try { if (reqOut.text && reqOut.text.trim().startsWith("<")) reqRespPretty = prettyXml(reqOut.text); } catch {}
+    try {
+      if (reqOut.text && reqOut.text.trim().startsWith("<"))
+        reqRespPretty = prettyXml(reqOut.text);
+    } catch {}
 
     await Promise.all([
       writeLog(base, "1_request.workingRequest.xml", reqXml),
       writeLog(base, "1_request.workingRequest.pretty.xml", prettyReq),
       writeLog(base, "1_response.workingData.xml", reqOut.text || ""),
-      writeLog(base, "1_response.workingData.pretty.xml", reqRespPretty || (reqOut.text || "")),
-      writeLog(base, "1_meta.request.json", JSON.stringify({
-        leg: "request",
-        requestID: reqId,
-        device: sourceHostname,
-        xmlTargetHost,
-        intksk,
-        connect: { host: connectHost, tcpPort, used: reqOut.used },
-        durationMs: dur1, ok: reqOut.ok, error: reqOut.error, status: reqOut.status,
-        terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS,
-      }, null, 2)),
+      writeLog(
+        base,
+        "1_response.workingData.pretty.xml",
+        reqRespPretty || (reqOut.text || "")
+      ),
+      writeLog(
+        base,
+        "1_meta.request.json",
+        JSON.stringify(
+          {
+            leg: "request",
+            requestID: reqId,
+            device: sourceHostname,
+            xmlTargetHost,
+            intksk,
+            connect: { host: connectHost, tcpPort, used: reqOut.used },
+            durationMs: dur1,
+            ok: reqOut.ok,
+            error: reqOut.error,
+            status: reqOut.status,
+            terminator: TCP_TERMINATOR,
+            timeoutMs: TCP_TIMEOUT_MS,
+          },
+          null,
+          2
+        )
+      ),
     ]);
 
     if (!reqOut.ok || !reqOut.text?.trim().startsWith("<")) {
-      return new Response(JSON.stringify({
-        ok: false,
-        phase: "workingRequest",
-        requestID: reqId,
-        usedUrl: reqOut.used,
-        status: reqOut.status,
-        durationMs: dur1,
-        error: reqOut.error || "no xml response",
-        responsePreview: (reqRespPretty || reqOut.text || "").slice(0, 2000),
-      }, null, 2), { status: 502, headers: { "Content-Type": "application/json", ...cors(req) } });
+      return new Response(
+        JSON.stringify(
+          {
+            ok: false,
+            phase: "workingRequest",
+            requestID: reqId,
+            usedUrl: reqOut.used,
+            status: reqOut.status,
+            durationMs: dur1,
+            error: reqOut.error || "no xml response",
+            responsePreview: (reqRespPretty || reqOut.text || "").slice(0, 2000),
+          },
+          null,
+          2
+        ),
+        {
+          status: 502,
+          headers: { "Content-Type": "application/json", ...cors(req) },
+        }
+      );
     }
     workingDataXml = reqOut.text;
   }
@@ -443,13 +555,23 @@ export async function POST(req: NextRequest) {
   let resultXml: string;
   let meta: any;
   try {
-    const built = buildWorkingResultFromWorkingData(workingDataXml!, { requestID: reqId });
+    const built = apikingResultFromWorkingData(workingDataXml!, { requestID: reqId });
     resultXml = built.xml;
     meta = built.meta;
   } catch (e: any) {
-    await writeLog(base, "2_error.build.json", JSON.stringify({ error: e?.message || String(e) }, null, 2));
-    return new Response(JSON.stringify({ ok: false, phase: "buildWorkingResult", error: e?.message || String(e) }, null, 2),
-      { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } });
+    await writeLog(
+      base,
+      "2_error.build.json",
+      JSON.stringify({ error: e?.message || String(e) }, null, 2)
+    );
+    return new Response(
+      JSON.stringify(
+        { ok: false, phase: "apikingResult", error: e?.message || String(e) },
+        null,
+        2
+      ),
+      { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } }
+    );
   }
 
   const prettyResultReq = prettyXml(resultXml);
@@ -458,44 +580,85 @@ export async function POST(req: NextRequest) {
   const dur2 = Date.now() - t2;
 
   let prettyResultResp: string | null = null;
-  try { if (resOut.text && resOut.text.trim().startsWith("<")) prettyResultResp = prettyXml(resOut.text); } catch {}
+  try {
+    if (resOut.text && resOut.text.trim().startsWith("<"))
+      prettyResultResp = prettyXml(resOut.text);
+  } catch {}
 
   await Promise.all([
     writeLog(base, "2_request.workingResult.xml", resultXml),
     writeLog(base, "2_request.workingResult.pretty.xml", prettyResultReq),
     writeLog(base, "2_response.checkpoint.xml", resOut.text || ""),
-    writeLog(base, "2_response.checkpoint.pretty.xml", prettyResultResp || (resOut.text || "")),
-    writeLog(base, "2_meta.result.json", JSON.stringify({
-      leg: "result",
-      requestID: meta?.requestID,
-      toHost: meta?.toHost,
-      device: meta?.device,
-      intksk: meta?.intksk,
-      scanned: meta?.scanned,
-      resultTime: meta?.resultTime,
-      connect: { host: connectHost, tcpPort, used: resOut.used },
-      durationMs: dur2, ok: resOut.ok, error: resOut.error, status: resOut.status,
-      terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS,
-      totalMs: Date.now() - startedAll,
-    }, null, 2)),
+    writeLog(
+      base,
+      "2_response.checkpoint.pretty.xml",
+      prettyResultResp || (resOut.text || "")
+    ),
+    writeLog(
+      base,
+      "2_meta.result.json",
+      JSON.stringify(
+        {
+          leg: "result",
+          requestID: meta?.requestID,
+          toHost: meta?.toHost,
+          device: meta?.device,
+          intksk: meta?.intksk,
+          scanned: meta?.scanned,
+          resultTime: meta?.resultTime,
+          connect: { host: connectHost, tcpPort, used: resOut.used },
+          durationMs: dur2,
+          ok: resOut.ok,
+          error: resOut.error,
+          status: resOut.status,
+          terminator: TCP_TERMINATOR,
+          timeoutMs: TCP_TIMEOUT_MS,
+          totalMs: Date.now() - startedAll,
+        },
+        null,
+        2
+      )
+    ),
   ]);
 
-  if ((accept.includes("xml") || accept === "*/*") && resOut.text && resOut.text.trim().startsWith("<")) {
+  if (
+    (accept.includes("xml") || accept === "*/*") &&
+    resOut.text &&
+    resOut.text.trim().startsWith("<")
+  ) {
     return new Response(prettyResultResp || resOut.text, {
       status: resOut.ok ? 200 : 502,
-      headers: { "Content-Type": "application/xml; charset=utf-8", "X-Krosy-Used-Url": resOut.used, ...cors(req) },
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "X-Krosy-Used-Url": resOut.used,
+        ...cors(req),
+      },
     });
   }
 
-  return new Response(JSON.stringify({
-    ok: resOut.ok,
-    phase: "workingResult",
-    requestID: meta?.requestID,
-    usedUrl: resOut.used,
-    status: resOut.status,
-    durations: { buildAndSendMs: dur2, totalMs: Date.now() - startedAll },
-    error: resOut.error,
-    sentWorkingResultPreview: prettyResultReq.slice(0, 2000),
-    responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
-  }, null, 2), { status: resOut.ok ? 200 : 502, headers: { "Content-Type": "application/json", "X-Krosy-Used-Url": resOut.used, ...cors(req) } });
+  return new Response(
+    JSON.stringify(
+      {
+        ok: resOut.ok,
+        phase: "workingResult",
+        requestID: meta?.requestID,
+        usedUrl: resOut.used,
+        status: resOut.status,
+        durations: { buildAndSendMs: dur2, totalMs: Date.now() - startedAll },
+        error: resOut.error,
+        sentWorkingResultPreview: prettyResultReq.slice(0, 2000),
+        responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
+      },
+      null,
+      2
+    ),
+    {
+      status: resOut.ok ? 200 : 502,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Krosy-Used-Url": resOut.used,
+        ...cors(req),
+      },
+    }
+  );
 }

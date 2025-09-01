@@ -1,3 +1,4 @@
+
 // src/components/Program/BranchDashboardMainContent.tsx
 import React, {
   useState,
@@ -166,7 +167,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   flashOkTick,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
-  const [showOkAnimation, setShowOkAnimation] = useState(false); // retained to preserve flow, but gated
+  const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -177,14 +178,32 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const lastForcedOkRef = useRef<number>(0);
   const [busy, setBusy] = useState(false);
   const settled = hasMounted && !busy;
-  const initialPaintRef = useRef(true);
-  const prevAllOkRef = useRef(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-const showingGrouped = useMemo(
-  () => Array.isArray(groupedBranches) && groupedBranches.length > 0,
-  [groupedBranches]
-);
+  const showingGrouped = useMemo(() => Array.isArray(groupedBranches) && groupedBranches.length > 0, [groupedBranches]);
+
+  // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
+  const pinStateRef = useRef<Map<number, number>>(new Map());
+
+  const normalizedNormalPins = useMemo(() => {
+    const s = new Set<number>();
+    (normalPins ?? []).forEach(n => { const x = Number(n); if (Number.isFinite(x) && x > 0) s.add(x); });
+    return Array.from(s).sort((a,b)=>a-b);
+  }, [JSON.stringify(normalPins ?? [])]);
+
+  const normalizedLatchPins = useMemo(() => {
+    const s = new Set<number>();
+    (latchPins ?? []).forEach(n => { const x = Number(n); if (Number.isFinite(x) && x > 0) s.add(x); });
+    return Array.from(s).sort((a,b)=>a-b);
+  }, [JSON.stringify(latchPins ?? [])]);
+
+  // Expected = normal ∪ latch (contactless pins NOT included)
+  const expectedPins = useMemo(() => {
+    const s = new Set<number>([...normalizedNormalPins, ...normalizedLatchPins]);
+    return Array.from(s).sort((a,b)=>a-b);
+  }, [normalizedNormalPins, normalizedLatchPins]);
+
+  // Keep localBranches in sync with incoming prop
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
   useEffect(() => { setHasMounted(true); }, []);
 
@@ -192,8 +211,6 @@ const showingGrouped = useMemo(
     if (Array.isArray(groupedBranches) && groupedBranches.some(g => (g?.branches?.length ?? 0) > 0)) return true;
     return localBranches.length > 0;
   }, [groupedBranches, localBranches]);
-
-  useEffect(() => { initialPaintRef.current = false; }, []);
 
   // Busy debounce: enter after 250ms, exit after 350ms. Only overlay when no data yet.
   const OK_FLASH_MS = Number(process.env.NEXT_PUBLIC_OK_FLASH_MS ?? '1500');
@@ -216,7 +233,7 @@ const showingGrouped = useMemo(
     };
   }, [isScanning, isChecking, hasData]);
 
-  // Live EV updates
+  // -------------------- LIVE EV UPDATES --------------------
   useEffect(() => {
     if (!lastEv || !macAddress) return;
 
@@ -230,7 +247,6 @@ const showingGrouped = useMemo(
     const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
     const kind = isLegacyResult ? 'DONE' : kindRaw;
 
-    // Helper: parse failure pins from legacy RESULT text
     const parseFailures = (s: string): number[] => {
       const out = new Set<number>();
       const cleanMacs = s.replace(/\b([0-9A-F]{2}(?::[0-9A-F]{2}){5})\b/gi, '');
@@ -248,6 +264,7 @@ const showingGrouped = useMemo(
       return Array.from(out).sort((a,b)=>a-b);
     };
 
+    // Terminal summary
     if (kind === 'DONE') {
       const matchMac = !evMac || evMac === ZERO || evMac === current;
       if (!matchMac) return;
@@ -266,44 +283,56 @@ const showingGrouped = useMemo(
           }));
         }
       }
+      return; // summary handled
     }
 
     const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;
     const val = typeof (lastEv as any).val === 'number' ? (lastEv as any).val : null;
 
-    try {
-      // eslint-disable-next-line no-console
-      console.log('[GUI] apply EV', { kind, ch, val, mac: evMac });
-    } catch {}
+    try { console.log('[GUI] apply EV', { kind, ch, val, mac: evMac }); } catch {}
 
-    const normSet = new Set<number>((normalPins || []).filter((n) => Number.isFinite(n)) as number[]);
-    const latchSet = new Set<number>((latchPins || []).filter((n) => Number.isFinite(n)) as number[]);
+    // Only track configured pins (ignore contactless)
+    const expected = new Set<number>(expectedPins);
 
-    startTransition(() => setLocalBranches((prev) => {
-      let changed = false;
-      const next = prev.map((b) => {
-        if (typeof b.pinNumber !== 'number') return b;
+    // Realtime edges (P or L)
+    if ((kind === 'P' || kind === 'L') && ch != null && expected.has(ch) && (val === 0 || val === 1)) {
+      // De-dupe identical values
+      const prevVal = pinStateRef.current.get(ch);
+      if (prevVal === val) return;
+      pinStateRef.current.set(ch, val);
 
-        // Accept L or P with val=1 as OK for snappy UX
-        if ((kind === 'L' || kind === 'P') && ch != null && b.pinNumber === ch && val === 1) {
+      startTransition(() => setLocalBranches(prev => {
+        let changed = false;
+        const next = prev.map(b => {
+          if (b.pinNumber !== ch) return b;
+
+          // Latch pins: ignore release (0), keep last OK
+          const isLatch = normalizedLatchPins.includes(ch);
+          const nextStatus =
+            val === 1 ? 'ok'
+            : isLatch ? b.testStatus // ignore downgrades for latch
+            : 'nok';
+
+          if (b.testStatus === nextStatus) return b;
           changed = true;
-          return { ...b, testStatus: 'ok' } as any;
-        }
-        // For NORMAL channels, treat release as missing
-        if (kind === 'P' && ch != null && b.pinNumber === ch && val === 0) {
-          if (normSet.has(ch)) { changed = true; return { ...b, testStatus: 'nok' } as any; }
-        }
-        // Latch channels are sticky by design; no revert to nok on release
-        if (kind === 'L' && ch != null && b.pinNumber === ch && val === 0) {
-          if (latchSet.has(ch)) return b;
-        }
-        return b;
-      });
-      return changed ? next : prev;
-    }));
+          return { ...b, testStatus: nextStatus } as any;
+        });
+        return changed ? next : prev;
+      }));
+    }
+  // IMPORTANT: expectedPins derived from props only; NOT from localBranches — avoids render loop
+  }, [lastEvTick, lastEv, macAddress, expectedPins, normalizedLatchPins]);
 
-    // (The DONE path above handles both success and failure)
-  }, [lastEvTick, lastEv, macAddress, normalPins, latchPins]);
+  // Realtime: log snapshot of configured pins and their current values after each event
+  useEffect(() => {
+    if (!expectedPins.length) return;
+    const snap: Record<string, number | null> = {};
+    for (const p of expectedPins) snap[p] = pinStateRef.current.has(p) ? pinStateRef.current.get(p)! : null;
+    try {
+      console.log('[GUI] CHECK pins', expectedPins);
+      console.log('[GUI] PIN STATES', snap);
+    } catch {}
+  }, [lastEvTick, expectedPins]);
 
   // load recent macs
   useEffect(() => {
@@ -314,7 +343,7 @@ const showingGrouped = useMemo(
     } catch {}
   }, []);
 
-  // Only NOK in the main flat list. Sort by pin then name to help operators.
+  // Only NOK in the main flat list. Sort by pin then name
   const pending = useMemo(() =>
     localBranches
       .filter((b) => b.testStatus === 'nok')
@@ -368,27 +397,7 @@ const showingGrouped = useMemo(
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
-  // Transition: on OK, snap back to scan state without success overlay
-  useEffect(() => {
-
-    // If a dedicated flash is running, don't snap; let the flash complete then reset
-    if (flashInProgressRef.current || Number(flashOkTick || 0) !== lastFlashTickRef.current) {
-      prevAllOkRef.current = allOk;
-      return;
-    }
-    if (allOk && !prevAllOkRef.current) {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setShowOkAnimation(false);
-      if (typeof onResetKfb === 'function') onResetKfb();
-      setIsManualEntry(false);
-      setInputValue('');
-      setLocalBranches([]); // empty list -> scan box
-    }
-    prevAllOkRef.current = allOk;
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [allOk, onResetKfb,flashOkTick]);
-
-  // Force snap via parent tick
+  // Reset pipeline
   const returnToScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(false);
@@ -398,6 +407,7 @@ const showingGrouped = useMemo(
     setInputValue('');
   }, [onResetKfb]);
 
+  // Force snap via parent tick
   useEffect(() => {
     if (!settled) return;
     const t = Number(forceOkTick || 0);
@@ -406,27 +416,26 @@ const showingGrouped = useMemo(
     returnToScan();
   }, [forceOkTick, settled, returnToScan]);
 
-  // Flash success pipe for CHECK success specifically
+  // Flash success pipe
   const flashInProgressRef = useRef(false);
   const okBoardRef = useRef<string>("");
   const lastFlashTickRef = useRef<number>(0);
   const queuedFlashTickRef = useRef<number>(0);
 
   const triggerOkFlash = useCallback((tick: number) => {
-    // Guard: avoid duplicate processing of the same tick
-    if (tick === lastFlashTickRef.current) return;
+    if (tick === lastFlashTickRef.current) return; // de-dupe
     lastFlashTickRef.current = tick;
-    // If disableOkAnimation, skip flash and snap
+
     if (disableOkAnimation) { returnToScan(); return; }
-    // Show short OK pipe then reset
+
     flashInProgressRef.current = true;
-    // Capture a stable board id for the duration of the flash to avoid flicker
     try {
       const id = (macAddress && macAddress.trim())
         ? macAddress.toUpperCase()
         : (kfbInfo?.board || kfbNumber || '').toString().toUpperCase();
       okBoardRef.current = id;
     } catch { okBoardRef.current = (macAddress || '').toUpperCase(); }
+
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(true);
     timeoutRef.current = setTimeout(() => {
@@ -434,16 +443,18 @@ const showingGrouped = useMemo(
       flashInProgressRef.current = false;
       returnToScan();
     }, Math.max(300, OK_FLASH_MS));
-  }, [disableOkAnimation, kfbInfo?.board, kfbNumber, macAddress, returnToScan]);
+  }, [disableOkAnimation, kfbInfo?.board, kfbNumber, macAddress, returnToScan, OK_FLASH_MS]);
+
+  // Parent-triggered flash (e.g., CHECK success)
   useEffect(() => {
     const tick = Number(flashOkTick || 0);
-    if (!tick || tick === 0) return;
+    if (!tick) return;
     if (!settled) { queuedFlashTickRef.current = tick; return; }
     if (tick === lastFlashTickRef.current) return;
     triggerOkFlash(tick);
   }, [flashOkTick, settled, triggerOkFlash]);
 
-  // When we become settled and a flash was queued earlier, trigger it now
+  // Drain queued flash when settled
   useEffect(() => {
     if (!settled) return;
     const queued = queuedFlashTickRef.current;
@@ -452,6 +463,34 @@ const showingGrouped = useMemo(
       triggerOkFlash(queued);
     }
   }, [settled, triggerOkFlash]);
+
+  // Always flash when everything is OK, then auto-return to scan
+  useEffect(() => {
+    if (!settled || !allOk) return;
+    if (!flashInProgressRef.current && !showOkAnimation) {
+      triggerOkFlash(Date.now());
+    }
+  }, [allOk, settled, showOkAnimation, triggerOkFlash]);
+
+  // Watchdog: if the flash didn’t render for any reason, force a reset shortly after
+  useEffect(() => {
+    if (!allOk) return;
+    const id = setTimeout(() => {
+      if (!flashInProgressRef.current && !showOkAnimation) {
+        returnToScan();
+      }
+    }, Math.max(300, OK_FLASH_MS) + 350);
+    return () => clearTimeout(id);
+  }, [allOk, showOkAnimation, returnToScan, OK_FLASH_MS]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (busyEnterTimer.current) clearTimeout(busyEnterTimer.current);
+      if (clearBusyTimer.current) clearTimeout(clearBusyTimer.current);
+    };
+  }, []);
 
   const handleScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -476,7 +515,6 @@ const showingGrouped = useMemo(
       if (!res.ok) throw new Error(data?.error || String(res.status));
       const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
 
-      // recent MACs
       try {
         const mac = macAddress.toUpperCase();
         const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
@@ -484,7 +522,6 @@ const showingGrouped = useMemo(
         setRecentMacs(now);
       } catch {}
 
-      // update local statuses
       startTransition(() => setLocalBranches(prev => prev.map(b => {
         if (typeof b.pinNumber !== 'number' || (b as any).notTested) return b;
         return failures.includes(b.pinNumber)
@@ -585,7 +622,7 @@ const showingGrouped = useMemo(
       );
     }
 
-    // Success overlay — production‑subtle, larger stamp; flashes ~1.5s on CHECK success
+    // Success overlay
     if (showOkAnimation) {
       const okBoard = okBoardRef.current;
       return (
@@ -602,7 +639,6 @@ const showingGrouped = useMemo(
               <CheckCircleIcon className="relative w-56 h-56 sm:w-60 sm:h-60 text-emerald-600" />
             </m.div>
           </div>
-          {/* Board ID intentionally omitted in overlay; header stays visible to avoid flicker */}
           <div className="mt-6">
             <h3 className="font-extrabold text-emerald-700 tracking-widest text-7xl sm:text-8xl">OK</h3>
           </div>
@@ -710,8 +746,6 @@ const showingGrouped = useMemo(
       }
 
       // Scan box
-
-
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
           <div className="w-full flex flex-col items-center gap-8">
@@ -756,7 +790,7 @@ const showingGrouped = useMemo(
         return <span className={`${base} ${tones[tone]}`}>{children}</span>;
       };
 
-      // Build a status map from the live localBranches so socket events can hide CLs on success
+      // Build a status map from live localBranches
       const statusByPin = new Map<number, 'ok' | 'nok' | 'not_tested'>();
       for (const b of localBranches) if (typeof b.pinNumber === 'number') statusByPin.set(b.pinNumber, b.testStatus as any);
 
@@ -863,7 +897,7 @@ const showingGrouped = useMemo(
 
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-2">
-     <header className="w-full mb-1 min-h-[56px]">
+      <header className="w-full mb-1 min-h-[56px]">
         {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
           <div className="flex items-center justify-between gap-1">
             {(macAddress || kfbInfo?.board || kfbNumber) ? (
@@ -877,9 +911,9 @@ const showingGrouped = useMemo(
 
             {macAddress && localBranches.length > 0 && (
               <div className="flex items-center justify-end gap-4 w-full">
-                <button /* Run CHECK btn unchanged */> {isChecking ? 'Checking' : 'Run CHECK'} </button>
+         
 
-                {!showingGrouped && ( // ← gate the duplicate list
+                {!showingGrouped && (
                   <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
                     <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
                     <div className="flex flex-wrap gap-2 mt-1 justify-end">
@@ -895,7 +929,6 @@ const showingGrouped = useMemo(
                 )}
               </div>
             )}
-
           </div>
         ) : null}
       </header>

@@ -887,6 +887,9 @@ useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return;              // no event yet
+    const want = resolveDesiredPath();
+    const seen = lastScanPath;
+    if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
     const code = serial.lastScan;                   // the latest payload
     if (!code) return;
     if (isCheckingRef.current) {
@@ -927,21 +930,20 @@ useEffect(() => {
         }
         ctrl = new AbortController();
         const want = resolveDesiredPath();
-        // Consume scan once so polling doesn't re-play the same code forever before SSE connects
-        const url = want
-          ? `/api/serial/scanner?path=${encodeURIComponent(want)}&consume=1`
-          : '/api/serial/scanner?consume=1';
-       const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        // Only poll the desired scanner path; if unknown, wait and try again
+        if (!want) {
+          if (!stopped) timer = window.setTimeout(tick, 1200);
+          return;
+        }
+        const url = `/api/serial/scanner?path=${encodeURIComponent(want)}&consume=1`;
+        const res = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
         if (res.ok) {
            const { code, path, error, retryInMs } = await res.json();
            try { if (typeof retryInMs === 'number') (window as any).__scannerRetry = retryInMs; } catch {}
           const raw = typeof code === 'string' ? code.trim() : '';
           if (raw) {
             if (path && !isAcmPath(path)) return;
-            if (want && path && !pathsEqual(path, want)) {
-              const strict = String(process.env.NEXT_PUBLIC_STRICT_SCANNER || '').trim() === '1';
-              if (strict) return;
-            }
+            if (want && path && !pathsEqual(path, want)) return;
             if (isCheckingRef.current) enqueueScan(raw);
             else await handleScan(raw);
           }

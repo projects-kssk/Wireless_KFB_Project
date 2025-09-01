@@ -1,3 +1,5 @@
+
+// src/components/Program/BranchDashboardMainContent.tsx
 import React, {
   useState,
   useEffect,
@@ -21,18 +23,7 @@ const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 const XCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <circle cx="12" cy="12" r="10"></circle>
     <line x1="15" y1="9" x2="9" y2="15"></line>
     <line x1="9" y1="9" x2="15" y2="15"></line>
@@ -40,36 +31,14 @@ const XCircleIcon = ({ className = "w-5 h-5" }) => (
 );
 
 const ClockIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <circle cx="12" cy="12" r="10"></circle>
     <polyline points="12 6 12 12 16 14"></polyline>
   </svg>
 );
 
 const HelpCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
     <circle cx="12" cy="12" r="10"></circle>
     <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
     <line x1="12" y1="17" x2="12.01" y2="17"></line>
@@ -96,26 +65,11 @@ type ChipProps = React.PropsWithChildren<{ tone?: ChipTone }>;
 const getStatusInfo = (status: BranchDisplayData['testStatus']) => {
   switch (status) {
     case 'ok':
-      return {
-        Icon: CheckCircleIcon,
-        text: 'OK',
-        color: 'text-emerald-600',
-        bgColor: 'bg-emerald-500/10',
-      };
+      return { Icon: CheckCircleIcon, text: 'OK', color: 'text-emerald-600', bgColor: 'bg-emerald-500/10' };
     case 'nok':
-      return {
-        Icon: XCircleIcon,
-        text: 'NOK',
-        color: 'text-red-600',
-        bgColor: 'bg-red-500/10',
-      };
+      return { Icon: XCircleIcon, text: 'NOK', color: 'text-red-600', bgColor: 'bg-red-500/10' };
     default: // not_tested
-      return {
-        Icon: HelpCircleIcon,
-        text: 'Not Tested',
-        color: 'text-slate-600',
-        bgColor: 'bg-slate-500/10',
-      };
+      return { Icon: HelpCircleIcon, text: 'Not Tested', color: 'text-slate-600', bgColor: 'bg-slate-500/10' };
   }
 };
 
@@ -124,15 +78,14 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
   const statusInfo = useMemo(() => getStatusInfo(branch.testStatus), [branch.testStatus]);
   const isNok = branch.testStatus === 'nok';
   const isBigStatus = branch.testStatus === 'nok' || branch.testStatus === 'not_tested';
+
   return (
     <div className="group relative w-full rounded-2xl bg-white backdrop-blur-sm shadow-lg hover:shadow-xl border-2 border-transparent transition-all duration-300 flex flex-col overflow-hidden">
       {isNok && <div className="h-[8px] w-full bg-red-600 flex-shrink-0"></div>}
       <div className="p-3 flex-grow flex flex-col justify-between">
         <div className="flex justify-between items-center mb-3">
-          <div
-            className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'px-2.5 py-1.5 text-xl' : 'px-2 py-1 text-sm'}`}
-          >
-            <statusInfo.Icon className={isBigStatus ? 'w-7 h-7' : 'w-5 h-5'} />
+          <div className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBigStatus ? 'px-2.5 py-1.5 text-xl' : 'px-2 py-1 text-sm'}`}>
+            <statusInfo.Icon className={isBigStatus ? "w-7 h-7" : "w-5 h-5"} />
             <span>{statusInfo.text}</span>
           </div>
           {branch.pinNumber != null && (
@@ -141,14 +94,6 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
               <span className="bg-slate-100 text-slate-800 font-mono rounded-full w-14 h-14 flex items-center justify-center text-3xl font-bold">
                 {branch.pinNumber}
               </span>
-              {branch.isLatch && isNok && (
-                <span
-                  className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px] font-semibold"
-                  title="Contactless pin"
-                >
-                  Contactless
-                </span>
-              )}
             </div>
           )}
         </div>
@@ -160,14 +105,8 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
   );
 };
 const BranchCard = React.memo(BranchCardBase, (prev, next) => {
-  const a = prev.branch;
-  const b = next.branch;
-  return (
-    a.id === b.id &&
-    a.testStatus === b.testStatus &&
-    a.branchName === b.branchName &&
-    a.pinNumber === b.pinNumber
-  );
+  const a = prev.branch; const b = next.branch;
+  return a.id === b.id && a.testStatus === b.testStatus && a.branchName === b.branchName && a.pinNumber === b.pinNumber;
 });
 
 // --- PROPS ---
@@ -227,16 +166,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   forceOkTick,
   flashOkTick,
 }) => {
-  /**
-   * The component maintains a series of flags to manage UI state transitions.  When
-   * all pins have reported as OK the UI briefly displays a success overlay and
-   * subsequently resets itself.  The original code relied on external consumer
-   * props to perform a reset; however, the reset wasn't consistently returning
-   * the UI back to the “Please Scan” state.  To improve reliability the
-   * implementation below explicitly calls `onScanAgainRequest()` as part of the
-   * reset pipeline after success.  This ensures that the parent re‐enters
-   * scanning mode every time the success overlay completes.
-   */
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
@@ -255,66 +184,38 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const settled = hasMounted && !busy;
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showingGrouped = useMemo(
-    () => Array.isArray(groupedBranches) && groupedBranches.length > 0,
-    [groupedBranches]
-  );
+  const showingGrouped = useMemo(() => Array.isArray(groupedBranches) && groupedBranches.length > 0, [groupedBranches]);
 
   // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
   const pinStateRef = useRef<Map<number, number>>(new Map());
 
   const normalizedNormalPins = useMemo(() => {
     const s = new Set<number>();
-    (normalPins ?? []).forEach((n) => {
-      const x = Number(n);
-      if (Number.isFinite(x) && x > 0) s.add(x);
-    });
-    return Array.from(s).sort((a, b) => a - b);
+    (normalPins ?? []).forEach(n => { const x = Number(n); if (Number.isFinite(x) && x > 0) s.add(x); });
+    return Array.from(s).sort((a,b)=>a-b);
   }, [JSON.stringify(normalPins ?? [])]);
 
   const normalizedLatchPins = useMemo(() => {
     const s = new Set<number>();
-    (latchPins ?? []).forEach((n) => {
-      const x = Number(n);
-      if (Number.isFinite(x) && x > 0) s.add(x);
-    });
-    return Array.from(s).sort((a, b) => a - b);
+    (latchPins ?? []).forEach(n => { const x = Number(n); if (Number.isFinite(x) && x > 0) s.add(x); });
+    return Array.from(s).sort((a,b)=>a-b);
   }, [JSON.stringify(latchPins ?? [])]);
 
   // Expected = normal ∪ latch (contactless pins NOT included)
   const expectedPins = useMemo(() => {
     const s = new Set<number>([...normalizedNormalPins, ...normalizedLatchPins]);
-    return Array.from(s).sort((a, b) => a - b);
+    return Array.from(s).sort((a,b)=>a-b);
   }, [normalizedNormalPins, normalizedLatchPins]);
 
   // Keep localBranches in sync with incoming prop
-  useEffect(() => {
-    setLocalBranches(branchesData);
-  }, [branchesData]);
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
-  useEffect(() => {
-    if (localBranches.length > 0) return;
-    if (expectedPins.length === 0) return;
-    const latch = new Set<number>(normalizedLatchPins);
-    setLocalBranches(
-      expectedPins.map((p) => ({
-        id: String(p),
-        branchName: nameHints?.[String(p)] ?? `PIN ${p}`,
-        // latch pins start as not_tested, others start as NOK until they flip to OK via live edges
-        testStatus: latch.has(p) ? ('not_tested' as const) : ('nok' as const),
-        pinNumber: p,
-        isLatch: latch.has(p),
-      }))
-    );
-    // reset realtime memory for a fresh run
-    pinStateRef.current.clear();
-  }, [expectedPins, normalizedLatchPins, nameHints, localBranches.length]);
+  useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
+  useEffect(() => { setHasMounted(true); }, []);
+
   const hasData = useMemo(() => {
-    if (Array.isArray(groupedBranches) && groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0)) return true;
+    if (Array.isArray(groupedBranches) && groupedBranches.some(g => (g?.branches?.length ?? 0) > 0)) return true;
     return localBranches.length > 0;
   }, [groupedBranches, localBranches]);
+
   // Busy debounce: enter after 250ms, exit after 350ms. Only overlay when no data yet.
   const OK_FLASH_MS = Number(process.env.NEXT_PUBLIC_OK_FLASH_MS ?? '1500');
   useEffect(() => {
@@ -326,206 +227,151 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         setIsManualEntry(false);
       }, 250);
     } else {
-      if (busyEnterTimer.current) {
-        clearTimeout(busyEnterTimer.current);
-        busyEnterTimer.current = null;
-      }
+      if (busyEnterTimer.current) { clearTimeout(busyEnterTimer.current); busyEnterTimer.current = null; }
       if (clearBusyTimer.current) clearTimeout(clearBusyTimer.current);
       clearBusyTimer.current = setTimeout(() => setBusy(false), 350);
     }
     return () => {
-      if (busyEnterTimer.current) {
-        clearTimeout(busyEnterTimer.current);
-        busyEnterTimer.current = null;
-      }
-      if (clearBusyTimer.current) {
-        clearTimeout(clearBusyTimer.current);
-        clearBusyTimer.current = null;
-      }
+      if (busyEnterTimer.current) { clearTimeout(busyEnterTimer.current); busyEnterTimer.current = null; }
+      if (clearBusyTimer.current) { clearTimeout(clearBusyTimer.current); clearBusyTimer.current = null; }
     };
   }, [isScanning, isChecking, hasData]);
 
   // -------------------- LIVE EV UPDATES --------------------
   useEffect(() => {
     if (!lastEv || !macAddress) return;
+
     const current = String(macAddress).toUpperCase();
     const evMac = String(lastEv.mac || '').toUpperCase();
     const ZERO = '00:00:00:00:00:00';
+
     const kindRaw = String((lastEv as any).kind || '').toUpperCase();
     const text = String((lastEv as any).line || (lastEv as any).raw || '');
     // Normalize legacy variants like "RESULT LEGACY" to DONE terminal summary
     const isLegacyResult = kindRaw === 'RESULT' || kindRaw.startsWith('RESULT') || /\bRESULT\b/i.test(text);
     const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
     const kind = isLegacyResult ? 'DONE' : kindRaw;
+
     const parseFailures = (s: string): number[] => {
       const out = new Set<number>();
       const cleanMacs = s.replace(/\b([0-9A-F]{2}(?::[0-9A-F]{2}){5})\b/gi, '');
       const patterns = [
         /MISSING\s+([0-9,\s]+)/i,
-        /FAILURES?\s*:?:?\s*([0-9,\s]+)/i,
-        /FAILED\s+PINS?\s*:?:?\s*([0-9,\s]+)/i,
-        /OPEN\s+PINS?\s*:?:?\s*([0-9,\s]+)/i,
-        /BAD\s+PINS?\s*:?:?\s*([0-9,\s]+)/i,
+        /FAILURES?\s*:?\s*([0-9,\s]+)/i,
+        /FAILED\s+PINS?\s*:?\s*([0-9,\s]+)/i,
+        /OPEN\s+PINS?\s*:?\s*([0-9,\s]+)/i,
+        /BAD\s+PINS?\s*:?\s*([0-9,\s]+)/i,
       ];
       let captured: string | null = null;
-      for (const rx of patterns) {
-        const m = s.match(rx);
-        if (m && m[1]) {
-          captured = m[1];
-          break;
-        }
-      }
-      const addNum = (n: unknown) => {
-        const x = Number(n);
-        if (Number.isFinite(x) && x > 0) out.add(x);
-      };
-      if (captured) captured.split(/[\s,]+/).forEach(addNum);
-      else (cleanMacs.match(/\b\d{1,4}\b/g) || []).forEach(addNum);
-      return Array.from(out).sort((a, b) => a - b);
+      for (const rx of patterns) { const m = s.match(rx); if (m && m[1]) { captured = m[1]; break; } }
+      const addNum = (n: unknown) => { const x = Number(n); if (Number.isFinite(x) && x > 0) out.add(x); };
+      if (captured) captured.split(/[\s,]+/).forEach(addNum); else (cleanMacs.match(/\b\d{1,4}\b/g) || []).forEach(addNum);
+      return Array.from(out).sort((a,b)=>a-b);
     };
+
     // Try to extract MAC from raw line, e.g., "reply from XX:XX:..."
     const macFromLine = (() => {
       try {
         const m = text.match(/\b([0-9A-F]{2}(?::[0-9A-F]{2}){5})\b/i);
         return m ? m[1].toUpperCase() : null;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     })();
+
     // Terminal summary
     if (kind === 'DONE') {
-      const macToCheck = evMac && evMac !== ZERO ? evMac : macFromLine || evMac;
+      const macToCheck = (evMac && evMac !== ZERO) ? evMac : (macFromLine || evMac);
       const matchMac = !macToCheck || macToCheck === ZERO || macToCheck === current;
       if (!matchMac) return;
-      const okFlag =
-        String((lastEv as any).ok).toLowerCase() === 'true' || okFromText;
+      const okFlag = String((lastEv as any).ok).toLowerCase() === 'true' || okFromText;
       if (okFlag) {
-        suppressRealtimeRef.current = true;
         const latchSet = new Set<number>(normalizedLatchPins);
         const expected = expectedPins.slice();
-        startTransition(() =>
-          setLocalBranches((prev) => {
-            // If we have no branches yet, seed from expected pins so allOk can evaluate
-            const base =
-              prev.length === 0 && expected.length > 0
-                ? expected.map((p) =>
-                    ({
-                      id: String(p),
-                      branchName: `PIN ${p}`,
-                      testStatus: latchSet.has(p)
-                        ? 'not_tested'
-                        : 'ok',
-                      pinNumber: p,
-                      isLatch: latchSet.has(p),
-                    } as BranchDisplayData)
-                  )
-                : prev;
-            return base.map((b) => {
-              const p = b.pinNumber;
-              if (typeof p !== 'number') return b;
-              if (latchSet.has(p))
-                return {
-                  ...b,
-                  isLatch: true,
-                  testStatus: b.testStatus === 'nok' ? 'nok' : 'not_tested',
-                } as BranchDisplayData;
-              return {
-                ...b,
-                isLatch: false,
-                testStatus: 'ok',
-              } as BranchDisplayData;
-            });
-          })
-        );
-        // Show OK overlay immediately and schedule reset
-        triggerOkFlash(Date.now());
+        startTransition(() => setLocalBranches(prev => {
+          // If we have no branches yet, seed from expected pins so allOk can evaluate
+          const base = (prev.length === 0 && expected.length > 0)
+            ? expected.map(p => ({
+                id: String(p),
+                branchName: `PIN ${p}`,
+                testStatus: latchSet.has(p) ? 'not_tested' as const : 'ok' as const,
+                pinNumber: p,
+                isLatch: latchSet.has(p),
+              } as BranchDisplayData))
+            : prev;
+          return base.map(b => {
+            const p = b.pinNumber;
+            if (typeof p !== 'number') return b;
+            if (latchSet.has(p)) return { ...b, isLatch: true, testStatus: b.testStatus === 'nok' ? 'nok' : 'not_tested' } as BranchDisplayData;
+            return { ...b, isLatch: false, testStatus: 'ok' } as BranchDisplayData;
+          });
+        }));
       } else {
         const fails = parseFailures(text);
         if (fails.length) {
           const failSet = new Set<number>(fails);
           const latchSet = new Set<number>(normalizedLatchPins);
           const expected = expectedPins.slice();
-          startTransition(() =>
-            setLocalBranches((prev) => {
-              const base =
-                prev.length === 0 && expected.length > 0
-                  ? expected.map((p) =>
-                      ({
-                        id: String(p),
-                        branchName: `PIN ${p}`,
-                        testStatus: failSet.has(p)
-                          ? 'nok'
-                          : latchSet.has(p)
-                          ? 'not_tested'
-                          : 'ok',
-                        pinNumber: p,
-                        isLatch: latchSet.has(p),
-                      } as BranchDisplayData)
-                    )
-                  : prev;
-              return base.map((b) => {
-                const p = b.pinNumber;
-                if (typeof p !== 'number') return b;
-                if (failSet.has(p))
-                  return {
-                    ...b,
-                    testStatus: 'nok',
-                  } as BranchDisplayData;
-                if (latchSet.has(p))
-                  return {
-                    ...b,
-                    isLatch: true,
-                    testStatus: 'not_tested',
-                  } as BranchDisplayData;
-                return {
-                  ...b,
-                  isLatch: false,
-                  testStatus: 'ok',
-                } as BranchDisplayData;
-              });
-            })
-          );
+          startTransition(() => setLocalBranches(prev => {
+            const base = (prev.length === 0 && expected.length > 0)
+              ? expected.map(p => ({
+                  id: String(p),
+                  branchName: `PIN ${p}`,
+                  testStatus: failSet.has(p)
+                    ? 'nok' as const
+                    : (latchSet.has(p) ? 'not_tested' as const : 'ok' as const),
+                  pinNumber: p,
+                  isLatch: latchSet.has(p),
+                } as BranchDisplayData))
+              : prev;
+            return base.map(b => {
+              const p = b.pinNumber;
+              if (typeof p !== 'number') return b;
+              if (failSet.has(p)) return { ...b, testStatus: 'nok' } as BranchDisplayData;
+              if (latchSet.has(p)) return { ...b, isLatch: true, testStatus: 'not_tested' } as BranchDisplayData;
+              return { ...b, isLatch: false, testStatus: 'ok' } as BranchDisplayData;
+            });
+          }));
         }
       }
       return; // summary handled
     }
+
     const ch = typeof (lastEv as any).ch === 'number' ? (lastEv as any).ch : null;
     const val = typeof (lastEv as any).val === 'number' ? (lastEv as any).val : null;
-    try {
-      console.log('[GUI] apply EV', { kind, ch, val, mac: evMac });
-    } catch {}
+
+    try { console.log('[GUI] apply EV', { kind, ch, val, mac: evMac }); } catch {}
+
     // Only track configured pins (ignore contactless)
     const expected = new Set<number>(expectedPins);
-    // Realtime edges (P or L) — ignore after terminal OK until reset
-    if (suppressRealtimeRef.current) return;
+
+    // Realtime edges (P or L)
     if ((kind === 'P' || kind === 'L') && ch != null && expected.has(ch) && (val === 0 || val === 1)) {
       // De-dupe identical values
       const prevVal = pinStateRef.current.get(ch);
       if (prevVal === val) return;
       pinStateRef.current.set(ch, val);
-      startTransition(() =>
-        setLocalBranches((prev) => {
-          let changed = false;
-          const next = prev.map((b) => {
-            if (b.pinNumber !== ch) return b;
-            // Latch pins: ignore release (0), keep last OK
-            const isLatch = normalizedLatchPins.includes(ch);
-            const nextStatus =
-              val === 1
-                ? 'ok'
-                : isLatch
-                ? b.testStatus
-                : 'nok';
-            if (b.testStatus === nextStatus) return b;
-            changed = true;
-            return { ...b, testStatus: nextStatus } as any;
-          });
-          return changed ? next : prev;
-        })
-      );
+
+      startTransition(() => setLocalBranches(prev => {
+        let changed = false;
+        const next = prev.map(b => {
+          if (b.pinNumber !== ch) return b;
+
+          // Latch pins: ignore release (0), keep last OK
+          const isLatch = normalizedLatchPins.includes(ch);
+          const nextStatus =
+            val === 1 ? 'ok'
+            : isLatch ? b.testStatus // ignore downgrades for latch
+            : 'nok';
+
+          if (b.testStatus === nextStatus) return b;
+          changed = true;
+          return { ...b, testStatus: nextStatus } as any;
+        });
+        return changed ? next : prev;
+      }));
     }
-    // IMPORTANT: expectedPins derived from props only; NOT from localBranches — avoids render loop
+  // IMPORTANT: expectedPins derived from props only; NOT from localBranches — avoids render loop
   }, [lastEvTick, lastEv, macAddress, expectedPins, normalizedLatchPins]);
+
   // Realtime: log snapshot of configured pins and their current values after each event
   useEffect(() => {
     if (!expectedPins.length) return;
@@ -536,6 +382,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       console.log('[GUI] PIN STATES', snap);
     } catch {}
   }, [lastEvTick, expectedPins]);
+
   // load recent macs
   useEffect(() => {
     try {
@@ -544,54 +391,53 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       if (Array.isArray(list)) setRecentMacs(list.filter((s) => typeof s === 'string'));
     } catch {}
   }, []);
+
   // Only NOK in the main flat list. Sort by pin then name
-  const pending = useMemo(
-    () =>
-      localBranches
-        .filter((b) => b.testStatus === 'nok')
-        .sort((a, b) => {
-          const ap = typeof a.pinNumber === 'number' ? a.pinNumber : Number.POSITIVE_INFINITY;
-          const bp = typeof b.pinNumber === 'number' ? b.pinNumber : Number.POSITIVE_INFINITY;
-          if (ap !== bp) return ap - bp;
-          return String(a.branchName).localeCompare(String(b.branchName));
-        }),
-    [localBranches]
-  );
+  const pending = useMemo(() =>
+    localBranches
+      .filter((b) => b.testStatus === 'nok')
+      .sort((a, b) => {
+        const ap = typeof a.pinNumber === 'number' ? a.pinNumber : Number.POSITIVE_INFINITY;
+        const bp = typeof b.pinNumber === 'number' ? b.pinNumber : Number.POSITIVE_INFINITY;
+        if (ap !== bp) return ap - bp;
+        return String(a.branchName).localeCompare(String(b.branchName));
+      }),
+  [localBranches]);
+
   // Failures from server or derived from pending
   const failurePins: number[] = useMemo(() => {
     if (Array.isArray(checkFailures) && checkFailures.length > 0) {
       return [...new Set((checkFailures as number[]).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b);
     }
-    const pins = pending
-      .map((b) => b.pinNumber)
-      .filter((n): n is number => typeof n === 'number');
+    const pins = pending.map((b) => b.pinNumber).filter((n): n is number => typeof n === 'number');
     return [...new Set(pins)].sort((a, b) => a - b);
   }, [checkFailures, pending]);
+
   // helper: identify latch (contactless) pins
-  const isLatchPin = useCallback(
-    (p?: number) => typeof p === 'number' && normalizedLatchPins.includes(p),
-    [normalizedLatchPins]
-  );
+  const isLatchPin = useCallback((p?: number) =>
+    typeof p === 'number' && normalizedLatchPins.includes(p), [normalizedLatchPins]);
+
   // All-OK gates
-  const flatAllOk = useMemo(() => {
-    return (
-      settled &&
-      localBranches.length > 0 &&
-      localBranches.every((b) => {
-        const s = b.testStatus;
-        if (s === 'nok') return false;
-        if (s === 'ok') return true;
-        return s === 'not_tested' && isLatchPin(b.pinNumber);
-      })
-    );
-  }, [settled, localBranches, isLatchPin]);
+  const flatAllOk = useMemo(() => (
+    settled &&
+    localBranches.length > 0 &&
+    localBranches.every(b => {
+      const s = b.testStatus;
+      if (s === 'nok') return false;
+      if (s === 'ok') return true;
+      return s === 'not_tested' && isLatchPin(b.pinNumber);
+    })
+  ), [settled, localBranches, isLatchPin]);
+
   const groupedAllOk = useMemo(() => {
     if (!settled || !Array.isArray(groupedBranches) || groupedBranches.length === 0) return false;
+
     const byPin = new Map<number, BranchDisplayData['testStatus']>();
     for (const b of localBranches) if (typeof b.pinNumber === 'number') byPin.set(b.pinNumber, b.testStatus);
-    return groupedBranches.every((g) =>
+
+    return groupedBranches.every(g =>
       g.branches.length > 0 &&
-      g.branches.every((b) => {
+      g.branches.every(b => {
         const p = b.pinNumber;
         const s = (typeof p === 'number' ? byPin.get(p) : undefined) ?? b.testStatus;
         if (s === 'nok') return false;
@@ -602,31 +448,23 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       })
     );
   }, [settled, groupedBranches, localBranches, isLatchPin]);
+
   const allOk = useMemo(() => {
     if (disableOkAnimation) return false;
     if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
+
   // Reset pipeline
   const returnToScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(false);
     setLocalBranches([]);
-    suppressRealtimeRef.current = false;
     if (typeof onResetKfb === 'function') onResetKfb();
     setIsManualEntry(false);
     setInputValue('');
-    /**
-     * In addition to clearing internal state we explicitly trigger the parent
-     * scan handler.  This ensures the app transitions back to the initial
-     * scanning state after a successful pass.  Without this call the UI may
-     * remain idle or display stale information until the user manually
-     * interacts with it again.
-     */
-    try {
-      onScanAgainRequest();
-    } catch {}
-  }, [onResetKfb, onScanAgainRequest]);
+  }, [onResetKfb]);
+
   // Force snap via parent tick
   useEffect(() => {
     if (!settled) return;
@@ -635,47 +473,45 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     lastForcedOkRef.current = t;
     returnToScan();
   }, [forceOkTick, settled, returnToScan]);
+
   // Flash success pipe
   const flashInProgressRef = useRef(false);
-  const okBoardRef = useRef<string>('');
+  const okBoardRef = useRef<string>("");
   const lastFlashTickRef = useRef<number>(0);
   const queuedFlashTickRef = useRef<number>(0);
-  const triggerOkFlash = useCallback(
-    (tick: number) => {
-      if (tick === lastFlashTickRef.current) return; // de-dupe
-      lastFlashTickRef.current = tick;
-      if (disableOkAnimation) {
-        returnToScan();
-        return;
-      }
-      flashInProgressRef.current = true;
-      try {
-        const id = macAddress && macAddress.trim() ? macAddress.toUpperCase() : (kfbInfo?.board || kfbNumber || '').toString().toUpperCase();
-        okBoardRef.current = id;
-      } catch {
-        okBoardRef.current = (macAddress || '').toUpperCase();
-      }
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      setShowOkAnimation(true);
-      timeoutRef.current = setTimeout(() => {
-        setShowOkAnimation(false);
-        flashInProgressRef.current = false;
-        returnToScan();
-      }, Math.max(300, OK_FLASH_MS));
-    },
-    [disableOkAnimation, kfbInfo?.board, kfbNumber, macAddress, returnToScan, OK_FLASH_MS]
-  );
+
+  const triggerOkFlash = useCallback((tick: number) => {
+    if (tick === lastFlashTickRef.current) return; // de-dupe
+    lastFlashTickRef.current = tick;
+
+    if (disableOkAnimation) { returnToScan(); return; }
+
+    flashInProgressRef.current = true;
+    try {
+      const id = (macAddress && macAddress.trim())
+        ? macAddress.toUpperCase()
+        : (kfbInfo?.board || kfbNumber || '').toString().toUpperCase();
+      okBoardRef.current = id;
+    } catch { okBoardRef.current = (macAddress || '').toUpperCase(); }
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setShowOkAnimation(true);
+    timeoutRef.current = setTimeout(() => {
+      setShowOkAnimation(false);
+      flashInProgressRef.current = false;
+      returnToScan();
+    }, Math.max(300, OK_FLASH_MS));
+  }, [disableOkAnimation, kfbInfo?.board, kfbNumber, macAddress, returnToScan, OK_FLASH_MS]);
+
   // Parent-triggered flash (e.g., explicit CHECK success)
   useEffect(() => {
     const tick = Number(flashOkTick || 0);
     if (!tick) return;
-    if (!settled) {
-      queuedFlashTickRef.current = tick;
-      return;
-    }
+    if (!settled) { queuedFlashTickRef.current = tick; return; }
     if (tick === lastFlashTickRef.current) return;
     triggerOkFlash(tick);
   }, [flashOkTick, settled, triggerOkFlash]);
+
   // Drain queued flash when settled
   useEffect(() => {
     if (!settled) return;
@@ -685,6 +521,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       triggerOkFlash(queued);
     }
   }, [settled, triggerOkFlash]);
+
   // Always flash when everything is OK, then auto-return to scan
   useEffect(() => {
     if (!settled || !allOk) return;
@@ -692,6 +529,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       triggerOkFlash(Date.now());
     }
   }, [allOk, settled, showOkAnimation, triggerOkFlash]);
+
   // Watchdog: if the flash didn’t render for any reason, force a reset shortly after
   useEffect(() => {
     if (!allOk) return;
@@ -702,6 +540,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }, Math.max(300, OK_FLASH_MS) + 350);
     return () => clearTimeout(id);
   }, [allOk, showOkAnimation, returnToScan, OK_FLASH_MS]);
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -710,11 +549,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       if (clearBusyTimer.current) clearTimeout(clearBusyTimer.current);
     };
   }, []);
+
   const handleScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     setShowOkAnimation(false);
     onScanAgainRequest();
   }, [onScanAgainRequest]);
+
   const runCheck = useCallback(async () => {
     if (!macAddress) {
       setCheckError('Missing MAC address for CHECK');
@@ -731,35 +572,35 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || String(res.status));
       const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
+
       try {
         const mac = macAddress.toUpperCase();
         const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
         localStorage.setItem('RECENT_MACS', JSON.stringify(now));
         setRecentMacs(now);
       } catch {}
-      const contactless = new Set<number>((latchPins || []).filter((n) => Number.isFinite(n)) as number[]);
-      startTransition(() =>
-        setLocalBranches((prev) =>
-          prev.map((b) => {
-            if (typeof b.pinNumber !== 'number' || (b as any).notTested) return b;
-            const pin = b.pinNumber as number;
-            if (failures.includes(pin)) return { ...b, testStatus: 'nok' } as any;
-            // For contactless pins, do not auto-mark OK; leave as not_tested unless explicitly failed
-            if (contactless.has(pin)) return { ...b, testStatus: 'not_tested' } as any;
-            return { ...b, testStatus: 'ok' } as any;
-          })
-        )
-      );
+
+      const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
+      startTransition(() => setLocalBranches(prev => prev.map(b => {
+        if (typeof b.pinNumber !== 'number' || (b as any).notTested) return b;
+        const pin = b.pinNumber as number;
+        if (failures.includes(pin)) return { ...b, testStatus: 'nok' } as any;
+        // For contactless pins, do not auto-mark OK; leave as not_tested unless explicitly failed
+        if (contactless.has(pin)) return { ...b, testStatus: 'not_tested' } as any;
+        return { ...b, testStatus: 'ok' } as any;
+      })));
     } catch (e: any) {
       setCheckError(e?.message || 'CHECK failed');
     } finally {
       setIsChecking(false);
     }
   }, [macAddress, recentMacs]);
+
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) onManualSubmit(inputValue.trim());
   };
+
   // --- MAC input helpers ---
   const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
   const formatMac = (raw: string) => {
@@ -768,6 +609,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   };
   const onMacChange = (v: string) => setInputValue(formatMac(v));
   const macValid = MAC_RE.test(inputValue.trim());
+
   // --- STATUS PILL ---
   const StatusPill: React.FC = () => {
     if (isChecking) {
@@ -808,6 +650,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
     return null;
   };
+
   const mainContent = () => {
     if (scanningError) {
       return (
@@ -827,14 +670,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         </div>
       );
     }
+
     if (busy) {
       const label = isChecking ? 'CHECKING' : 'SCANNING';
       return (
-        <div
-          className="flex flex-col items-center justify-center h-full min-h-[500px]"
-          aria-busy="true"
-          aria-live="polite"
-        >
+        <div className="flex flex-col items-center justify-center h-full min-h-[500px]" aria-busy="true" aria-live="polite">
           <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
             {label}...
           </h2>
@@ -842,6 +682,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         </div>
       );
     }
+
     // Success overlay
     if (showOkAnimation) {
       const okBoard = okBoardRef.current;
@@ -865,6 +706,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         </div>
       );
     }
+
     if (hasMounted && localBranches.length === 0) {
       if (isManualEntry) {
         return (
@@ -883,14 +725,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               <div className="p-10">
                 <div className="text-center mb-8">
                   <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-blue-200 bg-blue-50 text-blue-700 font-extrabold tracking-wider">
-                    <svg
-                      className="w-6 h-6"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                      viewBox="0 0 24 24"
-                      aria-hidden
-                    >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                       <rect x="4" y="7" width="16" height="10" rx="3" stroke="currentColor" />
                       <path d="M8 7V5a4 4 0 0 1 8 0v2" stroke="currentColor" />
                     </svg>
@@ -898,17 +733,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   </div>
                   <p className="mt-3 text-slate-500 font-semibold">Format: 08:3A:8D:15:27:54</p>
                 </div>
+
                 <form onSubmit={handleManualSubmit} className="w-full grid gap-6">
                   <div className="grid gap-2">
-                    <label className="text-sm font-bold text-slate-600 tracking-wide select-none">
-                      MAC Address
-                    </label>
-                    <div
-                      className={[
-                        'relative rounded-2xl border-2 bg-gradient-to-b from-white to-slate-50 shadow-inner backdrop-blur',
-                        macValid ? 'border-emerald-400' : 'border-blue-400',
-                      ].join(' ')}
-                    >
+                    <label className="text-sm font-bold text-slate-600 tracking-wide select-none">MAC Address</label>
+                    <div className={[
+                      'relative rounded-2xl border-2 bg-gradient-to-b from-white to-slate-50 shadow-inner backdrop-blur',
+                      macValid ? 'border-emerald-400' : 'border-blue-400',
+                    ].join(' ')}>
                       <input
                         type="text"
                         value={inputValue}
@@ -961,7 +793,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       disabled={!macValid || busy}
                       className={[
                         'w-full py-4 rounded-2xl font-extrabold uppercase tracking-wider transition',
-                        'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed',
+                        'bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
                       ].join(' ')}
                     >
                       {busy ? 'Submitting' : 'Submit MAC'}
@@ -973,13 +805,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           </div>
         );
       }
+
       // Scan box
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
           <div className="w-full flex flex-col items-center gap-8">
-            <p className="text-6xl md:text-7xl text-slate-700 font-extrabold uppercase tracking-widest text-center select-none">
-              Please Scan Barcode
-            </p>
+            <p className="text-6xl md:text-7xl text-slate-700 font-extrabold uppercase tracking-widest text-center select-none">Please Scan Barcode</p>
             {isScanning && (
               <div className="flex flex-col items-center gap-3">
                 <p className="text-slate-600 text-3xl md:text-4xl font-bold tracking-wide">SCANNING…</p>
@@ -999,16 +830,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             )}
           </div>
           {allowManualInput && !isScanning && (
-            <button
-              onClick={() => setIsManualEntry(true)}
-              className="mt-10 text-xl md:text-2xl text-slate-500 hover:text-blue-600 transition-colors underline"
-            >
+            <button onClick={() => setIsManualEntry(true)} className="mt-10 text-xl md:text-2xl text-slate-500 hover:text-blue-600 transition-colors underline">
               Or enter MAC manually
             </button>
           )}
         </div>
       );
     }
+
     if (groupedBranches && groupedBranches.length > 0) {
       // Small UI primitives
       const Chip: React.FC<ChipProps> = ({ children, tone = 'neutral' }) => {
@@ -1021,149 +850,141 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         };
         return <span className={`${base} ${tones[tone]}`}>{children}</span>;
       };
+
       // Build a status map from live localBranches
       const statusByPin = new Map<number, 'ok' | 'nok' | 'not_tested'>();
       for (const b of localBranches) if (typeof b.pinNumber === 'number') statusByPin.set(b.pinNumber, b.testStatus as any);
-      const ksskCards = groupedBranches
-        .map((grp) => {
-          const expectedSet = new Set<number>(expectedPins);
-          const branchesLive = grp.branches
-            .map((b) => {
-              if (typeof b.pinNumber !== 'number') return b;
-              const s = statusByPin.get(b.pinNumber);
-              return s ? { ...b, testStatus: s } : b;
-            })
-            .filter((b) => typeof b.pinNumber !== 'number' || expectedSet.has(b.pinNumber));
-          if (branchesLive.length === 0) return null; // hide empty KSSK
-          const nok = branchesLive.filter((b) => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
-          const okBranches = branchesLive.filter((b) => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
-          const okNames = okBranches
-            .map((b) => (nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
-            .filter(Boolean);
-          const failedItems = nok
-            .map((b) => ({
-              pin: b.pinNumber as number,
-              name: (nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
-              isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-          const missingNames = failedItems.map((f) => f.name);
-          const activeSet = new Set((activeKssks || []).map(String));
-          const isActive = activeSet.has(String(grp.kssk));
-          return (
-            <section key={grp.kssk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
-              <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive ? 'bg-blue-600' : 'bg-blue-500'} text-white font-extrabold shadow`}>
-                    {String(grp.kssk).slice(-2)}
-                  </span>
-                  <div className="flex flex-col">
-                    <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
-                  </div>
+
+      const ksskCards = groupedBranches.map((grp) => {
+        const branchesLive = grp.branches.map((b) => {
+          if (typeof b.pinNumber !== 'number') return b;
+          const s = statusByPin.get(b.pinNumber);
+          return s ? { ...b, testStatus: s } : b;
+        });
+
+        const nok = branchesLive.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
+        const okBranches = branchesLive.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
+        const okNames = okBranches
+          .map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
+          .filter(Boolean);
+
+        const failedItems = nok
+          .map(b => ({
+            pin: b.pinNumber as number,
+            name: (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
+          }))
+          .sort((a,b)=> a.name.localeCompare(b.name));
+
+        const missingNames = failedItems.map(f => f.name);
+        const activeSet = new Set((activeKssks || []).map(String));
+        const isActive = activeSet.has(String(grp.kssk));
+
+        return (
+          <section key={grp.kssk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+            <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String(grp.kssk).slice(-2)}</span>
+                <div className="flex flex-col">
+                  <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {missingNames.length > 0 ? <Chip tone="bad">{missingNames.length} missing</Chip> : <Chip tone="ok">OK</Chip>}
-                </div>
-              </header>
-              <div className="p-4 grid gap-4">
-                {failedItems.length > 0 && (
-                  <div>
-                    <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
-                    <div className="grid gap-2">
-                      {failedItems.map((f) => (
-                        <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
-                          <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">{f.name}</div>
-                          <div className="mt-1 flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
-                            <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px]">PIN {f.pin}</span>
-                            {f.isLatch && (
-                              <span
-                                className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]"
-                                title="Contactless pin"
-                              >
-                                Contactless
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {okNames.length > 0 && (
-                  <div>
-                    <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Passed</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {okNames.slice(0, 24).map((nm, i) => (
-                        <span
-                          key={`ok-${grp.kssk}-${i}`}
-                          className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold"
-                        >
-                          {nm}
-                        </span>
-                      ))}
-                      {okNames.length > 24 && (
-                        <span className="text-[11px] text-slate-500">+{okNames.length - 24} more</span>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
-            </section>
-          );
-        })
-        .filter(Boolean);
+              <div className="flex items-center gap-2">
+                {missingNames.length > 0 ? <Chip tone="bad">{missingNames.length} missing</Chip> : <Chip tone="ok">OK</Chip>}
+              </div>
+            </header>
+            <div className="p-4 grid gap-4">
+              {failedItems.length > 0 && (
+                <div>
+                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
+                  <div className="grid gap-2">
+                    {failedItems.map((f) => (
+                      <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
+                        <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">{f.name}</div>
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
+                          <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px]">PIN {f.pin}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {okNames.length > 0 && (
+                <div>
+                  <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Passed</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {okNames.slice(0, 24).map((nm, i) => (
+                      <span key={`ok-${grp.kssk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
+                    ))}
+                    {okNames.length > 24 && (
+                      <span className="text-[11px] text-slate-500">+{okNames.length-24} more</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      });
+
       return (
         <div className="flex flex-col gap-4 w-full mt-0">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{ksskCards}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {ksskCards}
+          </div>
         </div>
       );
     }
-    return null;
+
+    return (
+      <div className="w-full p-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {pending.map((branch) => (
+            <BranchCard key={branch.id} branch={branch} />
+          ))}
+        </div>
+      </div>
+    );
   };
+
   // Compute a stable key for content transitions
   const viewKey = useMemo(() => {
     if (showOkAnimation) return 'ok';
     if (scanningError) return 'error';
     if (busy) return 'busy';
     if (hasMounted && localBranches.length === 0) return isManualEntry ? 'manual' : 'scan';
-    return showingGrouped ? 'grouped' : 'blank';
-  }, [showOkAnimation, scanningError, busy, hasMounted, localBranches.length, isManualEntry, showingGrouped]);
+    return (Array.isArray(groupedBranches) && groupedBranches.length > 0) ? 'grouped' : 'flat';
+  }, [showOkAnimation, scanningError, busy, hasMounted, localBranches.length, isManualEntry, groupedBranches]);
+
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-2">
       <header className="w-full mb-1 min-h-[56px]">
-        {macAddress || kfbInfo?.board || kfbNumber ? (
+        {(kfbInfo?.board || kfbNumber || (macAddress && localBranches.length > 0)) ? (
           <div className="flex items-center justify-between gap-1">
-            {macAddress || kfbInfo?.board || kfbNumber ? (
+            {(macAddress || kfbInfo?.board || kfbNumber) ? (
               <div className="flex items-center gap-3">
                 <h1 className="font-mono text-4xl md:text-5xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full">
-                  {macAddress ? macAddress.toUpperCase() : kfbInfo?.board ?? kfbNumber}
+                  {macAddress ? macAddress.toUpperCase() : (kfbInfo?.board ?? kfbNumber)}
                 </h1>
                 <StatusPill />
               </div>
-            ) : (
-              <div />
-            )}
+            ) : <div />}
+
             {macAddress && localBranches.length > 0 && (
               <div className="flex items-center justify-end gap-4 w-full">
+         
+
                 {!showingGrouped && (
                   <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">
-                      Active KSSKs
-                    </div>
+                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
                     <div className="flex flex-wrap gap-2 mt-1 justify-end">
-                      {activeKssks && activeKssks.length > 0 ? (
-                        activeKssks.map((id) => (
-                          <span
-                            key={id}
-                            className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow"
-                          >
-                            {id}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-slate-400 text-xs">—</span>
-                      )}
+                      {(activeKssks && activeKssks.length > 0)
+                        ? activeKssks.map(id => (
+                            <span key={id} className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow">
+                              {id}
+                            </span>
+                          ))
+                        : <span className="text-slate-400 text-xs">—</span>}
                     </div>
                   </div>
                 )}
@@ -1172,6 +993,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           </div>
         ) : null}
       </header>
+
       <AnimatePresence mode="wait">
         <m.div
           key={viewKey}
@@ -1184,24 +1006,23 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           {mainContent()}
         </m.div>
       </AnimatePresence>
+
       {/* SR-only live region for status changes */}
       <div className="sr-only" aria-live="polite">
         {isChecking ? 'Checking in progress' : isScanning ? 'Scanning in progress' : 'Idle'}
       </div>
+
       <style>{`
         .animate-pulse-gray-background {
           animation: pulse-gray 2s cubic-bezier(.4,0,.6,1) infinite;
         }
         @keyframes pulse-gray {
-          0%, 100% {
-            opacity: .2;
-          }
-          50% {
-            opacity: .05;
-          }
+          0%,100% { opacity: .2 }
+          50% { opacity: .05 }
         }
       `}</style>
     </div>
   );
 };
+
 export default BranchDashboardMainContent;

@@ -63,7 +63,7 @@ function compileRegex(src) {
     return null;
   }
 }
-const matchRe = compileRegex(opts.match || process.env.KSSK_REGEX || process.env.KFB_REGEX);
+const matchRe = compileRegex(opts.match || process.env.KSK_REGEX || process.env.KFB_REGEX);
 
 const redis = new Redis(url);
 

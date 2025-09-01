@@ -134,7 +134,7 @@ const MainApplicationUI: React.FC = () => {
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
   const [scanningError, setScanningError] = useState(false);
-  // Snapshot of KSSK items discovered via /api/aliases?all=1 for this MAC
+  // Snapshot of KSK items discovered via /api/aliases?all=1 for this MAC
   const itemsAllFromAliasesRef = useRef<Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
   const lastGroupsRef = useRef<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
   useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
@@ -337,7 +337,7 @@ useEffect(() => {
             localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
             localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
           } catch {}
-          // Also clear any KSSK locks for this MAC across stations (force), include stationId if known
+          // Also clear any KSK locks for this MAC across stations (force), include stationId if known
           try {
             const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
             await fetch('/api/kssk-lock', {
@@ -406,7 +406,7 @@ useEffect(() => {
                 localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
                 localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
               } catch {}
-              // Also clear any KSSK locks for this MAC across stations (force)
+              // Also clear any KSK locks for this MAC across stations (force)
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
                 await fetch('/api/kssk-lock', {
@@ -424,7 +424,7 @@ useEffect(() => {
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
-  // Load station KSSKs as a fallback source for "KSSKs used" display
+  // Load station KSKs as a fallback source for "KSKs used" display
   useEffect(() => {
     let stop = false;
     const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -486,7 +486,7 @@ useEffect(() => {
     return () => { stop = true; clearInterval(h); };
   }, []);
 
-  // Do NOT override Active KSSKs from Redis with aliases index; show only station-active
+  // Do NOT override Active KSKs from Redis with aliases index; show only station-active
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
@@ -654,10 +654,10 @@ useEffect(() => {
           } catch {}
           setCheckFailures(failures);
           startTransition(() => setBranchesData(_prev => {
-            // Always rebuild list so all KSSKs are reflected
+            // Always rebuild list so all KSKs are reflected
             const macUp = mac.toUpperCase();
             let aliases: Record<string,string> = {};
-            // Prefer API items (all KSSKs), else fallback
+            // Prefer API items (all KSKs), else fallback
             const itemsPref = Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive
                               : (Array.isArray((result as any)?.items) ? (result as any).items : null);
             if (itemsPref) {
@@ -710,8 +710,8 @@ useEffect(() => {
               isLatch: contactless.has(pin),
             }));
 
-            // Build grouped sections per KSSK if available from API
-            // Prefer union of all KSSKs and station-active ones
+            // Build grouped sections per KSK if available from API
+            // Prefer union of all KSKs and station-active ones
             const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
               ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
               : [];
@@ -743,7 +743,7 @@ useEffect(() => {
             }
             const items = Array.from(byKssk.values());
             if (items.length) {
-              // Build raw groups and then de-duplicate by KSSK and pin
+              // Build raw groups and then de-duplicate by KSK and pin
               const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
                 const a = it.aliases || {};
@@ -869,7 +869,7 @@ useEffect(() => {
                 } catch {}
               } catch {}
 
-              // Clear any KSSK locks for this MAC across stations (force), include stationId if known
+              // Clear any KSK locks for this MAC across stations (force), include stationId if known
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
                 await fetch('/api/kssk-lock', {
@@ -1038,7 +1038,7 @@ useEffect(() => {
       let hadGroups = false;
       let pins: number[] = [];
       {
-        // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
+        // Fallback to Redis (prefer all KSK items union). Force a rehydrate first.
         try {
           try {
             await fetch('/api/aliases/rehydrate', {
@@ -1054,7 +1054,7 @@ useEffect(() => {
             try { itemsAllFromAliasesRef.current = items as any; } catch {}
             
              if (items.length) {
-              // Build raw groups, then de-duplicate by KSSK and pin
+              // Build raw groups, then de-duplicate by KSK and pin
               const groupsRaw = items.map((it: any) => {
                 const a = it.aliases || {};
                 const set = new Set<number>();
@@ -1119,7 +1119,7 @@ useEffect(() => {
                   const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
                   setNormalPins(n);
                   setLatchPins(l);
-                  // Always merge union pins into the pins we send to CHECK so first scan uses all KSSKs
+                  // Always merge union pins into the pins we send to CHECK so first scan uses all KSKs
                   const acc = new Set<number>(pins);
                   if (Array.isArray(n)) for (const p of n) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
                   if (Array.isArray(l)) for (const p of l) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }

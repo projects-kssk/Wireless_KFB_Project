@@ -27,6 +27,11 @@
 - API routes follow Next’s App Router (`src/app/api/<route>/route.ts`).
 - Tools: ESLint extends `next/core-web-vitals`; Prettier for formatting.
 
+## State & Persistence
+- Do not use `localStorage` for caching or persistence.
+- Persist aliases, pins, and locks in Redis via server APIs.
+- Components should fetch from server endpoints (or subscribe via SSE) rather than reading any browser storage.
+
 ## Testing Guidelines
 - No formal test runner is configured yet. Always run:
   - `npm run type-check` and `npm run lint` before PRs.

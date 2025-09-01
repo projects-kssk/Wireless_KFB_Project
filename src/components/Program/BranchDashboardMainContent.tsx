@@ -187,8 +187,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showingGrouped = useMemo(() => Array.isArray(groupedBranches) && groupedBranches.length > 0, [groupedBranches]);
-const HIDE_KSSK_IDS = (process.env.NEXT_PUBLIC_HIDE_KSSK_IDS ?? '1') === '1'; // default: hide
-const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') === '1'; // default: don't show
+const HIDE_KSK_IDS = (process.env.NEXT_PUBLIC_HIDE_KSK_IDS ?? '1') === '1'; // default: hide
+const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '1'; // default: don't show
 
   // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
   const pinStateRef = useRef<Map<number, number>>(new Map());
@@ -459,6 +459,43 @@ const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') ===
     if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
+
+  // When in live mode and everything turns OK, clear Redis values for this MAC once
+  const clearedMacsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const mac = (macAddress || '').toUpperCase();
+    // Consider presence of live events as indicator of live mode
+    const liveMode = !!lastEv && !!lastEvTick;
+    if (!settled || !allOk || !liveMode || !mac) return;
+    if (clearedMacsRef.current.has(mac)) return;
+    clearedMacsRef.current.add(mac);
+    (async () => {
+      try {
+        // Clear aliases in Redis for this MAC
+        await fetch('/api/aliases/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac }),
+        }).catch(() => {});
+      } catch {}
+      try {
+        // Clear local caches for this MAC
+        localStorage.removeItem(`PIN_ALIAS::${mac}`);
+        localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
+        localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
+      } catch {}
+      try {
+        // Also clear any KSK locks for this MAC across stations (force)
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        const body = sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 } as any;
+        await fetch('/api/kssk-lock', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).catch(() => {});
+      } catch {}
+    })();
+  }, [allOk, settled, lastEv, lastEvTick, macAddress]);
 
   // Reset pipeline
   const returnToScan = useCallback(() => {
@@ -1008,9 +1045,9 @@ useEffect(() => {
 
       {macAddress && localBranches.length > 0 && (
   <div className="flex items-center justify-end gap-4 w-full">
-    {!showingGrouped && SHOW_ACTIVE_KSSKS && (
+    {!showingGrouped && SHOW_ACTIVE_KSKS && (
       <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-        <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+        <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSKs</div>
         <div className="flex flex-wrap gap-2 mt-1 justify-end">
           {(activeKssks && activeKssks.length > 0)
             ? activeKssks.map(id => (

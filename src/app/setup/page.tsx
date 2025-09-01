@@ -20,12 +20,12 @@ const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? 
 const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
 const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
-const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
+const KSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
   (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
-const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSSK_REQUIRE_REDIS ?? "0") === "1";
+const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSK_REQUIRE_REDIS ?? "0") === "1";
 // Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
 const PREFER_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_PREFER_REDIS ?? "1") === "1";
 const REQUIRE_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_REQUIRE_REDIS ?? "0") === "1";
@@ -320,7 +320,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
-const KSSK_DIGITS_REGEX = /^\d{12}$/;
+const KSK_DIGITS_REGEX = /^\d{12}$/;
 const digitsOnly = (s: string) => String(s ?? "").replace(/\D+/g, "");
 function canonicalMac(raw: string): string | null {
   if (!/[:\-]/.test(raw) && !/[A-Fa-f]/.test(raw)) return null;
@@ -332,7 +332,7 @@ function canonicalMac(raw: string): string | null {
 
 function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
   const asKssk = digitsOnly(raw);
-  if (KSSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
+  if (KSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
   const mac = canonicalMac(raw);
   if (mac) return { type: "kfb", code: mac };
   return { type: null, code: raw };
@@ -456,7 +456,7 @@ export default function SetupPage() {
       fetch("/api/kssk-lock", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
       }).catch(() => {});
     }, 60_000);
     hb.current.set(kssk, id);
@@ -730,7 +730,7 @@ const acceptKsskToIndex = useCallback(
   async (codeRaw: string, idx?: number) => {
     const code = digitsOnly(codeRaw);
     if (sendBusyRef.current) {
-      showErr(code, "Busy — finishing previous KSSK", "global");
+      showErr(code, "Busy — finishing previous KSK", "global");
       return;
     }
     sendBusyRef.current = true;
@@ -763,7 +763,7 @@ const acceptKsskToIndex = useCallback(
       const lockRes = await fetch("/api/kssk-lock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
       });
 
       if (!lockRes.ok) {
@@ -817,7 +817,7 @@ const acceptKsskToIndex = useCallback(
         if (!out && REQUIRE_ALIAS_REDIS) {
           await releaseLock(code);
           bump(target, null, 'idle');
-          showErr(code, 'No pin map in Redis for this KSSK', panel);
+          showErr(code, 'No pin map in Redis for this KSK', panel);
           return;
         }
       }
@@ -936,7 +936,7 @@ const acceptKsskToIndex = useCallback(
         } catch {}
       } catch {}
 
-      // Persist per-KSSK grouping locally so dashboard can reconstruct groups without server
+      // Persist per-KSK grouping locally so dashboard can reconstruct groups without server
       try {
         const entry = {
           kssk: String(code),
@@ -993,7 +993,7 @@ const acceptKsskToIndex = useCallback(
 
       // success
       startHeartbeat(code);
-      showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
+      showOk(code, espOk ? "KSK OK" : "KSK OK (ESP offline)", panel);
       bump(target, code, "ok");
     } finally {
       sendBusyRef.current = false;
@@ -1018,7 +1018,7 @@ const acceptKsskToIndex = useCallback(
         acceptKfb(code);
       } else {
         if (type !== "kssk") {
-          showErr(code, "Expected KSSK (12 digits)", panel);
+          showErr(code, "Expected KSK (12 digits)", panel);
           return;
         }
         const idx = Number(panel.slice(-1)) as KsskIndex;
@@ -1357,7 +1357,7 @@ const acceptKsskToIndex = useCallback(
         )}
       </AnimatePresence>
 
-      {/* Step 2: KSSK */}
+      {/* Step 2: KSK */}
       {kfb && (
         <section style={section}>
           <section style={card}>
@@ -1542,7 +1542,7 @@ function ScanBoxAnimated({ ariaLabel, height = 176, flashKind, flashId }: Props)
   );
 }
 
-/* ===== KSSK slots ===== */
+/* ===== KSK slots ===== */
 const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
@@ -1620,7 +1620,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
 
       {/* static scan stripes */}
       <div
-        aria-label={`KSSK scan zone ${index + 1}`}
+        aria-label={`KSK scan zone ${index + 1}`}
         style={{
           width: "100%",
           height: 112,
@@ -1655,7 +1655,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         {manualOpen && (
           <m.div key="manual" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.14 }}>
             <ManualInput
-              placeholder={`Type KSSK for slot ${index + 1}`}
+              placeholder={`Type KSK for slot ${index + 1}`}
               onSubmit={onSubmit}
               inputStyle={{ width: "100%", height: 46, borderRadius: 10, border: "1px solid #cbd5e1", padding: "0 12px", fontSize: 18, outline: "none", background: "#fff", color: "#0f172a", caretColor: "#0f172a" }}
             />

@@ -22,12 +22,13 @@ This README explains features, architecture, APIs, configuration, and how to run
 - UI: React + Tailwind driven dashboard (Next.js App Router) packaged inside Electron.
 - Serial: Communicates with an ESP over a configured TTY for MONITOR/CHECK flows.
 - Scanners: Listens to barcode scanners on `/dev/ttyACM*` and consumes the scanned KFB.
-- Locks: Uses Redis for station-scoped KSSK locks with an in-memory fallback.
+- Locks: Uses Redis for station-scoped KSK locks with an in-memory fallback.
 - Setup derives pin → branch names from Krosy XML and stores them for CHECK-only flows.
+- State: No localStorage usage; all persisted state lives in Redis and server memory.
 
 Flow summary
 - Scan KFB → fetch branches/config → send MONITOR to ESP (pins + MAC) → run CHECK → overlay OK/ERROR + failures.
-- Locks endpoints manage station ownership of KSSK during work.
+- Locks endpoints manage station ownership of KSK during work.
 
 ## Run & Build
 - Dev (starts server, Next, and Electron): `npm run dev`
@@ -50,9 +51,9 @@ Prerequisites
   - `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1` (plus optional `SCANNER2_TTY_PATH`)
 - Redis
   - `REDIS_URL=redis://127.0.0.1:6379`
-  - `KSSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
-  - `KSSK_DEFAULT_TTL_SEC=172800` (server default TTL for locks; 2 days)
-  - `NEXT_PUBLIC_KSSK_TTL_SEC=172800` (client TTL used by Setup page; 2 days)
+  - `KSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
+  - `KSK_DEFAULT_TTL_SEC=172800` (server default TTL for locks; 2 days)
+  - `NEXT_PUBLIC_KSK_TTL_SEC=172800` (client TTL used by Setup page; 2 days)
 // Postgres is no longer required for this flow.
 - UI behavior
   - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for KFB input)
@@ -79,7 +80,7 @@ Prerequisites
 - `src/lib/serial.ts` – ESP + scanner orchestration, ring buffer, cooldowns
 - `src/lib/logger.ts` – Structured logger with env-driven filtering
 - `src/app/api/*` – API routes (see below)
-- `scripts/print-locks-redis.mjs` – Inspect KSSK locks (supports station filter, watch, regex)
+- `scripts/print-locks-redis.mjs` – Inspect KSK locks (supports station filter, watch, regex)
 
 ## API Reference
 
@@ -106,7 +107,7 @@ Scanners
   - Server-Sent Events stream with snapshots and updates:
     - device list, scanner paths, scanner open/close/errors, scans, net iface info, ESP health
 
-KSSK Locks (Redis; in-memory fallback when Redis is unavailable)
+KSK Locks (Redis; in-memory fallback when Redis is unavailable)
 - `POST /api/kssk-lock`
   - Body: `{ kssk: string, mac?: string, stationId: string, ttlSec?: number }`
   - Creates a lock with TTL; returns `{ ok: true }` or `409 locked`
@@ -130,6 +131,7 @@ Note: Legacy Postgres-backed branches/config endpoints were removed in favor of 
 - Electron waits for `PORT` (default 3003) then opens the app.
 - `next.config.ts` externalizes `serialport` on server and disables it for browser builds.
 - SSE wiring (`/api/serial/events`) keeps the UI updated without polling, and the UI also polls `/api/serial/scanner` to consume scans.
+- Client storage: The app does not use `localStorage` for caching; aliases, pins and locks are managed server‑side (Redis) and fetched on demand.
 
 ## Troubleshooting
 - No monitor logs:

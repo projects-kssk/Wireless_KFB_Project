@@ -1,13 +1,13 @@
 const currentYear = new Date().getFullYear();
 const data = {
-    sitename: "KSSK WELCOME ONBOARDING", // Changed
-    sitetagline: "Welcome to KSSK!", // Changed
+    sitename: "KSK WELCOME ONBOARDING", // Changed
+    sitetagline: "Welcome to KSK!", // Changed
     siteurl: "https://kssk.sk", // You might want to update this if it's no longer relevant
     sitelogo: "",
-    title: "KSSK WELCOME ONBOARDING", // Changed
+    title: "KSK WELCOME ONBOARDING", // Changed
     description: "We're excited to have you join us. Get ready for an amazing experience!", // Changed
     newsletterheading: "", // Cleared as we are hiding the form
-    copyrightText: `Copyright © ${currentYear} KSSK. Minden jog fenntartva.`, // Updated sitename
+    copyrightText: `Copyright © ${currentYear} KSK. Minden jog fenntartva.`, // Updated sitename
     socialIconsHeading: "", // Cleared
     hideSubscribeForm: true, // Set to true to hide the form
     socialIcons: [], // Emptied the array to remove icons

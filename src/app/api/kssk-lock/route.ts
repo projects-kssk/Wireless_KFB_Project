@@ -220,11 +220,12 @@ async function redisList(stationId?: string): Promise<LockRow[]> {
 }
 
 /* ====================== Small respond helper ====================== */
-  function withMode(resp: NextResponse, mode: "redis"|"mem"|"mem-fallback", id?: string) {
-    resp.headers.set("X-KSSK-Mode", mode);
-    if (id) resp.headers.set("X-Req-Id", id);
-    return resp;
-  }
+function withMode(resp: NextResponse, mode: "redis"|"mem"|"mem-fallback", id?: string) {
+  resp.headers.set("X-KSSK-Mode", mode);
+  if (id) resp.headers.set("X-Req-Id", id);
+  return resp;
+}
+
 /* ============================ POST =============================== */
 export async function POST(req: NextRequest) {
   const id = rid(); const t0 = Date.now();

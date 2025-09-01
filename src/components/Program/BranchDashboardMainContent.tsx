@@ -370,9 +370,12 @@ const showingGrouped = useMemo(
 
   // Transition: on OK, snap back to scan state without success overlay
   useEffect(() => {
-    if (initialPaintRef.current) { prevAllOkRef.current = allOk; return; }
+
     // If a dedicated flash is running, don't snap; let the flash complete then reset
-    if (flashInProgressRef.current) { prevAllOkRef.current = allOk; return; }
+    if (flashInProgressRef.current || Number(flashOkTick || 0) !== lastFlashTickRef.current) {
+      prevAllOkRef.current = allOk;
+      return;
+    }
     if (allOk && !prevAllOkRef.current) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setShowOkAnimation(false);
@@ -383,7 +386,7 @@ const showingGrouped = useMemo(
     }
     prevAllOkRef.current = allOk;
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [allOk, onResetKfb]);
+  }, [allOk, onResetKfb,flashOkTick]);
 
   // Force snap via parent tick
   const returnToScan = useCallback(() => {
@@ -406,9 +409,13 @@ const showingGrouped = useMemo(
   // Flash success pipe for CHECK success specifically
   const flashInProgressRef = useRef(false);
   const okBoardRef = useRef<string>("");
-  useEffect(() => {
-    const tick = Number(flashOkTick || 0);
-    if (!settled || !tick || tick === 0) return;
+  const lastFlashTickRef = useRef<number>(0);
+  const queuedFlashTickRef = useRef<number>(0);
+
+  const triggerOkFlash = useCallback((tick: number) => {
+    // Guard: avoid duplicate processing of the same tick
+    if (tick === lastFlashTickRef.current) return;
+    lastFlashTickRef.current = tick;
     // If disableOkAnimation, skip flash and snap
     if (disableOkAnimation) { returnToScan(); return; }
     // Show short OK pipe then reset
@@ -427,8 +434,24 @@ const showingGrouped = useMemo(
       flashInProgressRef.current = false;
       returnToScan();
     }, Math.max(300, OK_FLASH_MS));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flashOkTick, settled, disableOkAnimation]);
+  }, [disableOkAnimation, kfbInfo?.board, kfbNumber, macAddress, returnToScan]);
+  useEffect(() => {
+    const tick = Number(flashOkTick || 0);
+    if (!tick || tick === 0) return;
+    if (!settled) { queuedFlashTickRef.current = tick; return; }
+    if (tick === lastFlashTickRef.current) return;
+    triggerOkFlash(tick);
+  }, [flashOkTick, settled, triggerOkFlash]);
+
+  // When we become settled and a flash was queued earlier, trigger it now
+  useEffect(() => {
+    if (!settled) return;
+    const queued = queuedFlashTickRef.current;
+    if (queued && queued !== lastFlashTickRef.current) {
+      queuedFlashTickRef.current = 0;
+      triggerOkFlash(queued);
+    }
+  }, [settled, triggerOkFlash]);
 
   const handleScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);

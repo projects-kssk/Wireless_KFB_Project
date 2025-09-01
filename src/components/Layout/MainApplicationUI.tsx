@@ -254,9 +254,7 @@ useEffect(() => {
  setOkFlashTick(t => t + 1);     // show OK in child, then child resets
       scheduleOkReset();  
       // Ensure any SCANNING overlay is closed immediately on success
-      clearScanOverlayTimeout();
-      setOverlay(o => ({ ...o, open: false }));
-      setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
+      setOverlay(o => ({ ...o, open: false })); // close SCANNING; no success overlay
       // Clear any KSSK locks for this MAC across stations
       void fetch('/api/kssk-lock', {
         method: 'DELETE',
@@ -301,7 +299,6 @@ useEffect(() => {
       // In live mode when everything is OK, close SCANNING overlay, show OK flash, then reset
       clearScanOverlayTimeout();
       setOverlay(o => ({ ...o, open: false }));
-      setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
       okForcedRef.current = true;
       setOkFlashTick(t => t + 1);     // same unified path
       scheduleOkReset();
@@ -566,7 +563,6 @@ useEffect(() => {
               // Success: close SCANNING overlay immediately and flash OK
               clearScanOverlayTimeout();
               setOverlay(o => ({ ...o, open: false }));
-              setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  
@@ -1181,67 +1177,124 @@ useEffect(() => {
       `}</style>
 
       {/* SCANNING / OK / ERROR overlay */}
-      <AnimatePresence>
-        {overlay.open && (
-          <m.div
-            variants={bg}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(2,6,23,0.64)',
-              backdropFilter: 'blur(4px)',
-              display: 'grid',
-              placeItems: 'center',
-              zIndex: 9999,
-            }}
-            aria-live="assertive"
-            aria-label={overlay.kind.toUpperCase()}
-          >
-            <m.div variants={card} initial="hidden" animate="visible" exit="exit" style={{ display: 'grid', justifyItems: 'center', gap: 8 }}>
-              {overlay.kind === 'success' ? (
-                <>
-                  <m.div initial={{ scale: reduce ? 1 : 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 160, height: 160, color: KIND_STYLES.success }}>
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M9 12l2 2 4-4" />
-                    </svg>
-                  </m.div>
-                  <m.div variants={heading} style={{ fontSize: 56, fontWeight: 900, letterSpacing: '0.02em', color: KIND_STYLES.success, textShadow: '0 6px 18px rgba(0,0,0,0.45)' }}>OK</m.div>
-                </>
-              ) : (
-                <>
-                  <m.div variants={heading} style={{
-                    fontSize: 128,
-                    fontWeight: 900,
-                    letterSpacing: '0.02em',
-                    color: KIND_STYLES[overlay.kind],
-                    textShadow: '0 8px 24px rgba(0,0,0,0.45)',
-                    fontFamily:
-                      'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-                  }}>
-                    {overlay.kind.toUpperCase()}
-                  </m.div>
-                  {overlay.code && (
-                    <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduce ? 0 : 0.05 }} style={{
-                      fontSize: 16,
-                      color: '#f1f5f9',
-                      opacity: 0.95,
-                      wordBreak: 'break-all',
-                      textAlign: 'center',
-                      maxWidth: 640,
-                    }}>
-                      {overlay.code}
-                    </m.div>
-                  )}
-                </>
-              )}
+<AnimatePresence>
+  {overlay.open && (
+    <m.div
+      variants={bg}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(2,6,23,0.64)',
+        backdropFilter: 'blur(4px)',
+        display: 'grid',
+        placeItems: 'center',
+        zIndex: 9999,
+      }}
+      aria-live="assertive"
+      aria-label={
+        overlay.kind === 'scanning' && overlay.code
+          ? overlay.code
+          : overlay.kind.toUpperCase()
+      }
+    >
+      <m.div
+        variants={card}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        style={{ display: 'grid', justifyItems: 'center', gap: 8 }}
+      >
+        {overlay.kind === 'success' ? (
+          <>
+            <m.div
+              initial={{ scale: reduce ? 1 : 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ width: 160, height: 160, color: KIND_STYLES.success }}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9 12l2 2 4-4" />
+              </svg>
             </m.div>
-          </m.div>
+            <m.div
+              variants={heading}
+              style={{
+                fontSize: 56,
+                fontWeight: 900,
+                letterSpacing: '0.02em',
+                color: KIND_STYLES.success,
+                textShadow: '0 6px 18px rgba(0,0,0,0.45)',
+              }}
+            >
+              OK
+            </m.div>
+          </>
+        ) : (
+          <>
+            <m.div
+              variants={heading}
+              style={{
+                fontSize: 128,
+                fontWeight: 900,
+                letterSpacing: '0.02em',
+                color: KIND_STYLES[overlay.kind],
+                textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                fontFamily:
+                  overlay.kind === 'scanning'
+                    ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                    : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+              }}
+            >
+              {overlay.kind === 'scanning' && overlay.code
+                ? overlay.code // show MAC big
+                : overlay.kind.toUpperCase()}
+            </m.div>
+
+            {overlay.kind === 'scanning' && overlay.code ? (
+              <m.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: reduce ? 0 : 0.05 }}
+                style={{ fontSize: 18, color: '#f1f5f9', opacity: 0.95 }}
+              >
+                SCANNING…
+              </m.div>
+            ) : overlay.code ? (
+              <m.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: reduce ? 0 : 0.05 }}
+                style={{
+                  fontSize: 16,
+                  color: '#f1f5f9',
+                  opacity: 0.95,
+                  wordBreak: 'break-all',
+                  textAlign: 'center',
+                  maxWidth: 640,
+                }}
+              >
+                {overlay.code}
+              </m.div>
+            ) : null}
+          </>
         )}
-      </AnimatePresence>
+      </m.div>
+    </m.div>
+  )}
+</AnimatePresence>
+
     </div>
   );
 };

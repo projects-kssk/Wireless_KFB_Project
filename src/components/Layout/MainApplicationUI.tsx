@@ -15,6 +15,34 @@ import { useSerialEvents } from '@/components/Header/useSerialEvents';
 
 import SettingsRightSidebar from '@/components/Settings/SettingsRightSidebar';
 
+// Helper: check if Redis has setup/alias data for this MAC (any aliases or pins)
+async function hasSetupDataForMac(mac: string): Promise<boolean> {
+  try {
+    const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+    if (rAll.ok) {
+      const j = await rAll.json();
+      const items: Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
+        = Array.isArray(j?.items) ? j.items : [];
+      const any = items.some(it => {
+        const a = it.aliases && typeof it.aliases === 'object' && Object.keys(it.aliases).length > 0;
+        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
+        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
+        return !!(a || np || lp);
+      });
+      if (any) return true;
+    }
+    const rOne = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+    if (rOne.ok) {
+      const ju = await rOne.json();
+      const a = ju && typeof ju.aliases === 'object' && Object.keys(ju.aliases || {}).length > 0;
+      const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
+      const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
+      return !!(a || np || lp);
+    }
+  } catch {}
+  return false;
+}
+
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
 type OverlayKind = 'success' | 'error' | 'scanning';
@@ -251,8 +279,34 @@ useEffect(() => {
     // Send checkpoint when live event indicates success and live mode is on
     try {
       const mac = (macAddress || '').toUpperCase();
-      if (mac && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac))
-        void sendCheckpointForMac(mac);
+      if (mac) {
+        (async () => {
+          try {
+            const hasSetup = await hasSetupDataForMac(mac);
+            if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac)) {
+              await sendCheckpointForMac(mac);
+            }
+          } catch {}
+          // Clear Redis aliases for this MAC regardless, then clear local cache
+          try {
+            await fetch('/api/aliases/clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac })
+            });
+          } catch {}
+          try {
+            localStorage.removeItem(`PIN_ALIAS::${mac}`);
+            localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
+          } catch {}
+          // Also clear any KSSK locks for this MAC across stations
+          void fetch('/api/kssk-lock', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac })
+          }).catch(()=>{});
+        })();
+      }
     } catch {}
     scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
@@ -555,10 +609,14 @@ useEffect(() => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            // Prefer itemsActive (station-active KSSKs), fallback to all items
-            const items = Array.isArray((result as any)?.itemsActive)
-              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
-              : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
+            // Prefer union of all KSSKs and station-active ones
+            const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
+              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
+              : [];
+            const itemsAllArr = Array.isArray((result as any)?.items)
+              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
+              : [];
+            const items = [...itemsAllArr, ...itemsActiveArr];
             if (items.length) {
               // Build raw groups and then de-duplicate by KSSK and pin
               const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
@@ -654,19 +712,24 @@ useEffect(() => {
               setOverlay(o => ({ ...o, open: false }));
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-              scheduleOkReset();  
-              // Clear any local alias cache so rescans without setup data do not send checkpoint
+              scheduleOkReset();
+              // Only call checkpoint when setup data exists in Redis; then clear Redis and localStorage
               try {
                 const macUp = mac.toUpperCase();
-                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                const hasSetup = await hasSetupDataForMac(mac);
+                if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
+                  await sendCheckpointForMac(mac);
+                }
+                try {
+                  await fetch('/api/aliases/clear', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac })
+                  });
+                } catch {}
+                try {
+                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                } catch {}
               } catch {}
-              // Trigger Krosy checkpoint send once per MAC (live only)
-              if (krosyLive && !checkpointMacSentRef.current.has(mac.toUpperCase()) && !checkpointMacPendingRef.current.has(mac.toUpperCase()))
-                await sendCheckpointForMac(mac);
-
-              // Clear Redis aliases for this MAC after sending, to avoid future resends without Setup
-              try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
 
               // Clear any KSSK locks for this MAC across stations
               void fetch('/api/kssk-lock', {
@@ -694,7 +757,15 @@ useEffect(() => {
         } else {
           // Distinguish no-result timeouts from other errors
           const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? '1'))
-          if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
+          if (res.status === 429) {
+            // Server busy (per-MAC lock). Retry shortly without showing an error.
+            if (attempt < maxRetries + 2) {
+              clearRetryTimer();
+              retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1, pins); }, 350);
+            } else {
+              console.warn('CHECK busy (429) too many retries');
+            }
+          } else if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
             // Quick retry a couple of times to shave latency without long waits
             // Quick retry a couple of times to shave latency without long waits
             if (attempt < maxRetries) {

@@ -45,7 +45,7 @@ Prerequisites
 ## Key Environment Variables
 - Serial/ESP
   - `ESP_TTY_PATH=/dev/ttyUSB0` (or `ESP_TTY`), `ESP_BAUD` (default 115200)
-  - `ESP_PING_CMD` (e.g. `PING {mac}`), `ESP_MAC` target MAC
+  - `ESP_PING_CMD` (optional; supports `{payload}` placeholder; `{mac}` is ignored if present)
   - `ESP_HEALTH_PROBE` = `never|if-stale|always` (health policy)
 - Scanners
   - `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1` (plus optional `SCANNER2_TTY_PATH`)

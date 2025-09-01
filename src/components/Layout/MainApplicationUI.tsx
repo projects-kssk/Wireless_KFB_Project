@@ -389,11 +389,6 @@ useEffect(() => {
                 try { setOkSystemNote('Cache cleared'); } catch {}
               }
               try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
-              try {
-                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-              } catch {}
               // Also clear any KSK locks for this MAC across stations (force)
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -836,16 +831,7 @@ useEffect(() => {
                 } else {
                   try { setOkSystemNote('Cache cleared'); } catch {}
                 }
-                try {
-                  await fetch('/api/aliases/clear', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac })
-                  });
-                } catch {}
-                try {
-                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-                } catch {}
+                try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
               } catch {}
 
               // Clear any KSK locks for this MAC across stations (force), include stationId if known
@@ -858,10 +844,7 @@ useEffect(() => {
                 });
               } catch {}
               // Also clear local Setup-page lock cache for this station
-              try {
-                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
-              } catch {}
+              // No local Setup lock cache to clear
 
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;

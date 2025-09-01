@@ -1,5 +1,6 @@
 import { LOG } from '@/lib/logger';
 const log = LOG.tag('scan:mem');
+const VERBOSE = (process.env.SCAN_MEM_LOG ?? '0') === '1';
 
 export type Scan = { code: string; path: string | null; at: number };
 
@@ -20,30 +21,30 @@ export function setLastScan(code: string, path: string | null) {
 
   const prev = GG.__lastScan as Scan | null;
   GG.__lastScan = { code: clean, path: p, at };
-  log.info('set', {
-    code: clean, path: p,
-    prevAgeMs: prev ? at - prev.at : null
-  });
+  // Quiet by default; promote to info only when SCAN_MEM_LOG=1
+  const payload = { code: clean, path: p, prevAgeMs: prev ? at - prev.at : null } as const;
+  if (VERBOSE) log.info('set', payload); else log.debug('set', payload);
 
   if (p) {
     const prevP = GG.__lastScanByPath.get(p) ?? null;
     GG.__lastScanByPath.set(p, { code: clean, path: p, at });
-    log.debug('setByPath', {
-      path: p, replaced: !!prevP, prevAgeMs: prevP ? at - prevP.at : null
-    });
+    const byPath = { path: p, replaced: !!prevP, prevAgeMs: prevP ? at - prevP.at : null } as const;
+    if (VERBOSE) log.info('setByPath', byPath); else log.debug('setByPath', byPath);
   }
 }
 
 export function getLastScanAndClear(): Scan | null {
   const s: Scan | null = GG.__lastScan;
   GG.__lastScan = null;
-  log.info('pop', s ? { code: s.code, path: s.path, ageMs: Date.now() - s.at } : { empty: true });
+  const out = s ? { code: s.code, path: s.path, ageMs: Date.now() - s.at } : { empty: true } as any;
+  if (VERBOSE) log.info('pop', out); else log.debug('pop', out);
   return s;
 }
 
 export function peekLastScan(): Scan | null {
   const s = GG.__lastScan as Scan | null;
-  log.debug('peek', s ? { code: s.code, path: s.path, ageMs: Date.now() - s.at } : { empty: true });
+  const out = s ? { code: s.code, path: s.path, ageMs: Date.now() - s.at } : { empty: true } as any;
+  if (VERBOSE) log.info('peek', out); else log.debug('peek', out);
   return s;
 }
 
@@ -52,7 +53,8 @@ export function getLastScanAndClearFor(path: string): string | null {
   if (!p) return null;
   const s: Scan | null = GG.__lastScanByPath.get(p) ?? null;
   GG.__lastScanByPath.delete(p);
-  log.info('popFor', s ? { path: p, code: s.code, ageMs: Date.now() - s.at } : { path: p, empty: true });
+  const outF = s ? { path: p, code: s.code, ageMs: Date.now() - s.at } : { path: p, empty: true } as any;
+  if (VERBOSE) log.info('popFor', outF); else log.debug('popFor', outF);
   return s?.code ?? null;
 }
 
@@ -60,6 +62,7 @@ export function peekLastScanFor(path: string): Scan | null {
   const p = normPath(path);
   if (!p) return null;
   const s: Scan | null = GG.__lastScanByPath.get(p) ?? null;
-  log.debug('peekFor', s ? { path: p, code: s.code, ageMs: Date.now() - s.at } : { path: p, empty: true });
+  const outPF = s ? { path: p, code: s.code, ageMs: Date.now() - s.at } : { path: p, empty: true } as any;
+  if (VERBOSE) log.info('peekFor', outPF); else log.debug('peekFor', outPF);
   return s ?? null;
 }

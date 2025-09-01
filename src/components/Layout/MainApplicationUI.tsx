@@ -662,8 +662,11 @@ useEffect(() => {
                 localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
               } catch {}
               // Trigger Krosy checkpoint send once per MAC (live only)
-              if (krosyLive && !checkpointMacSentRef.current.has(mac.toUpperCase()))
-                void sendCheckpointForMac(mac);
+              if (krosyLive && !checkpointMacSentRef.current.has(mac.toUpperCase()) && !checkpointMacPendingRef.current.has(mac.toUpperCase()))
+                await sendCheckpointForMac(mac);
+
+              // Clear Redis aliases for this MAC after sending, to avoid future resends without Setup
+              try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
 
               // Clear any KSSK locks for this MAC across stations
               void fetch('/api/kssk-lock', {

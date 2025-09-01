@@ -424,14 +424,7 @@ export default function SetupPage() {
         const j = await r.json();
         const a = (j?.aliases && typeof j.aliases === 'object') ? (j.aliases as Record<string,string>) : {};
         if (abort) return;
-        if (Object.keys(a).length === 0) {
-          try { localStorage.removeItem(`PIN_ALIAS::${mac}`); } catch {}
-        } else {
-          try {
-            if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${mac}`);
-            else localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(a));
-          } catch {}
-        }
+        // No client alias cache updates
       } catch {}
     })();
     return () => { abort = true; };

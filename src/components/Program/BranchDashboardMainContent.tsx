@@ -387,14 +387,7 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
     } catch {}
   }, [lastEvTick, expectedPins]);
 
-  // load recent macs
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('RECENT_MACS') || '[]';
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) setRecentMacs(list.filter((s) => typeof s === 'string'));
-    } catch {}
-  }, []);
+  // No recent MACs loaded from localStorage; keep ephemeral in memory
 
 
   // Only NOK in the main flat list. Sort by pin then name
@@ -480,9 +473,7 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
       } catch {}
       try {
         // Clear local caches for this MAC
-        localStorage.removeItem(`PIN_ALIAS::${mac}`);
-        localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
-        localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
+        // No client alias caches to clear
       } catch {}
       try {
         // Also clear any KSK locks for this MAC across stations (force)

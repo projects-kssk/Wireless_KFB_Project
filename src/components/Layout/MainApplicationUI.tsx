@@ -248,11 +248,7 @@ const MainApplicationUI: React.FC = () => {
       if (prev === true && ready === false) {
         const macUp = String((macAddress || '').toUpperCase());
         if (macUp) {
-          try {
-            localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-            localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-            localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-          } catch {}
+          // No client alias cache to clear
           // Also clear in-memory UI state so stale data is not shown
           try {
             setBranchesData([]);
@@ -264,10 +260,7 @@ const MainApplicationUI: React.FC = () => {
             setCheckFailures(null);
           } catch {}
           // Also clear local Setup-page lock cache for this station to avoid stale UI
-          try {
-            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
-          } catch {}
+          // No local Setup lock cache to clear
         }
       }
     } catch {}
@@ -324,18 +317,13 @@ useEffect(() => {
               try { setOkSystemNote('Cache cleared'); } catch {}
             }
           } catch {}
-          // Clear Redis aliases for this MAC regardless, then clear local cache
+          // Clear Redis aliases for this MAC regardless
           try {
             await fetch('/api/aliases/clear', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ mac })
             });
-          } catch {}
-          try {
-            localStorage.removeItem(`PIN_ALIAS::${mac}`);
-            localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
-            localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
           } catch {}
           // Also clear any KSK locks for this MAC across stations (force), include stationId if known
           try {

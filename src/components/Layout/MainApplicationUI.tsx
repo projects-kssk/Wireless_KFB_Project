@@ -306,6 +306,7 @@ useEffect(() => {
           try {
             localStorage.removeItem(`PIN_ALIAS::${mac}`);
             localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
+            localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
           } catch {}
           // Also clear any KSSK locks for this MAC across stations (force), include stationId if known
           try {
@@ -356,6 +357,40 @@ useEffect(() => {
       setOverlay(o => ({ ...o, open: false }));
       okForcedRef.current = true;
       setOkFlashTick(t => t + 1);     // same unified path
+
+      // Ensure checkpoint + cleanup also run when OK is derived from UI state
+      try {
+        const mac = (macAddress || '').toUpperCase();
+        if (mac) {
+          (async () => {
+            try {
+              const hasSetup = await hasSetupDataForMac(mac);
+              const macUp = mac;
+              if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
+                await sendCheckpointForMac(mac);
+                try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+              } else {
+                try { setOkSystemNote('Cache cleared'); } catch {}
+              }
+              try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
+              try {
+                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+              } catch {}
+              // Also clear any KSSK locks for this MAC across stations (force)
+              try {
+                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+                await fetch('/api/kssk-lock', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+                });
+              } catch {}
+            } catch {}
+          })();
+        }
+      } catch {}
+
       scheduleOkReset();
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);

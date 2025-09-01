@@ -293,6 +293,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const kssk = searchParams.get("kssk");
     const stationId = searchParams.get("stationId") || undefined;
+    const include = String(searchParams.get('include') || '').trim().toLowerCase();
+    const includeAliases = include === '1' || include === 'true' || include === 'aliases' || include === 'pins' || include === 'all';
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
@@ -318,6 +320,71 @@ export async function GET(req: NextRequest) {
     }
 
     const rows: LockRow[] = haveRedis ? await redisList(stationId) : memList(stationId);
+    // Optionally enrich rows with aliases + pin maps (Redis only)
+    if (includeAliases && haveRedis && rows.length) {
+      try {
+        const r: any = getRedis();
+        await Promise.all(rows.map(async (row: any) => {
+          try {
+            const macUp = String(row.mac || '').toUpperCase();
+            if (!macUp) return;
+            // 1) Try per-KSSK alias bundle
+            let names: Record<string,string> | undefined;
+            let nPins: number[] | undefined;
+            let lPins: number[] | undefined;
+            let ts: number | null | undefined;
+            try {
+              const raw = await r.get(`kfb:aliases:${macUp}:${row.kssk}`).catch(() => null);
+              if (raw) {
+                const d = JSON.parse(raw);
+                names = (d?.names && typeof d.names === 'object') ? d.names as Record<string,string> : (d?.aliases || undefined);
+                nPins = Array.isArray(d?.normalPins) ? d.normalPins as number[] : undefined;
+                lPins = Array.isArray(d?.latchPins) ? d.latchPins as number[] : undefined;
+                ts = d?.ts || null;
+              }
+            } catch {}
+            // 2) If pins missing, fallback to lastpins snapshot
+            try {
+              const emptyN = !Array.isArray(nPins) || nPins.length === 0;
+              const emptyL = !Array.isArray(lPins) || lPins.length === 0;
+              if (emptyN && emptyL) {
+                const rawLP = await r.get(`kfb:lastpins:${macUp}:${row.kssk}`).catch(() => null);
+                if (rawLP) {
+                  const d2 = JSON.parse(rawLP);
+                  if (emptyN) nPins = Array.isArray(d2?.normalPins) ? d2.normalPins as number[] : undefined;
+                  if (emptyL) lPins = Array.isArray(d2?.latchPins) ? d2.latchPins as number[] : undefined;
+                  ts ??= d2?.ts || null;
+                }
+              }
+            } catch {}
+            // 3) If names missing but we have pins, select names from MAC union
+            try {
+              const havePins = (Array.isArray(nPins) && nPins.length) || (Array.isArray(lPins) && lPins.length);
+              const noNames = !names || Object.keys(names).length === 0;
+              if (havePins && noNames) {
+                const rawU = await r.get(`kfb:aliases:${macUp}`).catch(() => null);
+                if (rawU) {
+                  const dU = JSON.parse(rawU);
+                  const namesU: Record<string,string> = (dU?.names && typeof dU.names === 'object') ? dU.names : {};
+                  const want = new Set<number>([...(nPins || []), ...(lPins || [])].filter((x: number) => Number.isFinite(x)) as number[]);
+                  const picked: Record<string,string> = {};
+                  for (const [p, label] of Object.entries(namesU)) {
+                    const pn = Number(p);
+                    if (Number.isFinite(pn) && want.has(pn)) picked[p] = String(label);
+                  }
+                  names = picked;
+                }
+              }
+            } catch {}
+
+            if (names && typeof names === 'object') row.aliases = names;
+            if (Array.isArray(nPins)) row.normalPins = nPins;
+            if (Array.isArray(lPins)) row.latchPins = lPins;
+            if (typeof ts === 'number' || ts === null) row.ts = ts;
+          } catch {}
+        }));
+      } catch {}
+    }
     const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
     if (rows.length > 0) log.info('GET list', info);
     else log.debug('GET list (empty)', info);

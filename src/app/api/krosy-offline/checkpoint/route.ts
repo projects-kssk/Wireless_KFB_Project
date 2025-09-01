@@ -200,7 +200,9 @@ function buildWorkingResultFromWorkingData(
   opts?: { forceResult?: boolean | null }
 ) {
   const parser = new Xmldom({ errorHandler: { warning(){}, error(){}, fatalError(){} } } as any);
-  const doc = parser.parseFromString(workingDataXml, "text/xml");
+  const normalizeBooleanAttrs = (xml: string) => xml.replace(/(\s(?:allowed|status))(?!\s*=\s*["'])/gi, '$1="true"');
+  const fixedXml = normalizeBooleanAttrs(workingDataXml || '');
+  const doc = parser.parseFromString(fixedXml, "text/xml");
 
   const forced = opts?.forceResult ?? null;     // true / false / null
   const resultStr = b2s(forced ?? true);        // default to "true" (OK)

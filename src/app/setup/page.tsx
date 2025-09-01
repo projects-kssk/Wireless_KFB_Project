@@ -26,6 +26,9 @@ const ALLOW_NO_ESP =
 const KEEP_LOCKS_ON_UNLOAD =
   (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
 const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSSK_REQUIRE_REDIS ?? "0") === "1";
+// Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
+const PREFER_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_PREFER_REDIS ?? "1") === "1";
+const REQUIRE_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_REQUIRE_REDIS ?? "0") === "1";
 
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
@@ -785,33 +788,85 @@ const acceptKsskToIndex = useCallback(
       activeLocks.current.add(code);
       saveLocalLocks(activeLocks.current);
 
-      // 4) Krosy
-      const resp = await sendKsskToOffline(code);
-      if (!resp?.ok && resp?.status === 0) {
-        await releaseLock(code);
-        bump(target, null, "idle");
-        showErr(code, "Krosy communication error", panel);
-        return;
+      // 4) Load pin maps either from Redis (preferred) or Krosy fallback
+      const macUp = String(kfb).toUpperCase();
+      type Out = { names: Record<string,string>; normalPins: number[]; latchPins: number[] };
+      let out: Out | null = null;
+      let xmlRawForName: string | null = null;
+
+      if (PREFER_ALIAS_REDIS || REQUIRE_ALIAS_REDIS) {
+        try {
+          const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`, { cache: 'no-store' });
+          if (rAll.ok) {
+            const jAll = await rAll.json();
+            const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> : [];
+            const hit = items.find(it => String(it.kssk || '').trim() === String(code));
+            if (hit && hit.aliases && typeof hit.aliases === 'object') {
+              const normal = Array.isArray(hit.normalPins) ? hit.normalPins as number[] : Object.keys(hit.aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
+              const latch = Array.isArray(hit.latchPins) ? hit.latchPins as number[] : [];
+              out = { names: hit.aliases, normalPins: normal, latchPins: latch };
+              try {
+                const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(macUp)}&kssk=${encodeURIComponent(code)}`, { cache: 'no-store' });
+                if (rXml.ok) {
+                  xmlRawForName = await rXml.text();
+                }
+              } catch {}
+            }
+          }
+        } catch {}
+        if (!out && REQUIRE_ALIAS_REDIS) {
+          await releaseLock(code);
+          bump(target, null, 'idle');
+          showErr(code, 'No pin map in Redis for this KSSK', panel);
+          return;
+        }
       }
 
-      const macUp = String(kfb).toUpperCase();
-      const extractOpts: KrosyOpts = {
-        macHint: macUp,
-        includeLatch: true,               // include contactless pins (",C")
-        includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
-        allowedMeasTypes: ["default"],    // keep ONLY default
-        allowedCompTypes: ["clip"],
-        // allowedCompTypes: ["contact"],  // uncomment if compType is reliable and desired
-      };
+      if (!out) {
+        const resp = await sendKsskToOffline(code);
+        if (!resp?.ok && resp?.status === 0) {
+          await releaseLock(code);
+          bump(target, null, "idle");
+          showErr(code, "Krosy communication error", panel);
+          return;
+        }
+        const extractOpts: KrosyOpts = {
+          macHint: macUp,
+          includeLatch: true,               // include contactless pins (",C")
+          includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
+          allowedMeasTypes: ["default"],    // keep ONLY default
+          // Broaden to include both clip and contact components so we don't drop valid pins
+          allowedCompTypes: ["clip", "contact"],
+        };
+        // Primary extraction with strict label prefixes (CN/CL)
+        let tmp = resp.data?.__xml
+          ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
+          : extractPinsFromKrosy(resp.data, extractOpts);
+        // Fallback: if no pins extracted, retry without label-prefix filter to avoid dropping valid data
+        try {
+          const got = ((tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0)) > 0;
+          if (!got) {
+            const loose: KrosyOpts = {
+              macHint: macUp,
+              includeLatch: true,
+              // accept both clip/contact but do not filter by label prefix this time
+              allowedCompTypes: ["clip", "contact"],
+              allowedMeasTypes: ["default"],
+            };
+            tmp = resp.data?.__xml
+              ? extractPinsFromKrosyXML(resp.data.__xml, loose)
+              : extractPinsFromKrosy(resp.data, loose);
+          }
+        } catch {}
+        out = { names: tmp.names || {}, normalPins: tmp.normalPins || [], latchPins: tmp.latchPins || [] } as Out;
+        try { xmlRawForName = resp.data?.__xml || null; } catch {}
+      }
 
-      const out = resp.data?.__xml
-        ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
-        : extractPinsFromKrosy(resp.data, extractOpts);
-
+      // Optional: set setup name if XML available
       try {
-        const xmlRaw = resp.data?.__xml || '';
-        if (xmlRaw) {
-          const m = String(xmlRaw).match(/\bsetup=\"([^\"]+)\"/i);
+        const xml = xmlRawForName || '';
+        if (xml) {
+          const m = String(xml).match(/\bsetup=\"([^\"]+)\"/i);
           if (m && m[1]) setSetupName(m[1]);
         }
       } catch {}
@@ -827,7 +882,7 @@ const acceptKsskToIndex = useCallback(
 
       // Also save to Redis so other clients can render after CHECK-only
       try {
-        const xmlRaw = resp.data?.__xml || undefined;
+        const xmlRaw = xmlRawForName || undefined;
         const hints = xmlRaw ? extractNameHintsFromKrosyXML(xmlRaw, macUp) : undefined;
         await fetch('/api/aliases', {
           method: 'POST',
@@ -879,6 +934,25 @@ const acceptKsskToIndex = useCallback(
             }
           }
         } catch {}
+      } catch {}
+
+      // Persist per-KSSK grouping locally so dashboard can reconstruct groups without server
+      try {
+        const entry = {
+          kssk: String(code),
+          aliases: out.names || {},
+          normalPins: out.normalPins || [],
+          latchPins: out.latchPins || [],
+          ts: Date.now(),
+        } as any;
+        const key = `PIN_ALIAS_GROUPS::${macUp}`;
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        const list: Array<any> = Array.isArray(arr) ? arr : [];
+        const idx = list.findIndex((it) => String(it?.kssk || '') === String(code));
+        if (idx >= 0) list[idx] = entry; else list.push(entry);
+        localStorage.setItem(key, JSON.stringify(list));
+        try { console.log('[SETUP] Saved group for', code, 'pins', entry.normalPins?.length + entry.latchPins?.length); } catch {}
       } catch {}
 
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
@@ -1222,7 +1296,7 @@ const acceptKsskToIndex = useCallback(
 
               <m.div layout style={heroProgressPill}>
                 <SignalDot />
-                {ksskOkCount}/3 KSSK
+                {ksskOkCount}/3 KSK
               </m.div>
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
@@ -1289,7 +1363,7 @@ const acceptKsskToIndex = useCallback(
           <section style={card}>
             <div style={{ display: "grid", gap: 4 }}>
               <span style={eyebrow}>Step 2</span>
-              <h2 style={heading}>KSSK</h2>
+              <h2 style={heading}>KSK</h2>
             </div>
 
             <div style={slotsGrid}>

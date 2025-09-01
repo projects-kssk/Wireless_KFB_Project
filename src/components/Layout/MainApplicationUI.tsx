@@ -15,6 +15,34 @@ import { useSerialEvents } from '@/components/Header/useSerialEvents';
 
 import SettingsRightSidebar from '@/components/Settings/SettingsRightSidebar';
 
+// Helper: check if Redis has setup/alias data for this MAC (any aliases or pins)
+async function hasSetupDataForMac(mac: string): Promise<boolean> {
+  try {
+    const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+    if (rAll.ok) {
+      const j = await rAll.json();
+      const items: Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
+        = Array.isArray(j?.items) ? j.items : [];
+      const any = items.some(it => {
+        const a = it.aliases && typeof it.aliases === 'object' && Object.keys(it.aliases).length > 0;
+        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
+        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
+        return !!(a || np || lp);
+      });
+      if (any) return true;
+    }
+    const rOne = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+    if (rOne.ok) {
+      const ju = await rOne.json();
+      const a = ju && typeof ju.aliases === 'object' && Object.keys(ju.aliases || {}).length > 0;
+      const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
+      const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
+      return !!(a || np || lp);
+    }
+  } catch {}
+  return false;
+}
+
 const SIDEBAR_WIDTH = '24rem';
 type MainView = 'dashboard' | 'settingsConfiguration' | 'settingsBranches';
 type OverlayKind = 'success' | 'error' | 'scanning';
@@ -106,6 +134,10 @@ const MainApplicationUI: React.FC = () => {
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
   const [scanningError, setScanningError] = useState(false);
+  // Snapshot of KSSK items discovered via /api/aliases?all=1 for this MAC
+  const itemsAllFromAliasesRef = useRef<Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
+  const lastGroupsRef = useRef<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
+  useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
@@ -155,6 +187,7 @@ const MainApplicationUI: React.FC = () => {
   };
 
   const [okFlashTick, setOkFlashTick] = useState(0);
+  const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
   const scanOverlayTimerRef = useRef<number | null>(null);
@@ -204,6 +237,42 @@ const MainApplicationUI: React.FC = () => {
     return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
   })();
 
+  // When Redis goes offline (via SSE), clear any local alias caches for the current MAC
+  const prevRedisReadyRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    try {
+      const ready = !!(serial as any).redisReady;
+      const prev = prevRedisReadyRef.current;
+      prevRedisReadyRef.current = ready;
+      if (prev === null) return; // first sample
+      if (prev === true && ready === false) {
+        const macUp = String((macAddress || '').toUpperCase());
+        if (macUp) {
+          try {
+            localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+            localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+            localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
+          } catch {}
+          // Also clear in-memory UI state so stale data is not shown
+          try {
+            setBranchesData([]);
+            setGroupedBranches([]);
+            setActiveKssks([]);
+            setNameHints(undefined);
+            setNormalPins(undefined);
+            setLatchPins(undefined);
+            setCheckFailures(null);
+          } catch {}
+          // Also clear local Setup-page lock cache for this station to avoid stale UI
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+            if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
+          } catch {}
+        }
+      }
+    } catch {}
+  }, [(serial as any).redisReady, macAddress]);
+
   // Apply union updates from SSE if they match current MAC
   const CLEAR_LOCAL_ALIAS = String(process.env.NEXT_PUBLIC_ALIAS_CLEAR_ON_READY || '').trim() === '1';
   useEffect(() => {
@@ -215,13 +284,6 @@ const MainApplicationUI: React.FC = () => {
       if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
       if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
       if (u.names && typeof u.names === 'object') setNameHints(u.names as any);
-      // Persist or clear local cache according to env flag
-      if (u.names && typeof u.names === 'object') {
-        try {
-          if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${cur}`);
-          else localStorage.setItem(`PIN_ALIAS::${cur}`, JSON.stringify(u.names));
-        } catch {}
-      }
     } catch {}
   }, [serial.lastUnion, macAddress]);
 
@@ -251,7 +313,41 @@ useEffect(() => {
     // Send checkpoint when live event indicates success and live mode is on
     try {
       const mac = (macAddress || '').toUpperCase();
-      if (mac && krosyLive) void sendCheckpointForMac(mac);
+      if (mac) {
+        (async () => {
+          try {
+            const hasSetup = await hasSetupDataForMac(mac);
+            if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac)) {
+              await sendCheckpointForMac(mac);
+              try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+            } else {
+              try { setOkSystemNote('Cache cleared'); } catch {}
+            }
+          } catch {}
+          // Clear Redis aliases for this MAC regardless, then clear local cache
+          try {
+            await fetch('/api/aliases/clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac })
+            });
+          } catch {}
+          try {
+            localStorage.removeItem(`PIN_ALIAS::${mac}`);
+            localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
+            localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
+          } catch {}
+          // Also clear any KSSK locks for this MAC across stations (force), include stationId if known
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+            await fetch('/api/kssk-lock', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+            });
+          } catch {}
+        })();
+      }
     } catch {}
     scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
@@ -290,6 +386,40 @@ useEffect(() => {
       setOverlay(o => ({ ...o, open: false }));
       okForcedRef.current = true;
       setOkFlashTick(t => t + 1);     // same unified path
+
+      // Ensure checkpoint + cleanup also run when OK is derived from UI state
+      try {
+        const mac = (macAddress || '').toUpperCase();
+        if (mac) {
+          (async () => {
+            try {
+              const macUp = mac;
+              if (!checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
+                await sendCheckpointForMac(mac);
+                try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+              } else {
+                try { setOkSystemNote('Cache cleared'); } catch {}
+              }
+              try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
+              try {
+                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
+              } catch {}
+              // Also clear any KSSK locks for this MAC across stations (force)
+              try {
+                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+                await fetch('/api/kssk-lock', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+                });
+              } catch {}
+            } catch {}
+          })();
+        }
+      } catch {}
+
       scheduleOkReset();
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
@@ -301,14 +431,54 @@ useEffect(() => {
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        const ids: string[] = Array.isArray(j?.locks) ? j.locks.map((l: any) => String(l.kssk)) : [];
-        if (ids.length && !stop) setActiveKssks((prev) => {
-          const set = new Set<string>([...prev, ...ids]);
-          return Array.from(set);
-        });
+        const rows: Array<{ kssk: string; mac?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.locks) ? j.locks : [];
+        const ids: string[] = rows.map((l) => String(l.kssk)).filter(Boolean);
+        if (!stop && ids.length) {
+          setActiveKssks((prev) => Array.from(new Set<string>([...prev, ...ids])));
+          if (!kfbNumber && groupedBranches.length === 0 && branchesData.length === 0) {
+            const groupsRaw = rows
+              .map((it) => {
+                const a = (it && it.aliases && typeof it.aliases === 'object') ? (it.aliases as Record<string,string>) : {};
+                const pinSet = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinSet.add(n); }
+                if (Array.isArray((it as any)?.normalPins)) for (const n of (it as any).normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) pinSet.add(x); }
+                if (Array.isArray((it as any)?.latchPins)) for (const n of (it as any).latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) pinSet.add(x); }
+                const pins = Array.from(pinSet).sort((a,b)=>a-b);
+                const setLatch = new Set<number>(((it as any)?.latchPins || []) as number[]);
+                const branches = pins.map((pin) => ({
+                  id: `${String(it.kssk)}:${pin}`,
+                  branchName: a[String(pin)] || `PIN ${pin}`,
+                  testStatus: setLatch.has(pin) ? 'not_tested' as TestStatus : 'not_tested' as TestStatus,
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                  isLatch: setLatch.has(pin),
+                } as BranchDisplayData));
+                return { kssk: String(it.kssk || ''), branches };
+              });
+            const byId = new Map<string, BranchDisplayData[]>();
+            for (const g of groupsRaw) {
+              const id = String(g.kssk).trim().toUpperCase();
+              const prev = byId.get(id) || [];
+              const merged = [...prev, ...g.branches];
+              const seen = new Set<number>();
+              const dedup = merged.filter(b => {
+                const p = typeof b.pinNumber === 'number' ? b.pinNumber : NaN;
+                if (!Number.isFinite(p)) return true;
+                if (seen.has(p)) return false;
+                seen.add(p);
+                return true;
+              });
+              byId.set(id, dedup);
+            }
+            const groups = Array.from(byId.entries())
+              .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+              .map(([k, branches]) => ({ kssk: k, branches }));
+            if (groups.length) setGroupedBranches(groups);
+          }
+        }
       } catch {}
     };
     tick();
@@ -342,6 +512,7 @@ useEffect(() => {
   const handleResetKfb = useCallback(() => {
     cancelOkReset?.();
  setOkFlashTick(0);
+    setOkSystemNote(null);
     setKfbNumber('');
     setKfbInfo(null);
     setBranchesData([]);
@@ -375,13 +546,39 @@ useEffect(() => {
     })();
   }, []);
   const checkpointSentRef = useRef<Set<string>>(new Set());
+  const checkpointMacSentRef = useRef<Set<string>>(new Set());
+  const checkpointMacPendingRef = useRef<Set<string>>(new Set());
 
   const sendCheckpointForMac = useCallback(async (mac: string) => {
+    if (checkpointMacSentRef.current.has(mac.toUpperCase())) return;
     try {
       const rList = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
       if (!rList.ok) return;
       const j = await rList.json();
-      const items: Array<{ kssk: string }> = Array.isArray(j?.items) ? j.items : [];
+      const items: Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.items) ? j.items : [];
+
+      // If there is nothing to check (no items, no aliases/pins), do not send checkpoint
+      let hasData = items.length > 0 && items.some(it => {
+        const a = it.aliases && typeof it.aliases === 'object' ? Object.keys(it.aliases).length > 0 : false;
+        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
+        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
+        return a || np || lp;
+      });
+      if (!hasData) {
+        try {
+          const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+          if (ru.ok) {
+            const ju = await ru.json();
+            const a = ju && typeof ju.aliases === 'object' ? Object.keys(ju.aliases || {}).length > 0 : false;
+            const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
+            const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
+            hasData = a || np || lp;
+          }
+        } catch {}
+      }
+      if (!hasData) return;
+
+      let sentAny = false;
       for (const it of items) {
         const kssk = String(it.kssk || '').trim();
         if (!kssk || checkpointSentRef.current.has(kssk)) continue;
@@ -400,8 +597,10 @@ useEffect(() => {
             body: JSON.stringify(payload),
           });
           checkpointSentRef.current.add(kssk);
+          sentAny = true;
         } catch {}
       }
+      if (sentAny) checkpointMacSentRef.current.add(mac.toUpperCase());
     } catch {}
   }, [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]);
 
@@ -473,15 +672,6 @@ useEffect(() => {
                 return merged;
               };
               aliases = mergeAliases(itemsPref as Array<{ aliases: Record<string,string> }>);
-            } else {
-              try {
-                aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {};
-                const uLocal = JSON.parse(localStorage.getItem(`PIN_ALIAS_UNION::${macUp}`) || 'null');
-                if (uLocal && typeof uLocal === 'object') {
-                  if (Array.isArray(uLocal.normalPins)) setNormalPins(uLocal.normalPins);
-                  if (Array.isArray(uLocal.latchPins)) setLatchPins(uLocal.latchPins);
-                }
-              } catch {}
             }
             // If still empty, try simple aliases from API union
             if (!aliases || Object.keys(aliases).length === 0) {
@@ -503,12 +693,7 @@ useEffect(() => {
                 merged = result.aliases as Record<string,string>;
               }
               aliases = merged;
-              try {
-                if (Object.keys(aliases).length) {
-                  if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  else localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aliases));
-                }
-              } catch {}
+              
             }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
@@ -526,21 +711,52 @@ useEffect(() => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            // Prefer itemsActive (station-active KSSKs), fallback to all items
-            const items = Array.isArray((result as any)?.itemsActive)
-              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
-              : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
+            // Prefer union of all KSSKs and station-active ones
+            const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
+              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
+              : [];
+            let itemsAllArr = Array.isArray((result as any)?.items)
+              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
+              : [];
+            // Fallback to locally persisted groups when server did not return any
+            try {
+              if (!itemsAllArr.length) {
+                const macUp = mac.toUpperCase();
+                const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${macUp}`);
+                if (rawGroups) {
+                  const arr = JSON.parse(rawGroups);
+                  if (Array.isArray(arr)) itemsAllArr = arr as any;
+                }
+              }
+            } catch {}
+            // Merge API-provided items with pre-scan Redis snapshot to avoid missing groups
+            const byKssk = new Map<string, { kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>();
+            for (const it of [...itemsAllArr, ...itemsActiveArr]) {
+              const id = String(it.kssk || '').trim();
+              if (!id) continue;
+              if (!byKssk.has(id)) byKssk.set(id, { kssk: id, aliases: it.aliases || {}, normalPins: (it as any).normalPins, latchPins: (it as any).latchPins });
+            }
+            for (const it of itemsAllFromAliasesRef.current || []) {
+              const id = String(it.kssk || '').trim();
+              if (!id || byKssk.has(id)) continue;
+              byKssk.set(id, { kssk: id, aliases: (it.aliases as any) || {}, normalPins: it.normalPins, latchPins: it.latchPins });
+            }
+            const items = Array.from(byKssk.values());
             if (items.length) {
               // Build raw groups and then de-duplicate by KSSK and pin
               const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
                 const a = it.aliases || {};
-                const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+                const set = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) set.add(n); }
+                if (Array.isArray((it as any)?.normalPins)) for (const n of (it as any).normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                if (Array.isArray((it as any)?.latchPins)) for (const n of (it as any).latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                const pinsG = Array.from(set).sort((x,y)=>x-y);
                 // Use group-specific latchPins when present
                 const contactless = new Set<number>((Array.isArray((it as any)?.latchPins) ? (it as any).latchPins : (latchPins || [])).filter((n: number) => Number.isFinite(n)) as number[]);
                 const branchesG = pinsG.map(pin => ({
                   id: `${it.kssk}:${pin}`,
-                  branchName: a[String(pin)] || `PIN ${pin}`,
+                  branchName: a[String(pin)] || aliases[String(pin)] || `PIN ${pin}`,
                   testStatus: failures.includes(pin)
                     ? 'nok' as TestStatus
                     : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
@@ -582,8 +798,13 @@ useEffect(() => {
                 } as BranchDisplayData));
                 groups.push({ kssk: 'CHECK', branches: extraBranches });
               }
-              setGroupedBranches(groups);
-              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              // Merge with any previously shown groups if API dropped some
+              const prev = lastGroupsRef.current || [];
+              const have = new Set(groups.map(g => g.kssk));
+              const mergedGroups = [...groups];
+              for (const g of prev) { if (!have.has(g.kssk)) mergedGroups.push(g); }
+              setGroupedBranches(mergedGroups);
+              setActiveKssks(mergedGroups.map(g => g.kssk).filter(Boolean));
               // Also use union of all group pins for flat list
               const unionMap: Record<number, string> = {};
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
@@ -625,16 +846,38 @@ useEffect(() => {
               setOverlay(o => ({ ...o, open: false }));
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-              scheduleOkReset();  
-              // Trigger Krosy checkpoint send for all KSSKs associated with this MAC (live only)
-              if (krosyLive) void sendCheckpointForMac(mac);
+              scheduleOkReset();
+              // Only call checkpoint when setup data exists in Redis; then clear Redis and localStorage
+              try {
+                const macUp = mac.toUpperCase();
+                const hasSetup = await hasSetupDataForMac(mac);
+                if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
+                  await sendCheckpointForMac(mac);
+                  try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+                } else {
+                  try { setOkSystemNote('Cache cleared'); } catch {}
+                }
+                try {
+                  await fetch('/api/aliases/clear', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac })
+                  });
+                } catch {}
+                try {
+                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                  localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
+                } catch {}
+              } catch {}
 
-              // Clear any KSSK locks for this MAC across stations
-              void fetch('/api/kssk-lock', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac })
-              }).catch(()=>{});
+              // Clear any KSSK locks for this MAC across stations (force), include stationId if known
+              try {
+                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+                await fetch('/api/kssk-lock', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+                });
+              } catch {}
               // Also clear local Setup-page lock cache for this station
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -655,7 +898,15 @@ useEffect(() => {
         } else {
           // Distinguish no-result timeouts from other errors
           const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? '1'))
-          if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
+          if (res.status === 429) {
+            // Server busy (per-MAC lock). Retry shortly without showing an error.
+            if (attempt < maxRetries + 2) {
+              clearRetryTimer();
+              retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runCheck(mac, attempt + 1, pins); }, 350);
+            } else {
+              console.warn('CHECK busy (429) too many retries');
+            }
+          } else if (res.status === 504 || result?.pending === true || String(result?.code || '').toUpperCase() === 'NO_RESULT') {
             // Quick retry a couple of times to shave latency without long waits
             // Quick retry a couple of times to shave latency without long waits
             if (attempt < maxRetries) {
@@ -782,10 +1033,10 @@ useEffect(() => {
       setKfbNumber(mac);
       setMacAddress(mac);
 
-      // build from aliases if present
+      // build from Redis only (no localStorage fallback)
       let aliases: Record<string,string> = {};
-      try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
-      let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+      let hadGroups = false;
+      let pins: number[] = [];
       {
         // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
         try {
@@ -800,12 +1051,17 @@ useEffect(() => {
           if (rAll.ok) {
             const jAll = await rAll.json();
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            try { itemsAllFromAliasesRef.current = items as any; } catch {}
             
              if (items.length) {
               // Build raw groups, then de-duplicate by KSSK and pin
               const groupsRaw = items.map((it: any) => {
-                const aliases = it.aliases || {};
-                const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+                const a = it.aliases || {};
+                const set = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) set.add(n); }
+                if (Array.isArray(it.normalPins)) for (const n of it.normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                if (Array.isArray(it.latchPins)) for (const n of it.latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                const pins = Array.from(set).sort((a,b)=>a-b);
                 const branches = pins.map(pin => ({
                   id: `${it.kssk}:${pin}`,
                   branchName: aliases[String(pin)] || `PIN ${pin}`,
@@ -835,6 +1091,7 @@ useEffect(() => {
                 .map(([k, branches]) => ({ kssk: k, branches }));
               setGroupedBranches(groups);
               setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              hadGroups = groups.length > 0;
             }
                         
             
@@ -847,7 +1104,7 @@ useEffect(() => {
               if (Array.isArray(it.latchPins)) for (const n of it.latchPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
             }
             if (pinSet.size && pins.length === 0) pins = Array.from(pinSet).sort((x,y)=>x-y);
-            // Also persist union aliases for UI rendering if available via single GET
+            // Load union aliases for UI rendering via single GET (Redis only)
             try {
               const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
               if (rUnion.ok) {
@@ -855,13 +1112,6 @@ useEffect(() => {
                 const aU = (jU?.aliases && typeof jU.aliases === 'object') ? (jU.aliases as Record<string,string>) : {};
                 if (Object.keys(aU).length) {
                   aliases = aU;
-                  try {
-                    if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${mac}`); localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`); }
-                    else {
-                      localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
-                      localStorage.setItem(`PIN_ALIAS_UNION::${mac}`, JSON.stringify({ names: aliases, normalPins: (jU?.normalPins || []), latchPins: (jU?.latchPins || []), ts: Date.now() }));
-                    }
-                  } catch {}
                 }
                 // capture pin type context
                 try {
@@ -880,17 +1130,25 @@ useEffect(() => {
           }
         } catch {}
       }
-      if (pins.length) {
-        setBranchesData(pins.map(pin => ({
-          id: String(pin),
-          branchName: aliases[String(pin)] || `PIN ${pin}`,
-          testStatus: 'not_tested' as TestStatus,
-          pinNumber: pin,
-          kfbInfoValue: undefined,
-        })));
-      } else {
-        setBranchesData([]);
+      // If no setup data exists anywhere (no groups, no aliases, no pins), show a clear message and stop
+      const noAliases = !aliases || Object.keys(aliases).length === 0;
+      const noPins = !Array.isArray(pins) || pins.length === 0;
+      // rely on explicit discovery rather than possibly stale state
+      const noGroups = !hadGroups;
+      if (noAliases && noPins && noGroups) {
+        clearScanOverlayTimeout();
+        // Show a prominent message, then return to scan view
+        showOverlay('error', 'NOTHING TO CHECK HERE');
+        hideOverlaySoon();
+        setGroupedBranches([]);
+        setActiveKssks([]);
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
       }
+
+      // Defer rendering flat branches until CHECK result arrives
+      setBranchesData([]);
 
       // Debug: log pins being sent for first CHECK
       try { console.log('[GUI] CHECK pins', pins); } catch {}
@@ -1218,6 +1476,7 @@ useEffect(() => {
                 
                 onResetKfb={handleResetKfb}
                 flashOkTick={okFlashTick}
+                okSystemNote={okSystemNote}
 
             />
 

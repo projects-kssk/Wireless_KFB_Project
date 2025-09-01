@@ -441,11 +441,14 @@ useEffect(() => {
           setActiveKssks((prev) => Array.from(new Set<string>([...prev, ...ids])));
           if (!kfbNumber && groupedBranches.length === 0 && branchesData.length === 0) {
             const groupsRaw = rows
-              .filter(it => it && it.aliases && typeof it.aliases === 'object')
               .map((it) => {
-                const a = it.aliases || {} as Record<string,string>;
-                const pins = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
-                const setLatch = new Set<number>(((it.latchPins || []) as number[]).filter(n => Number.isFinite(n)) as number[]);
+                const a = (it && it.aliases && typeof it.aliases === 'object') ? (it.aliases as Record<string,string>) : {};
+                const pinSet = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinSet.add(n); }
+                if (Array.isArray((it as any)?.normalPins)) for (const n of (it as any).normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) pinSet.add(x); }
+                if (Array.isArray((it as any)?.latchPins)) for (const n of (it as any).latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) pinSet.add(x); }
+                const pins = Array.from(pinSet).sort((a,b)=>a-b);
+                const setLatch = new Set<number>(((it as any)?.latchPins || []) as number[]);
                 const branches = pins.map((pin) => ({
                   id: `${String(it.kssk)}:${pin}`,
                   branchName: a[String(pin)] || `PIN ${pin}`,
@@ -745,12 +748,16 @@ useEffect(() => {
               const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
                 const a = it.aliases || {};
-                const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+                const set = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) set.add(n); }
+                if (Array.isArray((it as any)?.normalPins)) for (const n of (it as any).normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                if (Array.isArray((it as any)?.latchPins)) for (const n of (it as any).latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                const pinsG = Array.from(set).sort((x,y)=>x-y);
                 // Use group-specific latchPins when present
                 const contactless = new Set<number>((Array.isArray((it as any)?.latchPins) ? (it as any).latchPins : (latchPins || [])).filter((n: number) => Number.isFinite(n)) as number[]);
                 const branchesG = pinsG.map(pin => ({
                   id: `${it.kssk}:${pin}`,
-                  branchName: a[String(pin)] || `PIN ${pin}`,
+                  branchName: a[String(pin)] || aliases[String(pin)] || `PIN ${pin}`,
                   testStatus: failures.includes(pin)
                     ? 'nok' as TestStatus
                     : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
@@ -1050,8 +1057,12 @@ useEffect(() => {
              if (items.length) {
               // Build raw groups, then de-duplicate by KSSK and pin
               const groupsRaw = items.map((it: any) => {
-                const aliases = it.aliases || {};
-                const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+                const a = it.aliases || {};
+                const set = new Set<number>();
+                for (const k of Object.keys(a)) { const n = Number(k); if (Number.isFinite(n) && n>0) set.add(n); }
+                if (Array.isArray(it.normalPins)) for (const n of it.normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                if (Array.isArray(it.latchPins)) for (const n of it.latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
+                const pins = Array.from(set).sort((a,b)=>a-b);
                 const branches = pins.map(pin => ({
                   id: `${it.kssk}:${pin}`,
                   branchName: aliases[String(pin)] || `PIN ${pin}`,

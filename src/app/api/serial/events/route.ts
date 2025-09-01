@@ -9,6 +9,7 @@ import {
 } from '@/lib/serial';
 import { getRedis } from '@/lib/redis';
 import serial from '@/lib/serial';
+import { LOG } from '@/lib/logger';
 
 // Lightweight log de-dupe to avoid spamming identical RESULT/EV lines
 const __LAST_LOG = {
@@ -72,6 +73,7 @@ async function ethStatus() {
 }
 
 export async function GET(req: Request) {
+  const log = LOG.tag('api:serial/events');
   const encoder = new TextEncoder();
   const urlObj = new URL(req.url);
   const macParam = (urlObj.searchParams.get('mac') || '').trim();
@@ -92,6 +94,7 @@ export async function GET(req: Request) {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      try { log.info('SSE open', { macFilter: macFilter || null }); } catch {}
       const cleanup = () => {
         if (closed) return;
         closed = true;
@@ -99,6 +102,7 @@ export async function GET(req: Request) {
         if (pollTimer) clearInterval(pollTimer);
         if (unsubscribe) try { unsubscribe(); } catch {}
         try { controller.close(); } catch {}
+        try { log.info('SSE close'); } catch {}
       };
 
       try { (req as any).signal?.addEventListener('abort', cleanup); } catch {}
@@ -118,7 +122,15 @@ export async function GET(req: Request) {
       heartbeat = setInterval(() => comment('ping'), 15_000);
 
       // Relay bus events
-      unsubscribe = onSerialEvent(e => send(e));
+      unsubscribe = onSerialEvent(e => {
+        try {
+          if ((e as any)?.type === 'scan' && (process.env.SCAN_LOG || '') === '1') {
+            const code = (e as any).code; const path = (e as any).path;
+            log.info('SCAN', { code, path });
+          }
+        } catch {}
+        send(e);
+      });
 
       // Initial payloads
       try { send({ type: 'net', ...(await ethStatus()) }); } catch {}

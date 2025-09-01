@@ -605,7 +605,12 @@ export default function SetupPage() {
           body: JSON.stringify({
             intksk: ksskDigits,
             requestID: "1",
-            sourceHostname: typeof window !== "undefined" ? window.location.hostname : undefined,
+            // Use configured source hostname for device + <sourceHost><hostname>
+            sourceHostname:
+              process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME ||
+              process.env.NEXT_PUBLIC_KROSY_XML_TARGET ||
+              (typeof window !== "undefined" ? window.location.hostname : undefined),
+            // XML target host for <targetHost><hostname>
             targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
           }),
         });

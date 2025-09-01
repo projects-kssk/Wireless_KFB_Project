@@ -401,6 +401,11 @@ export async function POST(req: NextRequest) {
   let workingDataXml: string | null = body.workingDataXml || null;
   const startedAll = Date.now();
 
+// normalize "forceResult" from body (available everywhere in POST)
+const bodyForceRaw = String(body.forceResult ?? "").trim().toLowerCase();
+const bodyForce: boolean | null =
+  ["ok","true","1","yes"].includes(bodyForceRaw)  ? true  :
+  ["nok","false","0","no"].includes(bodyForceRaw) ? false : null;
   // If no workingData provided, perform request leg to obtain it
   if (!workingDataXml) {
     const intksk = String(body.intksk || "830569527900");
@@ -489,27 +494,23 @@ export async function POST(req: NextRequest) {
   }
 
   // Build workingResult from workingData and send checkpoint
-  let resultXml: string;
-  let meta: any;
-  try {
-    const built = apikingResultFromWorkingData(workingDataXml!, { requestID: reqId });
-    resultXml = built.xml;
-    meta = built.meta;
-  } catch (e: any) {
-    await writeLog(
-      base,
-      "2_error.build.json",
-      JSON.stringify({ error: e?.message || String(e) }, null, 2)
-    );
-    return new Response(
-      JSON.stringify(
-        { ok: false, phase: "apikingResult", error: e?.message || String(e) },
-        null,
-        2
-      ),
-      { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } }
-    );
-  }
+
+  // Build workingResult from workingData and send checkpoint
+let resultXml: string;
+let meta: any;
+try {
+  const built = apikingResultFromWorkingData(
+    workingDataXml!,
+    { requestID: reqId },
+    { forceResult: bodyForce ?? FORCE_RESULT }  // <-- pass it here
+  );
+  resultXml = built.xml;
+  meta = built.meta;
+} catch (e: any) {
+  await writeLog(base, "2_error.build.json", JSON.stringify({ error: e?.message || String(e) }, null, 2));
+  return new Response(JSON.stringify({ ok: false, phase: "apikingResult", error: e?.message || String(e) }, null, 2),
+    { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } });
+}
 
   const prettyResultReq = prettyXml(resultXml);
   const t2 = Date.now();

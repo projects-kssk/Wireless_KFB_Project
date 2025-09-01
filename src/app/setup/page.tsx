@@ -744,7 +744,7 @@ const acceptKsskToIndex = useCallback(
       const macUp = String(kfb).toUpperCase();
       const extractOpts: KrosyOpts = {
         macHint: macUp,
-        includeLatch: false,              // drop "... ,C"
+        includeLatch: true,               // include contactless pins (",C")
         includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
         allowedMeasTypes: ["default"],    // keep ONLY default
         allowedCompTypes: ["clip"],

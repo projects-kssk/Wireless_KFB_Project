@@ -881,6 +881,24 @@ const acceptKsskToIndex = useCallback(
         } catch {}
       } catch {}
 
+      // Persist per-KSSK grouping locally so dashboard can reconstruct groups without server
+      try {
+        const entry = {
+          kssk: String(code),
+          aliases: out.names || {},
+          normalPins: out.normalPins || [],
+          latchPins: out.latchPins || [],
+          ts: Date.now(),
+        } as any;
+        const key = `PIN_ALIAS_GROUPS::${macUp}`;
+        const raw = localStorage.getItem(key);
+        const arr = raw ? JSON.parse(raw) : [];
+        const list: Array<any> = Array.isArray(arr) ? arr : [];
+        const idx = list.findIndex((it) => String(it?.kssk || '') === String(code));
+        if (idx >= 0) list[idx] = entry; else list.push(entry);
+        localStorage.setItem(key, JSON.stringify(list));
+      } catch {}
+
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
       if (!hasPins) {
         await releaseLock(code);

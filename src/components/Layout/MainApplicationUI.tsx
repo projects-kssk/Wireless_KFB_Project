@@ -134,6 +134,10 @@ const MainApplicationUI: React.FC = () => {
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
   const [scanningError, setScanningError] = useState(false);
+  // Snapshot of KSSK items discovered via /api/aliases?all=1 for this MAC
+  const itemsAllFromAliasesRef = useRef<Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
+  const lastGroupsRef = useRef<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
+  useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
@@ -613,10 +617,33 @@ useEffect(() => {
             const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
               ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
               : [];
-            const itemsAllArr = Array.isArray((result as any)?.items)
-              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
+            let itemsAllArr = Array.isArray((result as any)?.items)
+              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
               : [];
-            const items = [...itemsAllArr, ...itemsActiveArr];
+            // Fallback to locally persisted groups when server did not return any
+            try {
+              if (!itemsAllArr.length) {
+                const macUp = mac.toUpperCase();
+                const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${macUp}`);
+                if (rawGroups) {
+                  const arr = JSON.parse(rawGroups);
+                  if (Array.isArray(arr)) itemsAllArr = arr as any;
+                }
+              }
+            } catch {}
+            // Merge API-provided items with pre-scan Redis snapshot to avoid missing groups
+            const byKssk = new Map<string, { kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>();
+            for (const it of [...itemsAllArr, ...itemsActiveArr]) {
+              const id = String(it.kssk || '').trim();
+              if (!id) continue;
+              if (!byKssk.has(id)) byKssk.set(id, { kssk: id, aliases: it.aliases || {}, normalPins: (it as any).normalPins, latchPins: (it as any).latchPins });
+            }
+            for (const it of itemsAllFromAliasesRef.current || []) {
+              const id = String(it.kssk || '').trim();
+              if (!id || byKssk.has(id)) continue;
+              byKssk.set(id, { kssk: id, aliases: (it.aliases as any) || {}, normalPins: it.normalPins, latchPins: it.latchPins });
+            }
+            const items = Array.from(byKssk.values());
             if (items.length) {
               // Build raw groups and then de-duplicate by KSSK and pin
               const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
@@ -669,8 +696,13 @@ useEffect(() => {
                 } as BranchDisplayData));
                 groups.push({ kssk: 'CHECK', branches: extraBranches });
               }
-              setGroupedBranches(groups);
-              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              // Merge with any previously shown groups if API dropped some
+              const prev = lastGroupsRef.current || [];
+              const have = new Set(groups.map(g => g.kssk));
+              const mergedGroups = [...groups];
+              for (const g of prev) { if (!have.has(g.kssk)) mergedGroups.push(g); }
+              setGroupedBranches(mergedGroups);
+              setActiveKssks(mergedGroups.map(g => g.kssk).filter(Boolean));
               // Also use union of all group pins for flat list
               const unionMap: Record<number, string> = {};
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
@@ -910,6 +942,7 @@ useEffect(() => {
           if (rAll.ok) {
             const jAll = await rAll.json();
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            try { itemsAllFromAliasesRef.current = items as any; } catch {}
             
              if (items.length) {
               // Build raw groups, then de-duplicate by KSSK and pin
@@ -940,12 +973,13 @@ useEffect(() => {
                 });
                 byId.set(id, dedup);
               }
-              // Defer showing grouped KSSKs until CHECK result arrives to avoid flicker
-              // const groups = Array.from(byId.entries())
-              //   .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
-              //   .map(([k, branches]) => ({ kssk: k, branches }));
-              // setGroupedBranches(groups);
-              // setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              const groups = Array.from(byId.entries())
+                .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+                .map(([k, branches]) => ({ kssk: k, branches }));
+              setGroupedBranches(groups);
+              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              // Persist per-KSSK grouping for offline/fallback rendering on dashboard
+              try { localStorage.setItem(`PIN_ALIAS_GROUPS::${mac}`, JSON.stringify(items)); } catch {}
             }
                         
             

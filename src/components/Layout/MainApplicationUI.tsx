@@ -284,13 +284,6 @@ const MainApplicationUI: React.FC = () => {
       if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
       if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
       if (u.names && typeof u.names === 'object') setNameHints(u.names as any);
-      // Persist or clear local cache according to env flag
-      if (u.names && typeof u.names === 'object') {
-        try {
-          if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${cur}`);
-          else localStorage.setItem(`PIN_ALIAS::${cur}`, JSON.stringify(u.names));
-        } catch {}
-      }
     } catch {}
   }, [serial.lastUnion, macAddress]);
 
@@ -640,15 +633,6 @@ useEffect(() => {
                 return merged;
               };
               aliases = mergeAliases(itemsPref as Array<{ aliases: Record<string,string> }>);
-            } else {
-              try {
-                aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {};
-                const uLocal = JSON.parse(localStorage.getItem(`PIN_ALIAS_UNION::${macUp}`) || 'null');
-                if (uLocal && typeof uLocal === 'object') {
-                  if (Array.isArray(uLocal.normalPins)) setNormalPins(uLocal.normalPins);
-                  if (Array.isArray(uLocal.latchPins)) setLatchPins(uLocal.latchPins);
-                }
-              } catch {}
             }
             // If still empty, try simple aliases from API union
             if (!aliases || Object.keys(aliases).length === 0) {
@@ -670,12 +654,7 @@ useEffect(() => {
                 merged = result.aliases as Record<string,string>;
               }
               aliases = merged;
-              try {
-                if (Object.keys(aliases).length) {
-                  if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  else localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aliases));
-                }
-              } catch {}
+              
             }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
@@ -1011,11 +990,10 @@ useEffect(() => {
       setKfbNumber(mac);
       setMacAddress(mac);
 
-      // build from aliases if present
+      // build from Redis only (no localStorage fallback)
       let aliases: Record<string,string> = {};
       let hadGroups = false;
-      try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
-      let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+      let pins: number[] = [];
       {
         // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
         try {
@@ -1066,26 +1044,7 @@ useEffect(() => {
                 .map(([k, branches]) => ({ kssk: k, branches }));
               setGroupedBranches(groups);
               setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
-              // Persist per-KSSK grouping for offline/fallback rendering on dashboard (merge, don't overwrite)
-              try {
-                const key = `PIN_ALIAS_GROUPS::${mac}`;
-                const prevRaw = localStorage.getItem(key);
-                const prevArr = prevRaw ? JSON.parse(prevRaw) : [];
-                const list: Array<any> = Array.isArray(prevArr) ? prevArr : [];
-                const byId = new Map<string, any>();
-                for (const it of list) {
-                  const id = String((it?.kssk ?? "")).trim();
-                  if (id) byId.set(id, it);
-                }
-                for (const it of items) {
-                  const id = String((it as any)?.kssk ?? '').trim();
-                  if (!id) continue;
-                  byId.set(id, it);
-                }
-                const final = Array.from(byId.values());
-                localStorage.setItem(key, JSON.stringify(final));
-                hadGroups = final.length > 0;
-              } catch {}
+              hadGroups = groups.length > 0;
             }
                         
             
@@ -1098,49 +1057,19 @@ useEffect(() => {
               if (Array.isArray(it.latchPins)) for (const n of it.latchPins) if (Number.isFinite(n) && n>0) pinSet.add(Number(n));
             }
             if (pinSet.size && pins.length === 0) pins = Array.from(pinSet).sort((x,y)=>x-y);
-            // Also persist union aliases for UI rendering if available via single GET
+            // Load union aliases for UI rendering via single GET (Redis only)
             try {
               const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
               if (rUnion.ok) {
                 const jU = await rUnion.json();
                 const aU = (jU?.aliases && typeof jU.aliases === 'object') ? (jU.aliases as Record<string,string>) : {};
-                // Merge server union with locally persisted per‑KSSK groups to avoid dropping pins
-                let mergedAliases: Record<string,string> = { ...aU };
-                let mergedNormal: number[] = Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : [];
-                let mergedLatch: number[] = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : [];
-                try {
-                  const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${mac}`);
-                  if (rawGroups) {
-                    const arr = JSON.parse(rawGroups);
-                    if (Array.isArray(arr)) {
-                      if (arr.length > 0) hadGroups = true;
-                      for (const it of arr) {
-                        const names = (it && typeof it.aliases === 'object') ? it.aliases as Record<string,string> : {};
-                        for (const [pin, name] of Object.entries(names)) {
-                          if (!mergedAliases[pin]) mergedAliases[pin] = name as string;
-                          else if (mergedAliases[pin] !== name) mergedAliases[pin] = `${mergedAliases[pin]} / ${name}`;
-                        }
-                        if (Array.isArray(it?.normalPins)) mergedNormal = Array.from(new Set([...mergedNormal, ...it.normalPins]));
-                        if (Array.isArray(it?.latchPins)) mergedLatch = Array.from(new Set([...mergedLatch, ...it.latchPins]));
-                      }
-                    }
-                  }
-                } catch {}
-
-                if (Object.keys(mergedAliases).length) {
-                  aliases = mergedAliases;
-                  try {
-                    if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${mac}`); localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`); }
-                    else {
-                      localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
-                      localStorage.setItem(`PIN_ALIAS_UNION::${mac}`, JSON.stringify({ names: aliases, normalPins: mergedNormal, latchPins: mergedLatch, ts: Date.now() }));
-                    }
-                  } catch {}
+                if (Object.keys(aU).length) {
+                  aliases = aU;
                 }
-                // capture pin type context (use merged)
+                // capture pin type context
                 try {
-                  const n = mergedNormal.length ? mergedNormal : (Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : undefined);
-                  const l = mergedLatch.length ? mergedLatch : (Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined);
+                  const n = Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : undefined;
+                  const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
                   setNormalPins(n);
                   setLatchPins(l);
                   // Always merge union pins into the pins we send to CHECK so first scan uses all KSSKs
@@ -1161,8 +1090,9 @@ useEffect(() => {
       const noGroups = !hadGroups;
       if (noAliases && noPins && noGroups) {
         clearScanOverlayTimeout();
-        setOverlay(o => ({ ...o, open: false }));
-        setErrorMsg('NOTHING TO CHECK HERE');
+        // Show a prominent message, then return to scan view
+        showOverlay('error', 'NOTHING TO CHECK HERE');
+        hideOverlaySoon();
         setGroupedBranches([]);
         setActiveKssks([]);
         setIsScanning(false);

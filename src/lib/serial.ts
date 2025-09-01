@@ -329,7 +329,11 @@ function attachScannerHandlers(
       out = m[1].replace(/[^0-9A-F]/gi, "").match(/.{2}/g)!.join(":").toUpperCase();
     }
 
-    try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan', { code: out, path }); } catch {}
+    try {
+      if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan', { code: out, path });
+      // concise monitor line
+      LOG.tag('monitor').info(`SCAN ${out}${path ? ` @ ${path}` : ''}`);
+    } catch {}
     broadcast({ type: "scan", code: out, path });
   });
 
@@ -541,6 +545,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
       opened = true;
       try { clearTimeout(watchdog); } catch {}
       LOG.tag('scanner').info(`opened ${path}`);
+      try { LOG.tag('monitor').info(`SCANNER OPEN ${path}`); } catch {}
       assertControlLines();
     });
 
@@ -557,6 +562,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
       opened = true;
       try { clearTimeout(watchdog); } catch {}
       LOG.tag('scanner').info(`opened ${path}`);
+      try { LOG.tag('monitor').info(`SCANNER OPEN ${path}`); } catch {}
       assertControlLines();
       resetCooldown(retry);
       state.port = port;

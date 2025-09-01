@@ -79,7 +79,10 @@ export async function GET(req: Request) {
 
     if (now >= NEXT_ENSURE_AT) {
       NEXT_ENSURE_AT = now + ENSURE_INTERVAL_MS;
-      await ensureScanners(envScannerPaths());
+      // Always include the explicitly requested path (if any) so we attempt to open it.
+      const base = envScannerPaths();
+      const all = wantedPath ? Array.from(new Set([...base, wantedPath])) : base;
+      await ensureScanners(all);
     }
 
     const statusRaw = getScannerStatus();
@@ -101,7 +104,7 @@ export async function GET(req: Request) {
       // Log only when we actually have a scan to avoid noisy polling logs
       if (code) {
         try { log.info('SCAN', { code, path }); } catch {}
-        try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
+        try { LOG.tag('monitor').info(`SCAN API ${code}${path ? ` @ ${path}` : ''}`); } catch {}
       }
       return NextResponse.json(
         { code, path, error, retryInMs: advise, present: !!(statusRaw as any)[wantedPath], open: !!((statusRaw as any)[wantedPath]?.open), nextAttemptAt: ((statusRaw as any)[wantedPath]?.nextAttemptAt ?? null) },
@@ -132,7 +135,7 @@ export async function GET(req: Request) {
   // Log only when a scan is present
   if (code) {
     try { log.info('SCAN', { code, path }); } catch {}
-    try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
+    try { LOG.tag('monitor').info(`SCAN API ${code}${path ? ` @ ${path}` : ''}`); } catch {}
   }
   return NextResponse.json(
     { code, path, error, retryInMs: advise, present: !!status, open: !!status?.open, nextAttemptAt: status?.nextAttemptAt ?? null },

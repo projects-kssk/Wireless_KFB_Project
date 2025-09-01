@@ -3,8 +3,8 @@ import next from 'next'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { WebSocketServer, RawData } from 'ws'
 // ⬇️ use the real file and add .js extension for ESM
-import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
-import { LOG } from './src/lib/logger.js'
+import { getEspLineStream, sendAndReceive } from './src/lib/serial'
+import { LOG } from './src/lib/logger'
 
 const dev = process.env.NODE_ENV !== 'production'
 const app = next({ dev })

@@ -234,7 +234,9 @@ export async function POST(req: NextRequest) {
   });
 
   const stamp = nowStamp();
-  const base = path.join(LOG_DIR, `${stamp}_${requestID}`);
+  const cur = new Date();
+  const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
+  const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
   const lines: string[] = [];
   const push = (s: string) => {
     const l = line(s);
@@ -344,6 +346,29 @@ export async function POST(req: NextRequest) {
       ),
     ),
   ]);
+  try { await (async function pruneOldLogs(root, maxAgeDays = 31){
+    try {
+      const now = Date.now();
+      const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+      const entries = await fs.readdir(root, { withFileTypes: true });
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        const dirPath = path.join(root, ent.name);
+        let ts = 0;
+        const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+        if (m) {
+          const y = Number(m[1]); const mon = Number(m[2]);
+          ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+        } else {
+          const st = await fs.stat(dirPath);
+          ts = st.mtimeMs || st.ctimeMs || 0;
+        }
+        if (now - ts > maxAgeMs) {
+          try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+        }
+      }
+    } catch {}
+  })(LOG_DIR, 31); } catch {}
 
   const headers = {
     ...cors(req),

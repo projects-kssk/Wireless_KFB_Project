@@ -52,6 +52,31 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function pruneOldLogs(root: string, maxAgeDays = 31) {
+  try {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(root, ent.name);
+      // Prefer YYYY-MM folders; else fallback to mtime
+      let ts = 0;
+      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+      if (m) {
+        const y = Number(m[1]); const mon = Number(m[2]);
+        const firstDay = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+        ts = firstDay;
+      } else {
+        const st = await fs.stat(dirPath);
+        ts = st.mtimeMs || st.ctimeMs || 0;
+      }
+      if (now - ts > maxAgeMs) {
+        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
+}
 function pickIpAndMac() {
   const want = (process.env.KROSY_NET_IFACE || "").trim();
   const ifs = os.networkInterfaces();
@@ -207,7 +232,9 @@ export async function POST(req: NextRequest) {
   // Logs
   try {
     const stamp = nowStamp();
-    const base = path.join(LOG_DIR, `${stamp}_${requestID}`);
+    const cur = new Date();
+    const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
+    const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
     await Promise.all([
       writeLog(base, "request.xml", xml),
       writeLog(base, "request.pretty.xml", prettyReq),
@@ -224,6 +251,8 @@ export async function POST(req: NextRequest) {
         terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS,
       }, null, 2)),
     ]);
+    // Auto-prune logs older than ~1 month
+    await pruneOldLogs(LOG_DIR, 31);
   } catch {}
 
   // XML response branch

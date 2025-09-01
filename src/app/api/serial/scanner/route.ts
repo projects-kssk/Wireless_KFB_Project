@@ -1,7 +1,7 @@
 // src/app/api/serial/scanner/route.ts
 import { NextResponse } from 'next/server';
 import { getLastScanAndClear, getLastScanAndClearFor, peekLastScanFor } from '@/lib/scannerMemory';
-import { ensureScanners, getScannerStatus } from '@/lib/serial';
+import { ensureScanners, ensureScannerForPath, getScannerStatus } from '@/lib/serial';
 // Ensure bus → memory wiring is active even when SSE endpoint isn't open
 import '@/lib/scanSink';
 import { LOG } from '@/lib/logger';
@@ -75,6 +75,8 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const consume = url.searchParams.get('consume') === '1'; // default: peek
     const wantedPath = (url.searchParams.get('path') || '').trim();
+    // Kick an immediate ensure for the explicitly requested path, without waiting for the throttle window.
+    if (wantedPath) { try { void ensureScannerForPath(wantedPath).catch(() => {}); } catch {} }
     const now = Date.now();
 
     if (now >= NEXT_ENSURE_AT) {

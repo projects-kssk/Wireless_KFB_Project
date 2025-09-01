@@ -340,9 +340,9 @@ function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
 
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
-type KsskIndex = 0 | 1 | 2;
-type KsskPanel = `kssk${KsskIndex}`;
-type PanelKey = "kfb" | KsskPanel;
+type KskIndex = 0 | 1 | 2;
+type KskPanel = `ksk${KskIndex}`;
+type PanelKey = "kfb" | KskPanel;
 type OfflineResp = { ok: boolean; status: number; data: any | null };
 type Ov = {
   open: boolean;
@@ -716,7 +716,7 @@ const acceptKsskToIndex = useCallback(
       // Reconcile locks with server before local duplicate check
       await reconcileLocksNow();
       const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
-      const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
+      const panel: PanelTarget = target >= 0 ? (`ksk${target}` as PanelKey) : "global";
 
       // 1) server is source of truth
       if (!kfb) {
@@ -937,7 +937,7 @@ const acceptKsskToIndex = useCallback(
           showErr(code, "Expected KSK (12 digits)", panel);
           return;
         }
-        const idx = Number(panel.slice(-1)) as KsskIndex;
+        const idx = Number(panel.slice(-1)) as KskIndex;
         void acceptKsskToIndex(code, idx);
       }
       setShowManualFor((s) => ({ ...s, [panel]: false }));
@@ -949,8 +949,8 @@ const acceptKsskToIndex = useCallback(
     (raw: string) => {
       const { type, code } = classify(raw);
       const nextIdx = ksskSlots.findIndex((v) => v === null);
-      const defaultKsskPanel: PanelKey = (nextIdx >= 0 ? `kssk${nextIdx}` : "kssk0") as PanelKey;
-      const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKsskPanel;
+      const defaultKskPanel: PanelKey = (nextIdx >= 0 ? `ksk${nextIdx}` : "ksk0") as PanelKey;
+      const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKskPanel;
 
       if (!type) {
         showErr(code || raw, "Unrecognized code", defaultPanel);

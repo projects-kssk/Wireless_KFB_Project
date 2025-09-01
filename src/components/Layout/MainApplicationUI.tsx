@@ -719,17 +719,7 @@ useEffect(() => {
             let itemsAllArr = Array.isArray((result as any)?.items)
               ? (result as any).items as Array<{ ksk?: string; kssk?: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
               : [];
-            // Fallback to locally persisted groups when server did not return any
-            try {
-              if (!itemsAllArr.length) {
-                const macUp = mac.toUpperCase();
-                const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${macUp}`);
-                if (rawGroups) {
-                  const arr = JSON.parse(rawGroups);
-                  if (Array.isArray(arr)) itemsAllArr = arr as any;
-                }
-              }
-            } catch {}
+            // No localStorage fallback; rely on Redis responses only
             // Merge API-provided items with pre-scan Redis snapshot to avoid missing groups
             const byIdMap = new Map<string, { ksk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>();
             for (const it of [...itemsAllArr, ...itemsActiveArr]) {

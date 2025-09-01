@@ -404,21 +404,8 @@ export default function SetupPage() {
 
   const hb = useRef<Map<string, number>>(new Map());
 
-  const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
-  const loadLocalLocks = (): Set<string> => {
-    if (REQUIRE_REDIS_ONLY) return new Set();
-    try {
-      return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
-    } catch {
-      return new Set();
-    }
-  };
-  const saveLocalLocks = (s: Set<string>) => {
-    if (REQUIRE_REDIS_ONLY) return; // do not persist client locks when Redis-only
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify([...s]));
-    } catch {}
-  };
+  // No localStorage fallback; always rely on Redis for locks
+  const saveLocalLocks = (_s: Set<string>) => {};
   const activeLocks = useRef<Set<string>>(new Set());
 
   // Alias cache policy flags
@@ -509,10 +496,7 @@ export default function SetupPage() {
           hydrated = true;
         }
       } catch {}
-      if (!hydrated) {
-        // Redis-only: do not fall back to local cache
-        activeLocks.current = loadLocalLocks();
-      }
+      // No local fallback when Redis is unavailable
       activeLocks.current.forEach((k) => startHeartbeat(k));
     })();
   }, []);
@@ -871,14 +855,7 @@ const acceptKsskToIndex = useCallback(
         }
       } catch {}
 
-      // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
-      try {
-        localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {}));
-        localStorage.setItem(
-          `PIN_ALIAS_UNION::${macUp}`,
-          JSON.stringify({ names: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], ts: Date.now() })
-        );
-      } catch {}
+      // No client-side alias cache; rely on Redis via aliases API
 
       // Also save to Redis so other clients can render after CHECK-only
       try {
@@ -889,7 +866,7 @@ const acceptKsskToIndex = useCallback(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mac: macUp,
-            kssk: code,
+            ksk: code,
             aliases: out.names || {},
             normalPins: out.normalPins || [],
             latchPins: out.latchPins || [],
@@ -897,63 +874,9 @@ const acceptKsskToIndex = useCallback(
             hints,
           }),
         });
-        // Pull fresh union and cache locally so dashboard has full set without refresh
-        try {
-          const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}`, { cache: 'no-store' });
-          if (ru.ok) {
-            const ju = await ru.json();
-            const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
-            if (MIRROR_ALIAS_WITH_REDIS) {
-              if (Object.keys(aU).length === 0) {
-                try {
-                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                } catch {}
-              } else {
-                try {
-                  if (CLEAR_LOCAL_ALIAS) {
-                    localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                    localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                  } else {
-                    localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                    localStorage.setItem(
-                      `PIN_ALIAS_UNION::${macUp}`,
-                      JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
-                    );
-                  }
-                } catch {}
-              }
-            } else if (Object.keys(aU).length) {
-              try {
-                localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                localStorage.setItem(
-                  `PIN_ALIAS_UNION::${macUp}`,
-                  JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
-                );
-              } catch {}
-            }
-          }
-        } catch {}
       } catch {}
 
-      // Persist per-KSK grouping locally so dashboard can reconstruct groups without server
-      try {
-        const entry = {
-          kssk: String(code),
-          aliases: out.names || {},
-          normalPins: out.normalPins || [],
-          latchPins: out.latchPins || [],
-          ts: Date.now(),
-        } as any;
-        const key = `PIN_ALIAS_GROUPS::${macUp}`;
-        const raw = localStorage.getItem(key);
-        const arr = raw ? JSON.parse(raw) : [];
-        const list: Array<any> = Array.isArray(arr) ? arr : [];
-        const idx = list.findIndex((it) => String(it?.kssk || '') === String(code));
-        if (idx >= 0) list[idx] = entry; else list.push(entry);
-        localStorage.setItem(key, JSON.stringify(list));
-        try { console.log('[SETUP] Saved group for', code, 'pins', entry.normalPins?.length + entry.latchPins?.length); } catch {}
-      } catch {}
+      // No local grouping persistence; dashboard derives from Redis
 
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
       if (!hasPins) {

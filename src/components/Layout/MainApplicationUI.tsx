@@ -251,7 +251,7 @@ useEffect(() => {
     // Send checkpoint when live event indicates success and live mode is on
     try {
       const mac = (macAddress || '').toUpperCase();
-      if (mac && krosyLive && !checkpointMacSentRef.current.has(mac))
+      if (mac && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac))
         void sendCheckpointForMac(mac);
     } catch {}
     scheduleOkReset();            // auto-return to scan
@@ -377,6 +377,7 @@ useEffect(() => {
   }, []);
   const checkpointSentRef = useRef<Set<string>>(new Set());
   const checkpointMacSentRef = useRef<Set<string>>(new Set());
+  const checkpointMacPendingRef = useRef<Set<string>>(new Set());
 
   const sendCheckpointForMac = useCallback(async (mac: string) => {
     if (checkpointMacSentRef.current.has(mac.toUpperCase())) return;
@@ -384,7 +385,30 @@ useEffect(() => {
       const rList = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
       if (!rList.ok) return;
       const j = await rList.json();
-      const items: Array<{ kssk: string }> = Array.isArray(j?.items) ? j.items : [];
+      const items: Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.items) ? j.items : [];
+
+      // If there is nothing to check (no items, no aliases/pins), do not send checkpoint
+      let hasData = items.length > 0 && items.some(it => {
+        const a = it.aliases && typeof it.aliases === 'object' ? Object.keys(it.aliases).length > 0 : false;
+        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
+        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
+        return a || np || lp;
+      });
+      if (!hasData) {
+        try {
+          const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+          if (ru.ok) {
+            const ju = await ru.json();
+            const a = ju && typeof ju.aliases === 'object' ? Object.keys(ju.aliases || {}).length > 0 : false;
+            const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
+            const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
+            hasData = a || np || lp;
+          }
+        } catch {}
+      }
+      if (!hasData) return;
+
+      let sentAny = false;
       for (const it of items) {
         const kssk = String(it.kssk || '').trim();
         if (!kssk || checkpointSentRef.current.has(kssk)) continue;
@@ -403,9 +427,10 @@ useEffect(() => {
             body: JSON.stringify(payload),
           });
           checkpointSentRef.current.add(kssk);
+          sentAny = true;
         } catch {}
       }
-      checkpointMacSentRef.current.add(mac.toUpperCase());
+      if (sentAny) checkpointMacSentRef.current.add(mac.toUpperCase());
     } catch {}
   }, [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]);
 
@@ -630,6 +655,12 @@ useEffect(() => {
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  
+              // Clear any local alias cache so rescans without setup data do not send checkpoint
+              try {
+                const macUp = mac.toUpperCase();
+                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+              } catch {}
               // Trigger Krosy checkpoint send once per MAC (live only)
               if (krosyLive && !checkpointMacSentRef.current.has(mac.toUpperCase()))
                 void sendCheckpointForMac(mac);

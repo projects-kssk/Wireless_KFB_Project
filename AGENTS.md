@@ -49,3 +49,38 @@
 - Never commit secrets; use `.env` locally and `.env.production` for packaging.
 - Redis must be reachable for lock/monitor features; see `scripts/redis-up.sh`.
 - Serial access may require OS permissions; document steps in your PR if relevant.
+
+## Process Flow (Setup → Check → OK + Cleanup)
+
+- Setup (scan MAC, then up to 3 KSKs)
+  - Locks: `POST /api/ksk-lock` acquires; `PATCH /api/ksk-lock` heartbeats; `GET /api/ksk-lock?stationId=` lists.
+  - Krosy: online `POST /api/krosy` or offline `POST /api/krosy-offline` using `intksk` to obtain XML/JSON; extract pins and names.
+  - Persist: `POST /api/aliases` with `{ mac, ksk, aliases, normalPins, latchPins, [xml], [hints] }`; server rebuilds union for MAC.
+  - Program ESP: `POST /api/serial` with `{ normalPins, latchPins, mac, kssk: ksk }`; on success, show “KSK OK”.
+  - Policy: no localStorage; aliases and locks are always stored in Redis.
+
+- Check (dashboard)
+  - Rehydrate: `POST /api/aliases/rehydrate` (best effort), `GET /api/aliases?mac=<MAC>&all=1` (items), `GET /api/aliases?mac=<MAC>` (union).
+  - Run: `POST /api/serial/check` with `{ mac }`; `CHECK_SEND_MODE` decides pins: `mac|union|client|merge` (default: merge).
+  - UI merges failures, alias names, and grouped items (ksk ID) into flat and grouped views.
+
+- Live OK + Cleanup
+  - On serial SSE `RESULT/DONE` success for current MAC: show OK overlay and reset.
+  - Optional checkpoint (when online and Redis has data):
+    - `GET /api/aliases?mac=<MAC>&all=1` → for each item: try `GET /api/aliases/xml?mac=<MAC>&kssk=<ksk>`; send `POST /api/krosy/checkpoint` (or offline version).
+  - Cleanup:
+    - Clear aliases: `POST /api/aliases/clear` with `{ mac }`.
+    - Clear station locks: `DELETE /api/ksk-lock` with `{ mac, [stationId], force: 1 }`.
+
+- Station locks (Redis)
+  - Lock value keys: `ksk:<ksk>` → `{ kssk, mac, stationId, ts }` with TTL.
+  - Station index sets: `ksk:station:<stationId>` → members are KSK IDs.
+  - API accepts `ksk` (preferred) and legacy `kssk` fields for compatibility.
+
+- Logging & retention
+  - App logs: `logs/app-YYYY-MM-DD.log`, pruned after ~31 days.
+  - Monitor logs: `monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log`, pruned after ~31 days.
+  - Krosy logs (request/response and checkpoint): `.krosy-logs/YYYY-MM/<stamp>_<requestId>/...`, pruned after ~31 days.
+
+
+See also: `docs/PROCESS-FLOW.md` (full details) and `docs/ERRORS.md` (detailed checks & troubleshooting).

@@ -72,7 +72,7 @@ Prerequisites
   - Errors from any tag always show
 - Files (structured JSON):
   - App logs in `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1`)
-  - Detailed monitor events in `./monitor.logs/monitor-YYYY-MM-DD.log`
+  - Detailed monitor events in `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log`
 
 ## Repo Structure (selected)
 - `server.ts` – Next server + WS bridge for serial events (dev-prod compatible)
@@ -133,6 +133,10 @@ Note: Legacy Postgres-backed branches/config endpoints were removed in favor of 
 - SSE wiring (`/api/serial/events`) keeps the UI updated without polling, and the UI also polls `/api/serial/scanner` to consume scans.
 - Client storage: The app does not use `localStorage` for caching; aliases, pins and locks are managed server‑side (Redis) and fetched on demand.
 
+## Process Flow
+
+See `docs/PROCESS-FLOW.md` for the end-to-end Setup → Check → OK + Cleanup flow, API calls, and data persistence.
+
 ## Troubleshooting
 - No monitor logs:
   - Check `ESP_TTY_PATH` and device permissions; set `ESP_DEBUG=1` to see serial lines.
@@ -140,3 +144,5 @@ Note: Legacy Postgres-backed branches/config endpoints were removed in favor of 
   - Verify scanner path in env; watch `/api/serial/events` output; check `getScannerStatus()` via `/api/serial/scanner` response.
 - Locks not visible:
   - Ensure `REDIS_URL` is the same for the app and script; use `npm run locks:station -- --id=...`.
+
+More detailed checks are in `docs/ERRORS.md` (Krosy connectivity, local server, scanners, ESP, Redis).

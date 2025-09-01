@@ -36,32 +36,145 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
     return fallback;
   }
 }
-
+// ---- types
 type KrosyOpts = {
-  macHint?: string;                // MAC to include (AA:BB:CC:DD:EE:FF)
-  includeLatch?: boolean;          // default: false
-  allowedCompTypes?: string[];     // e.g. ["contact"]; default: allow all
-  includeLabelPrefixes?: string[]; // e.g. ["CN"]; default: allow all
-  allowedMeasTypes?: string[];     // default: ["default"]
+  macHint?: string;
+  includeLatch?: boolean;          // default false
+  allowedCompTypes?: string[];     // e.g. ["contact"]
+  includeLabelPrefixes?: string[]; // e.g. ["CN"]
+  allowedMeasTypes?: string[];     // default ["default"]
+};
+
+type KrosyNameHints = {
+  labels: string[];                              // e.g. ["CN_2450", ...]
+  byPrefix: Record<string, string[]>;            // { CN: ["CN_2450", ...] }
+  labelToPin: Record<string, number>;            // { "CN_2450": 1 }
+  normalPins: number[];
+  latchPins: number[];
 };
 
 
-
-// put near the top of the file (reuse if already present)
 const OBJGROUP_MAC = /\(([0-9A-F:]{17})\)/i;
-
 
 function parsePos(pos: string) {
   const parts = pos.split(",");
   let isLatch = false;
   if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
   const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
-  const label = (pos.split(",")[0] || "").trim();      // e.g. "CL_2455"
-  const labelPrefix = label.split("_")[0] || "";        // e.g. "CL"
+  const label = (pos.split(",")[0] || "").trim();
+  const labelPrefix = label.split("_")[0] || "";
   return { pin, label, labelPrefix, isLatch };
 }
 
-function extractPinsFromKrosy(data: any, opts: KrosyOpts = {}) {
+// ---------- helpers (put near other small utils) ----------
+const getAttr = (el: Element, name: string) =>
+  el.getAttribute(name) ?? el.getAttribute(name.toLowerCase()) ?? "";
+
+const parseMarkupSafely = (markup: string) =>
+  new DOMParser().parseFromString(markup, "text/html"); // avoids Firefox XML console error
+
+const tag = (el: ParentNode, name: string) =>
+  (el as Document).getElementsByTagName
+    ? Array.from((el as Document).getElementsByTagName(name))
+    : Array.from((el as Element).getElementsByTagName(name));
+
+// ---------- safer XML→DOM readers ----------
+function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string): KrosyNameHints {
+  const opts: KrosyOpts = typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
+  const {
+    macHint,
+    includeLatch = true,
+    allowedCompTypes,
+    includeLabelPrefixes,
+    allowedMeasTypes = ["default"],
+  } = opts;
+
+  const wantMac = String(macHint ?? "").toUpperCase();
+  const labels: string[] = [];
+  const byPrefix: Record<string, string[]> = {};
+  const labelToPin: Record<string, number> = {};
+  const normalPins: number[] = [];
+  const latchPins: number[] = [];
+
+  const pushFromObjPos = (pos: string) => {
+    const { pin, label, labelPrefix, isLatch } = parsePos(pos);
+    if (!Number.isFinite(pin)) return;
+    if (!includeLatch && isLatch) return;
+    if (includeLabelPrefixes && !includeLabelPrefixes.includes(labelPrefix)) return;
+    if (label) {
+      labels.push(label);
+      (byPrefix[labelPrefix] ||= []).push(label);
+      if (!(label in labelToPin)) labelToPin[label] = pin;
+    }
+    (isLatch ? latchPins : normalPins).push(pin);
+  };
+
+  // Parse as HTML to suppress Firefox XML errors
+  let parsedAny = false;
+  try {
+    const doc = parseMarkupSafely(xml);
+    const seqs = Array.from(doc.getElementsByTagName("sequence"));
+    for (const el of seqs) {
+      const mt = (getAttr(el, "measType") || "").toLowerCase();
+      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+
+      const ct = ((el.getElementsByTagName("compType")[0]?.textContent) || "").toLowerCase();
+      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+
+      const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
+      const macM = og.match(OBJGROUP_MAC);
+      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+
+      const pos = String(el.getElementsByTagName("objPos")[0]?.textContent || "");
+      if (pos) pushFromObjPos(pos);
+    }
+    parsedAny = seqs.length > 0;
+  } catch { /* noop; fallback next */ }
+
+  if (!parsedAny) {
+    const re = /<sequence\b([^>]*)>([\s\S]*?)<\/sequence>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml))) {
+      const attrs = m[1] || "";
+      const body = m[2] || "";
+
+      const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
+      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+
+      const ct = (body.match(/<compType>([^<]*)<\/compType>/i)?.[1] || "").toLowerCase();
+      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+
+      const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
+      const macM = og.match(OBJGROUP_MAC);
+      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+
+      const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
+      if (pos) pushFromObjPos(pos);
+    }
+  }
+
+  const uniqNum = (xs: number[]) => Array.from(new Set(xs));
+  const uniqStr = (xs: string[]) => Array.from(new Set(xs));
+  const byPrefixUniq: Record<string, string[]> = {};
+  for (const [k, v] of Object.entries(byPrefix)) byPrefixUniq[k] = uniqStr(v);
+
+  return {
+    labels: uniqStr(labels),
+    byPrefix: byPrefixUniq,
+    labelToPin,
+    normalPins: uniqNum(normalPins),
+    latchPins: uniqNum(latchPins),
+  };
+}
+
+
+// ===== JSON extractor
+function extractPinsFromKrosy(
+  data: any,
+  optsOrMac?: KrosyOpts | string
+): { normalPins: number[]; latchPins: number[]; names: Record<number, string> } {
+  const opts: KrosyOpts =
+    typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
   const {
     macHint,
     includeLatch = false,
@@ -76,12 +189,11 @@ function extractPinsFromKrosy(data: any, opts: KrosyOpts = {}) {
     data?.response?.krosy?.body?.visualControl?.loadedData?.sequencer?.segmentList?.segment;
 
   const wantMac = String(macHint ?? "").toUpperCase();
-  const segments = take(segRoot);
   const normal: number[] = [];
   const latch: number[] = [];
   const names: Record<number, string> = {};
 
-  for (const seg of segments) {
+  for (const seg of take(segRoot)) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
@@ -98,7 +210,6 @@ function extractPinsFromKrosy(data: any, opts: KrosyOpts = {}) {
 
       const { pin, label, labelPrefix, isLatch } = parsePos(pos);
       if (!Number.isFinite(pin)) continue;
-
       if (includeLabelPrefixes && !includeLabelPrefixes.includes(labelPrefix)) continue;
       if (!includeLatch && isLatch) continue;
 
@@ -106,12 +217,14 @@ function extractPinsFromKrosy(data: any, opts: KrosyOpts = {}) {
       (isLatch ? latch : normal).push(pin);
     }
   }
+
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
-// XML variant with the same gates
-function extractPinsFromKrosyXML(xml: string, opts: KrosyOpts = {}) {
+
+function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
+  const opts: KrosyOpts = typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
   const {
     macHint,
     includeLatch = false,
@@ -136,31 +249,26 @@ function extractPinsFromKrosyXML(xml: string, opts: KrosyOpts = {}) {
 
   let parsedOk = false;
   try {
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
-    const seqs: Element[] =
-      Array.from(doc.getElementsByTagName("sequence")).length
-        ? Array.from(doc.getElementsByTagName("sequence"))
-        : Array.from((doc as any).getElementsByTagNameNS?.("*", "sequence") || []);
-
+    const doc = parseMarkupSafely(xml);
+    const seqs = Array.from(doc.getElementsByTagName("sequence"));
     for (const el of seqs) {
-      const mt = (el.getAttribute("measType") || "").toLowerCase();
+      const mt = (getAttr(el, "measType") || "").toLowerCase();
       if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
-      const ct = (el.getElementsByTagName("compType")[0]?.textContent || "").toLowerCase();
+      const ct = ((el.getElementsByTagName("compType")[0]?.textContent) || "").toLowerCase();
       if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
-      const og = (el.getElementsByTagName("objGroup")[0]?.textContent || "").toString();
+      const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
       const m = og.match(OBJGROUP_MAC);
       if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
 
-      const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
+      const pos = String(el.getElementsByTagName("objPos")[0]?.textContent || "");
       if (pos) pushPin(pos);
     }
     parsedOk = seqs.length > 0;
-  } catch {}
+  } catch { /* noop; fallback next */ }
 
   if (!parsedOk) {
-    // Regex fallback honoring the same gates
     const re = /<sequence\b([^>]*)>([\s\S]*?)<\/sequence>/gi;
     let m: RegExpExecArray | null;
     while ((m = re.exec(xml))) {
@@ -186,35 +294,6 @@ function extractPinsFromKrosyXML(xml: string, opts: KrosyOpts = {}) {
 }
 
 
-
-function extractNameHintsFromKrosyXML(xml: string, macHint?: string) {
-  const wantMac = String(macHint ?? "").toUpperCase();
-  const names: Record<number, string> = {};
-  try {
-    const doc = new DOMParser().parseFromString(xml, "application/xml");
-    const nodes: Element[] =
-      Array.from(doc.getElementsByTagName("sequence")).length
-        ? Array.from(doc.getElementsByTagName("sequence"))
-        : Array.from((doc as any).getElementsByTagNameNS?.("*", "sequence") || []);
-    for (const el of nodes) {
-      const mt = (el.getAttribute("measType") || "").toLowerCase();
-      if (mt !== "default") continue; // <— only default
-
-      const og = el.getElementsByTagName("objGroup")[0]?.textContent || "";
-      const m = String(og).match(OBJGROUP_MAC);
-      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
-
-      const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
-      const parts = pos.split(",");
-      if (parts.at(-1)?.trim().toUpperCase() === "C") parts.pop();
-      const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
-      if (!Number.isFinite(pin)) continue;
-      const label = pos.split(",")[0] || "";
-      if (label) names[pin] = label;
-    }
-  } catch {}
-  return names;
-}
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
@@ -572,177 +651,210 @@ export default function SetupPage() {
     setTableCycle((n) => n + 1);
   };
 
-  const acceptKsskToIndex = useCallback(
-    async (codeRaw: string, idx?: number) => {
-      const code = digitsOnly(codeRaw);
-      if (sendBusyRef.current) {
-        showErr(code, "Busy — finishing previous KSSK", "global");
+const acceptKsskToIndex = useCallback(
+  async (codeRaw: string, idx?: number) => {
+    const code = digitsOnly(codeRaw);
+    if (sendBusyRef.current) {
+      showErr(code, "Busy — finishing previous KSSK", "global");
+      return;
+    }
+    sendBusyRef.current = true;
+
+    try {
+      // Reconcile locks with server before local duplicate check
+      await reconcileLocksNow();
+      const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
+      const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
+
+      // 1) server is source of truth
+      if (!kfb) {
+        showErr(code, "Scan MAC address first", "kfb");
         return;
       }
-      sendBusyRef.current = true;
+      // disallow duplicates in current batch or any active lock for this station
+      if (ksskSlots.includes(code) || activeLocks.current.has(code)) {
+        showErr(code, "Already in production — cannot reuse", panel);
+        return;
+      }
+      if (target === -1) {
+        showErr(code, "Batch full (3/3)", "global");
+        return;
+      }
+
+      // mark pending (no green yet)
+      bump(target, code, "pending");
+
+      // 2) acquire server lock
+      const lockRes = await fetch("/api/kssk-lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+      });
+
+      if (!lockRes.ok) {
+        const j = await lockRes.json().catch(() => ({}));
+        if (lockRes.status === 503 && String(j?.error || '').includes('redis')) {
+          bump(target, null, "idle");
+          showErr(code, "Lock service unavailable — start Redis", panel);
+          return;
+        }
+        const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
+        const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
+        const msg =
+          otherMac && otherMac !== String(kfb).toUpperCase()
+            ? `Already in production for BOARD ${otherMac}${heldBy}`
+            : `Already in production${heldBy}`;
+        bump(target, null, "idle");
+        showErr(code, msg, panel);
+        return;
+      }
+
+      // 3) reconcile local after server ok
+      activeLocks.current.add(code);
+      saveLocalLocks(activeLocks.current);
+
+      // 4) Krosy
+      const resp = await sendKsskToOffline(code);
+      if (!resp?.ok && resp?.status === 0) {
+        await releaseLock(code);
+        bump(target, null, "idle");
+        showErr(code, "Krosy communication error", panel);
+        return;
+      }
+
+      const macUp = String(kfb).toUpperCase();
+      const extractOpts: KrosyOpts = {
+        macHint: macUp,
+        includeLatch: false,              // drop "... ,C"
+        includeLabelPrefixes: ["CN"],     // keep contacts only; adjust if needed
+        allowedMeasTypes: ["default"],    // keep ONLY default
+        // allowedCompTypes: ["contact"],  // uncomment if compType is reliable and desired
+      };
+
+      const out = resp.data?.__xml
+        ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
+        : extractPinsFromKrosy(resp.data, extractOpts);
 
       try {
-        // Reconcile locks with server before local duplicate check
-        await reconcileLocksNow();
-        const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
-        const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
-
-        // 1) server is source of truth
-        if (!kfb) {
-          showErr(code, "Scan MAC address first", "kfb");
-          return;
+        const xmlRaw = resp.data?.__xml || '';
+        if (xmlRaw) {
+          const m = String(xmlRaw).match(/\bsetup=\"([^\"]+)\"/i);
+          if (m && m[1]) setSetupName(m[1]);
         }
-        // disallow duplicates in current batch or any active lock for this station
-        if (ksskSlots.includes(code) || activeLocks.current.has(code)) {
-          showErr(code, "Already in production — cannot reuse", panel);
-          return;
-        }
-        if (target === -1) {
-          showErr(code, "Batch full (3/3)", "global");
-          return;
-        }
+      } catch {}
 
-        // mark pending (no green yet)
-        bump(target, code, "pending");
+      // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
+      try {
+        localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {}));
+        localStorage.setItem(
+          `PIN_ALIAS_UNION::${macUp}`,
+          JSON.stringify({ names: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], ts: Date.now() })
+        );
+      } catch {}
 
-        // 2) acquire server lock
-        const lockRes = await fetch("/api/kssk-lock", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+      // Also save to Redis so other clients can render after CHECK-only
+      try {
+        const xmlRaw = resp.data?.__xml || undefined;
+        const hints = xmlRaw ? extractNameHintsFromKrosyXML(xmlRaw, macUp) : undefined;
+        await fetch('/api/aliases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mac: macUp,
+            kssk: code,
+            aliases: out.names || {},
+            normalPins: out.normalPins || [],
+            latchPins: out.latchPins || [],
+            xml: xmlRaw,
+            hints,
+          }),
         });
-
-        if (!lockRes.ok) {
-          const j = await lockRes.json().catch(() => ({}));
-          if (lockRes.status === 503 && String(j?.error || '').includes('redis')) {
-            bump(target, null, "idle");
-            showErr(code, "Lock service unavailable — start Redis", panel);
-            return;
-          }
-          const otherMac = j?.existing?.mac ? String(j.existing.mac).toUpperCase() : null;
-          const heldBy = j?.existing?.stationId ? ` (held by ${j.existing.stationId})` : "";
-          const msg =
-            otherMac && otherMac !== String(kfb).toUpperCase()
-              ? `Already in production for BOARD ${otherMac}${heldBy}`
-              : `Already in production${heldBy}`;
-          bump(target, null, "idle");
-          showErr(code, msg, panel);
-          return;
-        }
-
-        // 3) reconcile local after server ok
-        activeLocks.current.add(code);
-        saveLocalLocks(activeLocks.current);
-
-        // 4) Krosy
-        const resp = await sendKsskToOffline(code);
-        if (!resp?.ok && resp?.status === 0) {
-          await releaseLock(code);
-          bump(target, null, "idle");
-          showErr(code, "Krosy communication error", panel);
-          return;
-        }
-
-        const out = resp.data?.__xml
-          ? extractPinsFromKrosyXML(resp.data.__xml, String(kfb).toUpperCase())
-          : extractPinsFromKrosy(resp.data, String(kfb).toUpperCase());
+        // Pull fresh union and cache locally so dashboard has full set without refresh
         try {
-          const xmlRaw = resp.data?.__xml || '';
-          if (xmlRaw) {
-            const m = String(xmlRaw).match(/\bsetup=\"([^\"]+)\"/i);
-            if (m && m[1]) setSetupName(m[1]);
-          }
-        } catch {}
-        // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
-        const macUp = String(kfb).toUpperCase();
-        try {
-          localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {}));
-          localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], ts: Date.now() }));
-        } catch {}
-        // Also save to Redis so other clients can render after CHECK-only
-        try {
-          const xmlRaw = resp.data?.__xml || undefined;
-          const hints = xmlRaw ? extractNameHintsFromKrosyXML(xmlRaw, macUp) : undefined;
-          await fetch('/api/aliases', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mac: macUp, kssk: code, aliases: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], xml: xmlRaw, hints }),
-          });
-          // Pull fresh union and cache locally so dashboard has full set without refresh
-          try {
-            const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}`, { cache: 'no-store' });
-            if (ru.ok) {
-              const ju = await ru.json();
-              const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
-              if (MIRROR_ALIAS_WITH_REDIS) {
-                if (Object.keys(aU).length === 0) {
-                  try { localStorage.removeItem(`PIN_ALIAS::${macUp}`); localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`); } catch {}
-                } else {
-                  try {
-                    if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${macUp}`); localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`); }
-                    else {
-                      localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                      localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() }));
-                    }
-                  } catch {}
-                }
-              } else if (Object.keys(aU).length) {
+          const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}`, { cache: 'no-store' });
+          if (ru.ok) {
+            const ju = await ru.json();
+            const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
+            if (MIRROR_ALIAS_WITH_REDIS) {
+              if (Object.keys(aU).length === 0) {
                 try {
-                  localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                  localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() }));
+                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                } catch {}
+              } else {
+                try {
+                  if (CLEAR_LOCAL_ALIAS) {
+                    localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                    localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+                  } else {
+                    localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                    localStorage.setItem(
+                      `PIN_ALIAS_UNION::${macUp}`,
+                      JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
+                    );
+                  }
                 } catch {}
               }
+            } else if (Object.keys(aU).length) {
+              try {
+                localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                localStorage.setItem(
+                  `PIN_ALIAS_UNION::${macUp}`,
+                  JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
+                );
+              } catch {}
             }
-          } catch {}
-        } catch {}
-
-        const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
-        if (!hasPins) {
-          await releaseLock(code);
-          bump(target, null, "idle");
-          showErr(code, "Krosy configuration error: no PINS", panel);
-          return;
-        }
-
-        // 5) ESP
-        let espOk = true;
-        try {
-          const r = await fetch("/api/serial", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-              normalPins: out.normalPins,
-              latchPins: out.latchPins,
-              mac: String(kfb).toUpperCase(),
-              kssk: code,
-              }),
-          });
-          if (!r.ok) {
-            espOk = false;
-            showErr(code, `ESP write failed — ${await r.text().catch(() => String(r.status))}`, panel);
           }
-        } catch (e: any) {
-          espOk = false;
-          showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel);
-        }
+        } catch {}
+      } catch {}
 
-        if (!espOk && !ALLOW_NO_ESP) {
-          await releaseLock(code);
-          // keep the code visible but show error state
-          bump(target, code, "error");
-          return;
-        }
-
-        // success
-        startHeartbeat(code);
-        showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
-        bump(target, code, "ok");
-      } finally {
-        sendBusyRef.current = false;
+      const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
+      if (!hasPins) {
+        await releaseLock(code);
+        bump(target, null, "idle");
+        showErr(code, "Krosy configuration error: no PINS", panel);
+        return;
       }
-    },
-    [kfb, ksskSlots, sendKsskToOffline]
-  );
+
+      // 5) ESP
+      let espOk = true;
+      try {
+        const r = await fetch("/api/serial", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            normalPins: out.normalPins,
+            latchPins: out.latchPins,
+            mac: macUp,
+            kssk: code,
+          }),
+        });
+        if (!r.ok) {
+          espOk = false;
+          showErr(code, `ESP write failed — ${await r.text().catch(() => String(r.status))}`, panel);
+        }
+      } catch (e: any) {
+        espOk = false;
+        showErr(code, `ESP write failed — ${e?.message ?? "unknown error"}`, panel);
+      }
+
+      if (!espOk && !ALLOW_NO_ESP) {
+        await releaseLock(code);
+        bump(target, code, "error");
+        return;
+      }
+
+      // success
+      startHeartbeat(code);
+      showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
+      bump(target, code, "ok");
+    } finally {
+      sendBusyRef.current = false;
+    }
+  },
+  [kfb, ksskSlots, sendKsskToOffline]
+);
+
 
   const handleManualSubmit = useCallback(
     (panel: PanelKey, raw: string) => {

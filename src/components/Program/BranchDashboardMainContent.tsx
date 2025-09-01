@@ -123,7 +123,7 @@ export interface BranchDashboardMainContentProps {
   showRemoveCable?: boolean;
   onResetKfb?: () => void;
   macAddress?: string;
-  groupedBranches?: Array<{ kssk: string; branches: BranchDisplayData[] }>;
+  groupedBranches?: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
   nameHints?: Record<string, string> | undefined;
   activeKssks?: string[];
@@ -945,15 +945,15 @@ useEffect(() => {
 
         const missingNames = failedItems.map(f => f.name);
         const activeSet = new Set((activeKssks || []).map(String));
-        const isActive = activeSet.has(String(grp.kssk));
+        const isActive = activeSet.has(String((grp as any).ksk ?? ''));
 
         return (
-          <section key={grp.kssk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <section key={(grp as any).ksk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
             <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String(grp.kssk).slice(-2)}</span>
+                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String((grp as any).ksk).slice(-2)}</span>
                 <div className="flex flex-col">
-                  <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
+                  <div className="text-xl font-black text-slate-800 leading-tight">{(grp as any).ksk}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -966,7 +966,7 @@ useEffect(() => {
                   <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
                   <div className="grid gap-2">
                     {failedItems.map((f) => (
-                      <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
+                      <div key={`f-${(grp as any).ksk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
                         <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">{f.name}</div>
                         <div className="mt-1 flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
@@ -987,7 +987,7 @@ useEffect(() => {
                   <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Passed</div>
                   <div className="flex flex-wrap gap-1.5">
                     {okNames.slice(0, 24).map((nm, i) => (
-                      <span key={`ok-${grp.kssk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
+                      <span key={`ok-${(grp as any).ksk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
                     ))}
                     {okNames.length > 24 && (
                       <span className="text-[11px] text-slate-500">+{okNames.length-24} more</span>

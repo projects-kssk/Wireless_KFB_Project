@@ -151,7 +151,7 @@ export async function POST(request: Request) {
       const indexKey = `kfb:aliases:index:${macUp}`;
       const members: string[] = await r.smembers(indexKey).catch(() => []);
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
-      const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
+      const act: string[] = stationId ? await r.smembers(`ksk:station:${stationId}`).catch(() => []) : [];
       // Union of station-active and indexed KSKs
       let targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
       // Fallback: if both station + index empty, scan Redis keys for per-KSK alias entries
@@ -417,19 +417,19 @@ export async function POST(request: Request) {
           const explicitStation = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
           const stationSetKeys: string[] = [];
           // 1) Include explicit current station if set
-          if (explicitStation) stationSetKeys.push(`kssk:station:${explicitStation}`);
+          if (explicitStation) stationSetKeys.push(`ksk:station:${explicitStation}`);
           // 2) Discover any other station sets
           try {
             if (typeof r.scan === 'function') {
               let cursor = '0';
               do {
-                const res = await r.scan(cursor, 'MATCH', 'kssk:station:*', 'COUNT', 300);
+                const res = await r.scan(cursor, 'MATCH', 'ksk:station:*', 'COUNT', 300);
                 cursor = res[0];
                 const chunk: string[] = res[1] || [];
                 for (const k of chunk) if (!stationSetKeys.includes(k)) stationSetKeys.push(k);
               } while (cursor !== '0');
             } else {
-              const keys: string[] = await r.keys('kssk:station:*').catch(() => []);
+              const keys: string[] = await r.keys('ksk:station:*').catch(() => []);
               for (const k of keys) if (!stationSetKeys.includes(k)) stationSetKeys.push(k);
             }
           } catch {}
@@ -479,7 +479,7 @@ export async function POST(request: Request) {
                 if (macLock === macUp) {
                   await r.del(key).catch(() => {});
                   const sid = (v && v.stationId) ? String(v.stationId) : null;
-                  if (sid) await r.srem(`kssk:station:${sid}`, String(v.kssk || '').trim()).catch(() => {});
+                  if (sid) await r.srem(`ksk:station:${sid}`, String(v.kssk || '').trim()).catch(() => {});
                 }
               } catch {}
             }
@@ -564,7 +564,7 @@ export async function POST(request: Request) {
       try {
         const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
         if (stationId && itemsAll && itemsAll.length) {
-          const activeIds: string[] = await r.smembers(`kssk:station:${stationId}`).catch(() => []);
+          const activeIds: string[] = await r.smembers(`ksk:station:${stationId}`).catch(() => []);
           if (activeIds && activeIds.length) {
             const set = new Set(activeIds.map(String));
             const filt = (itemsAll as any[]).filter(it => set.has(String(it.kssk)));

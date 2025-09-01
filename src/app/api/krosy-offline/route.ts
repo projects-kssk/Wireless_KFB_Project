@@ -16,7 +16,8 @@ function formatXml(xml: string) {
     let out = xml
       .replace(/^\uFEFF/, "")
       .replace(/\r?\n|\r/g, "")
-      .replace(/>\s+</g, ">\n<")
+      // Ensure a newline between every tag boundary, even when there is no whitespace
+      .replace(/>\s*</g, ">\n<")
       .trim();
 
     let pad = 0;
@@ -105,7 +106,9 @@ const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
 const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
-const OGLIEN_URL = (process.env.KROSY_OGLIEN_URL || "http://localhost:3000/api/krosy").trim();
+const OGLIEN_URL = (process.env.KROSY_OGLIEN_URL || "http://localhost:3001/api/visualcontrol").trim();
+const OFFLINE_PORT = Number(process.env.KROSY_OFFLINE_PORT || 3001);
+const OFFLINE_PATH = (process.env.KROSY_OFFLINE_PATH || "/api/visualcontrol").trim();
 const VC_NS = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 const TIMEOUT_MS = Number(process.env.KROSY_TIMEOUT_MS ?? 5000);
 const PREVIEW_LIMIT = Number(process.env.KROSY_PREVIEW_LIMIT ?? 2000);
@@ -205,9 +208,20 @@ export async function POST(req: NextRequest) {
   const requestID = String(body.requestID || Date.now());
   const sourceHostname = String(body.sourceHostname || os.hostname());
   const xmlTargetHost = String(body.targetHostName || XML_TARGET).trim();
-  const targetUrl = String(body.targetUrl || OGLIEN_URL).trim();
-
   const { ip, mac } = pickIpAndMac();
+  // Compute effective target URL:
+  // 1) Explicit body.targetUrl wins
+  // 2) If KROSY_OGLIEN_URL set, use it (localhost is OK for server-side calls)
+  // 3) Otherwise, use discovered network IP and OFFLINE_PORT/PATH (e.g., http://<ip>:3001/api/visualcontrol)
+  let targetUrl = String(body.targetUrl || "").trim();
+  if (!targetUrl) {
+    if (OGLIEN_URL) targetUrl = OGLIEN_URL;
+  }
+  if (!targetUrl) {
+    const base = `http://${ip}:${OFFLINE_PORT}`;
+    targetUrl = `${base}${OFFLINE_PATH.startsWith('/') ? OFFLINE_PATH : '/' + OFFLINE_PATH}`;
+  }
+
   const scanned = isoNoMs();
   const xml = buildXML({
     requestID,
@@ -229,6 +243,8 @@ export async function POST(req: NextRequest) {
   };
 
   push(`POST ${targetUrl} [visualControl: working] (OFFLINE)`);
+  // Debug: surface OGLIEN_URL and effective targetUrl
+  try { log.info('offline.forward.config', { OGLIEN_URL, targetUrl }); } catch {}
 
   let status = 0,
     text = "",
@@ -299,8 +315,12 @@ export async function POST(req: NextRequest) {
   });
 
   await Promise.allSettled([
-    writeLog(base, "request.xml", prettyXml(xml)),
-    writeLog(base, "response.xml", responsePretty),
+    // Request logs: raw + pretty (match naming used elsewhere)
+    writeLog(base, "request.raw.xml", xml),
+    writeLog(base, "request.pretty.xml", prettyXml(xml)),
+    // Response logs: raw + pretty when available
+    writeLog(base, "response.raw.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
+    writeLog(base, "response.pretty.xml", upstreamJson ? "" : responsePretty),
     writeLog(base, "report.log", report),
     writeLog(
       base,

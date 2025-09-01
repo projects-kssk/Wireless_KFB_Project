@@ -16,11 +16,9 @@ import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
-// Resolve Krosy endpoint: use working (krosy) for data, checkpoint handled separately when needed
-const KROSY_URL =
-  process.env.NEXT_PUBLIC_KROSY_ONLINE === "true"
-    ? process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy"
-    : process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
+// Krosy IP-based mode selection
+const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
+const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
 const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =
@@ -591,10 +589,22 @@ export default function SetupPage() {
     }
   };
 
+  const [krosyLive, setKrosyLive] = useState<boolean | null>(null);
   const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
+    // Decide endpoint at call time based on detected live flag (state → window → env)
+    const live = typeof krosyLive === 'boolean'
+      ? krosyLive
+      : (typeof window !== 'undefined' && (window as any).__krosyLive === true)
+        ? true
+        : (process.env.NEXT_PUBLIC_KROSY_ONLINE === 'true');
+    const url = live
+      ? (process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? '/api/krosy')
+      : (process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? '/api/krosy-offline');
     return withTimeout(async (signal) => {
       try {
-        const res = await fetch(KROSY_URL, {
+        const forward = !live && (process.env.NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL || '');
+        try { console.log('[SETUP] POST', url, 'live=', live, forward ? `target=${forward}` : ''); } catch {}
+        const res = await fetch(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -611,6 +621,8 @@ export default function SetupPage() {
               (typeof window !== "undefined" ? window.location.hostname : undefined),
             // XML target host for <targetHost><hostname>
             targetHostName: process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? undefined,
+            // Hint offline proxy where to forward (same as /krosy)
+            ...(!live && forward ? { targetUrl: forward } : {}),
           }),
         });
 
@@ -648,6 +660,39 @@ export default function SetupPage() {
         return { ok: false, status: 0, data: null };
       }
     });
+  }, [krosyLive]);
+
+  // Detect live/offline by identity IP and expose on window for simple callers
+  useEffect(() => {
+    (async () => {
+      const decide = (ip: string | null | undefined) => {
+        const s = String(ip || '').trim();
+        if (!s) return undefined;
+        if (IP_ONLINE && s === IP_ONLINE) return true;
+        if (IP_OFFLINE && s === IP_OFFLINE) return false;
+        return undefined;
+      };
+      try {
+        const idUrl = process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL || '/api/krosy';
+        const urls = Array.from(new Set([idUrl, '/api/krosy', '/api/krosy/checkpoint']));
+        for (const u of urls) {
+          try {
+            const r = await fetch(u, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+            if (!r.ok) continue;
+            const j = await r.json();
+            const live = decide(j?.ip);
+            if (typeof live === 'boolean') { (window as any).__krosyLive = live; setKrosyLive(live); break; }
+          } catch { /* continue */ }
+        }
+        // Fallback: if running on localhost and no decision was made, treat as offline
+        if (typeof (window as any).__krosyLive !== 'boolean') {
+          try {
+            const host = typeof window !== 'undefined' ? window.location.hostname : '';
+            if (host === 'localhost' || host === '127.0.0.1') { (window as any).__krosyLive = false; setKrosyLive(false); }
+          } catch {}
+        }
+      } catch { /* ignore */ }
+    })();
   }, []);
 
   /* ===== Acceptors ===== */
@@ -1038,6 +1083,7 @@ const acceptKsskToIndex = useCallback(
   const heroTopRow: CSSProperties = { display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" };
   const heroLeft: CSSProperties = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" };
   const heroBoard: CSSProperties = { fontSize: 44, fontWeight: 1000, letterSpacing: "0.01em", color: "#0f172a", textTransform: "uppercase" };
+  const modeBadgeBase = 'inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold';
 
   const heroProgressPill: CSSProperties = {
     display: "inline-flex",
@@ -1120,6 +1166,9 @@ const acceptKsskToIndex = useCallback(
             >
               {setupName ? `SETUP: ${setupName}` : ""}
             </m.div>
+            <span className={`${modeBadgeBase} ${((krosyLive ?? (typeof window !== 'undefined' && (window as any).__krosyLive === true)) ? 'border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200' : 'border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200')}`}>
+              {((krosyLive ?? (typeof window !== 'undefined' && (window as any).__krosyLive === true)) ? 'ONLINE' : 'OFFLINE')}
+            </span>
           </m.div>
           {(desiredTail || true) && (
             <div className="mt-2 flex flex-wrap gap-2">

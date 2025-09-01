@@ -251,7 +251,7 @@ useEffect(() => {
     // Send checkpoint when live event indicates success and live mode is on
     try {
       const mac = (macAddress || '').toUpperCase();
-      if (mac && KROSY_LIVE) void sendCheckpointForMac(mac);
+      if (mac && krosyLive) void sendCheckpointForMac(mac);
     } catch {}
     scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
@@ -358,7 +358,22 @@ useEffect(() => {
   const CHECKPOINT_URL = process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE || '/api/krosy/checkpoint';
   const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || 'ksskkfb01';
   const KROSY_SOURCE = process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
-  const KROSY_LIVE = String(process.env.NEXT_PUBLIC_KROSY_ONLINE) === 'true';
+  const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
+  const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
+  const [krosyLive, setKrosyLive] = useState(String(process.env.NEXT_PUBLIC_KROSY_ONLINE) === 'true');
+  useEffect(() => {
+    (async () => {
+      try {
+        const idUrl = process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL || '/api/krosy/checkpoint';
+        const r = await fetch(idUrl, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const ip = String(j?.ip || '').trim();
+        if (ip && IP_ONLINE && ip === IP_ONLINE) setKrosyLive(true);
+        else if (ip && IP_OFFLINE && ip === IP_OFFLINE) setKrosyLive(false);
+      } catch {}
+    })();
+  }, []);
   const checkpointSentRef = useRef<Set<string>>(new Set());
 
   const sendCheckpointForMac = useCallback(async (mac: string) => {
@@ -612,7 +627,7 @@ useEffect(() => {
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  
               // Trigger Krosy checkpoint send for all KSSKs associated with this MAC (live only)
-              if (KROSY_LIVE) void sendCheckpointForMac(mac);
+              if (krosyLive) void sendCheckpointForMac(mac);
 
               // Clear any KSSK locks for this MAC across stations
               void fetch('/api/kssk-lock', {

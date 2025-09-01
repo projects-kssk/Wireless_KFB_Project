@@ -616,13 +616,16 @@ export const Header: React.FC<HeaderProps> = ({
   const serverColor: LedColor = server === 'connected' ? 'green' : 'red';
   const serverSub = server === 'connected' ? 'ESP + Redis' : 'Needs ESP+Redis';
 
-  // KROSY: require eth* interface and specific IP
-  const expectIp = (process.env.NEXT_PUBLIC_KROSY_EXPECT_IP ?? '172.26.202.248').trim();
+  // KROSY: consider live/online when on eth* with ONLINE IP; otherwise offline/no-conn
+  const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
+  const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
   const krosyEth = (netIface ?? '').toLowerCase().startsWith('eth');
-  const krosyIpOk = (netIp ?? '') === expectIp;
-  const krosyOk = Boolean(netPresent && netUp && krosyEth && krosyIpOk);
-  const krosyColor: LedColor = krosyOk ? 'green' : 'red';
-  const krosySub = krosyOk ? `Connected` : `No connection`;
+  const hasNet = Boolean(netPresent && netUp && krosyEth && (netIp ?? ''));
+  const isOnlineIp = Boolean(IP_ONLINE && (netIp ?? '') === IP_ONLINE);
+  const isOfflineIp = Boolean(IP_OFFLINE && (netIp ?? '') === IP_OFFLINE);
+  const krosyOnline = Boolean(hasNet && isOnlineIp);
+  const krosyColor: LedColor = krosyOnline ? 'green' : 'red';
+  const krosySub = !hasNet ? 'No connection' : (isOnlineIp ? 'Online' : 'Offline');
 
   /* ESP discover/test state */
   const [discoverOpen, setDiscoverOpen] = useState(false);

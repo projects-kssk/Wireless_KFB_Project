@@ -11,6 +11,8 @@ type ApiMode = "online" | "offline";
 
 const DEFAULT_API_MODE: ApiMode =
   process.env.NEXT_PUBLIC_KROSY_ONLINE === "true" ? "online" : "offline";
+const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
+const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
 
 const ENDPOINT_ONLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy";
@@ -34,6 +36,7 @@ const IDENTITY_ENDPOINT =
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
 const DEFAULT_TARGET_HOST = process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? "ksskkfb01";
 const DEFAULT_SOURCE_HOST = process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME ?? DEFAULT_TARGET_HOST;
+const OFFLINE_FORWARD_TARGET = process.env.NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL || '';
 
 /* ===== utils ===== */
 function formatXml(xml: string) {
@@ -143,6 +146,29 @@ export default function KrosyPage() {
         setSourceHostname(cfg || j.hostname || "");
         setSourceIp(j.ip || "");
         setSourceMac(j.mac || "");
+        // Auto-select api mode by identity IP when envs provided
+        try {
+          const ip = String(j?.ip || '').trim();
+          if (ip && IP_ONLINE && ip === IP_ONLINE) setApiMode('online');
+          else if (ip && IP_OFFLINE && ip === IP_OFFLINE) setApiMode('offline');
+          else {
+            // Fallback: try other identity endpoints
+            const urls = ['/api/krosy', '/api/krosy/checkpoint'];
+            for (const u of urls) {
+              try {
+                const r2 = await withTimeout(u, { headers: { Accept: 'application/json' } });
+                if (!r2.ok) continue;
+                const j2 = await r2.json();
+                const ip2 = String(j2?.ip || '').trim();
+                if (ip2 && IP_ONLINE && ip2 === IP_ONLINE) { setApiMode('online'); break; }
+                if (ip2 && IP_OFFLINE && ip2 === IP_OFFLINE) { setApiMode('offline'); break; }
+              } catch {}
+            }
+            // Final fallback: if running on localhost, assume offline
+            const host = typeof window !== 'undefined' ? window.location.hostname : '';
+            if (host === 'localhost' || host === '127.0.0.1') setApiMode('offline');
+          }
+        } catch {}
         append(`bootstrap ok (IDENTITY)`);
       } catch (e: any) {
         append(
@@ -216,6 +242,9 @@ export default function KrosyPage() {
       intksk,
       targetHostName,
       sourceHostname,
+      ...(apiMode === 'offline' && OFFLINE_FORWARD_TARGET
+        ? { targetUrl: OFFLINE_FORWARD_TARGET }
+        : {}),
     };
 
     append(`POST ${endpoint} [visualControl: working] (${apiMode.toUpperCase()})`);

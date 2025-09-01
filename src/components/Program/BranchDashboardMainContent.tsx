@@ -883,26 +883,32 @@ useEffect(() => {
       const statusByPin = new Map<number, 'ok' | 'nok' | 'not_tested'>();
       for (const b of localBranches) if (typeof b.pinNumber === 'number') statusByPin.set(b.pinNumber, b.testStatus as any);
 
-      const ksskCards = groupedBranches.map((grp) => {
-        const branchesLive = grp.branches.map((b) => {
-          if (typeof b.pinNumber !== 'number') return b;
-          const s = statusByPin.get(b.pinNumber);
-          return s ? { ...b, testStatus: s } : b;
-        });
+    const ksskCards = groupedBranches
+  .map((grp) => {
+const expectedSet = new Set<number>(expectedPins);
 
-        const nok = branchesLive.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
-        const okBranches = branchesLive.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
-        const okNames = okBranches
-          .map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
-          .filter(Boolean);
+const branchesLive = grp.branches
+  .map(b => {
+    if (typeof b.pinNumber !== 'number') return b;
+    const s = statusByPin.get(b.pinNumber);
+    return s ? { ...b, testStatus: s } : b;
+  })
+  .filter(b => typeof b.pinNumber !== 'number' || expectedSet.has(b.pinNumber));
 
-        const failedItems = nok
-          .map(b => ({
-            pin: b.pinNumber as number,
-            name: (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
-            isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
-          }))
-          .sort((a,b)=> a.name.localeCompare(b.name));
+if (branchesLive.length === 0) return null; // hide empty KSSK
+    const nok = branchesLive.filter(b => b.testStatus === 'nok' && typeof b.pinNumber === 'number');
+    const okBranches = branchesLive.filter(b => b.testStatus === 'ok' && typeof b.pinNumber === 'number');
+    const okNames = okBranches
+      .map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
+      .filter(Boolean);
+
+    const failedItems = nok
+      .map(b => ({
+        pin: b.pinNumber as number,
+        name: (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
+        isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
+      }))
+      .sort((a,b)=> a.name.localeCompare(b.name));
 
         const missingNames = failedItems.map(f => f.name);
         const activeSet = new Set((activeKssks || []).map(String));
@@ -970,26 +976,17 @@ useEffect(() => {
       );
     }
 
-    return (
-      <div className="w-full p-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-          {pending.map((branch) => (
-            <BranchCard key={branch.id} branch={branch} />
-          ))}
-        </div>
-      </div>
-    );
+    return null;
   };
 
   // Compute a stable key for content transitions
-  const viewKey = useMemo(() => {
-    if (showOkAnimation) return 'ok';
-    if (scanningError) return 'error';
-    if (busy) return 'busy';
-    if (hasMounted && localBranches.length === 0) return isManualEntry ? 'manual' : 'scan';
-    return (Array.isArray(groupedBranches) && groupedBranches.length > 0) ? 'grouped' : 'flat';
-  }, [showOkAnimation, scanningError, busy, hasMounted, localBranches.length, isManualEntry, groupedBranches]);
-
+const viewKey = useMemo(() => {
+  if (showOkAnimation) return 'ok';
+  if (scanningError) return 'error';
+  if (busy) return 'busy';
+  if (hasMounted && localBranches.length === 0) return isManualEntry ? 'manual' : 'scan';
+  return showingGrouped ? 'grouped' : 'blank'; // << no 'flat'
+}, [showOkAnimation, scanningError, busy, hasMounted, localBranches.length, isManualEntry, showingGrouped]);
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-2">
       <header className="w-full mb-1 min-h-[56px]">

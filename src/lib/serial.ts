@@ -44,7 +44,16 @@ function armEsp(): EspLineStream {
   log.info(`opening ${path} @${baudRate}`);
 
   const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
-  const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
+  // Normalize CRLF/CR to LF and accept any newline as delimiter
+  const normalizer = new Transform({
+    transform(chunk, _enc, cb) {
+      const s = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      cb(null, Buffer.from(s.replace(/\r\n/g, "\n").replace(/\r/g, "\n")));
+    }
+  });
+  const parser = port
+    .pipe(normalizer)
+    .pipe(new ReadlineParser({ delimiter: "\n" }));
   const ring: string[] = [];
   const ringIds: number[] = [];
   let nextId = 1;
@@ -275,7 +284,9 @@ const scanners: Map<string, Runtime> = GG.__scanners;
 const now = () => Date.now();
 const inCooldown = (r: RetryState) => now() < r.nextAttemptAt;
 const bumpCooldown = (r: RetryState, ms?: number) => {
-  r.retryMs = Math.min(ms ?? Math.ceil(r.retryMs * 1.7), 60_000);
+  const base = ms ?? Math.ceil(r.retryMs * 1.7);
+  const jitter = Math.floor(Math.random() * 300);
+  r.retryMs = Math.min(base + jitter, 60_000);
   r.nextAttemptAt = now() + r.retryMs;
 };
 const resetCooldown = (r: RetryState) => { r.retryMs = 2000; r.nextAttemptAt = 0; };
@@ -297,11 +308,47 @@ function attachScannerHandlers(
   parser: ReadlineParser
 ) {
   parser.on("data", (raw) => {
-    const code = String(raw).trim();
+    let code = String(raw);
+    code = code.replace(/[\r\n\0]+/g, "");
+    if ((process.env.SCANNER_PRINTABLE_ONLY ?? "1") !== "0")
+      code = code.replace(/[^\x20-\x7E]/g, "");
+    const maxLen = Number(process.env.SCANNER_MAX_LINE ?? 256);
+    if (code.length > maxLen) code = code.slice(0, maxLen);
     if (!code) return;
-
+    try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan', { code, path }); } catch {}
     broadcast({ type: "scan", code, path });
   });
+
+  // Optional fallback: some scanners emit raw 6-byte payloads (MAC address) with no newline.
+  // Enable with SCANNER_ALLOW_RAW_MAC=1 to parse fixed-length frames and broadcast as AA:BB:CC:DD:EE:FF
+  if ((process.env.SCANNER_ALLOW_RAW_MAC ?? '0') === '1') {
+    let rawBuf = Buffer.alloc(0);
+    const flushRaw = () => { rawBuf = Buffer.alloc(0); };
+    const toMac = (six: Buffer) => Array.from(six).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(':');
+    const handler = (chunk: Buffer) => {
+      try {
+        if (!Buffer.isBuffer(chunk)) chunk = Buffer.from(chunk as any);
+        rawBuf = Buffer.concat([rawBuf, chunk]);
+        // If ASCII newline appears anywhere, defer to line parser and reset buffer
+        if (rawBuf.includes(0x0A) || rawBuf.includes(0x0D)) { flushRaw(); return; }
+        // Process in 6-byte frames
+        const FRAME = 6;
+        while (rawBuf.length >= FRAME) {
+          const six = rawBuf.subarray(0, FRAME);
+          rawBuf = rawBuf.subarray(FRAME);
+          const mac = toMac(six);
+          try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan(raw-mac)', { mac, path }); } catch {}
+          broadcast({ type: 'scan', code: mac, path });
+        }
+        // Avoid unbounded growth
+        const MAX = 64;
+        if (rawBuf.length > MAX) flushRaw();
+      } catch {}
+    };
+    try { (port as any).on('data', handler); } catch {}
+    // cleanup on port close
+    try { (port as any).once('close', () => { try { (port as any).off?.('data', handler); } catch {}; flushRaw(); }); } catch {}
+  }
 
   port.on("close", () => {
     LOG.tag('scanner').warn(`port closed ${path}`);
@@ -309,6 +356,7 @@ function attachScannerHandlers(
     state.port = null;
     state.parser = null;
     state.starting = null;
+    bumpCooldown(retry, 2000);
   });
 
   port.on("error", (e) => {
@@ -351,9 +399,14 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
   if (inCooldown(retry)) throw new Error(`SCANNER_COOLDOWN ${path} until ${new Date(retry.nextAttemptAt).toISOString()}`);
   function looksLikeSamePath(candidate: string, wanted: string) {
     if (candidate === wanted) return true;
-    // accept by-id that ends in ACM0 when wanted is /dev/ttyACM0, etc.
-    const tail = wanted.split("/").pop() || wanted;
-    return candidate.endsWith(tail) || /\/by-id\/.*ACM0/i.test(candidate);
+    const tail = (wanted.split("/").pop() || wanted).toLowerCase();
+    const m = tail.match(/^ttyacm(\d+)$/i);
+    if (m) {
+      const idx = m[1];
+      return candidate.toLowerCase().endsWith(tail)
+          || (/\/by-id\//i.test(candidate) && new RegExp(`acm${idx}(\\D|$)`, "i").test(candidate));
+    }
+    return candidate.toLowerCase().endsWith(tail);
   }
 
   const devices = await SerialPort.list();
@@ -365,7 +418,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
     }
 
   state.starting = new Promise<void>((resolve, reject) => {
-    const effBaud = Number(process.env.SCANNER_BAUD ?? baudRate ?? 115200) || 115200;
+    const effBaud = Number(process.env.SCANNER_BAUD ?? baudRate ?? 9600) || 9600;
     LOG.tag('scanner').info(`opening ${path} @${effBaud}`);
     const port = new SerialPort({ path, baudRate: effBaud, autoOpen: false, lock: false });
 const normalizer = new Transform({
@@ -395,11 +448,24 @@ const parser = port
       reject(new Error(msg));
     }, watchdogMs);
 
-    // Also log on 'open' event for visibility
+    // Helper: assert DTR/RTS to wake scanners that require it
+    const assertControlLines = () => {
+      try {
+        port.set({ dtr: true, rts: true }, (err) => {
+          if (err) LOG.tag('scanner').warn(`control-lines set failed ${path}`, err?.message ?? err);
+          else LOG.tag('scanner').info(`control-lines asserted ${path} (DTR=1, RTS=1)`);
+        });
+      } catch (e: any) {
+        LOG.tag('scanner').warn(`control-lines set exception ${path}`, e?.message ?? e);
+      }
+    };
+
+    // Also log on 'open' event for visibility and (re)assert control lines
     port.on('open', () => {
       opened = true;
       try { clearTimeout(watchdog); } catch {}
       LOG.tag('scanner').info(`opened ${path}`);
+      assertControlLines();
     });
 
     port.open((err) => {
@@ -415,6 +481,7 @@ const parser = port
       opened = true;
       try { clearTimeout(watchdog); } catch {}
       LOG.tag('scanner').info(`opened ${path}`);
+      assertControlLines();
       resetCooldown(retry);
       state.port = port;
       state.parser = parser;
@@ -445,11 +512,20 @@ export async function ensureScanners(pathsInput?: string | string[], baudRate = 
   // Auto-discover additional ACM devices if present (helps when device index changes)
   try {
     const list = await SerialPort.list();
+    const hex = (v?: string) => String(v || '').toLowerCase().replace(/^0x/, '');
     const acmPaths = list
       .map((d) => d.path)
       .filter((p): p is string => typeof p === 'string' && p.length > 0)
       .filter((p) => /(^|\/)ttyACM\d+$/.test(p) || /\/by-id\/.*ACM\d+/i.test(p));
     for (const p of acmPaths) if (!paths.includes(p)) paths.push(p);
+    // Prefer Honeywell vendor (0x0C2E) when available to survive ACM index churn
+    try {
+      const honey = list
+        .filter((d) => hex(d.vendorId) === '0c2e')
+        .map((d) => d.path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
+      for (const p of honey) if (!paths.includes(p)) paths.push(p);
+    } catch {}
     // Optionally include ttyUSB devices when allowed
     const allowUsb = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
     if (allowUsb) {

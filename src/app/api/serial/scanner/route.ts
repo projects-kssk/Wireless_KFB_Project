@@ -104,7 +104,7 @@ export async function GET(req: Request) {
         try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
       }
       return NextResponse.json(
-        { code, path, error, retryInMs: advise },
+        { code, path, error, retryInMs: advise, present: !!(statusRaw as any)[wantedPath], open: !!((statusRaw as any)[wantedPath]?.open), nextAttemptAt: ((statusRaw as any)[wantedPath]?.nextAttemptAt ?? null) },
         { headers: { 'Cache-Control': 'no-store' } }
       );
     }
@@ -135,7 +135,7 @@ export async function GET(req: Request) {
     try { console.log(`[scanner] code=${code} path=${path ?? 'null'}`); } catch {}
   }
   return NextResponse.json(
-    { code, path, error, retryInMs: advise },
+    { code, path, error, retryInMs: advise, present: !!status, open: !!status?.open, nextAttemptAt: status?.nextAttemptAt ?? null },
     { headers: { 'Cache-Control': 'no-store' } }
   );
   } catch (err: unknown) {

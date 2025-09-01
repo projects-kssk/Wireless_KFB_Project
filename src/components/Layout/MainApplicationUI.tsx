@@ -769,7 +769,12 @@ useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
     if (isChecking) return;
-    if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
+    // If SSE is connected but stale (no recent scans), allow polling as a safety net
+    const STALE_MS = Number(process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? '4000');
+    const lastAt = (serial as any).lastScanAt as number | null | undefined;
+    const sseOk = !!(serial as any).sseConnected;
+    const stale = !(typeof lastAt === 'number' && isFinite(lastAt)) || (Date.now() - (lastAt as number)) > STALE_MS;
+    if (sseOk && !stale) return; // healthy SSE path — skip polling
 
     let stopped = false;
     let lastPollAt = 0;

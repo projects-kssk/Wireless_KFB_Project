@@ -620,9 +620,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (hasMounted && localBranches.length === 0) {
       if (isManualEntry) {
         return (
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-14" role="dialog" aria-modal="true">
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 md:pt-16" role="dialog" aria-modal="true">
             <div className="absolute inset-0 bg-black/40" onClick={() => setIsManualEntry(false)} aria-hidden />
-            <div className="relative w-full max-w-3xl mx-4 rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white">
+            <div className="relative w-[min(92vw,48rem)] max-w-3xl mx-4 rounded-2xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => setIsManualEntry(false)}
@@ -632,8 +632,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               >
                 <span className="text-3xl leading-none">×</span>
               </button>
-              <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/70 to-transparent" />
-              <div className="p-10">
+              <div className="p-8 md:p-10">
                 <div className="text-center mb-8">
                   <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-blue-200 bg-blue-50 text-blue-700 font-extrabold tracking-wider">
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
@@ -663,7 +662,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                         maxLength={17}
                         pattern="^([0-9A-F]{2}:){5}[0-9A-F]{2}$"
                         className={[
-                          'w-full text-center text-[44px] leading-[1.25] py-5 pl-36 pr-36 rounded-2xl outline-none',
+                          'w-full text-center text-[40px] md:text-[44px] leading-[1.25] py-5 px-6 md:px-12 rounded-2xl outline-none',
                           'bg-transparent text-slate-800 focus:ring-0',
                           'font-mono tracking-[0.35em] placeholder:tracking-normal placeholder:text-slate-400 placeholder:opacity-70',
                         ].join(' ')}

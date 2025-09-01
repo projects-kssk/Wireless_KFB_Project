@@ -340,7 +340,7 @@ useEffect(() => {
           // Also clear any KSK locks for this MAC across stations (force), include stationId if known
           try {
             const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            await fetch('/api/kssk-lock', {
+            await fetch('/api/ksk-lock', {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
@@ -409,7 +409,7 @@ useEffect(() => {
               // Also clear any KSK locks for this MAC across stations (force)
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                await fetch('/api/kssk-lock', {
+                await fetch('/api/ksk-lock', {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
@@ -431,7 +431,7 @@ useEffect(() => {
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
         const rows: Array<{ kssk: string; mac?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.locks) ? j.locks : [];
@@ -872,7 +872,7 @@ useEffect(() => {
               // Clear any KSK locks for this MAC across stations (force), include stationId if known
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                await fetch('/api/kssk-lock', {
+                await fetch('/api/ksk-lock', {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })

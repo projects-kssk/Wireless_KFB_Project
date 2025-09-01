@@ -291,7 +291,7 @@ export async function POST(request: Request) {
     entry.diffs = diffs;
   }
   await appendLog(entry);
-  // Opportunistically update per-KSSK pins in Redis so tools (locks:watch) show live pins
+  // Opportunistically update per-KSK pins in Redis so tools (locks:watch) show live pins
   try {
     if (kssk) {
       const r: any = getRedis();
@@ -327,7 +327,7 @@ export async function POST(request: Request) {
       const value = JSON.stringify({ names: names || {}, normalPins, latchPins, ts: tsNow });
       try { await r.set(keyK, value); } catch {}
       try { await r.sadd(`kfb:aliases:index:${macUp}`, String(kssk)); } catch {}
-      // Also record "last pins used" snapshot for this KSSK to support watcher fallbacks
+      // Also record "last pins used" snapshot for this KSK to support watcher fallbacks
       try { await r.set(`kfb:lastpins:${macUp}:${String(kssk)}`, JSON.stringify({ normalPins, latchPins, ts: tsNow })); } catch {}
     }
   } catch {}

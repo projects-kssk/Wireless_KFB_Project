@@ -1,9 +1,9 @@
-// src/app/api/kssk-lock/route.ts
+// src/app/api/ksk-lock/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getRedis } from "@/lib/redis";
 
 import { LOG } from "@/lib/logger";
-const log = LOG.tag("kssk-lock");
+const log = LOG.tag("ksk-lock");
 /** Next runtime */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ function rid(): string {
 /* ======================= Types / keys ======================== */
 type LockVal = { kssk: string; mac: string; stationId: string; ts: number };
 type LockRow = LockVal & { expiresAt?: number };
-const K = (kssk: string) => `kssk:lock:${kssk}`;
+const K = (kssk: string) => `ksk:${kssk}`;
 const S = (stationId: string) => `kssk:station:${stationId}`;
 const REQUIRE_REDIS = (process.env.KSSK_REQUIRE_REDIS ?? '0') === '1';
 /* ================= In-memory fallback store ================== */
@@ -35,7 +35,7 @@ function memGet(key: string): LockVal | null {
   if (!x) return null;
   if (nowMs() > x.exp) {
     memLocks.delete(key);
-    const kssk = key.slice("kssk:lock:".length);
+    const kssk = key.slice("ksk:".length);
     for (const set of memStations.values()) set.delete(kssk);
     return null;
   }
@@ -203,11 +203,11 @@ async function redisList(stationId?: string): Promise<LockRow[]> {
   if (typeof r.scan === "function") {
     let cursor = "0";
     do {
-      const res = await r.scan(cursor, "MATCH", "kssk:lock:*", "COUNT", 300);
+      const res = await r.scan(cursor, "MATCH", "ksk:*", "COUNT", 300);
       cursor = res[0]; keys.push(...(res[1] as string[]));
     } while (cursor !== "0");
   } else {
-    keys.push(...(await r.keys("kssk:lock:*")));
+    keys.push(...(await r.keys("ksk:*")));
   }
 
   await Promise.all(keys.map(async (key) => {
@@ -221,7 +221,7 @@ async function redisList(stationId?: string): Promise<LockRow[]> {
 
 /* ====================== Small respond helper ====================== */
 function withMode(resp: NextResponse, mode: "redis"|"mem"|"mem-fallback", id?: string) {
-  resp.headers.set("X-KSSK-Mode", mode);
+  resp.headers.set("X-KSK-Mode", mode);
   if (id) resp.headers.set("X-Req-Id", id);
   return resp;
 }
@@ -328,7 +328,7 @@ export async function GET(req: NextRequest) {
           try {
             const macUp = String(row.mac || '').toUpperCase();
             if (!macUp) return;
-            // 1) Try per-KSSK alias bundle
+            // 1) Try per-KSK alias bundle
             let names: Record<string,string> | undefined;
             let nPins: number[] | undefined;
             let lPins: number[] | undefined;
@@ -482,7 +482,7 @@ export async function DELETE(req: NextRequest) {
     macFilter ??= sp.get('mac');
     if (macFilter) macFilter = macFilter.toUpperCase();
 
-    // Allow bulk clear by MAC without specifying a KSSK
+    // Allow bulk clear by MAC without specifying a KSK
     if (!kssk && !macFilter) return NextResponse.json({ error: "kssk_or_mac_required" }, { status: 400 });
 
     const key = K(String(kssk));
@@ -503,13 +503,13 @@ export async function DELETE(req: NextRequest) {
           if (typeof (r as any).scan === 'function') {
             let cursor = '0';
             do {
-              const res = await (r as any).scan(cursor, 'MATCH', 'kssk:lock:*', 'COUNT', 300);
+              const res = await (r as any).scan(cursor, 'MATCH', 'ksk:*', 'COUNT', 300);
               cursor = res[0];
               const chunk: string[] = res[1] || [];
               keys.push(...chunk);
             } while (cursor !== '0');
           } else {
-            const k = await (r as any).keys('kssk:lock:*').catch(() => [] as string[]);
+            const k = await (r as any).keys('ksk:*').catch(() => [] as string[]);
             keys.push(...k);
           }
           for (const key of keys) {

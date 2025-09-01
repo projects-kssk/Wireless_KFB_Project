@@ -30,8 +30,8 @@ function loadEnvFiles() {
 loadEnvFiles();
 
 const url         = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const pref        = process.env.REDIS_LOCK_PREFIX || 'kssk:lock:';          // lock value keys
-const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'kssk:station:';    // station index set
+const pref        = process.env.REDIS_LOCK_PREFIX || 'ksk:';                // lock value keys
+const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'kssk:station:';    // station index set (unchanged)
 let stationId     = process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || process.env.npm_config_id || process.env.HOSTNAME || '';
 
 // --- tiny argv parser ---

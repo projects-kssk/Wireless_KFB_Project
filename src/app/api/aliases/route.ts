@@ -23,7 +23,7 @@ export async function GET(req: Request) {
     const r = getRedis();
     log.info('GET aliases', { mac: macRaw, all });
     if (all) {
-      // Return all KSSK-specific alias bundles we know for this MAC
+      // Return all KSK-specific alias bundles we know for this MAC
       let members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
       // Fallback/augment: scan keys if index is empty or incomplete
       try {
@@ -108,9 +108,9 @@ export async function POST(req: Request) {
       }
     }
     log.info('POST aliases saved', { mac, kssk: kssk || null, normalPins: normalPins.length, latchPins: latchPins.length });
-    // Rebuild union for MAC key from all KSSK entries so UI has complete map
+    // Rebuild union for MAC key from all KSK entries so UI has complete map
     try {
-      // Rehydrate index by scanning keys and SADD any missing KSSKs
+      // Rehydrate index by scanning keys and SADD any missing KSKs
       const curMembers: string[] = await r.smembers(indexKey(mac)).catch(() => []);
       let foundIds: string[] = [];
       try {

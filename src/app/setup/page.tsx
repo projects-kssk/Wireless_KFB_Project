@@ -453,7 +453,7 @@ export default function SetupPage() {
   const startHeartbeat = (kssk: string) => {
     stopHeartbeat(kssk);
     const id = window.setInterval(() => {
-      fetch("/api/kssk-lock", {
+      fetch("/api/ksk-lock", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
@@ -480,7 +480,7 @@ export default function SetupPage() {
     activeLocks.current.delete(kssk);
     saveLocalLocks(activeLocks.current);
     try {
-      await fetch("/api/kssk-lock", {
+      await fetch("/api/ksk-lock", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kssk, stationId: STATION_ID }),
@@ -500,7 +500,7 @@ export default function SetupPage() {
     (async () => {
       let hydrated = false;
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
         if (r.ok) {
           const j = await r.json();
           const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -522,7 +522,7 @@ export default function SetupPage() {
     try {
       const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
       if (!stationId) return;
-      const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+      const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
       if (!r.ok) return;
       const j = await r.json();
       const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -538,7 +538,7 @@ export default function SetupPage() {
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
         const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -760,7 +760,7 @@ const acceptKsskToIndex = useCallback(
       bump(target, code, "pending");
 
       // 2) acquire server lock
-      const lockRes = await fetch("/api/kssk-lock", {
+      const lockRes = await fetch("/api/ksk-lock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
@@ -1134,7 +1134,7 @@ const acceptKsskToIndex = useCallback(
     if (KEEP_LOCKS_ON_UNLOAD) return;
     const h = () => {
       activeLocks.current.forEach((k) => {
-        fetch("/api/kssk-lock", {
+        fetch("/api/ksk-lock", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kssk: k, stationId: STATION_ID }),

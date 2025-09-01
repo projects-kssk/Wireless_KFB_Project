@@ -62,7 +62,7 @@ Prerequisites
   - `LOG_ENABLE=1`, `LOG_DIR=./logs`, `LOG_LEVEL=info`
   - `LOG_MONITOR_ONLY=1` (print only monitor-tag info/warn)
   - `LOG_MONITOR_START_ONLY=1` (show only MONITOR start lines; failures still appear)
-  - `LOG_TAG_LEVELS=redis=warn,kssk-lock=warn` (optional per-tag overrides)
+  - `LOG_TAG_LEVELS=redis=warn,ksk-lock=warn` (optional per-tag overrides)
 
 ## Logging Cheat‑Sheet
 - Console (concise):
@@ -108,16 +108,16 @@ Scanners
     - device list, scanner paths, scanner open/close/errors, scans, net iface info, ESP health
 
 KSK Locks (Redis; in-memory fallback when Redis is unavailable)
-- `POST /api/kssk-lock`
+- `POST /api/ksk-lock`
   - Body: `{ kssk: string, mac?: string, stationId: string, ttlSec?: number }`
   - Creates a lock with TTL; returns `{ ok: true }` or `409 locked`
-- `GET /api/kssk-lock?kssk=...`
+- `GET /api/ksk-lock?kssk=...`
   - Returns `{ locked: boolean, existing: {..., expiresAt} | null }`
-- `GET /api/kssk-lock?stationId=JETSON-01`
+- `GET /api/ksk-lock?stationId=JETSON-01`
   - Lists active locks for station: `{ locks: LockRow[] }`
-- `PATCH /api/kssk-lock`
+- `PATCH /api/ksk-lock`
   - Body: `{ kssk, stationId, ttlSec }` → touch TTL if you’re the owner
-- `DELETE /api/kssk-lock?kssk=...&stationId=...`
+- `DELETE /api/ksk-lock?kssk=...&stationId=...`
   - Deletes if called by owner (or `force=1`)
 
 Note: Legacy Postgres-backed branches/config endpoints were removed in favor of using Krosy XML data from Setup.

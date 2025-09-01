@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     const mac = String((body as any)?.mac || '').toUpperCase();
     if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const r = getRedis();
-    // Get all KSSK IDs from index and from scanning keys
+    // Get all KSK IDs from index and from scanning keys
     let members: string[] = await r.smembers(indexKey(mac)).catch(() => []);
     try {
       const pattern = `${keyForKssk(mac, '*')}`;
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
         members = Array.from(set);
       }
     } catch {}
-    // Delete union and each KSSK entry; clear the index
+    // Delete union and each KSK entry; clear the index
     const delKeys: string[] = [keyFor(mac), ...members.map(id => keyForKssk(mac, id))];
     let deleted = 0;
     try { if (delKeys.length) deleted = await (r as any).del(...delKeys).catch(() => 0); } catch {}

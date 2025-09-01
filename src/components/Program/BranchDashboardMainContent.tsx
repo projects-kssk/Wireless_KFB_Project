@@ -488,7 +488,7 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
         // Also clear any KSK locks for this MAC across stations (force)
         const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
         const body = sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 } as any;
-        await fetch('/api/kssk-lock', {
+        await fetch('/api/ksk-lock', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),

@@ -1,5 +1,5 @@
 # All locks
-GET http://localhost:3000/api/kssk-lock
+GET http://localhost:3000/api/ksk-lock
 
 # Locks for this station
-GET http://localhost:3000/api/kssk-lock?stationId={{STATION_ID}}
+GET http://localhost:3000/api/ksk-lock?stationId={{STATION_ID}}

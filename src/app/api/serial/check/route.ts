@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
   try {
     // Build effective pin list based on mode
-    // Modes: mac (default) → send no pins; union → union of active KSSKs; client → honor body pins; merge → superset of both
+    // Modes: mac (default) → send no pins; union → union of active KSKs; client → honor body pins; merge → superset of both
     // Default to 'merge' to avoid under-sending when Redis union is stale while client has a more complete set
     const SEND_MODE = (process.env.CHECK_SEND_MODE ?? 'merge').toLowerCase();
     let clientPins: number[] | undefined = Array.isArray(parsed.data.pins)
@@ -152,9 +152,9 @@ export async function POST(request: Request) {
       const members: string[] = await r.smembers(indexKey).catch(() => []);
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
       const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
-      // Union of station-active and indexed KSSKs
+      // Union of station-active and indexed KSKs
       let targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
-      // Fallback: if both station + index empty, scan Redis keys for per-KSSK alias entries
+      // Fallback: if both station + index empty, scan Redis keys for per-KSK alias entries
       if (!targets.length) {
         try {
           const pattern = `kfb:aliases:${macUp}:*`;
@@ -202,7 +202,7 @@ export async function POST(request: Request) {
         } catch {}
       }
       // Always merge the union-from-MAC key as a safety net, so we never
-      // under-send when some per-KSSK alias records are missing.
+      // under-send when some per-KSK alias records are missing.
       try {
         const rawUnion = await r.get(`kfb:aliases:${macUp}`);
         if (rawUnion) {
@@ -409,7 +409,7 @@ export async function POST(request: Request) {
       }
       // Fire-and-forget: build a checkpoint XML from aliases and send it to Krosy only on SUCCESS
       try { void sendCheckpointFromAliases(macUp, rid); } catch {}
-      // On SUCCESS: clear any KSSK locks for this MAC across ALL stations so Setup can proceed next time anywhere
+      // On SUCCESS: clear any KSK locks for this MAC across ALL stations so Setup can proceed next time anywhere
       try {
         const { getRedis } = await import('@/lib/redis');
         const r: any = getRedis();
@@ -440,7 +440,7 @@ export async function POST(request: Request) {
               const members: string[] = await r.smembers(setKey).catch(() => []);
               for (const kssk of members) {
                 try {
-                  const lockKey = `kssk:lock:${kssk}`;
+                  const lockKey = `ksk:${kssk}`;
                   const raw = await r.get(lockKey).catch(() => null);
                   if (!raw) { await r.srem(setKey, kssk).catch(() => {}); continue; }
                   const v = JSON.parse(raw);
@@ -454,20 +454,20 @@ export async function POST(request: Request) {
             } catch {}
           }
 
-          // 4) Belt-and-suspenders: scan all kssk:lock:* keys and delete any whose mac matches this MAC,
+          // 4) Belt-and-suspenders: scan all ksk:* keys and delete any whose mac matches this MAC,
           //    also removing from their recorded station set if present.
           try {
             const lockKeys: string[] = [];
             if (typeof r.scan === 'function') {
               let cursor = '0';
               do {
-                const res = await r.scan(cursor, 'MATCH', 'kssk:lock:*', 'COUNT', 300);
+                const res = await r.scan(cursor, 'MATCH', 'ksk:*', 'COUNT', 300);
                 cursor = res[0];
                 const chunk: string[] = res[1] || [];
                 lockKeys.push(...chunk);
               } while (cursor !== '0');
             } else {
-              const keys: string[] = await r.keys('kssk:lock:*').catch(() => []);
+              const keys: string[] = await r.keys('ksk:*').catch(() => []);
               lockKeys.push(...keys);
             }
             for (const key of lockKeys) {
@@ -528,7 +528,7 @@ export async function POST(request: Request) {
       }
     } catch {}
 
-    // On failure, enrich with aliases, name hints and per-KSSK bundles (does not block success path)
+    // On failure, enrich with aliases, name hints and per-KSK bundles (does not block success path)
     try {
       const { getRedis } = await import('@/lib/redis');
       const r = getRedis();
@@ -560,7 +560,7 @@ export async function POST(request: Request) {
         } catch { return null; }
       }));
       itemsAll = rows.filter(Boolean) as any;
-      // Active KSSKs for this station (if configured)
+      // Active KSKs for this station (if configured)
       try {
         const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
         if (stationId && itemsAll && itemsAll.length) {

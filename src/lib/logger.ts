@@ -13,7 +13,7 @@ const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
 // Monitor-only mode: show only tag=="monitor" (except allow errors always)
 const MONITOR_ONLY = (process.env.LOG_MONITOR_ONLY ?? "0") === "1";
 
-// Per-tag minimum overrides: e.g. "redis=warn,kssk-lock=warn,api:krosy-offline=warn"
+// Per-tag minimum overrides: e.g. "redis=warn,ksk-lock=warn,api:krosy-offline=warn"
 const TAG_LEVELS_RAW = process.env.LOG_TAG_LEVELS || "";
 const TAG_MIN: Record<string, Level> = {};
 for (const pair of TAG_LEVELS_RAW.split(",")) {
@@ -26,7 +26,7 @@ for (const pair of TAG_LEVELS_RAW.split(",")) {
 // Sensible defaults when not explicitly overridden and not in DEBUG mode
 if (!TAG_LEVELS_RAW && (process.env.DEBUG ?? "0") !== "1") {
   TAG_MIN["redis"]              = "warn";
-  TAG_MIN["kssk-lock"]          = "warn";
+  TAG_MIN["ksk-lock"]           = "warn";
   TAG_MIN["api:krosy-offline"]  = "warn";
   TAG_MIN["api:serial/check"]   = "warn";
   TAG_MIN["api:serial"]         = "warn";

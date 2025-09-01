@@ -293,6 +293,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const kssk = searchParams.get("kssk");
     const stationId = searchParams.get("stationId") || undefined;
+    const include = String(searchParams.get('include') || '').trim().toLowerCase();
+    const includeAliases = include === '1' || include === 'true' || include === 'aliases' || include === 'pins' || include === 'all';
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
@@ -318,6 +320,25 @@ export async function GET(req: NextRequest) {
     }
 
     const rows: LockRow[] = haveRedis ? await redisList(stationId) : memList(stationId);
+    // Optionally enrich rows with aliases + pin maps (Redis only)
+    if (includeAliases && haveRedis && rows.length) {
+      try {
+        const r: any = getRedis();
+        await Promise.all(rows.map(async (row: any) => {
+          try {
+            const macUp = String(row.mac || '').toUpperCase();
+            const key = `kfb:aliases:${macUp}:${row.kssk}`;
+            const raw = await r.get(key).catch(() => null);
+            if (!raw) return;
+            const d = JSON.parse(raw);
+            row.aliases = d?.names || d?.aliases || {};
+            row.normalPins = Array.isArray(d?.normalPins) ? d.normalPins : [];
+            row.latchPins = Array.isArray(d?.latchPins) ? d.latchPins : [];
+            row.ts = d?.ts || null;
+          } catch {}
+        }));
+      } catch {}
+    }
     const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
     if (rows.length > 0) log.info('GET list', info);
     else log.debug('GET list (empty)', info);

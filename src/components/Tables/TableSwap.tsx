@@ -270,7 +270,7 @@ useEffect(() => {
     ? "Please scan barcode"
     : ksskCount >= ksskTarget
     ? "Please scan barcode"
-    : `Please scan KSSK #${nextOrdinal}`;
+    : `Please scan KSK #${nextOrdinal}`;
 
   const Icon = hasBoard && ksskCount < ksskTarget ? BarsIcon : ScanIcon;
   const showProgress = hasBoard && ksskCount < ksskTarget;

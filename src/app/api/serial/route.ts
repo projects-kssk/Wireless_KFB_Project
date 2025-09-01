@@ -4,6 +4,7 @@ import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
 import { LOG } from '@/lib/logger';
+import { getRedis } from '@/lib/redis';
 import { ridFrom } from '@/lib/rid';
 
 export const runtime = "nodejs";
@@ -290,6 +291,43 @@ export async function POST(request: Request) {
     entry.diffs = diffs;
   }
   await appendLog(entry);
+  // Opportunistically update per-KSSK pins in Redis so tools (locks:watch) show live pins
+  try {
+    if (kssk) {
+      const r: any = getRedis();
+      const macUp = String(mac).toUpperCase();
+      const keyK = `kfb:aliases:${macUp}:${String(kssk)}`;
+      const keyU = `kfb:aliases:${macUp}`;
+      let names: Record<string,string> = {};
+      try {
+        const rawK = await r.get(keyK).catch(() => null);
+        if (rawK) {
+          const d = JSON.parse(rawK);
+          if (d?.names && typeof d.names === 'object') names = d.names as Record<string,string>;
+        }
+      } catch {}
+      if (!names || Object.keys(names).length === 0) {
+        try {
+          const rawU = await r.get(keyU).catch(() => null);
+          if (rawU) {
+            const dU = JSON.parse(rawU);
+            const nU = (dU?.names && typeof dU.names === 'object') ? (dU.names as Record<string,string>) : {};
+            // only take names for pins we are sending
+            const need = new Set<number>([...normalPins, ...latchPins]);
+            const picked: Record<string,string> = {};
+            for (const [pin, label] of Object.entries(nU)) {
+              const p = Number(pin);
+              if (Number.isFinite(p) && need.has(p)) picked[pin] = String(label);
+            }
+            names = picked;
+          }
+        } catch {}
+      }
+      const value = JSON.stringify({ names: names || {}, normalPins, latchPins, ts: Date.now() });
+      try { await r.set(keyK, value); } catch {}
+      try { await r.sadd(`kfb:aliases:index:${macUp}`, String(kssk)); } catch {}
+    }
+  } catch {}
   await appendLog({
     event: "monitor.send",
     source: src,

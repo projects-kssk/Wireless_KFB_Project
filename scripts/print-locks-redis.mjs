@@ -194,6 +194,27 @@ async function main() {
       return 'in ' + parts.join(' ');
     };
 
+    const fmtPins = (arr) => {
+      const xs = Array.isArray(arr) ? arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n>0) : [];
+      xs.sort((a,b)=>a-b);
+      const s = xs.join(',');
+      if (s.length <= 48) return s;
+      // trim but keep counts visible
+      const head = xs.slice(0, 12).join(',');
+      return head + ` …(+${Math.max(0, xs.length-12)})`;
+    };
+    const sampleMap = (names) => {
+      if (!names || typeof names !== 'object') return '';
+      const entries = Object.entries(names)
+        .map(([k,v]) => [Number(k), String(v)])
+        .filter(([k]) => Number.isFinite(k) && k>0)
+        .sort((a,b)=>a[0]-b[0]);
+      if (!entries.length) return '';
+      const shown = entries.slice(0, 4).map(([k,v]) => `${k}:${v}`);
+      const extra = entries.length - shown.length;
+      return extra > 0 ? `${shown.join(' | ')} …(+${extra})` : shown.join(' | ');
+    };
+
     const runOnce = async () => {
       let rows = [];
       if (stationId) rows = await listByStation(stationId);
@@ -207,6 +228,20 @@ async function main() {
         const bx = b.expiresAt ? Date.parse(b.expiresAt) : Infinity;
         return ax - bx;
       });
+
+      // Enrich with alias data (names, pins)
+      for (const r of rows) {
+        try {
+          if (!r.mac) continue;
+          const key = `kfb:aliases:${r.mac}:${r.kssk}`;
+          const raw = await redis.get(key).catch(() => null);
+          if (!raw) continue;
+          const d = JSON.parse(raw);
+          r.__aliases = d?.names || d?.aliases || {};
+          r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : Object.keys(r.__aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
+          r.__pinsC = Array.isArray(d?.latchPins) ? d.latchPins : [];
+        } catch {}
+      }
 
       if (opts.clear) console.clear();
       const hdr = [`Redis: ${url}`, stationId ? `station=${stationId}` : 'station=ALL'];
@@ -223,6 +258,9 @@ async function main() {
           ttlSec: r.ttlSec,
           expiresAt: fmtLocal(r.expiresAt),
           expiresIn: fmtIn(r.ttlSec),
+          pinsN: fmtPins(r.__pinsN),
+          pinsC: fmtPins(r.__pinsC),
+          map: sampleMap(r.__aliases),
         })));
       }
 

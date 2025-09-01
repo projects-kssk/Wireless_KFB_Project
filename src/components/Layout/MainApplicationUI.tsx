@@ -432,14 +432,51 @@ useEffect(() => {
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        const ids: string[] = Array.isArray(j?.locks) ? j.locks.map((l: any) => String(l.kssk)) : [];
-        if (ids.length && !stop) setActiveKssks((prev) => {
-          const set = new Set<string>([...prev, ...ids]);
-          return Array.from(set);
-        });
+        const rows: Array<{ kssk: string; mac?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.locks) ? j.locks : [];
+        const ids: string[] = rows.map((l) => String(l.kssk)).filter(Boolean);
+        if (!stop && ids.length) {
+          setActiveKssks((prev) => Array.from(new Set<string>([...prev, ...ids])));
+          if (!kfbNumber && groupedBranches.length === 0 && branchesData.length === 0) {
+            const groupsRaw = rows
+              .filter(it => it && it.aliases && typeof it.aliases === 'object')
+              .map((it) => {
+                const a = it.aliases || {} as Record<string,string>;
+                const pins = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+                const setLatch = new Set<number>(((it.latchPins || []) as number[]).filter(n => Number.isFinite(n)) as number[]);
+                const branches = pins.map((pin) => ({
+                  id: `${String(it.kssk)}:${pin}`,
+                  branchName: a[String(pin)] || `PIN ${pin}`,
+                  testStatus: setLatch.has(pin) ? 'not_tested' as TestStatus : 'not_tested' as TestStatus,
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                  isLatch: setLatch.has(pin),
+                } as BranchDisplayData));
+                return { kssk: String(it.kssk || ''), branches };
+              });
+            const byId = new Map<string, BranchDisplayData[]>();
+            for (const g of groupsRaw) {
+              const id = String(g.kssk).trim().toUpperCase();
+              const prev = byId.get(id) || [];
+              const merged = [...prev, ...g.branches];
+              const seen = new Set<number>();
+              const dedup = merged.filter(b => {
+                const p = typeof b.pinNumber === 'number' ? b.pinNumber : NaN;
+                if (!Number.isFinite(p)) return true;
+                if (seen.has(p)) return false;
+                seen.add(p);
+                return true;
+              });
+              byId.set(id, dedup);
+            }
+            const groups = Array.from(byId.entries())
+              .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+              .map(([k, branches]) => ({ kssk: k, branches }));
+            if (groups.length) setGroupedBranches(groups);
+          }
+        }
       } catch {}
     };
     tick();

@@ -322,23 +322,25 @@ export async function GET(req: NextRequest) {
     else log.debug('GET list (empty)', info);
 
     // Optional verbose detail logging for terminal visibility
+    // Only log when the content changes (coalesced by KSSK/MAC/station), not every poll.
     if ((process.env.KSSK_LOCK_LOG_DETAIL ?? '0') === '1') {
       const g: any = globalThis as any;
-      if (!g.__kssk_list_detail_last) g.__kssk_list_detail_last = 0;
-      const tsNow = Date.now();
-      if (tsNow - g.__kssk_list_detail_last < 2000) {
-        return withMode(NextResponse.json({ locks: rows }), mode);
+      const signature = rows
+        .map(r => `${String(r.kssk)}:${String(r.mac || '').toUpperCase()}:${String(r.stationId)}`)
+        .sort()
+        .join('|');
+      if (g.__kssk_list_detail_sig !== signature) {
+        g.__kssk_list_detail_sig = signature;
+        const now = Date.now();
+        const brief = rows.slice(0, 12).map(r => ({
+          kssk: r.kssk,
+          mac: r.mac,
+          stationId: r.stationId,
+          ttlSec: typeof r.expiresAt === 'number' ? Math.max(0, Math.round((r.expiresAt - now)/1000)) : null,
+        }));
+        log.info('GET list detail', { rid: id, stationId: stationId ?? null, items: brief });
+        if (rows.length > brief.length) log.info('GET list detail (truncated)', { rid: id, more: rows.length - brief.length });
       }
-      g.__kssk_list_detail_last = tsNow;
-      const now = Date.now();
-      const brief = rows.slice(0, 12).map(r => ({
-        kssk: r.kssk,
-        mac: r.mac,
-        stationId: r.stationId,
-        ttlSec: typeof r.expiresAt === 'number' ? Math.max(0, Math.round((r.expiresAt - now)/1000)) : null,
-      }));
-      log.info('GET list detail', { rid: id, stationId: stationId ?? null, items: brief });
-      if (rows.length > brief.length) log.info('GET list detail (truncated)', { rid: id, more: rows.length - brief.length });
     }
     return withMode(NextResponse.json({ locks: rows }), mode);
   } catch (e: unknown) {

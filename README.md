@@ -48,6 +48,9 @@ Prerequisites
   - `ESP_HEALTH_PROBE` = `never|if-stale|always` (health policy)
 - Scanners
   - `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1` (plus optional `SCANNER2_TTY_PATH`)
+  - `SCANNER_BAUD=9600` (baud rate for all scanners; defaults to 115200 if unset)
+  - `SCANNER_ALLOW_ASCII_NO_NL=1` (enable if your scanner does not send newlines; parses ASCII bursts using an idle timer)
+  - `SCANNER_ACCEPT_ANY=1` (broadcast full printable line as a scan; by default only MAC-like payloads are accepted)
 - Redis
   - `REDIS_URL=redis://127.0.0.1:6379`
   - `KSSK_REQUIRE_REDIS=1` (require Redis; otherwise memory fallback is used)
@@ -55,7 +58,7 @@ Prerequisites
   - `NEXT_PUBLIC_KSSK_TTL_SEC=172800` (client TTL used by Setup page; 2 days)
 // Postgres is no longer required for this flow.
 - UI behavior
-  - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for KFB input)
+  - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for scan input on the client)
   - `NEXT_PUBLIC_STATION_ID` (used for lock ownership)
 - Logging (defaults set in `.env`)
   - `LOG_ENABLE=1`, `LOG_DIR=./logs`, `LOG_LEVEL=info`

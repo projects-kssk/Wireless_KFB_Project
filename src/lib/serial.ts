@@ -5,6 +5,7 @@ import { LOG } from '@/lib/logger';
 import { broadcast, DeviceInfo } from "@/lib/bus";
 import { Transform } from "stream";
 import { ReadlineParser } from "@serialport/parser-readline";
+
 /* ────────────────────────────────────────────────────────────────────────────
    ESP line stream — singleton with ring buffer + subscriber fan-out
    Adds cursoring so callers can fence reads to “future-only”.
@@ -19,9 +20,8 @@ type EspLineStream = {
   ringIds: number[];
   nextId: number;
   subs: Set<SubFn>;
-    lastSeenAt: number;          // NEW
-  lastLine?: string;           // NEW
-
+  lastSeenAt: number;
+  lastLine?: string;
 };
 
 type G = typeof globalThis & { __ESP_STREAM?: EspLineStream };
@@ -44,6 +44,7 @@ function armEsp(): EspLineStream {
   log.info(`opening ${path} @${baudRate}`);
 
   const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
+
   // Normalize CRLF/CR to LF and accept any newline as delimiter
   const normalizer = new Transform({
     transform(chunk, _enc, cb) {
@@ -51,38 +52,40 @@ function armEsp(): EspLineStream {
       cb(null, Buffer.from(s.replace(/\r\n/g, "\n").replace(/\r/g, "\n")));
     }
   });
+
   const parser = port
     .pipe(normalizer)
     .pipe(new ReadlineParser({ delimiter: "\n" }));
+
   const ring: string[] = [];
   const ringIds: number[] = [];
   let nextId = 1;
   const subs = new Set<SubFn>();
-  let lastSeenAt = 0;            // NEW
+  let lastSeenAt = 0;
 
-// --- update the data handler
-parser.on("data", (buf: Buffer | string) => {
-  const s = String(buf).trim();
-  if (!s) return;
+  // --- update the data handler
+  parser.on("data", (buf: unknown) => {
+    const s = String(buf).trim();
+    if (!s) return;
 
-  if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`[${path}] ${s}`);
+    if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`[${path}] ${s}`);
 
-  ring.push(s);
-  ringIds.push(nextId++);
-  if (ring.length > 400) {
-    ring.shift();
-    ringIds.shift();
-  }
+    ring.push(s);
+    ringIds.push(nextId++);
+    if (ring.length > 400) {
+      ring.shift();
+      ringIds.shift();
+    }
 
-  // NEW: passive liveness
-  lastSeenAt = Date.now();
-  GBL.__ESP_STREAM!.lastSeenAt = lastSeenAt;
-  GBL.__ESP_STREAM!.lastLine = s;
+    // passive liveness
+    lastSeenAt = Date.now();
+    GBL.__ESP_STREAM!.lastSeenAt = lastSeenAt;
+    GBL.__ESP_STREAM!.lastLine = s;
 
-  subs.forEach((fn) => {
-    try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
+    subs.forEach((fn) => {
+      try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
+    });
   });
-});
 
   port.on("error", (e) => {
     LOG.tag('esp').error(`error on ${path}`, e?.message ?? e);
@@ -93,7 +96,7 @@ parser.on("data", (buf: Buffer | string) => {
   });
 
   GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs, lastSeenAt, lastLine: undefined };
-return GBL.__ESP_STREAM;
+  return GBL.__ESP_STREAM;
 }
 
 export function getEspLineStream(): EspLineStream { return armEsp(); }
@@ -110,7 +113,6 @@ export function getEspActivity(): { lastSeenAt: number | null; ageMs: number | n
   const ageMs = Date.now() - s.lastSeenAt;
   return { lastSeenAt: s.lastSeenAt, ageMs, lastLine: s.lastLine };
 }
-
 
 async function waitUntilOpen(port: SerialPort): Promise<void> {
   if ((port as any).isOpen) return;
@@ -204,6 +206,7 @@ export async function isEspPresent(path = espPath()): Promise<boolean> {
   const list = await SerialPort.list();
   return list.some((d) => d.path === path);
 }
+
 export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
   const tmpl = (process.env.ESP_PING_CMD ?? "PING").trim();
   if (!tmpl) return { ok: true, raw: "present (no ping)" };
@@ -220,6 +223,7 @@ export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
     return { ok: false, raw: String(e?.message ?? e) };
   }
 }
+
 // --- replace espHealth to avoid pinging by default
 export async function espHealth(opts?: {
   probe?: "never" | "if-stale" | "always";
@@ -307,7 +311,8 @@ function attachScannerHandlers(
   port: SerialPort,
   parser: ReadlineParser
 ) {
-  parser.on("data", (raw) => {
+  // Line-oriented payloads
+  parser.on("data", (raw: unknown) => {
     let code = String(raw);
     code = code.replace(/[\r\n\0]+/g, "");
     if ((process.env.SCANNER_PRINTABLE_ONLY ?? "1") !== "0")
@@ -315,39 +320,109 @@ function attachScannerHandlers(
     const maxLen = Number(process.env.SCANNER_MAX_LINE ?? 256);
     if (code.length > maxLen) code = code.slice(0, maxLen);
     if (!code) return;
-    try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan', { code, path }); } catch {}
-    broadcast({ type: "scan", code, path });
+    const acceptAny = (process.env.SCANNER_ACCEPT_ANY ?? '0') === '1';
+    let out = code;
+    if (!acceptAny) {
+      // Accept AA:BB... or AA-BB... or AABB...
+      const m = code.match(/([0-9A-F]{2}(?:[:\-]?[0-9A-F]{2}){5})/i);
+      if (!m) return; // not a MAC-like payload
+      out = m[1].replace(/[^0-9A-F]/gi, "").match(/.{2}/g)!.join(":").toUpperCase();
+    }
+
+    try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan', { code: out, path }); } catch {}
+    broadcast({ type: "scan", code: out, path });
   });
 
   // Optional fallback: some scanners emit raw 6-byte payloads (MAC address) with no newline.
   // Enable with SCANNER_ALLOW_RAW_MAC=1 to parse fixed-length frames and broadcast as AA:BB:CC:DD:EE:FF
-  if ((process.env.SCANNER_ALLOW_RAW_MAC ?? '0') === '1') {
-    let rawBuf = Buffer.alloc(0);
-    const flushRaw = () => { rawBuf = Buffer.alloc(0); };
-    const toMac = (six: Buffer) => Array.from(six).map(b => b.toString(16).toUpperCase().padStart(2, '0')).join(':');
-    const handler = (chunk: Buffer) => {
+if ((process.env.SCANNER_ALLOW_ASCII_NO_NL ?? '0') === '1') {
+  let asciiBuf = '';
+  let t: NodeJS.Timeout | null = null;
+  const idleMs = Number(process.env.SCANNER_IDLE_FLUSH_MS ?? 40);
+
+  const flushAscii = () => {
+    const payload = asciiBuf;
+    asciiBuf = '';
+    if (!payload) return;
+
+    let code = payload.replace(/[\r\n\0]+/g, "");
+    if ((process.env.SCANNER_PRINTABLE_ONLY ?? "1") !== "0")
+      code = code.replace(/[^\x20-\x7E]/g, "");
+    const maxLen = Number(process.env.SCANNER_MAX_LINE ?? 256);
+    if (code.length > maxLen) code = code.slice(0, maxLen);
+    if (!code) return;
+
+    const acceptAny = (process.env.SCANNER_ACCEPT_ANY ?? '0') === '1';
+    let out = code;
+    if (!acceptAny) {
+      const m = code.match(/([0-9A-F]{2}(?:[:\-]?[0-9A-F]{2}){5})/i);
+      if (!m) return;
+      out = m[1].replace(/[^0-9A-F]/gi, "").match(/.{2}/g)!.join(":").toUpperCase();
+    }
+    try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan(ascii-no-nl)', { code: out, path }); } catch {}
+    broadcast({ type: "scan", code: out, path });
+  };
+
+  const asciiHandler = (chunk: Buffer) => {
+    try {
+      const asStr = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : Buffer.from(chunk as any).toString('utf8');
+      asciiBuf += asStr;
+      if (t) clearTimeout(t);
+      t = setTimeout(flushAscii, idleMs);
+    } catch {}
+  };
+
+  try { (port as any).on('data', asciiHandler); } catch {}
+  try {
+    (port as any).once('close', () => {
+      try { (port as any).off?.('data', asciiHandler); } catch {}
+      if (t) clearTimeout(t);
+      asciiBuf = '';
+    });
+  } catch {}
+}
+
+
+
+  // Optional ASCII-without-newline fallback using idle timer
+  if ((process.env.SCANNER_ALLOW_ASCII_NO_NL ?? '0') === '1') {
+    let asciiBuf = '';
+    let t: NodeJS.Timeout | null = null;
+    const idleMs = Number(process.env.SCANNER_IDLE_FLUSH_MS ?? 40);
+
+    const flushAscii = () => {
+      const payload = asciiBuf;
+      asciiBuf = '';
+      if (!payload) return;
+      // Reuse the same parsing path as line mode
+      let code = payload.replace(/[\r\n\0]+/g, "");
+      if ((process.env.SCANNER_PRINTABLE_ONLY ?? "1") !== "0")
+        code = code.replace(/[^\x20-\x7E]/g, "");
+      const maxLen = Number(process.env.SCANNER_MAX_LINE ?? 256);
+      if (code.length > maxLen) code = code.slice(0, maxLen);
+      if (!code) return;
+      const acceptAny = (process.env.SCANNER_ACCEPT_ANY ?? '0') === '1';
+      let out = code;
+      if (!acceptAny) {
+        const m = code.match(/([0-9A-F]{2}(?:[:\-]?[0-9A-F]{2}){5})/i);
+        if (!m) return;
+        out = m[1].replace(/[^0-9A-F]/gi, "").match(/.{2}/g)!.join(":").toUpperCase();
+      }
+      try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan(ascii-no-nl)', { code: out, path }); } catch {}
+      broadcast({ type: "scan", code: out, path });
+    };
+
+    const asciiHandler = (chunk: Uint8Array) => {
       try {
-        if (!Buffer.isBuffer(chunk)) chunk = Buffer.from(chunk as any);
-        rawBuf = Buffer.concat([rawBuf, chunk]);
-        // If ASCII newline appears anywhere, defer to line parser and reset buffer
-        if (rawBuf.includes(0x0A) || rawBuf.includes(0x0D)) { flushRaw(); return; }
-        // Process in 6-byte frames
-        const FRAME = 6;
-        while (rawBuf.length >= FRAME) {
-          const six = rawBuf.subarray(0, FRAME);
-          rawBuf = rawBuf.subarray(FRAME);
-          const mac = toMac(six);
-          try { if ((process.env.SCAN_LOG ?? '0') === '1') LOG.tag('scanner').info('scan(raw-mac)', { mac, path }); } catch {}
-          broadcast({ type: 'scan', code: mac, path });
-        }
-        // Avoid unbounded growth
-        const MAX = 64;
-        if (rawBuf.length > MAX) flushRaw();
+        const asStr = Buffer.from(chunk).toString('utf8');
+        asciiBuf += asStr;
+        if (t) clearTimeout(t);
+        t = setTimeout(flushAscii, idleMs);
       } catch {}
     };
-    try { (port as any).on('data', handler); } catch {}
-    // cleanup on port close
-    try { (port as any).once('close', () => { try { (port as any).off?.('data', handler); } catch {}; flushRaw(); }); } catch {}
+
+    try { (port as any).on('data', asciiHandler); } catch {}
+    try { (port as any).once('close', () => { try { (port as any).off?.('data', asciiHandler); } catch {}; if (t) clearTimeout(t); asciiBuf=''; }); } catch {}
   }
 
   port.on("close", () => {
@@ -370,20 +445,18 @@ function attachScannerHandlers(
   });
 }
 
-
-
 export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
   const ALLOW_USB_SCANNER = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
   if (!ALLOW_USB_SCANNER && /\/ttyUSB\d+$/i.test(path)) {
     const espPath = process.env.ESP_TTY ?? process.env.ESP_TTY_PATH ?? "";
     const LOG_SKIPS = (process.env.LOG_SCANNER_SKIPS ?? "0") === "1";
-    // Quietly skip by default; only log when explicitly enabled
     if (LOG_SKIPS) {
       if (espPath && path === espPath) LOG.tag('scanner').info(`skip scanner on ESP path ${path}`);
       else LOG.tag('scanner').warn(`skip scanner open on USB path ${path} (set ALLOW_USB_SCANNER=1 to allow)`);
     }
     throw new Error(`SCANNER_SKIP_USB ${path}`);
   }
+
   let rt = scanners.get(path);
   if (!rt) {
     rt = {
@@ -397,6 +470,7 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
   if (state.port?.isOpen) return;
   if (state.starting) return state.starting;
   if (inCooldown(retry)) throw new Error(`SCANNER_COOLDOWN ${path} until ${new Date(retry.nextAttemptAt).toISOString()}`);
+
   function looksLikeSamePath(candidate: string, wanted: string) {
     if (candidate === wanted) return true;
     const tail = (wanted.split("/").pop() || wanted).toLowerCase();
@@ -410,28 +484,30 @@ export async function ensureScannerForPath(path: string, baudRate = 115200): Pro
   }
 
   const devices = await SerialPort.list();
-    if (!devices.some((d) => looksLikeSamePath(d.path, path))) {
-      const msg = `Scanner port not present: ${path}`;
-      broadcastScannerErrorOnce(retry, msg, path);
-      bumpCooldown(retry, 10_000);
-      throw new Error(msg);
-    }
+  if (!devices.some((d) => looksLikeSamePath(d.path, path))) {
+    const msg = `Scanner port not present: ${path}`;
+    broadcastScannerErrorOnce(retry, msg, path);
+    bumpCooldown(retry, 10_000);
+    throw new Error(msg);
+  }
 
   state.starting = new Promise<void>((resolve, reject) => {
     const effBaud = Number(process.env.SCANNER_BAUD ?? baudRate ?? 9600) || 9600;
     LOG.tag('scanner').info(`opening ${path} @${effBaud}`);
     const port = new SerialPort({ path, baudRate: effBaud, autoOpen: false, lock: false });
-const normalizer = new Transform({
-  transform(chunk, _enc, cb) {
-    const s = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
-    // collapse CRLF/CR to LF so Readline sees '\n'
-    cb(null, Buffer.from(s.replace(/\r\n/g, "\n").replace(/\r/g, "\n")));
-  }
-});
 
-const parser = port
-  .pipe(normalizer)
-  .pipe(new ReadlineParser({ delimiter: /[\r\n]+/ } as any));
+    const normalizer = new Transform({
+      transform(chunk, _enc, cb) {
+        const s = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+        // collapse CRLF/CR to LF so Readline sees '\n'
+        cb(null, Buffer.from(s.replace(/\r\n/g, "\n").replace(/\r/g, "\n")));
+      }
+    });
+
+    const parser = port
+      .pipe(normalizer)
+      .pipe(new ReadlineParser({ delimiter: /[\r\n]+/ } as any));
+
     // Watchdog: detect stuck-open (no callback) and surface an error
     let opened = false;
     const watchdogMs = Number(process.env.SCANNER_OPEN_TIMEOUT_MS ?? 4000);

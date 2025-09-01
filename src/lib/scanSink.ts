@@ -1,6 +1,8 @@
 import { onSerialEvent } from '@/lib/bus';
 import { setLastScan } from '@/lib/scannerMemory';
+import { LOG } from '@/lib/logger';
 
+const log = LOG.tag('scan:sink');
 let wired = false;
 
 export function wireScanSink() {
@@ -8,7 +10,10 @@ export function wireScanSink() {
   wired = true;
   onSerialEvent((e) => {
     if (e && e.type === 'scan' && e.code) {
-      setLastScan(String(e.code), (e as any).path ?? null);
+      const mac  = String(e.code).trim();
+      const path = (e as any).path ?? null;
+      log.info('scan->memory', { mac, path });
+      setLastScan(mac, path);
     }
   });
 }

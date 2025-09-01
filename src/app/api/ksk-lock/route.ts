@@ -24,7 +24,7 @@ type LockVal = { kssk: string; mac: string; stationId: string; ts: number };
 type LockRow = LockVal & { expiresAt?: number };
 const K = (kssk: string) => `ksk:${kssk}`;
 const S = (stationId: string) => `kssk:station:${stationId}`;
-const REQUIRE_REDIS = (process.env.KSSK_REQUIRE_REDIS ?? '0') === '1';
+const REQUIRE_REDIS = ((process.env.KSK_REQUIRE_REDIS ?? process.env.KSSK_REQUIRE_REDIS) ?? '0') === '1';
 /* ================= In-memory fallback store ================== */
 const memLocks = new Map<string, { v: LockVal; exp: number }>(); // key: K(kssk)
 const memStations = new Map<string, Set<string>>();              // key: S(stationId) -> Set<kssk>
@@ -231,7 +231,7 @@ export async function POST(req: NextRequest) {
   const id = rid(); const t0 = Date.now();
 
   try {
-    const DEFAULT_TTL_SEC = Math.max(5, Number(process.env.KSSK_DEFAULT_TTL_SEC ?? '900'));
+    const DEFAULT_TTL_SEC = Math.max(5, Number((process.env.KSK_DEFAULT_TTL_SEC ?? process.env.KSSK_DEFAULT_TTL_SEC) ?? '900'));
     const { kssk, mac, stationId, ttlSec = DEFAULT_TTL_SEC } = await req.json();
     log.info('POST begin', { rid: id, action: 'create', kssk, mac: String(mac||'').toUpperCase(), stationId, ttlSec: Number(ttlSec) });
 
@@ -390,7 +390,7 @@ export async function GET(req: NextRequest) {
     else log.debug('GET list (empty)', info);
 
     // Optional verbose detail logging for terminal visibility
-    if ((process.env.KSSK_LOCK_LOG_DETAIL ?? '0') === '1') {
+    if (((process.env.KSK_LOCK_LOG_DETAIL ?? process.env.KSSK_LOCK_LOG_DETAIL) ?? '0') === '1') {
       const g: any = globalThis as any;
       if (!g.__kssk_list_detail_last) g.__kssk_list_detail_last = 0;
       const tsNow = Date.now();
@@ -419,7 +419,7 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const id = rid(); const t0 = Date.now();
   try {
-    const DEFAULT_TTL_SEC = Math.max(5, Number(process.env.KSSK_DEFAULT_TTL_SEC ?? '900'));
+    const DEFAULT_TTL_SEC = Math.max(5, Number((process.env.KSK_DEFAULT_TTL_SEC ?? process.env.KSSK_DEFAULT_TTL_SEC) ?? '900'));
     const { kssk, stationId, ttlSec = DEFAULT_TTL_SEC } = await req.json();
     if (!kssk || !stationId) return NextResponse.json({ error: "kssk & stationId required" }, { status: 400 });
 

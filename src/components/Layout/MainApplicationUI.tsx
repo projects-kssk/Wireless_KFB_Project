@@ -136,6 +136,8 @@ const MainApplicationUI: React.FC = () => {
     const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), ms);
     return () => clearTimeout(t);
   };
+  const OK_OVERLAY = String(process.env.NEXT_PUBLIC_OK_OVERLAY || '').trim() === '1';
+  const OK_OVERLAY_MS = Math.max(400, Number(process.env.NEXT_PUBLIC_OK_OVERLAY_MS ?? '1200'));
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const [okAnimationTick, setOkAnimationTick] = useState(0);
@@ -251,11 +253,21 @@ useEffect(() => {
  okForcedRef.current = true;
  setOkFlashTick(t => t + 1);     // show OK in child, then child resets
       scheduleOkReset();  
- void fetch('/api/kssk-lock/clear', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mac: current })
-    }).catch(()=>{});
+      // Ensure any SCANNING overlay is closed immediately on success
+      clearScanOverlayTimeout();
+      setOverlay(o => ({ ...o, open: false }));
+      if (OK_OVERLAY) { setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS); }
+      // Clear any KSSK locks for this MAC across stations
+      void fetch('/api/kssk-lock', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac: current })
+      }).catch(()=>{});
+      // Also clear local Setup-page lock cache for this station
+      try {
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
+      } catch {}
   }
 }, [serial.lastEvTick, macAddress]);
 
@@ -286,10 +298,12 @@ useEffect(() => {
     const flatOk = Array.isArray(branchesData) && branchesData.length > 0 && branchesData.every((b) => b.testStatus === 'ok');
     const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
     if (flatOk || groupedOk) {
-      // In live mode when everything is OK, show OK flash then reset
-    okForcedRef.current = true;
-  setOkFlashTick(t => t + 1);     // same unified path
-   scheduleOkReset();   
+      // In live mode when everything is OK, close SCANNING overlay, show OK flash, then reset
+      clearScanOverlayTimeout();
+      setOverlay(o => ({ ...o, open: false }));
+      okForcedRef.current = true;
+      setOkFlashTick(t => t + 1);     // same unified path
+      scheduleOkReset();
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -548,15 +562,24 @@ useEffect(() => {
           }));
 
         if (!unknown && failures.length === 0) {
+              // Success: close SCANNING overlay immediately and flash OK
               clearScanOverlayTimeout();
-            okForcedRef.current = true;
-            setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-            scheduleOkReset();  
-            void fetch('/api/kssk-lock/clear', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac })
-            }).catch(()=>{});
+              setOverlay(o => ({ ...o, open: false }));
+              if (OK_OVERLAY) { setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS); }
+              okForcedRef.current = true;
+              setOkFlashTick(t => t + 1);     // show OK in child, then child resets
+              scheduleOkReset();  
+              // Clear any KSSK locks for this MAC across stations
+              void fetch('/api/kssk-lock', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac })
+              }).catch(()=>{});
+              // Also clear local Setup-page lock cache for this station
+              try {
+                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+                if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
+              } catch {}
 
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
@@ -1177,28 +1200,42 @@ useEffect(() => {
             aria-label={overlay.kind.toUpperCase()}
           >
             <m.div variants={card} initial="hidden" animate="visible" exit="exit" style={{ display: 'grid', justifyItems: 'center', gap: 8 }}>
-              <m.div variants={heading} style={{
-                fontSize: 128,
-                fontWeight: 900,
-                letterSpacing: '0.02em',
-                color: KIND_STYLES[overlay.kind],
-                textShadow: '0 8px 24px rgba(0,0,0,0.45)',
-                fontFamily:
-                  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-              }}>
-                {overlay.kind.toUpperCase()}
-              </m.div>
-              {overlay.code && (
-                <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduce ? 0 : 0.05 }} style={{
-                  fontSize: 16,
-                  color: '#f1f5f9',
-                  opacity: 0.95,
-                  wordBreak: 'break-all',
-                  textAlign: 'center',
-                  maxWidth: 640,
-                }}>
-                  {overlay.code}
-                </m.div>
+              {overlay.kind === 'success' ? (
+                <>
+                  <m.div initial={{ scale: reduce ? 1 : 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260, damping: 20 }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 160, height: 160, color: KIND_STYLES.success }}>
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9 12l2 2 4-4" />
+                    </svg>
+                  </m.div>
+                  <m.div variants={heading} style={{ fontSize: 56, fontWeight: 900, letterSpacing: '0.02em', color: KIND_STYLES.success, textShadow: '0 6px 18px rgba(0,0,0,0.45)' }}>OK</m.div>
+                </>
+              ) : (
+                <>
+                  <m.div variants={heading} style={{
+                    fontSize: 128,
+                    fontWeight: 900,
+                    letterSpacing: '0.02em',
+                    color: KIND_STYLES[overlay.kind],
+                    textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                    fontFamily:
+                      'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+                  }}>
+                    {overlay.kind.toUpperCase()}
+                  </m.div>
+                  {overlay.code && (
+                    <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduce ? 0 : 0.05 }} style={{
+                      fontSize: 16,
+                      color: '#f1f5f9',
+                      opacity: 0.95,
+                      wordBreak: 'break-all',
+                      textAlign: 'center',
+                      maxWidth: 640,
+                    }}>
+                      {overlay.code}
+                    </m.div>
+                  )}
+                </>
               )}
             </m.div>
           </m.div>

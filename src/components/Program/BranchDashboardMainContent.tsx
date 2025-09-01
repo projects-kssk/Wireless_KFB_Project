@@ -196,6 +196,7 @@ const showingGrouped = useMemo(
   useEffect(() => { initialPaintRef.current = false; }, []);
 
   // Busy debounce: enter after 250ms, exit after 350ms. Only overlay when no data yet.
+  const OK_FLASH_MS = Number(process.env.NEXT_PUBLIC_OK_FLASH_MS ?? '1500');
   useEffect(() => {
     const wantBusy = (isScanning || isChecking) && !hasData;
     if (wantBusy) {
@@ -425,7 +426,7 @@ const showingGrouped = useMemo(
       setShowOkAnimation(false);
       flashInProgressRef.current = false;
       returnToScan();
-    }, 1500);
+    }, Math.max(300, OK_FLASH_MS));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flashOkTick, settled, disableOkAnimation]);
 

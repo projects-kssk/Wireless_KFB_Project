@@ -40,6 +40,27 @@ function minFor(tag?: string): Level {
 
 let day = ""; let stream: fs.WriteStream | null = null;
 
+function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
+  try {
+    const files = fs.readdirSync(dir, { withFileTypes: true });
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    for (const ent of files) {
+      if (!ent.isFile()) continue;
+      const name = ent.name;
+      // match base-YYYY-MM-DD.log
+      const m = name.match(new RegExp(`^${base}-\\d{4}-\\d{2}-\\d{2}\\.log$`));
+      if (!m) continue;
+      const p = path.join(dir, name);
+      try {
+        const st = fs.statSync(p);
+        const ts = st.mtimeMs || st.ctimeMs || 0;
+        if (now - ts > maxAgeMs) fs.rmSync(p, { force: true });
+      } catch {}
+    }
+  } catch {}
+}
+
 function ensureStream() {
   if (!ENABLED) return null;
   const d = new Date().toISOString().slice(0,10);
@@ -48,6 +69,8 @@ function ensureStream() {
     try { stream?.end(); } catch {}
     stream = fs.createWriteStream(path.join(DIR, `${BASE}-${d}.log`), { flags: "a" });
     day = d;
+    // prune older than ~1 month
+    pruneOldAppLogs(DIR, BASE, 31);
   }
   return stream;
 }

@@ -47,22 +47,47 @@ const now = () => Date.now();
 
 /* ----------------- logging ----------------- */
 const LOG_DIR = path.join(process.cwd(), "monitor.logs");
-async function ensureLogDir() {
-  try { await fs.mkdir(LOG_DIR, { recursive: true }); } catch {}
+async function ensureLogDir(dir = LOG_DIR) { try { await fs.mkdir(dir, { recursive: true }); } catch {} }
+async function pruneOldMonitorLogs(root: string, maxAgeDays = 31) {
+  try {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(root, ent.name);
+      let ts = 0;
+      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+      if (m) {
+        const y = Number(m[1]); const mon = Number(m[2]);
+        ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+      } else {
+        const st = await fs.stat(dirPath as any);
+        ts = st.mtimeMs || st.ctimeMs || 0;
+      }
+      if (now - ts > maxAgeMs) {
+        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
 }
 function logFilePath() {
   const d = new Date();
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  return path.join(LOG_DIR, `monitor-${yyyy}-${mm}-${dd}.log`);
+  // Move logs under monthly directory
+  return path.join(LOG_DIR, `${yyyy}-${mm}`, `monitor-${yyyy}-${mm}-${dd}.log`);
 }
 
 async function appendLog(entry: Record<string, unknown>) {
   try {
-    await ensureLogDir();
+    const p = logFilePath();
+    await ensureLogDir(path.dirname(p));
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
-    await fs.appendFile(logFilePath(), line, "utf8");
+    await fs.appendFile(p, line, "utf8");
+    // prune old monthly folders
+    await pruneOldMonitorLogs(LOG_DIR, 31);
   } catch (err) {
     log.error("[monitor.log] append failed", err);
   }

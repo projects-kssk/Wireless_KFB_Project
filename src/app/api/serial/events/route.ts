@@ -173,6 +173,11 @@ export async function GET(req: Request) {
               const ch = Number(m[2]);
               const val = Number(m[3]);
               let mac = m[4].toUpperCase();
+              // If EV embeds zero MAC, prefer the first MAC token in the line (e.g., "reply from <MAC> ...")
+              if (!mac || mac === '00:00:00:00:00:00') {
+                const firstMac = line.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
+                if (firstMac && firstMac[1]) mac = firstMac[1];
+              }
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
                 // Permissive mode: remap P/L to the first requested MAC
@@ -203,7 +208,7 @@ export async function GET(req: Request) {
               if (macAllowed(mac || undefined)) {
                 try {
                   const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
-                  if (__LAST_LOG.shouldLog(key)) console.log('[events] RESULT legacy', { ok, mac, line });
+                  if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
                 } catch {}
                 send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
               }

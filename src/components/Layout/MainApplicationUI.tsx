@@ -418,7 +418,14 @@ useEffect(() => {
               };
               aliases = mergeAliases(itemsPref as Array<{ aliases: Record<string,string> }>);
             } else {
-              try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {}; } catch {}
+              try {
+                aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${macUp}`) || '{}') || {};
+                const uLocal = JSON.parse(localStorage.getItem(`PIN_ALIAS_UNION::${macUp}`) || 'null');
+                if (uLocal && typeof uLocal === 'object') {
+                  if (Array.isArray(uLocal.normalPins)) setNormalPins(uLocal.normalPins);
+                  if (Array.isArray(uLocal.latchPins)) setLatchPins(uLocal.latchPins);
+                }
+              } catch {}
             }
             // If still empty, try simple aliases from API union
             if (!aliases || Object.keys(aliases).length === 0) {
@@ -449,7 +456,8 @@ useEffect(() => {
             }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
-            const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
+            // Prefer per-item latch info when available; else global union
+            const contactless = new Set<number>((Array.isArray(result?.latchPins) ? (result.latchPins as number[]) : (latchPins || [])).filter((n: number) => Number.isFinite(n)) as number[]);
             const flat = pins.map(pin => ({
               id: String(pin),
               branchName: aliases[String(pin)] || `PIN ${pin}`,
@@ -458,6 +466,7 @@ useEffect(() => {
                 : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
               pinNumber: pin,
               kfbInfoValue: undefined,
+              isLatch: contactless.has(pin),
             }));
 
             // Build grouped sections per KSSK if available from API
@@ -471,7 +480,8 @@ useEffect(() => {
               for (const it of items) {
                 const a = it.aliases || {};
                 const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
-                const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
+                // Use group-specific latchPins when present
+                const contactless = new Set<number>((Array.isArray((it as any)?.latchPins) ? (it as any).latchPins : (latchPins || [])).filter((n: number) => Number.isFinite(n)) as number[]);
                 const branchesG = pinsG.map(pin => ({
                   id: `${it.kssk}:${pin}`,
                   branchName: a[String(pin)] || `PIN ${pin}`,
@@ -480,6 +490,7 @@ useEffect(() => {
                     : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
                   pinNumber: pin,
                   kfbInfoValue: undefined,
+                  isLatch: contactless.has(pin),
                 } as BranchDisplayData));
                 groupsRaw.push({ kssk: String((it as any).kssk || ''), branches: branchesG });
               }
@@ -786,8 +797,11 @@ useEffect(() => {
                 if (Object.keys(aU).length) {
                   aliases = aU;
                   try {
-                    if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${mac}`);
-                    else localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
+                    if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${mac}`); localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`); }
+                    else {
+                      localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
+                      localStorage.setItem(`PIN_ALIAS_UNION::${mac}`, JSON.stringify({ names: aliases, normalPins: (jU?.normalPins || []), latchPins: (jU?.latchPins || []), ts: Date.now() }));
+                    }
                   } catch {}
                 }
                 // capture pin type context

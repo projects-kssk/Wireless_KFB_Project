@@ -35,6 +35,8 @@ export interface BranchDisplayData {
 
   /** UI: is this branch marked as not tested? */
   notTested?: boolean
+  /** Internal: pin behaves as latch/contactless in its group */
+  isLatch?: boolean
 }
 export interface Branch {
   id: number;

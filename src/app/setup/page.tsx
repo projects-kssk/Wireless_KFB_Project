@@ -86,7 +86,10 @@ const OBJGROUP_MAC = /\(([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\)/;
 
 // JSON extractor
 // Only accept measType="default" for MONITOR pins and alias mapping
-function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
+// JSON extractor: only accept default
+function extractPinsFromKrosy(data: any, macHint?: string): {
+  normalPins: number[]; latchPins: number[]; names: Record<number,string>
+} {
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
   const segRoot =
     data?.response?.krosy?.body?.visualControl?.workingData?.sequencer?.segmentList?.segment ??
@@ -101,30 +104,38 @@ function extractPinsFromKrosy(data: any, macHint?: string): { normalPins: number
   for (const seg of segments) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
-      if (mt !== "default") continue; // default only
-      // Strict MAC match: skip if objGroup has a MAC different from the scanned MAC
+      if (mt !== "default") continue; // << only default
+
       const og = String(s?.objGroup ?? "");
       const mm = og.match(OBJGROUP_MAC);
       if (mm && wantMac && mm[1].toUpperCase() !== wantMac) continue;
+
       const objPosRaw = String(s?.objPos ?? "");
       const parts = objPosRaw.split(",");
       let isLatch = false;
-      if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
-      const last = parts[parts.length - 1] ?? "";
+      if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
+      const last = parts.at(-1) ?? "";
       const pin = Number(String(last).replace(/[^\d]/g, ""));
       if (!Number.isFinite(pin)) continue;
-      const label = String(objPosRaw).split(",")[0] || ""; // e.g. CL_2453
+
+      const label = String(objPosRaw).split(",")[0] || "";
       if (label) names[pin] = label;
+
       (isLatch ? latch : normal).push(pin);
     }
   }
+
   const uniq = (xs: number[]) => Array.from(new Set(xs));
   return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
+
 // XML extractor
 // Only accept measType="default" for MONITOR pins and alias mapping
-function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: number[]; latchPins: number[]; names: Record<number,string> } {
+// XML extractor: only accept default
+function extractPinsFromKrosyXML(xml: string, macHint?: string): {
+  normalPins: number[]; latchPins: number[]; names: Record<number,string>
+} {
   const wantMac = String(macHint ?? "").toUpperCase();
   const normal: number[] = [];
   const latch: number[] = [];
@@ -135,11 +146,10 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
     let isLatch = false;
     if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
     const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
-    if (Number.isFinite(pin)) {
-      (isLatch ? latch : normal).push(pin);
-      const label = String(pos).split(",")[0] || "";
-      if (label) names[pin] = label;
-    }
+    if (!Number.isFinite(pin)) return;
+    (isLatch ? latch : normal).push(pin);
+    const label = String(pos).split(",")[0] || "";
+    if (label) names[pin] = label;
   };
 
   let parsedOk = false;
@@ -153,8 +163,7 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
     if (!hasErr && nodes.length) {
       for (const el of nodes) {
         const mt = (el.getAttribute("measType") || "").toLowerCase();
-        if (mt !== "default") continue; // default only
-        // Strict MAC match when present
+        if (mt !== "default") continue; // << only default
         const og = (el.getElementsByTagName("objGroup")[0]?.textContent || "").toString();
         const m = String(og).match(OBJGROUP_MAC);
         if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
@@ -163,13 +172,13 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
       }
       parsedOk = true;
     }
-  } catch { /* fall back */ }
+  } catch {}
 
   if (!parsedOk) {
-    // Regex fallback: default only, strict MAC match when present
-    const re = /<sequence\b[^>]*\bmeasType="default"[^>]*>[\s\S]*?<objGroup>([^<]+)<\/objGroup>[\s\S]*?<objPos>([^<]+)<\/objPos>[\s\S]*?<\/sequence>/gi;
+    // Fallback regex: only default
+    const reDef = /<sequence\b[^>]*\bmeasType="default"[^>]*>[\s\S]*?<objGroup>([^<]+)<\/objGroup>[\s\S]*?<objPos>([^<]+)<\/objPos>[\s\S]*?<\/sequence>/gi;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(xml))) {
+    while ((m = reDef.exec(xml))) {
       const og = m[1] || "";
       const pos = m[2] || "";
       const macM = String(og).match(OBJGROUP_MAC);
@@ -182,7 +191,8 @@ function extractPinsFromKrosyXML(xml: string, macHint?: string): { normalPins: n
   return { normalPins: uniq(normal), latchPins: uniq(latch), names };
 }
 
-// Hints: include names from default and no_check, strict MAC
+
+// Name hints: only from default
 function extractNameHintsFromKrosyXML(xml: string, macHint?: string): Record<number,string> {
   const wantMac = String(macHint ?? "").toUpperCase();
   const names: Record<number,string> = {};
@@ -194,13 +204,12 @@ function extractNameHintsFromKrosyXML(xml: string, macHint?: string): Record<num
     }
     for (const el of nodes) {
       const mt = (el.getAttribute("measType") || "").toLowerCase();
-      if (!(mt === "default" || mt === "no_check")) continue;
+      if (mt !== "default") continue; // << only default
       const og = el.getElementsByTagName("objGroup")[0]?.textContent || "";
       const m = String(og).match(OBJGROUP_MAC);
       if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
       const pos = el.getElementsByTagName("objPos")[0]?.textContent || "";
       const parts = String(pos).split(",");
-      let isLatch = false;
       if (parts.at(-1)?.trim().toUpperCase() === "C") parts.pop();
       const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
       if (!Number.isFinite(pin)) continue;
@@ -651,7 +660,10 @@ export default function SetupPage() {
         } catch {}
         // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
         const macUp = String(kfb).toUpperCase();
-        try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {})); } catch {}
+        try {
+          localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {}));
+          localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], ts: Date.now() }));
+        } catch {}
         // Also save to Redis so other clients can render after CHECK-only
         try {
           const xmlRaw = resp.data?.__xml || undefined;
@@ -669,15 +681,21 @@ export default function SetupPage() {
               const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
               if (MIRROR_ALIAS_WITH_REDIS) {
                 if (Object.keys(aU).length === 0) {
-                  try { localStorage.removeItem(`PIN_ALIAS::${macUp}`); } catch {}
+                  try { localStorage.removeItem(`PIN_ALIAS::${macUp}`); localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`); } catch {}
                 } else {
                   try {
-                    if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                    else localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                    if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${macUp}`); localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`); }
+                    else {
+                      localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                      localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() }));
+                    }
                   } catch {}
                 }
               } else if (Object.keys(aU).length) {
-                try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU)); } catch {}
+                try {
+                  localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                  localStorage.setItem(`PIN_ALIAS_UNION::${macUp}`, JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() }));
+                } catch {}
               }
             }
           } catch {}
@@ -1046,9 +1064,7 @@ export default function SetupPage() {
             transition={{ duration: prefersReduced ? 0 : 0.14, ease: "easeOut" }}
           >
             <m.section layout style={card}>
-              <div style={{ display: "grid", gap: 4 }}>
-                <h1 style={heading}>SETUP</h1>
-              </div>
+       
 
          
               {allowManual && (

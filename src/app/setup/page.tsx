@@ -804,9 +804,26 @@ const acceptKsskToIndex = useCallback(
         allowedCompTypes: ["clip", "contact"],
       };
 
-      const out = resp.data?.__xml
+      // Primary extraction with strict label prefixes (CN/CL)
+      let out = resp.data?.__xml
         ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
         : extractPinsFromKrosy(resp.data, extractOpts);
+      // Fallback: if no pins extracted, retry without label-prefix filter to avoid dropping valid data
+      try {
+        const got = ((out?.normalPins?.length ?? 0) + (out?.latchPins?.length ?? 0)) > 0;
+        if (!got) {
+          const loose: KrosyOpts = {
+            macHint: macUp,
+            includeLatch: true,
+            // accept both clip/contact but do not filter by label prefix this time
+            allowedCompTypes: ["clip", "contact"],
+            allowedMeasTypes: ["default"],
+          };
+          out = resp.data?.__xml
+            ? extractPinsFromKrosyXML(resp.data.__xml, loose)
+            : extractPinsFromKrosy(resp.data, loose);
+        }
+      } catch {}
 
       try {
         const xmlRaw = resp.data?.__xml || '';
@@ -897,6 +914,7 @@ const acceptKsskToIndex = useCallback(
         const idx = list.findIndex((it) => String(it?.kssk || '') === String(code));
         if (idx >= 0) list[idx] = entry; else list.push(entry);
         localStorage.setItem(key, JSON.stringify(list));
+        try { console.log('[SETUP] Saved group for', code, 'pins', entry.normalPins?.length + entry.latchPins?.length); } catch {}
       } catch {}
 
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;

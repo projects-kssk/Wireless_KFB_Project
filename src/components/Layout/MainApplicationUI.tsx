@@ -237,6 +237,42 @@ const MainApplicationUI: React.FC = () => {
     return key ? (map as any)[key] as { open: boolean; present: boolean } : null;
   })();
 
+  // When Redis goes offline (via SSE), clear any local alias caches for the current MAC
+  const prevRedisReadyRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    try {
+      const ready = !!(serial as any).redisReady;
+      const prev = prevRedisReadyRef.current;
+      prevRedisReadyRef.current = ready;
+      if (prev === null) return; // first sample
+      if (prev === true && ready === false) {
+        const macUp = String((macAddress || '').toUpperCase());
+        if (macUp) {
+          try {
+            localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+            localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
+            localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
+          } catch {}
+          // Also clear in-memory UI state so stale data is not shown
+          try {
+            setBranchesData([]);
+            setGroupedBranches([]);
+            setActiveKssks([]);
+            setNameHints(undefined);
+            setNormalPins(undefined);
+            setLatchPins(undefined);
+            setCheckFailures(null);
+          } catch {}
+          // Also clear local Setup-page lock cache for this station to avoid stale UI
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+            if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
+          } catch {}
+        }
+      }
+    } catch {}
+  }, [(serial as any).redisReady, macAddress]);
+
   // Apply union updates from SSE if they match current MAC
   const CLEAR_LOCAL_ALIAS = String(process.env.NEXT_PUBLIC_ALIAS_CLEAR_ON_READY || '').trim() === '1';
   useEffect(() => {
@@ -977,6 +1013,7 @@ useEffect(() => {
 
       // build from aliases if present
       let aliases: Record<string,string> = {};
+      let hadGroups = false;
       try { aliases = JSON.parse(localStorage.getItem(`PIN_ALIAS::${mac}`) || '{}') || {}; } catch {}
       let pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
       {
@@ -1029,8 +1066,26 @@ useEffect(() => {
                 .map(([k, branches]) => ({ kssk: k, branches }));
               setGroupedBranches(groups);
               setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
-              // Persist per-KSSK grouping for offline/fallback rendering on dashboard
-              try { localStorage.setItem(`PIN_ALIAS_GROUPS::${mac}`, JSON.stringify(items)); } catch {}
+              // Persist per-KSSK grouping for offline/fallback rendering on dashboard (merge, don't overwrite)
+              try {
+                const key = `PIN_ALIAS_GROUPS::${mac}`;
+                const prevRaw = localStorage.getItem(key);
+                const prevArr = prevRaw ? JSON.parse(prevRaw) : [];
+                const list: Array<any> = Array.isArray(prevArr) ? prevArr : [];
+                const byId = new Map<string, any>();
+                for (const it of list) {
+                  const id = String((it?.kssk ?? "")).trim();
+                  if (id) byId.set(id, it);
+                }
+                for (const it of items) {
+                  const id = String((it as any)?.kssk ?? '').trim();
+                  if (!id) continue;
+                  byId.set(id, it);
+                }
+                const final = Array.from(byId.values());
+                localStorage.setItem(key, JSON.stringify(final));
+                hadGroups = final.length > 0;
+              } catch {}
             }
                         
             
@@ -1058,6 +1113,7 @@ useEffect(() => {
                   if (rawGroups) {
                     const arr = JSON.parse(rawGroups);
                     if (Array.isArray(arr)) {
+                      if (arr.length > 0) hadGroups = true;
                       for (const it of arr) {
                         const names = (it && typeof it.aliases === 'object') ? it.aliases as Record<string,string> : {};
                         for (const [pin, name] of Object.entries(names)) {
@@ -1098,6 +1154,22 @@ useEffect(() => {
           }
         } catch {}
       }
+      // If no setup data exists anywhere (no groups, no aliases, no pins), show a clear message and stop
+      const noAliases = !aliases || Object.keys(aliases).length === 0;
+      const noPins = !Array.isArray(pins) || pins.length === 0;
+      // rely on explicit discovery rather than possibly stale state
+      const noGroups = !hadGroups;
+      if (noAliases && noPins && noGroups) {
+        clearScanOverlayTimeout();
+        setOverlay(o => ({ ...o, open: false }));
+        setErrorMsg('NOTHING TO CHECK HERE');
+        setGroupedBranches([]);
+        setActiveKssks([]);
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
+      }
+
       // Defer rendering flat branches until CHECK result arrives
       setBranchesData([]);
 

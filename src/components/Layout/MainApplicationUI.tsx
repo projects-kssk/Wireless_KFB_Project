@@ -187,6 +187,7 @@ const MainApplicationUI: React.FC = () => {
   };
 
   const [okFlashTick, setOkFlashTick] = useState(0);
+  const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
   const scanOverlayTimerRef = useRef<number | null>(null);
@@ -289,6 +290,9 @@ useEffect(() => {
             const hasSetup = await hasSetupDataForMac(mac);
             if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac)) {
               await sendCheckpointForMac(mac);
+              try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+            } else {
+              try { setOkSystemNote('Cache cleared'); } catch {}
             }
           } catch {}
           // Clear Redis aliases for this MAC regardless, then clear local cache
@@ -401,6 +405,7 @@ useEffect(() => {
   const handleResetKfb = useCallback(() => {
     cancelOkReset?.();
  setOkFlashTick(0);
+    setOkSystemNote(null);
     setKfbNumber('');
     setKfbInfo(null);
     setBranchesData([]);
@@ -751,6 +756,9 @@ useEffect(() => {
                 const hasSetup = await hasSetupDataForMac(mac);
                 if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
                   await sendCheckpointForMac(mac);
+                  try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+                } else {
+                  try { setOkSystemNote('Cache cleared'); } catch {}
                 }
                 try {
                   await fetch('/api/aliases/clear', {
@@ -1354,6 +1362,7 @@ useEffect(() => {
                 
                 onResetKfb={handleResetKfb}
                 flashOkTick={okFlashTick}
+                okSystemNote={okSystemNote}
 
             />
 

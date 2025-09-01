@@ -139,6 +139,8 @@ export interface BranchDashboardMainContentProps {
   forceOkTick?: number;
   // Flash an OK pipe specifically for CHECK success
   flashOkTick?: number;
+  // Optional system note to display under OK (e.g., checkpoint/clear)
+  okSystemNote?: string | null;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -165,6 +167,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   latchPins,
   forceOkTick,
   flashOkTick,
+  okSystemNote,
 }) => {
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
@@ -714,6 +717,10 @@ useEffect(() => {
           <div className="mt-6">
             <h3 className="font-extrabold text-emerald-700 tracking-widest text-7xl sm:text-8xl">OK</h3>
           </div>
+          <div className="mt-2 text-slate-500 text-2xl font-semibold">Please scan barcode</div>
+          {okSystemNote && (
+            <div className="mt-1 text-slate-400 text-base">{okSystemNote}</div>
+          )}
         </div>
       );
     }

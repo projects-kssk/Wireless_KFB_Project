@@ -228,44 +228,28 @@ const MainApplicationUI: React.FC = () => {
   // Live EV updates: normalize legacy RESULT lines; on SUCCESS, mark branches OK and trigger lock cleanup.
 
 // Live EV updates (MainApplicationUI)
+// Show OK when legacy RESULT SUCCESS arrives for current MAC
 useEffect(() => {
-  const ev = (serial as any).lastEv as { kind?: string; mac?: string|null; ok?: any; line?: string; raw?: string; msg?: string; text?: string } | null;
+  const ev = (serial as any).lastEv as { kind?: string; mac?: string|null; line?: string; raw?: string; ok?: any } | null;
   if (!ev) return;
 
-  const current = (macAddress || '').toUpperCase();
-  if (!current) return;
+  const raw = String(ev.line ?? ev.raw ?? '');
+  const kind = String(ev.kind || '').toUpperCase();
+  const ok = /\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw) || String(ev.ok).toLowerCase() === 'true';
 
+  // tolerate zero/empty MAC; fallback parse from text
   const ZERO = '00:00:00:00:00:00';
-  const kindRaw = String(ev.kind || '').toUpperCase();
-  const text = String(ev.line ?? ev.raw ?? ev.text ?? ev.msg ?? '');  // <—
-  const isLegacyResult = kindRaw === 'RESULT' || /\bRESULT\b/i.test(text);
-  const okFromText = /\b(SUCCESS|OK)\b/i.test(text);
+  const current = (macAddress || '').toUpperCase();
   let evMac = String(ev.mac || '').toUpperCase();
-  if (!evMac || evMac === ZERO) {
-    const m = text.toUpperCase().match(/FROM\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
-    if (m) evMac = m[1];
-  }
-  const matches = (!!evMac && evMac === current) || evMac === ZERO || !evMac;
+  if (!evMac || evMac === ZERO) evMac = raw.toUpperCase().match(/FROM\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/)?.[1] || '';
+  const matches = !evMac || evMac === ZERO || evMac === current;
 
-  if ((kindRaw === 'DONE' || isLegacyResult) && (okFromText || String(ev.ok).toLowerCase() === 'true') && matches) {
+  if ((kind === 'RESULT' || kind === 'DONE') && ok && matches) {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
- setCheckFailures([]); setIsChecking(false); setIsScanning(false);
- okForcedRef.current = true;
- setOkFlashTick(t => t + 1);     // show OK in child, then child resets
-      scheduleOkReset();  
-      // Ensure any SCANNING overlay is closed immediately on success
-      setOverlay(o => ({ ...o, open: false })); // close SCANNING; no success overlay
-      // Clear any KSSK locks for this MAC across stations
-      void fetch('/api/kssk-lock', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mac: current })
-      }).catch(()=>{});
-      // Also clear local Setup-page lock cache for this station
-      try {
-        const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-        if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
-      } catch {}
+    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+    setOkFlashTick(t => t + 1);   // triggers child OK animation
+    scheduleOkReset();            // auto-return to scan
+    setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
   }
 }, [serial.lastEvTick, macAddress]);
 
@@ -465,10 +449,13 @@ useEffect(() => {
             }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
+            const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
             const flat = pins.map(pin => ({
               id: String(pin),
               branchName: aliases[String(pin)] || `PIN ${pin}`,
-              testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+              testStatus: failures.includes(pin)
+                ? 'nok' as TestStatus
+                : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
               pinNumber: pin,
               kfbInfoValue: undefined,
             }));
@@ -484,10 +471,13 @@ useEffect(() => {
               for (const it of items) {
                 const a = it.aliases || {};
                 const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
+                const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
                 const branchesG = pinsG.map(pin => ({
                   id: `${it.kssk}:${pin}`,
                   branchName: a[String(pin)] || `PIN ${pin}`,
-                  testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+                  testStatus: failures.includes(pin)
+                    ? 'nok' as TestStatus
+                    : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                 } as BranchDisplayData));
@@ -531,10 +521,13 @@ useEffect(() => {
               const unionMap: Record<number, string> = {};
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
               const unionPins = Object.keys(unionMap).map(n=>Number(n)).sort((x,y)=>x-y);
+              const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
               return unionPins.map(pin => ({
                 id: String(pin),
                 branchName: unionMap[pin] || `PIN ${pin}`,
-                testStatus: failures.includes(pin) ? 'nok' as TestStatus : 'ok' as TestStatus,
+                testStatus: failures.includes(pin)
+                  ? 'nok' as TestStatus
+                  : (contactless.has(pin) ? 'not_tested' as TestStatus : 'ok' as TestStatus),
                 pinNumber: pin,
                 kfbInfoValue: undefined,
               }));

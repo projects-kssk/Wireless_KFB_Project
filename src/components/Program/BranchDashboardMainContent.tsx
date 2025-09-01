@@ -522,11 +522,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         setRecentMacs(now);
       } catch {}
 
+      const contactless = new Set<number>((latchPins || []).filter(n => Number.isFinite(n)) as number[]);
       startTransition(() => setLocalBranches(prev => prev.map(b => {
         if (typeof b.pinNumber !== 'number' || (b as any).notTested) return b;
-        return failures.includes(b.pinNumber)
-          ? { ...b, testStatus: 'nok' }
-          : { ...b, testStatus: 'ok' };
+        const pin = b.pinNumber as number;
+        if (failures.includes(pin)) return { ...b, testStatus: 'nok' } as any;
+        // For contactless pins, do not auto-mark OK; leave as not_tested unless explicitly failed
+        if (contactless.has(pin)) return { ...b, testStatus: 'not_tested' } as any;
+        return { ...b, testStatus: 'ok' } as any;
       })));
     } catch (e: any) {
       setCheckError(e?.message || 'CHECK failed');

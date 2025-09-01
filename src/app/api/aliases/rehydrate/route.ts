@@ -18,19 +18,23 @@ export async function POST(req: NextRequest) {
     if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const r: any = getRedis();
 
-    // Scan per-KSSK entries
+    // Scan per-KSSK entries (tolerate Redis errors → behave like empty)
     const pattern = `kfb:aliases:${mac}:*`;
     let cursor = '0';
     const keys: string[] = [];
-    if (typeof r.scan === 'function') {
-      do {
-        const res = await r.scan(cursor, 'MATCH', pattern, 'COUNT', 300);
-        cursor = res[0];
-        keys.push(...(res[1] || []));
-      } while (cursor !== '0');
-    } else {
-      const raw = await r.keys(pattern).catch(() => []);
-      keys.push(...raw);
+    try {
+      if (typeof r.scan === 'function') {
+        do {
+          const res = await r.scan(cursor, 'MATCH', pattern, 'COUNT', 300);
+          cursor = res[0];
+          keys.push(...(res[1] || []));
+        } while (cursor !== '0');
+      } else {
+        const raw = await r.keys(pattern).catch(() => []);
+        keys.push(...raw);
+      }
+    } catch (e) {
+      log.error('rehydrate: scan failed', { error: String((e as any)?.message ?? e) });
     }
     const unionNames: Record<string, string> = {};
     const nSet = new Set<number>();
@@ -71,8 +75,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ok: true, mac, items: ids.length, union: { normalPins: out.normalPins, latchPins: out.latchPins } });
   } catch (e: any) {
-    log.error('POST aliases rehydrate error', { error: String(e?.message ?? e) });
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+    const msg = String(e?.message ?? e);
+    log.error('POST aliases rehydrate error', { error: msg });
+    const status = /ECONNREFUSED|ETIMEDOUT|redis/i.test(msg) ? 503 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }
-

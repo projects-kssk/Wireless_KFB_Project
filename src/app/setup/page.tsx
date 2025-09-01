@@ -315,6 +315,35 @@ export default function SetupPage() {
   };
   const activeLocks = useRef<Set<string>>(new Set());
 
+  // Alias cache policy flags
+  const CLEAR_LOCAL_ALIAS = String(process.env.NEXT_PUBLIC_ALIAS_CLEAR_ON_READY || '').trim() === '1';
+  const MIRROR_ALIAS_WITH_REDIS = String(process.env.NEXT_PUBLIC_ALIAS_MIRROR_REDIS || '').trim() === '1';
+
+  // When MAC is set/changed, mirror local alias cache with Redis union result.
+  useEffect(() => {
+    const mac = (kfb || '').toUpperCase();
+    if (!mac || !MIRROR_ALIAS_WITH_REDIS) return;
+    let abort = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        const a = (j?.aliases && typeof j.aliases === 'object') ? (j.aliases as Record<string,string>) : {};
+        if (abort) return;
+        if (Object.keys(a).length === 0) {
+          try { localStorage.removeItem(`PIN_ALIAS::${mac}`); } catch {}
+        } else {
+          try {
+            if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${mac}`);
+            else localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(a));
+          } catch {}
+        }
+      } catch {}
+    })();
+    return () => { abort = true; };
+  }, [kfb, MIRROR_ALIAS_WITH_REDIS, CLEAR_LOCAL_ALIAS]);
+
   const startHeartbeat = (kssk: string) => {
     stopHeartbeat(kssk);
     const id = window.setInterval(() => {
@@ -638,7 +667,16 @@ export default function SetupPage() {
             if (ru.ok) {
               const ju = await ru.json();
               const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
-              if (Object.keys(aU).length) {
+              if (MIRROR_ALIAS_WITH_REDIS) {
+                if (Object.keys(aU).length === 0) {
+                  try { localStorage.removeItem(`PIN_ALIAS::${macUp}`); } catch {}
+                } else {
+                  try {
+                    if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                    else localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
+                  } catch {}
+                }
+              } else if (Object.keys(aU).length) {
                 try { localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU)); } catch {}
               }
             }

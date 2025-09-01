@@ -203,6 +203,7 @@ const MainApplicationUI: React.FC = () => {
   })();
 
   // Apply union updates from SSE if they match current MAC
+  const CLEAR_LOCAL_ALIAS = String(process.env.NEXT_PUBLIC_ALIAS_CLEAR_ON_READY || '').trim() === '1';
   useEffect(() => {
     const u = (serial as any).lastUnion as { mac?: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null;
     if (!u) return;
@@ -212,9 +213,12 @@ const MainApplicationUI: React.FC = () => {
       if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
       if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
       if (u.names && typeof u.names === 'object') setNameHints(u.names as any);
-      // Persist union names locally for immediate reuse without refresh
+      // Persist or clear local cache according to env flag
       if (u.names && typeof u.names === 'object') {
-        try { localStorage.setItem(`PIN_ALIAS::${cur}`, JSON.stringify(u.names)); } catch {}
+        try {
+          if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${cur}`);
+          else localStorage.setItem(`PIN_ALIAS::${cur}`, JSON.stringify(u.names));
+        } catch {}
       }
     } catch {}
   }, [serial.lastUnion, macAddress]);
@@ -440,7 +444,12 @@ useEffect(() => {
                 merged = result.aliases as Record<string,string>;
               }
               aliases = merged;
-              try { if (Object.keys(aliases).length) localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aliases)); } catch {}
+              try {
+                if (Object.keys(aliases).length) {
+                  if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${macUp}`);
+                  else localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aliases));
+                }
+              } catch {}
             }
             const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n));
             pins.sort((a,b)=>a-b);
@@ -474,7 +483,7 @@ useEffect(() => {
               }
               const byId = new Map<string, BranchDisplayData[]>();
               for (const g of groupsRaw) {
-                const id = String(g.kssk);
+                const id = String(g.kssk).trim().toUpperCase();
                 const prev = byId.get(id) || [];
                 const merged = [...prev, ...g.branches];
                 const seen = new Set<number>();
@@ -487,7 +496,9 @@ useEffect(() => {
                 });
                 byId.set(id, dedup);
               }
-              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = Array.from(byId.entries()).map(([k, branches]) => ({ kssk: k, branches }));
+              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = Array.from(byId.entries())
+                .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+                .map(([k, branches]) => ({ kssk: k, branches }));
               // Add any failure pins that are not present in any group as an extra synthetic group
               const knownPinsSet = new Set<number>();
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') knownPinsSet.add(b.pinNumber);
@@ -723,7 +734,7 @@ useEffect(() => {
               });
               const byId = new Map<string, BranchDisplayData[]>();
               for (const g of groupsRaw) {
-                const id = String(g.kssk);
+                const id = String(g.kssk).trim().toUpperCase();
                 const prev = byId.get(id) || [];
                 const merged = [...prev, ...g.branches];
                 const seen = new Set<number>();
@@ -736,7 +747,9 @@ useEffect(() => {
                 });
                 byId.set(id, dedup);
               }
-              const groups = Array.from(byId.entries()).map(([k, branches]) => ({ kssk: k, branches }));
+              const groups = Array.from(byId.entries())
+                .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+                .map(([k, branches]) => ({ kssk: k, branches }));
               setGroupedBranches(groups);
               setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
             }
@@ -759,7 +772,10 @@ useEffect(() => {
                 const aU = (jU?.aliases && typeof jU.aliases === 'object') ? (jU.aliases as Record<string,string>) : {};
                 if (Object.keys(aU).length) {
                   aliases = aU;
-                  try { localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases)); } catch {}
+                  try {
+                    if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${mac}`);
+                    else localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
+                  } catch {}
                 }
                 // capture pin type context
                 try {

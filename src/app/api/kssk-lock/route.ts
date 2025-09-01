@@ -414,7 +414,8 @@ export async function DELETE(req: NextRequest) {
     macFilter ??= sp.get('mac');
     if (macFilter) macFilter = macFilter.toUpperCase();
 
-    if (!kssk) return NextResponse.json({ error: "kssk required" }, { status: 400 });
+    // Allow bulk clear by MAC without specifying a KSSK
+    if (!kssk && !macFilter) return NextResponse.json({ error: "kssk_or_mac_required" }, { status: 400 });
 
     const key = K(String(kssk));
     const r = getRedis();

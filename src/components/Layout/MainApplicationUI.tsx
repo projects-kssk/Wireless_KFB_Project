@@ -136,7 +136,7 @@ const MainApplicationUI: React.FC = () => {
     const t = setTimeout(() => setOverlay(o => ({ ...o, open: false })), ms);
     return () => clearTimeout(t);
   };
-  const OK_OVERLAY = String(process.env.NEXT_PUBLIC_OK_OVERLAY || '').trim() === '1';
+  // Always show a brief SUCCESS overlay on OK
   const OK_OVERLAY_MS = Math.max(400, Number(process.env.NEXT_PUBLIC_OK_OVERLAY_MS ?? '1200'));
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
@@ -256,7 +256,7 @@ useEffect(() => {
       // Ensure any SCANNING overlay is closed immediately on success
       clearScanOverlayTimeout();
       setOverlay(o => ({ ...o, open: false }));
-      if (OK_OVERLAY) { setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS); }
+      setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
       // Clear any KSSK locks for this MAC across stations
       void fetch('/api/kssk-lock', {
         method: 'DELETE',
@@ -301,6 +301,7 @@ useEffect(() => {
       // In live mode when everything is OK, close SCANNING overlay, show OK flash, then reset
       clearScanOverlayTimeout();
       setOverlay(o => ({ ...o, open: false }));
+      setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
       okForcedRef.current = true;
       setOkFlashTick(t => t + 1);     // same unified path
       scheduleOkReset();
@@ -565,7 +566,7 @@ useEffect(() => {
               // Success: close SCANNING overlay immediately and flash OK
               clearScanOverlayTimeout();
               setOverlay(o => ({ ...o, open: false }));
-              if (OK_OVERLAY) { setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS); }
+              setOverlay({ open: true, kind: 'success', code: '' }); hideOverlaySoon(OK_OVERLAY_MS);
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  

@@ -229,17 +229,47 @@ async function main() {
         return ax - bx;
       });
 
-      // Enrich with alias data (names, pins)
+      // Enrich with alias data (names, pins); fallback to lastpins snapshot
       for (const r of rows) {
         try {
           if (!r.mac) continue;
           const key = `kfb:aliases:${r.mac}:${r.kssk}`;
           const raw = await redis.get(key).catch(() => null);
-          if (!raw) continue;
-          const d = JSON.parse(raw);
-          r.__aliases = d?.names || d?.aliases || {};
-          r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : Object.keys(r.__aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
-          r.__pinsC = Array.isArray(d?.latchPins) ? d.latchPins : [];
+          if (raw) {
+            const d = JSON.parse(raw);
+            r.__aliases = d?.names || d?.aliases || {};
+            r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : Object.keys(r.__aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
+            r.__pinsC = Array.isArray(d?.latchPins) ? d.latchPins : [];
+          }
+        } catch {}
+        try {
+          if (!r.mac || (Array.isArray(r.__pinsN) && r.__pinsN.length) || (Array.isArray(r.__pinsC) && r.__pinsC.length)) continue;
+          const keyLP = `kfb:lastpins:${r.mac}:${r.kssk}`;
+          const rawLP = await redis.get(keyLP).catch(() => null);
+          if (rawLP) {
+            const d2 = JSON.parse(rawLP);
+            if (!Array.isArray(r.__pinsN) || r.__pinsN.length === 0) r.__pinsN = Array.isArray(d2?.normalPins) ? d2.normalPins : [];
+            if (!Array.isArray(r.__pinsC) || r.__pinsC.length === 0) r.__pinsC = Array.isArray(d2?.latchPins) ? d2.latchPins : [];
+          }
+        } catch {}
+        // Fallback names for map: pick labels from MAC union for the pins we have
+        try {
+          const havePins = (Array.isArray(r.__pinsN) && r.__pinsN.length) || (Array.isArray(r.__pinsC) && r.__pinsC.length);
+          const noNames = !r.__aliases || Object.keys(r.__aliases).length === 0;
+          if (r.mac && havePins && noNames) {
+            const rawU = await redis.get(`kfb:aliases:${r.mac}`).catch(() => null);
+            if (rawU) {
+              const dU = JSON.parse(rawU);
+              const namesU = (dU?.names && typeof dU.names === 'object') ? dU.names : {};
+              const need = new Set([...(r.__pinsN || []), ...(r.__pinsC || [])].map(n=>Number(n)).filter(n=>Number.isFinite(n)));
+              const sel = {};
+              for (const [pin, label] of Object.entries(namesU)) {
+                const p = Number(pin);
+                if (Number.isFinite(p) && need.has(p)) sel[pin] = String(label);
+              }
+              r.__aliases = sel;
+            }
+          }
         } catch {}
       }
 

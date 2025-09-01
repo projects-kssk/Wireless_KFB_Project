@@ -323,9 +323,12 @@ export async function POST(request: Request) {
           }
         } catch {}
       }
-      const value = JSON.stringify({ names: names || {}, normalPins, latchPins, ts: Date.now() });
+      const tsNow = Date.now();
+      const value = JSON.stringify({ names: names || {}, normalPins, latchPins, ts: tsNow });
       try { await r.set(keyK, value); } catch {}
       try { await r.sadd(`kfb:aliases:index:${macUp}`, String(kssk)); } catch {}
+      // Also record "last pins used" snapshot for this KSSK to support watcher fallbacks
+      try { await r.set(`kfb:lastpins:${macUp}:${String(kssk)}`, JSON.stringify({ normalPins, latchPins, ts: tsNow })); } catch {}
     }
   } catch {}
   await appendLog({

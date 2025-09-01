@@ -458,7 +458,8 @@ useEffect(() => {
               ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
               : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
             if (items.length) {
-              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
+              // Build raw groups and then de-duplicate by KSSK and pin
+              const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
                 const a = it.aliases || {};
                 const pinsG = Object.keys(a).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((x,y)=>x-y);
@@ -469,8 +470,24 @@ useEffect(() => {
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                 } as BranchDisplayData));
-                groups.push({ kssk: String((it as any).kssk || ''), branches: branchesG });
+                groupsRaw.push({ kssk: String((it as any).kssk || ''), branches: branchesG });
               }
+              const byId = new Map<string, BranchDisplayData[]>();
+              for (const g of groupsRaw) {
+                const id = String(g.kssk);
+                const prev = byId.get(id) || [];
+                const merged = [...prev, ...g.branches];
+                const seen = new Set<number>();
+                const dedup = merged.filter(b => {
+                  const p = typeof b.pinNumber === 'number' ? b.pinNumber : NaN;
+                  if (!Number.isFinite(p)) return true;
+                  if (seen.has(p)) return false;
+                  seen.add(p);
+                  return true;
+                });
+                byId.set(id, dedup);
+              }
+              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = Array.from(byId.entries()).map(([k, branches]) => ({ kssk: k, branches }));
               // Add any failure pins that are not present in any group as an extra synthetic group
               const knownPinsSet = new Set<number>();
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') knownPinsSet.add(b.pinNumber);
@@ -691,7 +708,8 @@ useEffect(() => {
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
             
              if (items.length) {
-              const groups = items.map((it: any) => {
+              // Build raw groups, then de-duplicate by KSSK and pin
+              const groupsRaw = items.map((it: any) => {
                 const aliases = it.aliases || {};
                 const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
                 const branches = pins.map(pin => ({
@@ -703,6 +721,22 @@ useEffect(() => {
                 }));
                 return { kssk: String(it.kssk || ''), branches };
               });
+              const byId = new Map<string, BranchDisplayData[]>();
+              for (const g of groupsRaw) {
+                const id = String(g.kssk);
+                const prev = byId.get(id) || [];
+                const merged = [...prev, ...g.branches];
+                const seen = new Set<number>();
+                const dedup = merged.filter(b => {
+                  const p = typeof b.pinNumber === 'number' ? b.pinNumber : NaN;
+                  if (!Number.isFinite(p)) return true;
+                  if (seen.has(p)) return false;
+                  seen.add(p);
+                  return true;
+                });
+                byId.set(id, dedup);
+              }
+              const groups = Array.from(byId.entries()).map(([k, branches]) => ({ kssk: k, branches }));
               setGroupedBranches(groups);
               setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
             }

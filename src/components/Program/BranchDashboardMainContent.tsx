@@ -868,10 +868,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           .map(b => (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName)
           .filter(Boolean);
 
-        const failedItems = nok
+        // Include explicit NOK pins and contactless (latch) pins that are not tested as "missing"
+        const failedItems = branchesLive
+          .filter(b =>
+            typeof b.pinNumber === 'number' && (
+              b.testStatus === 'nok' ||
+              (b.testStatus !== 'ok' && ((b as any).isLatch === true || isLatchPin(b.pinNumber)))
+            )
+          )
           .map(b => ({
             pin: b.pinNumber as number,
             name: (nameHints && b.pinNumber!=null && nameHints[String(b.pinNumber)]) ? nameHints[String(b.pinNumber)] : b.branchName,
+            isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
           }))
           .sort((a,b)=> a.name.localeCompare(b.name));
 
@@ -903,6 +911,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                         <div className="mt-1 flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
                           <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px]">PIN {f.pin}</span>
+                          {f.isLatch && (
+                            <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]" title="Contactless pin">
+                              Contactless
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}

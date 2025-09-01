@@ -13,7 +13,7 @@ const DEFAULT_API_MODE: ApiMode =
   process.env.NEXT_PUBLIC_KROSY_ONLINE === "true" ? "online" : "offline";
 
 const ENDPOINT_ONLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://172.26.202.248:3000/api/krosy";
+  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy";
 const ENDPOINT_OFFLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
 
@@ -32,6 +32,8 @@ const IDENTITY_ENDPOINT =
   "/api/krosy-offline/checkpoint";
 
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
+const DEFAULT_TARGET_HOST = process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? "ksskkfb01";
+const DEFAULT_SOURCE_HOST = process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME ?? DEFAULT_TARGET_HOST;
 
 /* ===== utils ===== */
 function formatXml(xml: string) {
@@ -74,10 +76,10 @@ export default function KrosyPage() {
   // inputs
   const [requestID, setRequestID] = useState<string>("1");
   const [intksk, setIntksk] = useState("830577899396");
-  const [targetHostName, setTargetHostName] = useState("ksskkfb01");
+  const [targetHostName, setTargetHostName] = useState(DEFAULT_TARGET_HOST);
 
   // auto from backend
-  const [sourceHostname, setSourceHostname] = useState("");
+  const [sourceHostname, setSourceHostname] = useState(DEFAULT_SOURCE_HOST);
   const [sourceIp, setSourceIp] = useState("");
   const [sourceMac, setSourceMac] = useState("");
 
@@ -136,7 +138,9 @@ export default function KrosyPage() {
         const r = await withTimeout(IDENTITY_ENDPOINT, { headers: { Accept: "application/json" } });
         if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
         const j = await r.json();
-        setSourceHostname(j.hostname || "");
+        // Prefer configured source hostname; fall back to identity endpoint
+        const cfg = DEFAULT_SOURCE_HOST;
+        setSourceHostname(cfg || j.hostname || "");
         setSourceIp(j.ip || "");
         setSourceMac(j.mac || "");
         append(`bootstrap ok (IDENTITY)`);

@@ -248,6 +248,11 @@ useEffect(() => {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
     setCheckFailures([]); setIsChecking(false); setIsScanning(false);
     setOkFlashTick(t => t + 1);   // triggers child OK animation
+    // Send checkpoint when live event indicates success and live mode is on
+    try {
+      const mac = (macAddress || '').toUpperCase();
+      if (mac && KROSY_LIVE) void sendCheckpointForMac(mac);
+    } catch {}
     scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
   }
@@ -348,6 +353,42 @@ useEffect(() => {
     okForcedRef.current = false;
      bumpSession();   
   }, []);
+
+  // ===== Krosy checkpoint integration =====
+  const CHECKPOINT_URL = process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE || '/api/krosy/checkpoint';
+  const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || 'ksskkfb01';
+  const KROSY_SOURCE = process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
+  const KROSY_LIVE = String(process.env.NEXT_PUBLIC_KROSY_ONLINE) === 'true';
+  const checkpointSentRef = useRef<Set<string>>(new Set());
+
+  const sendCheckpointForMac = useCallback(async (mac: string) => {
+    try {
+      const rList = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+      if (!rList.ok) return;
+      const j = await rList.json();
+      const items: Array<{ kssk: string }> = Array.isArray(j?.items) ? j.items : [];
+      for (const it of items) {
+        const kssk = String(it.kssk || '').trim();
+        if (!kssk || checkpointSentRef.current.has(kssk)) continue;
+        let workingDataXml: string | null = null;
+        try {
+          const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(kssk)}`, { cache: 'no-store' });
+          if (rXml.ok) workingDataXml = await rXml.text();
+        } catch {}
+        const payload = workingDataXml && workingDataXml.trim()
+          ? { requestID: '1', workingDataXml }
+          : { requestID: '1', intksk: kssk, sourceHostname: KROSY_SOURCE, targetHostName: KROSY_TARGET };
+        try {
+          await fetch(CHECKPOINT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          checkpointSentRef.current.add(kssk);
+        } catch {}
+      }
+    } catch {}
+  }, [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]);
 
 
 
@@ -570,6 +611,9 @@ useEffect(() => {
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  
+              // Trigger Krosy checkpoint send for all KSSKs associated with this MAC (live only)
+              if (KROSY_LIVE) void sendCheckpointForMac(mac);
+
               // Clear any KSSK locks for this MAC across stations
               void fetch('/api/kssk-lock', {
                 method: 'DELETE',

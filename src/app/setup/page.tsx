@@ -16,12 +16,11 @@ import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
 const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000");
-// Resolve Krosy endpoint: prefer live checkpoint when ONLINE, otherwise offline
-const DEFAULT_KROSY_CHECKPOINT = "/api/krosy/checkpoint";
+// Resolve Krosy endpoint: use working (krosy) for data, checkpoint handled separately when needed
 const KROSY_URL =
   process.env.NEXT_PUBLIC_KROSY_ONLINE === "true"
-    ? process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ?? DEFAULT_KROSY_CHECKPOINT
-    : process.env.NEXT_PUBLIC_KROSY_OFFLINE_CHECKPOINT ?? "/api/krosy-offline/checkpoint";
+    ? process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy"
+    : process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
 const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =

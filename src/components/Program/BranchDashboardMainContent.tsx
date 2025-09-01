@@ -620,8 +620,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (hasMounted && localBranches.length === 0) {
       if (isManualEntry) {
         return (
-          <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-3xl p-0">
-            <div className="relative w-full rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white/90">
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 sm:pt-14" role="dialog" aria-modal="true">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setIsManualEntry(false)} aria-hidden />
+            <div className="relative w-full max-w-3xl mx-4 rounded-3xl border border-slate-200/80 shadow-2xl overflow-hidden bg-white">
               <button
                 type="button"
                 onClick={() => setIsManualEntry(false)}

@@ -74,6 +74,7 @@ export function useSerialEvents(macFilter?: string) {
     if (p.scan) {
       const { code, path } = p.scan;
       tickRef.current += 1;
+      try { if ((process.env.NEXT_PUBLIC_SCAN_LOG || '') === '1') console.log('[SSE scan]', { code, path }); } catch {}
       setLastScan(String(code));
       setLastScanPath(path ?? null);
       setLastScanAt(Date.now());
@@ -143,7 +144,10 @@ export function useSerialEvents(macFilter?: string) {
     esRef.current = es;
     setEvCount(0);
 
-    es.onopen = () => setSseConnected(true);
+    es.onopen = () => {
+      setSseConnected(true);
+      try { if ((process.env.NEXT_PUBLIC_SCAN_LOG || '') === '1') console.log('[SSE] open', { macFilter: macFilter || null }); } catch {}
+    };
 
     es.onmessage = (ev) => {
       let msg: SerialEvent | null = null;
@@ -256,6 +260,7 @@ export function useSerialEvents(macFilter?: string) {
 
     es.onerror = () => {
       setSseConnected(false);
+      try { if ((process.env.NEXT_PUBLIC_SCAN_LOG || '') === '1') console.warn('[SSE] error'); } catch {}
       // EventSource will auto-retry; we keep the instance open.
     };
 

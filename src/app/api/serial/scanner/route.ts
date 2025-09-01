@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { getLastScanAndClear, getLastScanAndClearFor, peekLastScanFor } from '@/lib/scannerMemory';
 import { ensureScanners, getScannerStatus } from '@/lib/serial';
+// Ensure bus → memory wiring is active even when SSE endpoint isn't open
+import '@/lib/scanSink';
 import { LOG } from '@/lib/logger';
 
 export const runtime = 'nodejs';

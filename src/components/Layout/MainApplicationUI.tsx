@@ -393,9 +393,8 @@ useEffect(() => {
         if (mac) {
           (async () => {
             try {
-              const hasSetup = await hasSetupDataForMac(mac);
               const macUp = mac;
-              if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
+              if (!checkpointMacSentRef.current.has(macUp) && !checkpointMacPendingRef.current.has(macUp)) {
                 await sendCheckpointForMac(mac);
                 try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
               } else {

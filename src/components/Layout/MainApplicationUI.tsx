@@ -307,12 +307,15 @@ useEffect(() => {
             localStorage.removeItem(`PIN_ALIAS::${mac}`);
             localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
           } catch {}
-          // Also clear any KSSK locks for this MAC across stations
-          void fetch('/api/kssk-lock', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mac })
-          }).catch(()=>{});
+          // Also clear any KSSK locks for this MAC across stations (force), include stationId if known
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+            await fetch('/api/kssk-lock', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+            });
+          } catch {}
         })();
       }
     } catch {}
@@ -771,12 +774,15 @@ useEffect(() => {
                 } catch {}
               } catch {}
 
-              // Clear any KSSK locks for this MAC across stations
-              void fetch('/api/kssk-lock', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac })
-              }).catch(()=>{});
+              // Clear any KSSK locks for this MAC across stations (force), include stationId if known
+              try {
+                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+                await fetch('/api/kssk-lock', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+                });
+              } catch {}
               // Also clear local Setup-page lock cache for this station
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
@@ -1006,20 +1012,42 @@ useEffect(() => {
               if (rUnion.ok) {
                 const jU = await rUnion.json();
                 const aU = (jU?.aliases && typeof jU.aliases === 'object') ? (jU.aliases as Record<string,string>) : {};
-                if (Object.keys(aU).length) {
-                  aliases = aU;
+                // Merge server union with locally persisted per‑KSSK groups to avoid dropping pins
+                let mergedAliases: Record<string,string> = { ...aU };
+                let mergedNormal: number[] = Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : [];
+                let mergedLatch: number[] = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : [];
+                try {
+                  const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${mac}`);
+                  if (rawGroups) {
+                    const arr = JSON.parse(rawGroups);
+                    if (Array.isArray(arr)) {
+                      for (const it of arr) {
+                        const names = (it && typeof it.aliases === 'object') ? it.aliases as Record<string,string> : {};
+                        for (const [pin, name] of Object.entries(names)) {
+                          if (!mergedAliases[pin]) mergedAliases[pin] = name as string;
+                          else if (mergedAliases[pin] !== name) mergedAliases[pin] = `${mergedAliases[pin]} / ${name}`;
+                        }
+                        if (Array.isArray(it?.normalPins)) mergedNormal = Array.from(new Set([...mergedNormal, ...it.normalPins]));
+                        if (Array.isArray(it?.latchPins)) mergedLatch = Array.from(new Set([...mergedLatch, ...it.latchPins]));
+                      }
+                    }
+                  }
+                } catch {}
+
+                if (Object.keys(mergedAliases).length) {
+                  aliases = mergedAliases;
                   try {
                     if (CLEAR_LOCAL_ALIAS) { localStorage.removeItem(`PIN_ALIAS::${mac}`); localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`); }
                     else {
                       localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(aliases));
-                      localStorage.setItem(`PIN_ALIAS_UNION::${mac}`, JSON.stringify({ names: aliases, normalPins: (jU?.normalPins || []), latchPins: (jU?.latchPins || []), ts: Date.now() }));
+                      localStorage.setItem(`PIN_ALIAS_UNION::${mac}`, JSON.stringify({ names: aliases, normalPins: mergedNormal, latchPins: mergedLatch, ts: Date.now() }));
                     }
                   } catch {}
                 }
-                // capture pin type context
+                // capture pin type context (use merged)
                 try {
-                  const n = Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : undefined;
-                  const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
+                  const n = mergedNormal.length ? mergedNormal : (Array.isArray(jU?.normalPins) ? (jU.normalPins as number[]) : undefined);
+                  const l = mergedLatch.length ? mergedLatch : (Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined);
                   setNormalPins(n);
                   setLatchPins(l);
                   // Always merge union pins into the pins we send to CHECK so first scan uses all KSSKs

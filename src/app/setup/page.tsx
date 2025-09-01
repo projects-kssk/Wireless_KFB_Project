@@ -800,8 +800,8 @@ const acceptKsskToIndex = useCallback(
         includeLatch: true,               // include contactless pins (",C")
         includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
         allowedMeasTypes: ["default"],    // keep ONLY default
-        allowedCompTypes: ["clip"],
-        // allowedCompTypes: ["contact"],  // uncomment if compType is reliable and desired
+        // Broaden to include both clip and contact components so we don't drop valid pins
+        allowedCompTypes: ["clip", "contact"],
       };
 
       const out = resp.data?.__xml

@@ -251,7 +251,8 @@ useEffect(() => {
     // Send checkpoint when live event indicates success and live mode is on
     try {
       const mac = (macAddress || '').toUpperCase();
-      if (mac && krosyLive) void sendCheckpointForMac(mac);
+      if (mac && krosyLive && !checkpointMacSentRef.current.has(mac))
+        void sendCheckpointForMac(mac);
     } catch {}
     scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
@@ -375,8 +376,10 @@ useEffect(() => {
     })();
   }, []);
   const checkpointSentRef = useRef<Set<string>>(new Set());
+  const checkpointMacSentRef = useRef<Set<string>>(new Set());
 
   const sendCheckpointForMac = useCallback(async (mac: string) => {
+    if (checkpointMacSentRef.current.has(mac.toUpperCase())) return;
     try {
       const rList = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
       if (!rList.ok) return;
@@ -402,6 +405,7 @@ useEffect(() => {
           checkpointSentRef.current.add(kssk);
         } catch {}
       }
+      checkpointMacSentRef.current.add(mac.toUpperCase());
     } catch {}
   }, [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]);
 
@@ -626,8 +630,9 @@ useEffect(() => {
               okForcedRef.current = true;
               setOkFlashTick(t => t + 1);     // show OK in child, then child resets
               scheduleOkReset();  
-              // Trigger Krosy checkpoint send for all KSSKs associated with this MAC (live only)
-              if (krosyLive) void sendCheckpointForMac(mac);
+              // Trigger Krosy checkpoint send once per MAC (live only)
+              if (krosyLive && !checkpointMacSentRef.current.has(mac.toUpperCase()))
+                void sendCheckpointForMac(mac);
 
               // Clear any KSSK locks for this MAC across stations
               void fetch('/api/kssk-lock', {
@@ -830,11 +835,12 @@ useEffect(() => {
                 });
                 byId.set(id, dedup);
               }
-              const groups = Array.from(byId.entries())
-                .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
-                .map(([k, branches]) => ({ kssk: k, branches }));
-              setGroupedBranches(groups);
-              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              // Defer showing grouped KSSKs until CHECK result arrives to avoid flicker
+              // const groups = Array.from(byId.entries())
+              //   .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
+              //   .map(([k, branches]) => ({ kssk: k, branches }));
+              // setGroupedBranches(groups);
+              // setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
             }
                         
             
@@ -880,17 +886,8 @@ useEffect(() => {
           }
         } catch {}
       }
-      if (pins.length) {
-        setBranchesData(pins.map(pin => ({
-          id: String(pin),
-          branchName: aliases[String(pin)] || `PIN ${pin}`,
-          testStatus: 'not_tested' as TestStatus,
-          pinNumber: pin,
-          kfbInfoValue: undefined,
-        })));
-      } else {
-        setBranchesData([]);
-      }
+      // Defer rendering flat branches until CHECK result arrives
+      setBranchesData([]);
 
       // Debug: log pins being sent for first CHECK
       try { console.log('[GUI] CHECK pins', pins); } catch {}

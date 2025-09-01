@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useCallback, useRef, FormEvent, startTransition } from 'react';
 import dynamic from 'next/dynamic';
-import { m, AnimatePresence } from 'framer-motion';
+import { m, AnimatePresence, useReducedMotion } from 'framer-motion';
+import type { Transition, Variants } from 'framer-motion';
 
 import { BranchDisplayData, KfbInfo, TestStatus } from '@/types/types';
 import { Header } from '@/components/Header/Header';
@@ -54,11 +55,42 @@ const canonicalMac = (raw: string): string | null => {
 };
 
 const MainApplicationUI: React.FC = () => {
+  const reduce = useReducedMotion();
+
+  // Overlay motion variants (respect reduced motion)
+  const fadeTransition: Transition = { duration: reduce ? 0 : 0.18 };
+  const cardTransition: Transition = reduce ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 20 };
+
+  const bg: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: fadeTransition },
+    exit: { opacity: 0, transition: fadeTransition },
+  };
+  const card: Variants = {
+    hidden: { scale: reduce ? 1 : 0.98, opacity: 0 },
+    visible: {
+      scale: 1,
+      opacity: 1,
+      transition: cardTransition,
+    },
+    exit: { scale: reduce ? 1 : 0.98, opacity: 0 },
+  };
+  const heading: Variants = {
+    hidden: { y: reduce ? 0 : 6, opacity: 0 },
+    visible: { y: 0, opacity: 1, transition: { duration: reduce ? 0 : 0.22 } },
+  };
+
+  const KIND_STYLES: Record<OverlayKind, string> = {
+    error: '#ef4444',
+    scanning: '#60a5fa',
+    success: '#22c55e',
+  };
   // UI state
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>('dashboard');
-
+  const [session, setSession] = useState(0);
+  const bumpSession = () => setSession(s => s + 1);
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
   const [groupedBranches, setGroupedBranches] = useState<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
@@ -66,6 +98,8 @@ const MainApplicationUI: React.FC = () => {
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
   const [macAddress, setMacAddress] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  // Gate visual scanning animations; keep internal isScanning for flow control
+  const [showScanUi, setShowScanUi] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<Record<string,string> | undefined>(undefined);
   const [normalPins, setNormalPins] = useState<number[] | undefined>(undefined);
@@ -76,6 +110,9 @@ const MainApplicationUI: React.FC = () => {
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
+  // Reflect isChecking in a ref for async handlers
+  const isCheckingRef = useRef(false);
+  useEffect(() => { isCheckingRef.current = isChecking; }, [isChecking]);
   // Simplified flow: no UI polling; show OK for a few seconds, then hide
   const [awaitingRelease, setAwaitingRelease] = useState(false); // deprecated
   const [showRemoveCable, setShowRemoveCable] = useState(false); // deprecated
@@ -102,6 +139,19 @@ const MainApplicationUI: React.FC = () => {
   const lastScanRef = useRef('');
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const [okAnimationTick, setOkAnimationTick] = useState(0);
+
+  const okResetTimerRef = useRef<number | null>(null);
+  const scheduleOkReset = (ms = 1500) => {
+    if (okResetTimerRef.current) clearTimeout(okResetTimerRef.current);
+    okResetTimerRef.current = window.setTimeout(() => {
+      handleResetKfb();
+      okResetTimerRef.current = null;
+    }, ms + 100);
+  };
+  const cancelOkReset = () => {
+    if (okResetTimerRef.current) { clearTimeout(okResetTimerRef.current); okResetTimerRef.current = null; }
+  };
+
   const [okFlashTick, setOkFlashTick] = useState(0);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => { if (retryTimerRef.current != null) { try { clearTimeout(retryTimerRef.current); } catch {} retryTimerRef.current = null; } };
@@ -123,6 +173,8 @@ const MainApplicationUI: React.FC = () => {
     }
   };
 
+
+
   // Serial events (SSE)
   const serial = useSerialEvents((macAddress || '').toUpperCase() || undefined);
   const lastScan = serial.lastScan;
@@ -138,7 +190,9 @@ const MainApplicationUI: React.FC = () => {
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
     if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
-    return `/dev/ttyACM${DASH_SCANNER_INDEX}`;
+    // If no path is known for the desired index, do not force a fallback path
+    // to avoid filtering out real scans from other ACM ports.
+    return null;
   };
   const desiredPath = resolveDesiredPath();
   const desiredTail = (desiredPath || '').split('/').pop() || desiredPath || '';
@@ -189,10 +243,15 @@ useEffect(() => {
 
   if ((kindRaw === 'DONE' || isLegacyResult) && (okFromText || String(ev.ok).toLowerCase() === 'true') && matches) {
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
-    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
-    // Flash OK immediately (~1.5s), then reset to barcode like CHECK success
-    setOkFlashTick(t => t + 1);
-    okForcedRef.current = true;
+ setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+ okForcedRef.current = true;
+ setOkFlashTick(t => t + 1);     // show OK in child, then child resets
+      scheduleOkReset();  
+ void fetch('/api/kssk-lock/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac: current })
+    }).catch(()=>{});
   }
 }, [serial.lastEvTick, macAddress]);
 
@@ -224,8 +283,9 @@ useEffect(() => {
     const groupedOk = Array.isArray(groupedBranches) && groupedBranches.length > 0 && groupedBranches.every((g) => g.branches.length > 0 && g.branches.every((b) => b.testStatus === 'ok'));
     if (flatOk || groupedOk) {
       // In live mode when everything is OK, show OK flash then reset
-      try { setOkFlashTick((x) => x + 1); } catch {}
-      okForcedRef.current = true;
+    okForcedRef.current = true;
+  setOkFlashTick(t => t + 1);     // same unified path
+   scheduleOkReset();   
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -251,22 +311,7 @@ useEffect(() => {
     return () => { stop = true; clearInterval(h); };
   }, []);
 
-  // Load KSSKs used for the current MAC from aliases index (authoritative per-MAC list)
-  useEffect(() => {
-    const mac = (macAddress || '').trim().toUpperCase();
-    if (!mac) return;
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
-        const j = await r.json().catch(() => ({}));
-        const items = Array.isArray(j?.items) ? j.items : [];
-        const ids = items.map((it: any) => String(it.kssk)).filter(Boolean);
-        if (!stop && ids.length) setActiveKssks(ids);
-      } catch {}
-    })();
-    return () => { stop = true; };
-  }, [macAddress]);
+  // Do NOT override Active KSSKs from Redis with aliases index; show only station-active
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
@@ -276,8 +321,22 @@ useEffect(() => {
   const scanInFlightRef = useRef<boolean>(false);
   // Guard to avoid forcing OK multiple times per cycle
   const okForcedRef = useRef<boolean>(false);
+  // Queue scans that arrive while a CHECK is running
+  const pendingScansRef = useRef<string[]>([]);
+  const enqueueScan = useCallback((raw: string) => {
+    const code = String(raw || '').trim().toUpperCase();
+    if (!code) return;
+    const q = pendingScansRef.current;
+    // coalesce identical consecutive entries; keep last 5
+    if (q.length === 0 || q[q.length - 1] !== code) q.push(code);
+    if (q.length > 5) q.splice(0, q.length - 5);
+  }, []);
+  // Provide stable reference to handleScan for async drains
+  const handleScanRef = useRef<(code: string) => void | Promise<void>>(() => {});
 
-  const handleResetKfb = () => {
+  const handleResetKfb = useCallback(() => {
+    cancelOkReset?.();
+ setOkFlashTick(0);
     setKfbNumber('');
     setKfbInfo(null);
     setBranchesData([]);
@@ -285,9 +344,15 @@ useEffect(() => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
-    setMacAddress('');
+    // Keep MAC address to persist scanned value through the flow
     okForcedRef.current = false;
-  };
+     bumpSession();   
+  }, []);
+
+
+
+
+
 
   // Narrowing guard
   const isTestablePin = (b: BranchDisplayData): b is BranchDisplayData & { pinNumber: number } =>
@@ -388,9 +453,10 @@ useEffect(() => {
             }));
 
             // Build grouped sections per KSSK if available from API
-            const items = Array.isArray((result as any)?.items)
-              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }>
-              : (Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }> : []);
+            // Prefer itemsActive (station-active KSSKs), fallback to all items
+            const items = Array.isArray((result as any)?.itemsActive)
+              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string> }>
+              : (Array.isArray((result as any)?.items) ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string> }> : []);
             if (items.length) {
               const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
@@ -453,11 +519,17 @@ useEffect(() => {
               : flat;
           }));
 
-          if (!unknown && failures.length === 0) {
-            // Success: close SCANNING overlay; let the in-content SVG OK animation run and handle reset
-            clearScanOverlayTimeout();
-            setOverlay((o) => ({ ...o, open: false }));
-            try { setOkFlashTick((t) => t + 1); } catch {}
+        if (!unknown && failures.length === 0) {
+              clearScanOverlayTimeout();
+            okForcedRef.current = true;
+            setOkFlashTick(t => t + 1);     // show OK in child, then child resets
+            scheduleOkReset();  
+            void fetch('/api/kssk-lock/clear', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac })
+            }).catch(()=>{});
+
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
             const msg = rawLine || (unknown ? 'CHECK failure (no pin list)' : `Failures: ${failures.join(', ')}`);
@@ -483,10 +555,9 @@ useEffect(() => {
               setScanningError(true);
               showOverlay('error', 'SCANNING ERROR');
               clearScanOverlayTimeout();
-              // Reset view back to default scan state shortly after showing error
+              // Reset view back to default scan state shortly after showing error (preserve MAC)
               setTimeout(() => {
                 handleResetKfb();
-                setMacAddress('');
                 setGroupedBranches([]);
                 setActiveKssks([]);
                 setNameHints(undefined);
@@ -497,10 +568,9 @@ useEffect(() => {
             setScanningError(true);
             showOverlay('error', 'CHECK ERROR');
             clearScanOverlayTimeout();
-            // Reset view back to default scan state shortly after showing error
+            // Reset view back to default scan state shortly after showing error (preserve MAC)
             setTimeout(() => {
               handleResetKfb();
-              setMacAddress('');
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
@@ -522,7 +592,6 @@ useEffect(() => {
             hideOverlaySoon();
             setTimeout(() => {
               handleResetKfb();
-              setMacAddress('');
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
@@ -536,7 +605,6 @@ useEffect(() => {
           hideOverlaySoon();
           setTimeout(() => {
             handleResetKfb();
-            setMacAddress('');
             setGroupedBranches([]);
             setActiveKssks([]);
             setNameHints(undefined);
@@ -551,7 +619,10 @@ useEffect(() => {
   );
 
   // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
-  const loadBranchesData = useCallback(async (value?: string) => {
+  // source: 'scan' (SSE/poll) or 'manual' (user input)
+  const loadBranchesData = useCallback(async (value?: string, source: 'scan' | 'manual' = 'scan') => {
+    cancelOkReset();
+    setOkFlashTick(0);
     const kfbRaw = (value ?? kfbInputRef.current).trim();
     if (!kfbRaw) return;
 
@@ -560,17 +631,26 @@ useEffect(() => {
     const macCanon = canonicalMac(normalized);
     const isMac = !!macCanon;
     if (!isMac && !KFB_REGEX.test(normalized)) {
-      showOverlay('error', `Invalid code: ${normalized}`);
+      // For manual submissions, use inline message instead of an overlay
+      if (source === 'manual') {
+        setErrorMsg('Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF');
+      } else {
+        showOverlay('error', `Invalid code: ${normalized}`);
+        hideOverlaySoon();
+      }
       console.warn('[SCAN] rejected by patterns', { normalized });
-      hideOverlaySoon();
       return;
     }
 
     // show SCANNING only if we have no content yet; otherwise keep UI and just highlight
     lastScanRef.current = normalized;
-    if (branchesData.length === 0 && groupedBranches.length === 0) {
-      showOverlay('scanning', normalized);
-      startScanOverlayTimeout(5000);
+    // Avoid SCANNING overlay for manual entry; keep the UI calm
+    if (source === 'scan') {
+      if (branchesData.length === 0 && groupedBranches.length === 0) {
+        showOverlay('scanning', normalized);
+        startScanOverlayTimeout(5000);
+      }
+      setShowScanUi(true);
     }
 
     setIsScanning(true);
@@ -609,6 +689,26 @@ useEffect(() => {
           if (rAll.ok) {
             const jAll = await rAll.json();
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            
+             if (items.length) {
+              const groups = items.map((it: any) => {
+                const aliases = it.aliases || {};
+                const pins = Object.keys(aliases).map(n => Number(n)).filter(n => Number.isFinite(n)).sort((a,b)=>a-b);
+                const branches = pins.map(pin => ({
+                  id: `${it.kssk}:${pin}`,
+                  branchName: aliases[String(pin)] || `PIN ${pin}`,
+                  testStatus: 'not_tested' as TestStatus,
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                }));
+                return { kssk: String(it.kssk || ''), branches };
+              });
+              setGroupedBranches(groups);
+              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+            }
+                        
+            
+            
             const pinSet = new Set<number>();
             for (const it of items) {
               const a = (it.aliases && typeof it.aliases === 'object') ? it.aliases : {};
@@ -663,12 +763,13 @@ useEffect(() => {
       console.error('Load/MONITOR error:', e);
       setKfbNumber('');
       setKfbInfo(null);
-      setMacAddress('');
-      setErrorMsg('Failed to load setup data. Please run Setup or scan MAC again.');
-      showOverlay('error', 'Load failed');
-      hideOverlaySoon();
+      // Preserve MAC to keep scanned value across the flow
+      const msg = 'Failed to load setup data. Please run Setup or scan MAC again.';
+      setErrorMsg(msg);
+      if (source === 'scan') { showOverlay('error', 'Load failed'); hideOverlaySoon(); }
     } finally {
       setIsScanning(false);
+      setShowScanUi(false);
     }
   }, [runCheck]);
 
@@ -708,29 +809,36 @@ useEffect(() => {
     }
   }, [loadBranchesData]);
 
-  // SSE → handle scans (gate by view, settings sidebar, and pause during CHECK)
+  // keep ref in sync for drains
+  useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
+
+  // SSE → handle scans (gate by view and settings sidebar). If CHECK is running, queue it.
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
-    if (isChecking) return;
     if (!serial.lastScanTick) return;              // no event yet
-    if (lastScanPath && !isAcmPath(lastScanPath)) return;
-    const want = resolveDesiredPath();
-    if (want && lastScanPath && !pathsEqual(lastScanPath, want)) return; // ignore other scanner paths
     const code = serial.lastScan;                   // the latest payload
     if (!code) return;
-    void handleScan(code);
+    if (isCheckingRef.current) {
+      enqueueScan(code);
+    } else {
+      void handleScan(code);
+    }
    // optional: echo code for visibility
    // console.debug('[SSE scan]', { code, path: lastScanPath, tick: serial.lastScanTick });
  // depend on the tick, not the string
- }, [serial.lastScanTick, lastScanPath, handleScan, mainView, isSettingsSidebarOpen, isChecking]);
+ }, [serial.lastScanTick, lastScanPath, handleScan, mainView, isSettingsSidebarOpen]);
 
-  // Polling fallback (filters to ACM via returned path and gates by view + settings). Pause during CHECK.
+  // Polling fallback (filters to ACM via returned path and gates by view + settings).
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
-    if (isChecking) return;
-    if ((serial as any).sseConnected) return; // don't poll if SSE is healthy
+    // If SSE is connected but stale (no recent scans), allow polling as a safety net
+    const STALE_MS = Number(process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? '4000');
+    const lastAt = (serial as any).lastScanAt as number | null | undefined;
+    const sseOk = !!(serial as any).sseConnected;
+    const stale = !(typeof lastAt === 'number' && isFinite(lastAt)) || (Date.now() - (lastAt as number)) > STALE_MS;
+    if (sseOk && !stale) return; // healthy SSE path — skip polling
 
     let stopped = false;
     let lastPollAt = 0;
@@ -760,8 +868,12 @@ useEffect(() => {
           const raw = typeof code === 'string' ? code.trim() : '';
           if (raw) {
             if (path && !isAcmPath(path)) return;
-            if (want && path && !pathsEqual(path, want)) return;
-            await handleScan(raw);
+            if (want && path && !pathsEqual(path, want)) {
+              const strict = String(process.env.NEXT_PUBLIC_STRICT_SCANNER || '').trim() === '1';
+              if (strict) return;
+            }
+            if (isCheckingRef.current) enqueueScan(raw);
+            else await handleScan(raw);
           }
               else if (error) {
                 const str = String(error);
@@ -803,29 +915,44 @@ useEffect(() => {
       if (timer) window.clearTimeout(timer);
       if (ctrl) ctrl.abort();
     };
-  }, [mainView, isSettingsSidebarOpen, handleScan, isChecking]);
+  }, [mainView, isSettingsSidebarOpen, handleScan]);
+
+  // When CHECK finishes, process the most recent queued scan (if any)
+  useEffect(() => {
+    if (!isChecking) {
+      // small delay allows UI state to settle
+      const t = setTimeout(() => {
+        const q = pendingScansRef.current;
+        if (!q.length) return;
+        const next = q[q.length - 1]!; // most recent
+        pendingScansRef.current = [];
+        try { void handleScanRef.current(next); } catch {}
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [isChecking]);
 
   // Removed UI polling; success overlay auto-hides after 3s.
 
   // Manual submit from a form/input
   const handleKfbSubmit = (e: FormEvent) => {
     e.preventDefault();
-    void loadBranchesData(kfbInputRef.current);
+    void loadBranchesData(kfbInputRef.current, 'manual');
   };
 
   const handleManualSubmit = (submittedNumber: string) => {
     const val = submittedNumber.trim().toUpperCase();
     if (!val) return;
+    // For manual entry, avoid intrusive overlays; show subtle inline message
     if (!(canonicalMac(val) || KFB_REGEX.test(val))) {
-      showOverlay('error', val);
-      hideOverlaySoon();
+      setErrorMsg('Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF');
       return;
     }
     const mac = canonicalMac(val);
     const next = mac || val;
     setKfbInput(next);
     setKfbNumber(next);
-    void loadBranchesData(next);
+    void loadBranchesData(next, 'manual');
   };
 
   // Layout helpers
@@ -932,6 +1059,7 @@ useEffect(() => {
               {errorMsg && <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>}
 
               <BranchDashboardMainContent
+               key={session}
                 appHeaderHeight={actualHeaderHeight}
                 onManualSubmit={handleManualSubmit}
                 onScanAgainRequest={() => loadBranchesData()}
@@ -941,16 +1069,17 @@ useEffect(() => {
                 nameHints={nameHints}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
-                isScanning={isScanning}
+                // Hide scanning visuals for manual submits (we gate via showScanUi)
+                isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
                 activeKssks={activeKssks}
               lastEv={(serial as any).lastEv}
               lastEvTick={(serial as any).lastEvTick}
               normalPins={normalPins}
               latchPins={latchPins}
-              forceOkTick={okAnimationTick}
-              flashOkTick={okFlashTick}
               onResetKfb={handleResetKfb}
+              flashOkTick={okFlashTick}
+
             />
 
               {/* Hidden form target if you submit manually elsewhere */}
@@ -981,10 +1110,10 @@ useEffect(() => {
       <AnimatePresence>
         {overlay.open && (
           <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            variants={bg}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
             style={{
               position: 'fixed',
               inset: 0,
@@ -995,52 +1124,29 @@ useEffect(() => {
               zIndex: 9999,
             }}
             aria-live="assertive"
-            aria-label={
-              overlay.kind === 'success' ? 'OK' :
-              overlay.kind === 'error' ? 'ERROR' : 'SCANNING'
-            }
+            aria-label={overlay.kind.toUpperCase()}
           >
-            <m.div
-              initial={{ scale: 0.98, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.98, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 260, damping: 20 }}
-              style={{ display: 'grid', justifyItems: 'center', gap: 8 }}
-            >
-              <m.div
-                initial={{ y: 6, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.22 }}
-                style={{
-                  fontSize: 128,
-                  fontWeight: 900,
-                  letterSpacing: '0.02em',
-                  color:
-                    overlay.kind === 'success' ? '#10b981' :
-                    overlay.kind === 'error' ? '#ef4444' :
-                    '#60a5fa',
-                  textShadow: '0 8px 24px rgba(0,0,0,0.45)',
-                  fontFamily:
-                    'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-                }}
-              >
-                {overlay.kind === 'success' ? 'OK' :
-                 overlay.kind === 'error' ? 'ERROR' : 'SCANNING'}
+            <m.div variants={card} initial="hidden" animate="visible" exit="exit" style={{ display: 'grid', justifyItems: 'center', gap: 8 }}>
+              <m.div variants={heading} style={{
+                fontSize: 128,
+                fontWeight: 900,
+                letterSpacing: '0.02em',
+                color: KIND_STYLES[overlay.kind],
+                textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                fontFamily:
+                  'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+              }}>
+                {overlay.kind.toUpperCase()}
               </m.div>
               {overlay.code && (
-                <m.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.05 }}
-                  style={{
-                    fontSize: 16,
-                    color: '#f1f5f9',
-                    opacity: 0.95,
-                    wordBreak: 'break-all',
-                    textAlign: 'center',
-                    maxWidth: 640,
-                  }}
-                >
+                <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: reduce ? 0 : 0.05 }} style={{
+                  fontSize: 16,
+                  color: '#f1f5f9',
+                  opacity: 0.95,
+                  wordBreak: 'break-all',
+                  textAlign: 'center',
+                  maxWidth: 640,
+                }}>
                   {overlay.code}
                 </m.div>
               )}

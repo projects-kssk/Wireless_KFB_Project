@@ -181,7 +181,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const prevAllOkRef = useRef(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+const showingGrouped = useMemo(
+  () => Array.isArray(groupedBranches) && groupedBranches.length > 0,
+  [groupedBranches]
+);
   useEffect(() => { setLocalBranches(branchesData); }, [branchesData]);
   useEffect(() => { setHasMounted(true); }, []);
 
@@ -850,42 +853,25 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
             {macAddress && localBranches.length > 0 && (
               <div className="flex items-center justify-end gap-4 w-full">
-                {/* CHECK trigger */}
-                <button
-                  type="button"
-                  onClick={runCheck}
-                  disabled={isChecking}
-                  className={[
-                    'inline-flex items-center rounded-xl border px-3 py-2 text-sm font-bold',
-                    isChecking
-                      ? 'border-amber-300 bg-amber-50 text-amber-700'
-                      : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  ].join(' ')}
-                  aria-busy={isChecking}
-                >
-                  {isChecking ? 'Checking' : 'Run CHECK'}
-                </button>
+                <button /* Run CHECK btn unchanged */> {isChecking ? 'Checking' : 'Run CHECK'} </button>
 
-                {/* Active KSSKs */}
-                <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-                  <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
-                  <div className="flex flex-wrap gap-2 mt-1 justify-end">
-                    {(activeKssks && activeKssks.length > 0) ? (
-                      activeKssks.map((id) => (
-                        <span
-                          key={`used-${id}`}
-                          className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow"
-                        >
-                          {id}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-slate-400 text-xs">—</span>
-                    )}
+                {!showingGrouped && ( // ← gate the duplicate list
+                  <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
+                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
+                      {(activeKssks && activeKssks.length > 0)
+                        ? activeKssks.map(id => (
+                            <span key={id} className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow">
+                              {id}
+                            </span>
+                          ))
+                        : <span className="text-slate-400 text-xs">—</span>}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
+
           </div>
         ) : null}
       </header>

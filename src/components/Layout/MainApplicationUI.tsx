@@ -1148,9 +1148,10 @@ useEffect(() => {
               lastEv={(serial as any).lastEv}
               lastEvTick={(serial as any).lastEvTick}
               normalPins={normalPins}
-              latchPins={latchPins}
-              onResetKfb={handleResetKfb}
-              flashOkTick={okFlashTick}
+                latchPins={latchPins}
+                
+                onResetKfb={handleResetKfb}
+                flashOkTick={okFlashTick}
 
             />
 

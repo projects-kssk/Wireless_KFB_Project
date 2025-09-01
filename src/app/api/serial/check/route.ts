@@ -152,12 +152,8 @@ export async function POST(request: Request) {
       const members: string[] = await r.smembers(indexKey).catch(() => []);
       const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim();
       const act: string[] = stationId ? await r.smembers(`kssk:station:${stationId}`).catch(() => []) : [];
-      // Prefer station-active KSSKs when present; else use indexed members.
-      // This ensures pins reflect the current production batch for this station,
-      // so KSSK-specific differences (e.g. measType no_check vs default) are respected.
-      let targets: string[] = Array.isArray(act) && act.length
-        ? Array.from(new Set(act)).filter(Boolean)
-        : Array.from(new Set(Array.isArray(members) ? members : [])).filter(Boolean);
+      // Union of station-active and indexed KSSKs
+      let targets: string[] = Array.from(new Set([...(Array.isArray(act)?act:[]), ...(Array.isArray(members)?members:[])])).filter(Boolean);
       // Fallback: if both station + index empty, scan Redis keys for per-KSSK alias entries
       if (!targets.length) {
         try {
@@ -191,13 +187,14 @@ export async function POST(request: Request) {
       const unionNames: Record<string, string> = {};
       const unionN = new Set<number>();
       const unionL = new Set<number>();
+      const hadActiveTargets = Array.isArray(act) && act.length > 0;
       for (const id of targets) {
         try {
           const raw = await r.get(`kfb:aliases:${macUp}:${id}`);
           if (!raw) continue;
           const d = JSON.parse(raw);
           const names = d?.names || d?.aliases || {};
-          for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
+          for (const k of Object.keys(names)) { const n = Number(k); if (Number.isFinite(n) && n>0) { pinsSet.add(n); } }
           // merge first-seen name per pin (preserve earlier)
           for (const [k, v] of Object.entries(names)) { if (!unionNames[k]) unionNames[k] = String(v); }
           if (Array.isArray(d?.normalPins)) for (const n of d.normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) { pinsSet.add(x); unionN.add(x); } }
@@ -217,6 +214,7 @@ export async function POST(request: Request) {
           for (const p of allPins) { const n = Number(p); if (Number.isFinite(n) && n>0) pinsSet.add(n); }
         }
       } catch {}
+      // Union (all discovered pins)
       pinsUnion = Array.from(pinsSet).sort((a,b)=>a-b);
       if ((process.env.LOG_MONITOR_START_ONLY ?? '0') !== '1') {
         mon.info(`CHECK union pins count=${pinsUnion.length}`);

@@ -1047,8 +1047,7 @@ export default function SetupPage() {
           >
             <m.section layout style={card}>
               <div style={{ display: "grid", gap: 4 }}>
-                <span style={eyebrow}>Step 1</span>
-                <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
+                <h1 style={heading}>SETUP</h1>
               </div>
 
          

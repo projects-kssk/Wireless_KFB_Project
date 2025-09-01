@@ -1013,13 +1013,7 @@ export default function SetupPage() {
                 <h2 style={heading}>SCAN BARCODE (MAC ADDRESS)</h2>
               </div>
 
-              <ScanBoxAnimated
-                ariaLabel="KFB scan zone"
-                height={160}
-                flashKind={flash?.panel === "kfb" ? flash.kind : null}
-                flashId={flash?.panel === "kfb" ? flash.id : undefined}
-              />
-
+         
               {allowManual && (
                 <button
                   type="button"

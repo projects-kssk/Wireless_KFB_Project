@@ -1139,7 +1139,7 @@ export default function SetupPage() {
             const extractOpts: KrosyOpts = {
               macHint: macUp,
               includeLatch: true,
-              includeLabelPrefixes: ["CN", "CL"],
+              includeLabelPrefixes: ["CL"],
               allowedMeasTypes: ["default"],
               allowedCompTypes: ["clip", "contact"],
             };
@@ -1186,7 +1186,7 @@ export default function SetupPage() {
           const extractOpts: KrosyOpts = {
             macHint: macUp,
             includeLatch: true,
-            includeLabelPrefixes: ["CN", "CL"],
+            includeLabelPrefixes: ["CL"],
             allowedMeasTypes: ["default"],
             allowedCompTypes: ["clip", "contact"],
           };
@@ -1437,7 +1437,7 @@ export default function SetupPage() {
               const strict: KrosyOpts = {
                 macHint: macUp,
                 includeLatch: true,
-                includeLabelPrefixes: ["CN", "CL"],
+                includeLabelPrefixes: ["CL"],
                 allowedMeasTypes: ["default"],
                 allowedCompTypes: ["clip", "contact"],
               };

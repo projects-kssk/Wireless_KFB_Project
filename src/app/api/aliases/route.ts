@@ -183,9 +183,12 @@ export async function POST(req: Request) {
               if (!pos) continue;
               const { pin, isLatch } = parsePos(pos);
               if (!Number.isFinite(pin)) continue;
+              // Only accept CL_* labels; ignore CN or others
+              const labelFull = String(pos.split(',')[0] || '').trim();
+              const labelPrefix = (labelFull.split('_')[0] || '').toUpperCase();
+              if (labelPrefix !== 'CL') continue;
               (isLatch ? latch : normal).push(pin);
-              const label = String(pos.split(',')[0] || '').trim();
-              if (label) names[String(pin)] = label;
+              if (labelFull) names[String(pin)] = labelFull;
             }
           } catch {}
           const uniq = (xs: number[]) => Array.from(new Set(xs));

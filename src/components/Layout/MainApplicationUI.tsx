@@ -298,25 +298,64 @@ const MainApplicationUI: React.FC = () => {
   })();
 
   const prevRedisReadyRef = useRef<boolean | null>(null);
+  const [redisDegraded, setRedisDegraded] = useState(false);
+  const redisReadyRef = useRef<boolean>(false);
+  const redisDropTimerRef = useRef<number | null>(null);
+  const lastRedisDropAtRef = useRef<number | null>(null);
+  const macRef = useRef<string>("");
+  useEffect(() => {
+    redisReadyRef.current = !!(serial as any).redisReady;
+  }, [(serial as any).redisReady]);
+  useEffect(() => {
+    macRef.current = (macAddress || "").toUpperCase();
+  }, [macAddress]);
   useEffect(() => {
     try {
       const ready = !!(serial as any).redisReady;
       const prev = prevRedisReadyRef.current;
       prevRedisReadyRef.current = ready;
       if (prev === null) return; // first sample
+      // Debounce drops: require it to stay false for ~1.5s
       if (prev === true && ready === false) {
-        const macUp = String((macAddress || "").toUpperCase());
-        if (macUp) {
-          try {
-            setBranchesData([]);
-            setGroupedBranches([]);
-            setActiveKssks([]);
-            setNameHints(undefined);
-            setNormalPins(undefined);
-            setLatchPins(undefined);
-            setCheckFailures(null);
-          } catch {}
+        if (redisDropTimerRef.current == null) {
+          lastRedisDropAtRef.current = Date.now();
+          console.warn(
+            "[REDIS] redisReady dropped → scheduling degraded-mode check (1500ms)"
+          );
+          redisDropTimerRef.current = window.setTimeout(() => {
+            redisDropTimerRef.current = null;
+            if (!redisReadyRef.current) {
+              const ms = lastRedisDropAtRef.current
+                ? Date.now() - lastRedisDropAtRef.current
+                : undefined;
+              console.warn("[REDIS] degraded mode ON (redisReady=false)", {
+                waitedMs: ms,
+              });
+              setRedisDegraded(true);
+            } else {
+              console.log(
+                "[REDIS] recovered before debounce window; staying normal"
+              );
+            }
+          }, 1500);
         }
+      }
+      // Recovery: clear any pending timer, log recovery
+      if (prev === false && ready === true) {
+        if (redisDropTimerRef.current != null) {
+          try {
+            clearTimeout(redisDropTimerRef.current);
+          } catch {}
+          redisDropTimerRef.current = null;
+        }
+        const msDown = lastRedisDropAtRef.current
+          ? Date.now() - lastRedisDropAtRef.current
+          : undefined;
+        lastRedisDropAtRef.current = null;
+        console.log("[REDIS] redisReady back to true (degraded OFF)", {
+          downMs: msDown,
+        });
+        setRedisDegraded(false);
       }
     } catch {}
   }, [(serial as any).redisReady, macAddress]);
@@ -334,11 +373,55 @@ const MainApplicationUI: React.FC = () => {
     const cur = (macAddress || "").toUpperCase();
     if (!cur || String(u.mac || "").toUpperCase() !== cur) return;
     try {
+      const np = Array.isArray(u.normalPins) ? u.normalPins.length : 0;
+      const lp = Array.isArray(u.latchPins) ? u.latchPins.length : 0;
+      const nm =
+        u.names && typeof u.names === "object"
+          ? Object.keys(u.names).length
+          : 0;
+      if (redisDegraded && np === 0 && lp === 0 && nm === 0) {
+        console.log("[SSE][UNION] skipped empty union during degraded mode");
+        return;
+      }
+      console.log("[SSE][UNION] update for current MAC", {
+        normalPins: np,
+        latchPins: lp,
+        names: nm,
+      });
       if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
       if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
       if (u.names && typeof u.names === "object") setNameHints(u.names as any);
     } catch {}
-  }, [serial.lastUnion, macAddress]);
+  }, [serial.lastUnion, macAddress, redisDegraded]);
+
+  // On recovery from degraded mode, rehydrate and refresh union for current MAC
+  useEffect(() => {
+    if (redisDegraded) return;
+    const mac = (macAddress || "").toUpperCase();
+    if (!mac) return;
+    (async () => {
+      try {
+        console.log("[REDIS] recovery: rehydrate + union refresh", { mac });
+        await fetch("/api/aliases/rehydrate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac }),
+        }).catch(() => {});
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, {
+          cache: "no-store",
+        });
+        if (r.ok) {
+          const j = await r.json();
+          if (Array.isArray(j?.normalPins))
+            setNormalPins(j.normalPins as number[]);
+          if (Array.isArray(j?.latchPins))
+            setLatchPins(j.latchPins as number[]);
+          if (j?.aliases && typeof j.aliases === "object")
+            setNameHints(j.aliases as Record<string, string>);
+        }
+      } catch {}
+    })();
+  }, [redisDegraded, macAddress]);
 
   useEffect(() => {
     const ev = (serial as any).lastEv as {
@@ -364,10 +447,24 @@ const MainApplicationUI: React.FC = () => {
       evMac = macs.find((m) => m !== ZERO) || "";
     }
     const matches = !evMac || evMac === ZERO || evMac === current;
+    try {
+      if (matches || kind === "DONE") {
+        console.log("[SSE] event", {
+          kind,
+          ok,
+          evMac,
+          matches,
+          line: raw?.slice(0, 120),
+        });
+      }
+    } catch {}
 
     if ((kind === "RESULT" || kind === "DONE") && ok && matches) {
       try {
-        console.log("[FLOW][SUCCESS] SSE RESULT/DONE ok for current MAC", { evMac, kind });
+        console.log("[FLOW][SUCCESS] SSE RESULT/DONE ok for current MAC", {
+          evMac,
+          kind,
+        });
       } catch {}
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
@@ -438,56 +535,9 @@ const MainApplicationUI: React.FC = () => {
         void finalizeOkForMac(macUp);
         return;
       }
-      try {
-        const mac = (macAddress || "").toUpperCase();
-        if (mac) {
-          (async () => {
-            try {
-              const macUp = mac;
-              if (
-                !checkpointMacSentRef.current.has(macUp) &&
-                !checkpointMacPendingRef.current.has(macUp)
-              ) {
-                console.log("[FLOW][CHECKPOINT] sending checkpoint before clear");
-                await sendCheckpointForMac(mac);
-                try {
-                  setOkSystemNote("Checkpoint sent; cache cleared");
-                } catch {}
-              } else {
-                try {
-                  setOkSystemNote("Cache cleared");
-                } catch {}
-              }
-              try {
-                console.log("[REDIS][ALIASES] clearing via /api/aliases/clear (legacy path)", { mac });
-                await fetch("/api/aliases/clear", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mac }),
-                });
-              } catch {}
-              // Also clear any KSK locks for this MAC across stations (force)
-              try {
-                const sid = (
-                  process.env.NEXT_PUBLIC_STATION_ID ||
-                  process.env.STATION_ID ||
-                  ""
-                ).trim();
-                console.log("[REDIS][LOCKS] DELETE /api/ksk-lock force (legacy path)", { mac, stationId: sid || undefined });
-                await fetch("/api/ksk-lock", {
-                  method: "DELETE",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(
-                    sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 }
-                  ),
-                });
-              } catch {}
-            } catch {}
-          })();
-        }
-      } catch {}
-
-      scheduleOkReset();
+      // No MAC available to finalize; skip clearing/reset to avoid losing Redis state
+      console.log("[FLOW][SUCCESS] no mac bound; skipping finalize/reset");
+      return;
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
@@ -614,6 +664,54 @@ const MainApplicationUI: React.FC = () => {
   );
 
   const handleResetKfb = useCallback(() => {
+    try {
+      console.log("[FLOW][RESET] start");
+    } catch {}
+    // Optionally clear Redis state for current MAC on reset
+    try {
+      const CLEAR_ON_RESET = String(process.env.NEXT_PUBLIC_RESET_CLEARS_REDIS || "").trim() === "1";
+      const macUp = (macRef.current || (macAddress || "")).toUpperCase();
+      if (CLEAR_ON_RESET && macUp) {
+        if (finalizeOkGuardRef.current.has(macUp)) {
+          console.log("[RESET][REDIS] skip clear: finalize in progress", { mac: macUp });
+        } else {
+          console.log("[RESET][REDIS] clearing aliases+locks for MAC", { mac: macUp });
+          (async () => {
+            const tryClear = async () => {
+              await fetch("/api/aliases/clear", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mac: macUp }),
+              }).catch(() => {});
+            };
+            const verifyEmpty = async (): Promise<boolean> => {
+              try {
+                const r = await fetch(
+                  `/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`,
+                  { cache: "no-store" }
+                );
+                if (!r.ok) return false;
+                const j = await r.json();
+                const items = Array.isArray(j?.items) ? j.items : [];
+                console.log("[RESET][REDIS] verify emptiness", { mac: macUp, items: items.length });
+                return items.length === 0;
+              } catch {
+                return false;
+              }
+            };
+            await tryClear();
+            let ok = await verifyEmpty();
+            for (let i = 0; !ok && i < 2; i++) {
+              await new Promise((r) => setTimeout(r, 250));
+              await tryClear();
+              ok = await verifyEmpty();
+            }
+            const clearedLocks = await clearKskLocksFully(macUp);
+            console.log("[RESET][REDIS] locks cleared", { mac: macUp, clearedLocks });
+          })();
+        }
+      }
+    } catch {}
     cancelOkReset?.();
     clearRetryTimer();
     clearScanOverlayTimeout();
@@ -643,6 +741,9 @@ const MainApplicationUI: React.FC = () => {
     } catch {}
     skippedFirstSseRef.current = false;
     bumpSession();
+    try {
+      console.log("[FLOW][RESET] done");
+    } catch {}
   }, []);
 
   // ===== Krosy checkpoint integration =====
@@ -677,65 +778,43 @@ const MainApplicationUI: React.FC = () => {
   const checkpointSentRef = useRef<Set<string>>(new Set());
   const checkpointMacSentRef = useRef<Set<string>>(new Set());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
+  // Track last active KSK ids from CHECK
+  const lastActiveIdsRef = useRef<string[]>([]);
 
   const sendCheckpointForMac = useCallback(
-    async (mac: string) => {
-      if (checkpointMacSentRef.current.has(mac.toUpperCase())) return;
+    async (mac: string, onlyIds?: string[]) => {
+      const MAC = mac.toUpperCase();
+      if (checkpointMacSentRef.current.has(MAC)) return;
+      if (checkpointMacPendingRef.current.has(MAC)) return; // NEW
+      checkpointMacPendingRef.current.add(MAC); // NEW
       try {
         const rList = await fetch(
-          `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
+          `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
           { cache: "no-store" }
         );
         if (!rList.ok) return;
         const j = await rList.json();
-        const items: Array<{
-          ksk?: string;
-          kssk?: string;
-          aliases?: Record<string, string>;
-          normalPins?: number[];
-          latchPins?: number[];
-        }> = Array.isArray(j?.items) ? j.items : [];
-        let hasData =
-          items.length > 0 &&
-          items.some((it) => {
-            const a =
-              it.aliases && typeof it.aliases === "object"
-                ? Object.keys(it.aliases).length > 0
-                : false;
-            const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
-            const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
-            return a || np || lp;
-          });
-        if (!hasData) {
-          try {
-            const ru = await fetch(
-              `/api/aliases?mac=${encodeURIComponent(mac)}`,
-              { cache: "no-store" }
-            );
-            if (ru.ok) {
-              const ju = await ru.json();
-              const a =
-                ju && typeof ju.aliases === "object"
-                  ? Object.keys(ju.aliases || {}).length > 0
-                  : false;
-              const np =
-                Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
-              const lp =
-                Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
-              hasData = a || np || lp;
-            }
-          } catch {}
-        }
-        if (!hasData) return;
+        const items: any[] = Array.isArray(j?.items) ? j.items : [];
+        let ids = items
+          .map((it) => String((it.ksk ?? it.kssk) || "").trim())
+          .filter(Boolean);
 
-        let sentAny = false;
-        for (const it of items) {
-          const id = String(((it as any).ksk ?? (it as any).kssk) || "").trim();
-          if (!id || checkpointSentRef.current.has(id)) continue;
+        if (onlyIds && onlyIds.length) {
+          const want = new Set(onlyIds.map((s) => s.toUpperCase()));
+          ids = ids.filter((id) => want.has(id.toUpperCase()));
+          if (ids.length === 0 && items.length) ids = [ids[0]]; // fallback: first
+        } else if (ids.length > 1) {
+          ids = [ids[0]]; // simplest: only first when no active list
+        }
+
+        let sent = false;
+        for (const id of ids) {
+          if (checkpointSentRef.current.has(id)) continue;
+          // try to include workingDataXml if available
           let workingDataXml: string | null = null;
           try {
             const rXml = await fetch(
-              `/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(id)}`,
+              `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
               { cache: "no-store" }
             );
             if (rXml.ok) workingDataXml = await rXml.text();
@@ -749,35 +828,35 @@ const MainApplicationUI: React.FC = () => {
                   sourceHostname: KROSY_SOURCE,
                   targetHostName: KROSY_TARGET,
                 };
-          try {
-            const resp = await fetch(CHECKPOINT_URL, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-              },
-              body: JSON.stringify(payload),
-            });
-            if (!resp.ok) {
-              setOverlay((o) => ({ ...o, open: false }));
-            }
-            checkpointSentRef.current.add(id);
-            sentAny = true;
-          } catch {}
+        
+          await fetch(CHECKPOINT_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(payload),
+          }).catch(() => {});
+          checkpointSentRef.current.add(id);
+          sent = true;
         }
-        if (sentAny) checkpointMacSentRef.current.add(mac.toUpperCase());
-      } catch {}
+        if (sent) checkpointMacSentRef.current.add(MAC);
+      } finally {
+        checkpointMacPendingRef.current.delete(MAC); // NEW
+      }
     },
     [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]
   );
-
   async function clearKskLocksFully(mac: string): Promise<boolean> {
     const MAC = mac.toUpperCase();
     const qs = (o: Record<string, string>) => new URLSearchParams(o).toString();
 
     for (let i = 0; i < 3; i++) {
       try {
-        console.log("[REDIS][LOCKS] pass", i + 1, "DELETE /api/ksk-lock?", { mac: MAC, force: 1 });
+        console.log("[REDIS][LOCKS] pass", i + 1, "DELETE /api/ksk-lock?", {
+          mac: MAC,
+          force: 1,
+        });
       } catch {}
       await fetch(`/api/ksk-lock?${qs({ mac: MAC, force: "1" })}`, {
         method: "DELETE",
@@ -805,11 +884,17 @@ const MainApplicationUI: React.FC = () => {
       if (finalizeOkGuardRef.current.has(mac)) return;
       finalizeOkGuardRef.current.add(mac);
       try {
+        console.log("[FLOW][FINALIZE] start", { mac });
         // Always flash OK when we are about to clear Redis, per requirement
         setOverlay({ open: true, kind: "success", code: "" });
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+        console.log("[FLOW][FINALIZE] setup existence", {
+          hasSetup,
+          krosyLive,
+        });
         if (hasSetup && krosyLive) {
-          await sendCheckpointForMac(mac).catch(() => {});
+          console.log("[FLOW][CHECKPOINT] attempting for MAC", { mac });
+          await sendCheckpointForMac(mac, lastActiveIdsRef.current).catch(() => {});
           try {
             setOkSystemNote("Checkpoint sent; cache cleared");
           } catch {}
@@ -820,6 +905,7 @@ const MainApplicationUI: React.FC = () => {
         }
         // Clear aliases with small retries and verify emptiness
         const tryClear = async () => {
+          console.log("[REDIS][ALIASES] POST /api/aliases/clear", { mac });
           await fetch("/api/aliases/clear", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -835,6 +921,10 @@ const MainApplicationUI: React.FC = () => {
             if (!r.ok) return false;
             const j = await r.json();
             const items = Array.isArray(j?.items) ? j.items : [];
+            console.log("[REDIS][ALIASES] verify emptiness", {
+              mac,
+              items: items.length,
+            });
             return items.length === 0;
           } catch {
             return false;
@@ -846,14 +936,24 @@ const MainApplicationUI: React.FC = () => {
         while (!ok && attempts < 2) {
           attempts++;
           await new Promise((res) => setTimeout(res, 250));
+          console.log("[REDIS][ALIASES] retry clear", {
+            mac,
+            attempt: attempts + 1,
+          });
           await tryClear();
           ok = await verifyEmpty();
         }
+        console.log("[REDIS][LOCKS] clearKskLocksFully begin", { mac });
         let cleared = await clearKskLocksFully(mac);
         for (let i = 0; !cleared && i < 2; i++) {
           await new Promise((r) => setTimeout(r, 250));
+          console.log("[REDIS][LOCKS] retry clearKskLocksFully", {
+            mac,
+            pass: i + 2,
+          });
           cleared = await clearKskLocksFully(mac);
         }
+        console.log("[REDIS][LOCKS] cleared status", { mac, cleared });
         setMacAddress("");
       } finally {
         try {
@@ -868,6 +968,10 @@ const MainApplicationUI: React.FC = () => {
             const items = Array.isArray(j?.items) ? j.items : [];
             if (ok && items.length === 0) break;
             // try clear again
+            console.log(
+              "[REDIS][ALIASES] finalize verify not empty, re-clearing",
+              { mac, remaining: items.length, pass: i + 1 }
+            );
             await fetch("/api/aliases/clear", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -878,6 +982,7 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
 
         setOverlay((o) => ({ ...o, open: false }));
+        console.log("[FLOW][FINALIZE] done; scheduling reset");
         scheduleOkReset();
       }
     },
@@ -894,6 +999,11 @@ const MainApplicationUI: React.FC = () => {
       setAwaitingRelease(false);
 
       try {
+        console.log("[FLOW][CHECK] start", {
+          mac,
+          attempt,
+          pinsCount: pins?.length || 0,
+        });
         const clientBudget = Number(
           process.env.NEXT_PUBLIC_CHECK_CLIENT_TIMEOUT_MS ?? "5000"
         );
@@ -914,7 +1024,7 @@ const MainApplicationUI: React.FC = () => {
         try {
           if (Array.isArray((result as any)?.pinsUsed))
             console.log(
-              "[GUI] CHECK used pins",
+              "[FLOW][CHECK] used pins",
               (result as any).pinsUsed,
               "mode",
               (result as any)?.sendMode
@@ -922,6 +1032,20 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
 
         if (res.ok) {
+          console.log("[FLOW][CHECK] response OK", {
+            failures: (result?.failures || []).length,
+            unknownFailure: !!result?.unknownFailure,
+          });
+          // Cache active KSK IDs for targeted checkpoint
+          try {
+            const activeIds: string[] = Array.isArray((result as any)?.itemsActive)
+              ? (result as any).itemsActive
+                  .map((it: any) => String(((it as any).ksk ?? (it as any).kssk) || "").trim())
+                  .filter(Boolean)
+              : [];
+            lastActiveIdsRef.current = activeIds;
+            if (activeIds.length) console.log('[FLOW][CHECK] cached active KSKs', activeIds);
+          } catch {}
           clearRetryTimer();
           const failures: number[] = result.failures || [];
           const unknown = result?.unknownFailure === true;
@@ -1260,6 +1384,9 @@ const MainApplicationUI: React.FC = () => {
           }
           if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
         } else {
+          try {
+            console.warn("[FLOW][CHECK] non-OK status", { status: res.status });
+          } catch {}
           // Distinguish no-result timeouts from other errors
           const maxRetries = Math.max(
             0,
@@ -1356,6 +1483,7 @@ const MainApplicationUI: React.FC = () => {
           }, 1300);
         }
       } finally {
+        console.log("[FLOW][CHECK] end");
         clearRetryTimer();
         setIsChecking(false);
       }
@@ -1367,7 +1495,10 @@ const MainApplicationUI: React.FC = () => {
   const loadBranchesData = useCallback(
     async (value?: string, source: "scan" | "manual" = "scan") => {
       try {
-        console.log("[FLOW][LOAD] start", { source, value: (value ?? kfbInputRef.current).trim() });
+        console.log("[FLOW][LOAD] start", {
+          source,
+          value: (value ?? kfbInputRef.current).trim(),
+        });
       } catch {}
       cancelOkReset();
       setOkFlashTick(0);
@@ -1392,7 +1523,9 @@ const MainApplicationUI: React.FC = () => {
           showOverlay("scanning", normalized);
           startScanOverlayTimeout(5000);
           try {
-            console.log("[FLOW][LOAD] showing SCANNING overlay for scan", { normalized });
+            console.log("[FLOW][LOAD] showing SCANNING overlay for scan", {
+              normalized,
+            });
           } catch {}
         }
         setShowScanUi(true);
@@ -1407,7 +1540,10 @@ const MainApplicationUI: React.FC = () => {
       try {
         const mac = isMac ? (macCanon as string) : normalized; // use normalized MAC when available
         try {
-          console.log("[FLOW][LOAD] accepted input", { type: isMac ? "mac" : "kfb", macOrKfb: mac });
+          console.log("[FLOW][LOAD] accepted input", {
+            type: isMac ? "mac" : "kfb",
+            macOrKfb: mac,
+          });
         } catch {}
         setKfbNumber(mac);
         setMacAddress(mac);
@@ -1447,7 +1583,9 @@ const MainApplicationUI: React.FC = () => {
 
               if (items.length) {
                 try {
-                  console.log("[FLOW][LOAD] aliases snapshot items", { count: items.length });
+                  console.log("[FLOW][LOAD] aliases snapshot items", {
+                    count: items.length,
+                  });
                 } catch {}
                 const groupsRaw = items.map((it: any) => {
                   const a = it.aliases || {};
@@ -1504,7 +1642,10 @@ const MainApplicationUI: React.FC = () => {
                 hadGroups = groups.length > 0;
                 try {
                   console.log("[FLOW][LOAD] groupedBranches built", {
-                    groups: groups.map((g) => ({ ksk: g.ksk, pins: g.branches.map((b) => b.pinNumber) })),
+                    groups: groups.map((g) => ({
+                      ksk: g.ksk,
+                      pins: g.branches.map((b) => b.pinNumber),
+                    })),
                   });
                 } catch {}
               }
@@ -1564,7 +1705,11 @@ const MainApplicationUI: React.FC = () => {
                         if (Number.isFinite(x) && x > 0) acc.add(x);
                       }
                     pins = Array.from(acc).sort((a, b) => a - b);
-                    console.log("[FLOW][LOAD] union pins merged", { normalPins: n?.length || 0, latchPins: l?.length || 0, totalPins: pins.length });
+                    console.log("[FLOW][LOAD] union pins merged", {
+                      normalPins: n?.length || 0,
+                      latchPins: l?.length || 0,
+                      totalPins: pins.length,
+                    });
                   } catch {}
                 }
               } catch {}
@@ -1576,7 +1721,11 @@ const MainApplicationUI: React.FC = () => {
         const noGroups = !hadGroups;
         if (noAliases && noPins && noGroups) {
           try {
-            console.log("[FLOW][LOAD] nothing to check", { noAliases, noPins, noGroups });
+            console.log("[FLOW][LOAD] nothing to check", {
+              noAliases,
+              noPins,
+              noGroups,
+            });
           } catch {}
           clearScanOverlayTimeout();
           showOverlay("error", "NOTHING TO CHECK HERE");

@@ -277,6 +277,19 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return Array.from(s).sort((a, b) => a - b);
   }, [JSON.stringify(latchPins ?? [])]);
 
+  // Log when a MAC binds/unbinds to this live view
+  const lastMacRef = useRef<string>("");
+  useEffect(() => {
+    const cur = (macAddress || "").toUpperCase();
+    if (cur !== lastMacRef.current) {
+      try {
+        if (cur) console.log("[LIVE] mac bound", { mac: cur });
+        else console.log("[LIVE] mac cleared");
+      } catch {}
+      lastMacRef.current = cur;
+    }
+  }, [macAddress]);
+
   // Expected = normal ∪ latch (contactless pins NOT included)
   const expectedPins = useMemo(() => {
     const s = new Set<number>([
@@ -285,6 +298,19 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     ]);
     return Array.from(s).sort((a, b) => a - b);
   }, [normalizedNormalPins, normalizedLatchPins]);
+
+  // Log expected pins and types whenever they change (live mode context)
+  useEffect(() => {
+    if (!macAddress) return;
+    try {
+      console.log("[LIVE] expected pins", {
+        total: expectedPins.length,
+        normal: normalizedNormalPins.length,
+        latch: normalizedLatchPins.length,
+        pins: expectedPins,
+      });
+    } catch {}
+  }, [macAddress, expectedPins, normalizedNormalPins.length, normalizedLatchPins.length]);
 
   // Keep localBranches in sync with incoming prop
   useEffect(() => {
@@ -390,13 +416,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
     // Terminal summary
     if (kind === "DONE") {
+      try { console.log("[LIVE] DONE event", { evMac, macFromLine, current, ok: String((lastEv as any).ok).toLowerCase() === "true" || okFromText }); } catch {}
       const macToCheck = evMac && evMac !== ZERO ? evMac : macFromLine || evMac;
       const matchMac =
         !macToCheck || macToCheck === ZERO || macToCheck === current;
-      if (!matchMac) return;
+      if (!matchMac) {
+        try { console.log("[LIVE] DONE ignored (mac mismatch)", { evMac, macFromLine, current }); } catch {}
+        return;
+      }
       const okFlag =
         String((lastEv as any).ok).toLowerCase() === "true" || okFromText;
       if (okFlag) {
+        try { console.log("[LIVE] DONE OK → marking all non-latch as ok"); } catch {}
         const latchSet = new Set<number>(normalizedLatchPins);
         const expected = expectedPins.slice();
         startTransition(() =>
@@ -435,8 +466,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           })
         );
       } else {
+        try { console.log("[LIVE] DONE FAILURE → parsing failures from line"); } catch {}
         const fails = parseFailures(text);
         if (fails.length) {
+          try { console.log("[LIVE] parsed failures", { failures: fails }); } catch {}
           const failSet = new Set<number>(fails);
           const latchSet = new Set<number>(normalizedLatchPins);
           const expected = expectedPins.slice();
@@ -504,7 +537,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     ) {
       // De-dupe identical values
       const prevVal = pinStateRef.current.get(ch);
-      if (prevVal === val) return;
+      if (prevVal === val) {
+        try { console.log("[LIVE] pin edge ignored (same value)", { ch, val }); } catch {}
+        return;
+      }
+      try { console.log("[LIVE] pin edge", { ch, val, prev: prevVal ?? null }); } catch {}
       pinStateRef.current.set(ch, val);
 
       startTransition(() =>
@@ -526,9 +563,39 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             changed = true;
             return { ...b, testStatus: nextStatus } as any;
           });
+          try {
+            if (changed) {
+              const counts = next.reduce(
+                (acc, b) => {
+                  acc[b.testStatus] = (acc[b.testStatus] || 0) + 1;
+                  return acc;
+                },
+                {} as Record<string, number>
+              );
+              console.log("[LIVE] localBranches updated", counts);
+            }
+          } catch {}
           return changed ? next : prev;
         })
       );
+    } else {
+      // Reasons for ignoring
+      if (kind === "P" || kind === "L") {
+        try {
+          console.log("[LIVE] EV ignored", {
+            kind,
+            ch,
+            val,
+            reason: ch == null
+              ? "no channel"
+              : !expected.has(ch)
+              ? "channel not expected"
+              : !(val === 0 || val === 1)
+              ? "invalid value"
+              : "unknown",
+          });
+        } catch {}
+      }
     }
     // IMPORTANT: expectedPins derived from props only; NOT from localBranches — avoids render loop
   }, [lastEvTick, lastEv, macAddress, expectedPins, normalizedLatchPins]);
@@ -544,6 +611,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       console.log("[GUI] PIN STATES", snap);
     } catch {}
   }, [lastEvTick, expectedPins]);
+
+  // Log when allOk transitions true in live mode (moved below to avoid forward ref)
 
   // No recent MACs loaded from localStorage; keep ephemeral in memory
 
@@ -635,6 +704,16 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
+
+  // Log when allOk transitions true in live mode
+  const lastAllOkRef = useRef<boolean>(false);
+  useEffect(() => {
+    const now = !!allOk;
+    if (now && !lastAllOkRef.current && macAddress) {
+      try { console.log("[LIVE] allOk → finalize path"); } catch {}
+    }
+    lastAllOkRef.current = now;
+  }, [allOk, macAddress]);
 
   // When everything turns OK, trigger finalize (checkpoint + clear) once
   const clearedMacsRef = useRef<Set<string>>(new Set());
@@ -730,14 +809,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setShowOkAnimation(true);
-      timeoutRef.current = setTimeout(
-        () => {
-          setShowOkAnimation(false);
-          flashInProgressRef.current = false;
+      timeoutRef.current = setTimeout(() => {
+        setShowOkAnimation(false);
+        flashInProgressRef.current = false;
+        // If parent controls finalize+reset, do not force reset here
+        if (typeof onFinalizeOk !== 'function') {
           returnToScan();
-        },
-        Math.max(300, OK_FLASH_MS)
-      );
+        }
+      }, Math.max(300, OK_FLASH_MS));
     },
     [
       disableOkAnimation,
@@ -746,6 +825,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       macAddress,
       returnToScan,
       OK_FLASH_MS,
+      onFinalizeOk,
     ]
   );
 
@@ -793,13 +873,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const id = setTimeout(
       () => {
         if (!flashInProgressRef.current && !showOkAnimation) {
-          returnToScan();
+          if (typeof onFinalizeOk !== 'function') returnToScan();
         }
       },
       Math.max(300, OK_FLASH_MS) + 350
     );
     return () => clearTimeout(id);
-  }, [allOk, showOkAnimation, returnToScan, OK_FLASH_MS]);
+  }, [allOk, showOkAnimation, returnToScan, OK_FLASH_MS, onFinalizeOk]);
 
   // Cleanup timers on unmount
   useEffect(() => {

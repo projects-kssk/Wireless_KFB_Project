@@ -1,0 +1,18 @@
+{
+  "mode": "visualControl.working",
+  "requestID": "1756836981018",
+  "device": "ksskkfb01",
+  "xmlTargetHost": "ksskkfb01",
+  "intksk": "830577904402",
+  "connect": {
+    "host": "172.26.192.1",
+    "tcpPort": 10080,
+    "used": "tcp://172.26.192.1:10080"
+  },
+  "durationMs": 270,
+  "ok": true,
+  "error": null,
+  "status": 200,
+  "terminator": "newline",
+  "timeoutMs": 10000
+}

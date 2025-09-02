@@ -1,0 +1,88 @@
+=== KROSY ONLINE REPORT ===============================================
+timestamp:     2025-09-02T18:16:19
+requestID:     1756836979155
+device:        ksskkfb01
+intksk:        830577903926
+targetHost:    ksskkfb01
+tcpUsed:       tcp://172.26.192.1:10080
+status:        200 OK
+duration:      270 ms
+workingData:   yes
+completeXml:   yes
+error:         none
+-------------------------------------------------------------------------
+Response XML (pretty, truncated):
+<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_1_2">
+  <header>
+    <requestID>0</requestID>
+    <responseID>22</responseID>
+    <sourceHost>
+      <hostname>kssksun01</hostname>
+      <ipAddress>0.0.0.0</ipAddress>
+    </sourceHost>
+    <targetHost>
+      <hostname>ksskkfb01</hostname>
+    </targetHost>
+    <embeddedBinaries allowed="true" encoding="Base64"/>
+  </header>
+  <body>
+    <visualControl>
+      <workingData device="ksskkfb01" intksk="830577903926" kfb="" scanned="2025-09-02T18:16:19" setup="A56N_KFB_WIRELESS" projekt="A56N" ksknr="830577903926" kskidx="4" lfdnr="0" modbez="OTHERS" modjahr="" band="083112" ident="691503" status="true">
+        <sequencer>
+          <segmentList count="1">
+            <segment index="1" name="1">
+              <sequenceList count="32">
+                <sequence index="1" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-63(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_3801,26</objPos>
+                </sequence>
+                <sequence index="2" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-63(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_3804,10</objPos>
+                </sequence>
+                <sequence index="3" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-63(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_3802,11</objPos>
+                </sequence>
+                <sequence index="4" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2450,1</objPos>
+                </sequence>
+                <sequence index="5" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2451,2</objPos>
+                </sequence>
+                <sequence index="6" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2452,3,C</objPos>
+                </sequence>
+                <sequence index="7" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2453,4</objPos>
+                </sequence>
+                <sequence index="8" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2454,24</objPos>
+                </sequence>
+                <sequence index="9" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2455,6,C</objPos>
+                </sequence>
+                <sequence index="10" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2456,7,C</objPos>
+                </sequence>
+                <sequence index="11" compType="clip" reference="0" measType="no_check">
+                  <objGroup>83AUDAU59X03-66(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2457,8</objPos>
+                </sequence>
+                <sequence index="12" compType="clip" reference="1" measType="default">
+                  <objGroup>83AUDAU59X03-76(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2500,12</objPos>
+                </sequence>
+                <sequence index="13" compType="clip" reference="1" measType="default">
+                  <objGroup>83AUDAU59X03-76(78:42:1c:6b:8c:28)</objGroup>
+                  <objPos>CL_2501,13</objPos>
+                </sequence>
+                <sequence index="14" compType="clip" reference="2" m
+=========================================================================

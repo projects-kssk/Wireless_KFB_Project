@@ -1,0 +1,18 @@
+<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <header>
+    <requestID>1756836981018</requestID>
+    <sourceHost>
+      <hostname>ksskkfb01</hostname>
+      <ipAddress>172.26.202.248</ipAddress>
+      <macAddress>3C-6D-66-1E-C3-C8</macAddress>
+    </sourceHost>
+    <targetHost>
+      <hostname>ksskkfb01</hostname>
+    </targetHost>
+  </header>
+  <body>
+    <visualControl>
+      <workingRequest intksk="830577904402" scanned="2025-09-02T18:16:21" device="ksskkfb01"/>
+    </visualControl>
+  </body>
+</krosy>

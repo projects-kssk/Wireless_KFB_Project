@@ -842,11 +842,7 @@ const MainApplicationUI: React.FC = () => {
           await tryClear();
           ok = await verifyEmpty();
         }
-        const sid = (
-          process.env.NEXT_PUBLIC_STATION_ID ||
-          process.env.STATION_ID ||
-          ""
-        ).trim();
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || '').trim();
         // Clear locks across ALL stations first (global scan by MAC), then current station as belt-and-suspenders
         await fetch("/api/ksk-lock", {
           method: "DELETE",

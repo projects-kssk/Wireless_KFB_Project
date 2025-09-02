@@ -1782,7 +1782,7 @@ export default function SetupPage() {
                   : "OFFLINE"}
               </span>
             </m.div>
-            {(desiredTail || true) && (
+            {desiredTail && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {desiredTail &&
                   (() => {

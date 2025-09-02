@@ -176,7 +176,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [inputValue, setInputValue] = useState('');
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isChecking, setIsChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [localBranches, setLocalBranches] = useState<BranchDisplayData[]>(branchesData);
@@ -483,7 +483,7 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
       } catch {}
       try {
         // Also clear any KSK locks for this MAC across stations (force)
-        const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || '').trim();
         const body = sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 } as any;
         await fetch('/api/ksk-lock', {
           method: 'DELETE',

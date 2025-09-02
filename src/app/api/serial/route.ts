@@ -285,10 +285,13 @@ export async function POST(request: Request) {
   normalPins = Array.from(new Set(normalPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
   latchPins  = Array.from(new Set(latchPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
 
-  let cmd = "MONITOR";
-  if (normalPins.length) cmd += " " + normalPins.join(",");
-  if (latchPins.length)  cmd += " LATCH " + latchPins.join(",");
-  cmd += " " + mac;
+  // Build commands: send NORMAL and LATCH pins as separate MONITOR commands
+  const cmds: Array<{ cmd: string; kind: 'normal' | 'latch' }> = [];
+  if (normalPins.length) cmds.push({ cmd: `MONITOR ${normalPins.join(',')} ${mac}`, kind: 'normal' });
+  if (latchPins.length)  cmds.push({ cmd: `MONITOR LATCH ${latchPins.length} ${latchPins.join(',')} ${mac}`, kind: 'latch' });
+  // Backward-compat: if neither branch added (shouldn't happen), fall back to combined
+  const combinedFallback = (!cmds.length);
+  const fallbackCmd = `MONITOR${normalPins.length?` ${normalPins.join(',')}`:''}${latchPins.length?` LATCH ${latchPins.length} ${latchPins.join(',')}`:''} ${mac}`;
 
   const diffs = {
     normal: pinDiff(reqNormal, normalPins),
@@ -306,9 +309,10 @@ export async function POST(request: Request) {
     (diffs.normal.missing.length + diffs.normal.added.length +
     diffs.latch.missing.length  + diffs.latch.added.length) > 0;
 
+  const cmdLabel = combinedFallback ? fallbackCmd : (cmds.length ? cmds.map(c=>c.cmd).join(' && ') : fallbackCmd);
   const entry: any = {
     event: "monitor.send",
-    mac, kssk, cmd, rid,
+    mac, kssk, cmd: cmdLabel, rid,
     sent: { normalPins, latchPins },
     counts
   };
@@ -360,7 +364,7 @@ export async function POST(request: Request) {
   await appendLog({
     event: "monitor.send",
     source: src,
-    mac, kssk, cmd,
+    mac, kssk, cmd: cmdLabel,
     requested: { normalPins: reqNormal ?? null, latchPins: reqLatch ?? null },
     built: { normalPins, latchPins },
     counts,
@@ -371,7 +375,7 @@ export async function POST(request: Request) {
   let sendToEsp: (cmd: string, opts?: { timeoutMs?: number }) => Promise<void>;
   try { ({ sendToEsp } = await loadSerial()); }
   catch (err) {
-    await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
+    await appendLog({ event: "monitor.error", mac, kssk, cmd: cmdLabel, error: "loadSerial failed" });
     log.error("load serial helper error", err);
     const resp = NextResponse.json({ error: "Internal error" }, { status: 500 });
     resp.headers.set('X-Req-Id', rid);
@@ -379,19 +383,29 @@ export async function POST(request: Request) {
   }
 
   try {
-    await sendToEsp(cmd, { timeoutMs: 3000 });
+    const executed: string[] = [];
+    if (combinedFallback) {
+      await sendToEsp(fallbackCmd, { timeoutMs: 3000 });
+      executed.push(fallbackCmd);
+      await appendLog({ event: "monitor.success", mac, kssk, cmd: fallbackCmd, counts });
+    } else {
+      for (const c of cmds) {
+        await sendToEsp(c.cmd, { timeoutMs: 3000 });
+        executed.push(c.cmd);
+        await appendLog({ event: "monitor.success", mac, kssk, cmd: c.cmd, counts });
+      }
+    }
     health = { ts: now(), ok: true, raw: "WRITE_OK" };
-    // --- NEW: success log repeats the exact cmd & counts (easy to grep alongside device LED state) ---
-    await appendLog({ event: "monitor.success", mac, kssk, cmd, counts });
-    const resp = NextResponse.json({ success: true, cmd, normalPins, latchPins, mac });
+    const resp = NextResponse.json({ success: true, cmds: executed, normalPins, latchPins, mac });
     resp.headers.set('X-Req-Id', rid);
     return resp;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
-    await appendLog({ event: "monitor.error", mac, kssk, cmd, counts, diffs, error: message });
-    const resp = NextResponse.json({ error: message, cmdTried: cmd }, { status: 500 });
+    const tried = combinedFallback ? fallbackCmd : (cmds.length ? cmds[0].cmd : fallbackCmd);
+    await appendLog({ event: "monitor.error", mac, kssk, cmd: tried, counts, diffs, error: message });
+    const resp = NextResponse.json({ error: message, cmdTried: tried }, { status: 500 });
     resp.headers.set('X-Req-Id', rid);
     return resp;
   }

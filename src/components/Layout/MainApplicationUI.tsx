@@ -543,11 +543,15 @@ useEffect(() => {
           ? { requestID: '1', workingDataXml }
           : { requestID: '1', intksk: id, sourceHostname: KROSY_SOURCE, targetHostName: KROSY_TARGET };
         try {
-          await fetch(CHECKPOINT_URL, {
+          const resp = await fetch(CHECKPOINT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
             body: JSON.stringify(payload),
           });
+          // If checkpoint fails (e.g., 5xx), do not leave any SCANNING overlay lingering
+          if (!resp.ok) {
+            setOverlay(o => ({ ...o, open: false }));
+          }
           checkpointSentRef.current.add(id);
           sentAny = true;
         } catch {}
@@ -564,6 +568,8 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
   if (finalizeOkGuardRef.current.has(mac)) return;
   finalizeOkGuardRef.current.add(mac);
   try {
+    // Always flash OK when we are about to clear Redis, per requirement
+    setOverlay({ open: true, kind: 'success', code: '' });
     const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
     if (hasSetup && krosyLive) {
       await sendCheckpointForMac(mac).catch(() => {});
@@ -1164,10 +1170,14 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
   useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
 
   // SSE → handle scans (gate by view and settings sidebar). If CHECK is running, queue it.
+  // Skip the very first SSE tick after mount to avoid showing content from a stale lastScan;
+  // only react to new scans after the app is ready.
+  const skippedFirstSseRef = useRef(false);
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return;              // no event yet
+    if (!skippedFirstSseRef.current) { skippedFirstSseRef.current = true; return; }
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
@@ -1538,7 +1548,8 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
                 <m.div
                   variants={heading}
                   style={{
-                    fontSize: 136,
+                    // Make error text much smaller (about 3x smaller)
+                    fontSize: overlay.kind === 'error' ? 46 : 136,
                     fontWeight: 900,
                     letterSpacing: '0.02em',
                     color: KIND_STYLES[overlay.kind],

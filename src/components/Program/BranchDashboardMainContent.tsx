@@ -485,6 +485,10 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
           body: JSON.stringify(body),
         }).catch(() => {});
       } catch {}
+      try {
+        // After clearing, reset parent MAC so the Live badge shows off
+        if (typeof onResetKfb === 'function') onResetKfb();
+      } catch {}
     })();
   }, [allOk, settled, lastEv, lastEvTick, macAddress]);
 

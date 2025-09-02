@@ -283,7 +283,7 @@ async function main() {
         console.log('(no locks found)');
       } else {
         console.table(rows.map(r => ({
-          kssk: r.kssk,
+          ksk: (r.ksk ?? r.kssk),
           mac: r.mac,
           stationId: r.stationId,
           ttlSec: r.ttlSec,

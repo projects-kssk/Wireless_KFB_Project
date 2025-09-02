@@ -139,6 +139,18 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try {
+    await fs.stat(tryPath(stem));
+  } catch { return tryPath(stem); }
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
 
 /* ===== net id ===== */
 function pickIpAndMac() {
@@ -237,7 +249,7 @@ export async function POST(req: NextRequest) {
   const cur = new Date();
   const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
   const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
-  const base = path.join(LOG_DIR, month, `${stamp}_${idSan}_${requestID}`);
+  const base = await uniqueBase(path.join(LOG_DIR, month), `${stamp}_${idSan}_${requestID}`);
   const lines: string[] = [];
   const push = (s: string) => {
     const l = line(s);
@@ -379,6 +391,7 @@ export async function POST(req: NextRequest) {
     ...cors(req),
     "X-Krosy-Used-Url": targetUrl,
     "X-Krosy-Duration": String(ms),
+    ...(base ? { "X-Krosy-Log-Path": base } : {}),
   };
 
   // XML passthrough for Accept: xml

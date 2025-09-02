@@ -88,7 +88,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const mac = String(body?.mac || '').toUpperCase();
     if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
-    const aliases = body?.aliases && typeof body.aliases === 'object' ? body.aliases : {};
+    let aliases: Record<string,string> = body?.aliases && typeof body.aliases === 'object' ? body.aliases : {};
     let normalPins = Array.isArray(body?.normalPins) ? body.normalPins as number[] : [];
     let latchPins = Array.isArray(body?.latchPins) ? body.latchPins as number[] : [];
     const ksk = ((body as any)?.ksk ? String((body as any).ksk) : ((body as any)?.kssk ? String((body as any).kssk) : '')).trim();
@@ -135,6 +135,8 @@ export async function POST(req: Request) {
         if (ex.normalPins.length || ex.latchPins.length) {
           normalPins = ex.normalPins;
           latchPins = ex.latchPins;
+          // Also prefer names derived from XML when available
+          if (ex.names && Object.keys(ex.names).length) aliases = ex.names;
         }
       } catch {}
     }

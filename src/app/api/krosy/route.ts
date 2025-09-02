@@ -52,6 +52,19 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try {
+    await fs.stat(tryPath(stem));
+  } catch { return tryPath(stem); }
+  // If exists, append numeric suffix
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
 const msFmt = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} s`);
 const yesNo = (b: boolean) => (b ? "yes" : "no");
 async function pruneOldLogs(root: string, maxAgeDays = 31) {
@@ -254,12 +267,14 @@ export async function POST(req: NextRequest) {
   })();
 
   // Logs
+  let logBase: string | null = null;
   try {
     const stamp = nowStamp();
     const cur = new Date();
     const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
     const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
-    const base = path.join(LOG_DIR, month, `${stamp}_${idSan}_${requestID}`);
+    const base = await uniqueBase(path.join(LOG_DIR, month), `${stamp}_${idSan}_${requestID}`);
+    logBase = base;
     await Promise.all([
       // Normalized file names
       writeLog(base, "request.raw.xml", xml),
@@ -293,6 +308,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/xml; charset=utf-8",
         "Cache-Control": "no-store",
         "X-Krosy-Used-Url": out.used,
+        ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
         ...cors(req),
       },
     });
@@ -317,6 +333,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "X-Krosy-Used-Url": out.used,
+      ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
       ...cors(req),
     },
   });

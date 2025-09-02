@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     const key = K(String(ksk));
     const ttlMs = Math.max(5, Number(ttlSec)) * 1000;
-    const val: LockVal = { kssk: String(ksk), mac: String(mac ?? "").toUpperCase(), stationId: String(stationId), ts: nowMs() };
+    const val: any = { kssk: String(ksk), ksk: String(ksk), mac: String(mac ?? "").toUpperCase(), stationId: String(stationId), ts: nowMs() };
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));

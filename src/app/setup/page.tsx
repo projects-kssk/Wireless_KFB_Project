@@ -1289,7 +1289,7 @@ export default function SetupPage() {
             }
           } catch {}
 
-          await fetch("/api/aliases", {
+          const saveResp = await fetch("/api/aliases", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1302,6 +1302,46 @@ export default function SetupPage() {
               hints,
             }),
           });
+          if (!saveResp.ok) {
+            let reason = '';
+            try { const j = await saveResp.json(); reason = String(j?.error || ''); } catch {}
+            // Toast-only (no intrusive overlay): inform operator to rescan
+            try {
+              const id = ++flashSeq.current;
+              pushToast({ id, kind: 'error', panel, code: 'SAVE FAILED', msg: reason || 'Redis unavailable; not saved', ts: Date.now() });
+            } catch {}
+            // Release lock for the response KSK and reset the slot
+            try { await releaseLock(persistKsk); } catch {}
+            bump(target, null, 'idle');
+            return;
+          }
+
+          // Toast success summary before verification
+          try {
+            const id = ++flashSeq.current;
+            const n = (out.normalPins?.length ?? 0);
+            const l = (out.latchPins?.length ?? 0);
+            pushToast({ id, kind: 'success', panel, code: 'Saved', msg: `Pins saved: ${n} normal${l?`, ${l} latch`:''}`, ts: Date.now() });
+          } catch {}
+
+          // Verify persistence: ensure per‑KSK arrays were saved; otherwise surface a hard error
+          try {
+            const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`, { cache: 'no-store' });
+            if (rAll.ok) {
+              const jAll = await rAll.json();
+              const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ ksk?: string; kssk?: string; normalPins?: number[]; latchPins?: number[] }> : [];
+              const hit = items.find(it => String(((it as any).ksk ?? (it as any).kssk) || '').trim() === persistKsk);
+              const nOk = Array.isArray(hit?.normalPins) && (hit!.normalPins as number[]).length > 0;
+              const lOk = Array.isArray(hit?.latchPins) && (hit!.latchPins as number[]).length > 0;
+              if (!nOk && !lOk) {
+                // Do not proceed silently — release lock and ask user to rescan
+                await releaseLock(persistKsk);
+                bump(target, null, 'idle');
+                showErr(persistKsk, 'Failed to persist pins in Redis. Please scan again.', panel);
+                return;
+              }
+            }
+          } catch {}
         } catch {}
 
         // No local grouping persistence; dashboard derives from Redis

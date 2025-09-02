@@ -138,7 +138,7 @@ const MainApplicationUI: React.FC = () => {
   const itemsAllFromAliasesRef = useRef<Array<{ ksk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
   const lastGroupsRef = useRef<Array<{ ksk: string; branches: BranchDisplayData[] }>>([]);
   useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
-
+const finalizeOkGuardRef = useRef<Set<string>>(new Set());
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -590,7 +590,33 @@ useEffect(() => {
 
 
 
-
+const finalizeOkForMac = useCallback(async (rawMac: string) => {
+  const mac = String(rawMac || '').toUpperCase();
+  if (!mac) return;
+  if (finalizeOkGuardRef.current.has(mac)) return;
+  finalizeOkGuardRef.current.add(mac);
+  try {
+    const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+    if (hasSetup && krosyLive) {
+      await sendCheckpointForMac(mac).catch(() => {});
+      try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+    } else {
+      try { setOkSystemNote('Cache cleared'); } catch {}
+    }
+    await fetch('/api/aliases/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac })
+    }).catch(() => {});
+    const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+    await fetch('/api/ksk-lock', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+    }).catch(() => {});
+  } finally {
+    setOverlay(o => ({ ...o, open: false }));
+    scheduleOkReset(); // keep your existing reset
+  }
+}, [krosyLive, sendCheckpointForMac]);
 
 
   // Narrowing guard
@@ -1440,6 +1466,7 @@ useEffect(() => {
                 onResetKfb={handleResetKfb}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
+                onOkShown={(m) => finalizeOkForMac(m || (macAddress || '').toUpperCase())}
 
             />
 

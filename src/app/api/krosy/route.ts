@@ -269,11 +269,17 @@ export async function POST(req: NextRequest) {
   // Logs
   let logBase: string | null = null;
   try {
-    const stamp = nowStamp();
     const cur = new Date();
-    const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
+    const yyyy = cur.getUTCFullYear();
+    const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getUTCDate()).padStart(2, '0');
+    const hh = String(cur.getUTCHours()).padStart(2, '0');
+    const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+    const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+    const month = `${yyyy}-${mm}`;
     const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
-    const base = await uniqueBase(path.join(LOG_DIR, month), `${stamp}_${idSan}_${requestID}`);
+    const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+    const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${requestID}`);
     logBase = base;
     await Promise.all([
       // Normalized file names

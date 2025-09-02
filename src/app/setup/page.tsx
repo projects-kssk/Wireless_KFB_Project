@@ -1907,6 +1907,22 @@ export default function SetupPage() {
                     }
                     manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
                     onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
+                    onForceClear={async () => {
+                      const kssk = ksskSlots[idx];
+                      const macUp = (kfb || '').toUpperCase();
+                      if (!kssk || !macUp) return;
+                      try {
+                        await fetch('/api/aliases/clear', {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ mac: macUp, ksk: kssk })
+                        }).catch(() => {});
+                      } catch {}
+                      try { await releaseLock(kssk); } catch {}
+                      activeLocks.current.delete(kssk);
+                      setKsskSlots(prev => { const n=[...prev]; n[idx]=null; return n; });
+                      setKsskStatus(prev => { const n=[...prev] as Array<typeof prev[number]>; n[idx]='idle'; return n; });
+                      fireFlash('success', kssk, (`ksk${idx}` as PanelKey), 'Cleared');
+                    }}
                     flashKind={hit ? flash!.kind : null}
                     flashId={hit ? flash!.id : undefined}
                   />
@@ -2132,6 +2148,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   manualOpen,
   onManualToggle,
   onSubmit,
+  onForceClear,
   flashKind,
   flashId,
 }: {
@@ -2141,6 +2158,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   manualOpen: boolean;
   onManualToggle: () => void;
   onSubmit: (v: string) => void;
+  onForceClear?: () => void;
   flashKind?: "success" | "error" | null;
   flashId?: number;
 }) {
@@ -2266,6 +2284,27 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
       >
         Enter manually
       </button>
+
+      {code && (
+        <button
+          type="button"
+          onClick={onForceClear}
+          style={{
+            fontSize: 12,
+            color: "#b91c1c",
+            textDecoration: "underline",
+            cursor: "pointer",
+            fontWeight: 800,
+            background: "transparent",
+            border: 0,
+            justifySelf: "start",
+          }}
+          aria-label={`Force clear KSK ${code}`}
+          title="Force-clear this KSK (lock + aliases)"
+        >
+          Force clear
+        </button>
+      )}
 
       <AnimatePresence initial={false}>
         {manualOpen && (

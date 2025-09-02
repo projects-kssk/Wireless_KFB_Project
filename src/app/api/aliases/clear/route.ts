@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({} as any));
     const mac = String((body as any)?.mac || '').toUpperCase();
     const ksk = String((body as any)?.ksk || (body as any)?.kssk || '').trim();
+
     if (!MAC_RE.test(mac)) {
       const resp = NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
       resp.headers.set('X-Req-Id', id);
@@ -137,6 +138,7 @@ export async function POST(req: Request) {
     }
 
     // Bulk MAC clear path: Get all KSK IDs from index and from scanning keys
+
     let members: string[] = await r.smembers(indexKey(mac)).catch(() => []);
     try {
       const pattern = `${keyForKssk(mac, '*')}`;

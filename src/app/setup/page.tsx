@@ -241,10 +241,10 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
   const opts: KrosyOpts = typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
   const {
     macHint,
-    includeLatch = false,
-    allowedCompTypes,
-    includeLabelPrefixes,
-    allowedMeasTypes = ["default"],
+    includeLatch,               // optional; when false, exclude latch pins
+    allowedCompTypes,           // optional; when provided, filter by compType
+    includeLabelPrefixes,       // optional; when provided, filter by label prefix
+    allowedMeasTypes,           // optional; when provided, filter by measType
   } = opts;
 
   const wantMac = String(macHint ?? "").toUpperCase();
@@ -255,8 +255,8 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
   const pushPin = (pos: string) => {
     const { pin, label, labelPrefix, isLatch } = parsePos(pos);
     if (!Number.isFinite(pin)) return;
-    if (includeLabelPrefixes && !includeLabelPrefixes.includes(labelPrefix)) return;
-    if (!includeLatch && isLatch) return;
+    if (Array.isArray(includeLabelPrefixes) && includeLabelPrefixes.length > 0 && !includeLabelPrefixes.includes(labelPrefix)) return;
+    if (includeLatch === false && isLatch) return;
     if (label) names[pin] = label;
     (isLatch ? latch : normal).push(pin);
   };
@@ -267,7 +267,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
     const seqs = Array.from(doc.getElementsByTagName("sequence"));
     for (const el of seqs) {
       const mt = (getAttr(el, "measType") || "").toLowerCase();
-      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
      const ct = (
       getAttr(el, "compType") ||
@@ -275,7 +275,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       ""
     ).toLowerCase();
 
-      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+      if (Array.isArray(allowedCompTypes) && allowedCompTypes.length > 0 && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
       const m = og.match(OBJGROUP_MAC);
@@ -294,7 +294,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       const attrs = m[1] || "";
       const body = m[2] || "";
       const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
-      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
       const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
         attrs.match(/\bcompType="([^"]*)"/i)?.[1] ||
@@ -786,6 +786,7 @@ const acceptKsskToIndex = useCallback(
       type Out = { names: Record<string,string>; normalPins: number[]; latchPins: number[] };
       let out: Out | null = null;
       let xmlRawForName: string | null = null;
+      let krosyDiag: { xml?: string; json?: any } | null = null;
 
       if (PREFER_ALIAS_REDIS || REQUIRE_ALIAS_REDIS) {
         try {
@@ -826,15 +827,20 @@ const acceptKsskToIndex = useCallback(
         const extractOpts: KrosyOpts = {
           macHint: macUp,
           includeLatch: true,               // include contactless pins (",C")
-          includeLabelPrefixes: ["CN", "CL"],     // keep contacts only; adjust if needed
-          allowedMeasTypes: ["default"],    // keep ONLY default
-          // Broaden to include both clip and contact components so we don't drop valid pins
-          allowedCompTypes: ["clip", "contact"],
+          // Filters are optional now; provide only when needed
+          includeLabelPrefixes: ["CN", "CL"],     // contacts only (first pass)
+          allowedMeasTypes: ["default"],          // measType filter (first pass)
+          allowedCompTypes: ["clip", "contact"],  // component types (first pass)
         };
         // Primary extraction with strict label prefixes (CN/CL)
         let tmp = resp.data?.__xml
           ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
           : extractPinsFromKrosy(resp.data, extractOpts);
+        try { krosyDiag = resp.data?.__xml ? { xml: resp.data.__xml } : { json: resp.data }; } catch {}
+        try {
+          const n1 = (tmp?.normalPins?.length ?? 0), l1 = (tmp?.latchPins?.length ?? 0);
+          console.log('[SETUP] extract pass#1', { mac: macUp, ksk: code, normalPins: n1, latchPins: l1, opts: extractOpts });
+        } catch {}
         // Fallback: if no pins extracted, retry without label-prefix filter to avoid dropping valid data
         try {
           const got = ((tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0)) > 0;
@@ -843,12 +849,15 @@ const acceptKsskToIndex = useCallback(
               macHint: macUp,
               includeLatch: true,
               // accept both clip/contact but do not filter by label prefix this time
-              allowedCompTypes: ["clip", "contact"],
-              allowedMeasTypes: ["default"],
+              // optional filters omitted → accept any compType/measType
             };
             tmp = resp.data?.__xml
               ? extractPinsFromKrosyXML(resp.data.__xml, loose)
               : extractPinsFromKrosy(resp.data, loose);
+            try {
+              const n2 = (tmp?.normalPins?.length ?? 0), l2 = (tmp?.latchPins?.length ?? 0);
+              console.log('[SETUP] extract pass#2 (loose)', { mac: macUp, ksk: code, normalPins: n2, latchPins: l2 });
+            } catch {}
           }
         } catch {}
         out = { names: tmp.names || {}, normalPins: tmp.normalPins || [], latchPins: tmp.latchPins || [] } as Out;
@@ -889,6 +898,40 @@ const acceptKsskToIndex = useCallback(
 
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
       if (!hasPins) {
+        try {
+          const meta = {
+            mac: macUp,
+            ksk: code,
+            normalPins: out?.normalPins?.length ?? 0,
+            latchPins: out?.latchPins?.length ?? 0,
+            haveXml: !!xmlRawForName && xmlRawForName.length,
+          };
+          // Attempt to summarize upstream payload for quick diagnosis
+          const summarizeXml = (xml: string) => {
+            try {
+              const seqCount = (xml.match(/<sequence\b/gi) || []).length;
+              const meas = Array.from(new Set((xml.match(/\bmeasType=\"([^\"]*)\"/gi) || []).map(s => s.replace(/^.*measType=\"|\"$/g,''))));
+              const comp = Array.from(new Set((xml.match(/<compType>([^<]*)<\/compType>/gi) || []).map(s => s.replace(/^.*<compType>|<\/compType>.*$/g,''))));
+              const macs = Array.from(new Set((xml.match(/<objGroup>[^<]*<\/objGroup>/gi) || []).map(s => (s.match(/\(([0-9A-F:]{17})\)/i)?.[1]||'').toUpperCase()).filter(Boolean)));
+              return { seqCount, measTypes: meas, compTypes: comp, macs };
+            } catch { return null; }
+          };
+          const summarizeJson = (j: any) => {
+            try {
+              const vc = j?.response?.krosy?.body?.visualControl;
+              const wd = vc?.workingData || vc?.loadedData;
+              const seg = wd?.sequencer?.segmentList?.segment;
+              const take = (n: any) => Array.isArray(n) ? n : n != null ? [n] : [];
+              const seqs = take(seg).flatMap((s: any) => take(s?.sequenceList?.sequence));
+              const meas = Array.from(new Set(seqs.map((s: any) => String(s?.measType ?? '').toLowerCase()).filter(Boolean)));
+              const comp = Array.from(new Set(seqs.map((s: any) => String(s?.compType ?? '').toLowerCase()).filter(Boolean)));
+              const groups = Array.from(new Set(seqs.map((s: any) => String(s?.objGroup ?? '')).filter(Boolean)));
+              return { seqCount: seqs.length, measTypes: meas, compTypes: comp, objGroups: groups };
+            } catch { return null; }
+          };
+          const diag = krosyDiag?.xml ? summarizeXml(krosyDiag.xml) : summarizeJson(krosyDiag?.json);
+          console.warn('[SETUP] NO PINS after extraction', { ...meta, diag });
+        } catch {}
         await releaseLock(code);
         bump(target, null, "idle");
         showErr(code, "Krosy configuration error: no PINS", panel);

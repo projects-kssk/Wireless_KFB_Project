@@ -87,10 +87,10 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
   const opts: KrosyOpts = typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
   const {
     macHint,
-    includeLatch = true,
-    allowedCompTypes,
-    includeLabelPrefixes,
-    allowedMeasTypes = ["default"],
+    includeLatch,               // optional; when false, exclude latch pins
+    allowedCompTypes,           // optional; when provided, filter by compType
+    includeLabelPrefixes,       // optional; when provided, filter by label prefix
+    allowedMeasTypes,           // optional; when provided, filter by measType
   } = opts;
 
   const wantMac = String(macHint ?? "").toUpperCase();
@@ -103,8 +103,8 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
   const pushFromObjPos = (pos: string) => {
     const { pin, label, labelPrefix, isLatch } = parsePos(pos);
     if (!Number.isFinite(pin)) return;
-    if (!includeLatch && isLatch) return;
-    if (includeLabelPrefixes && !includeLabelPrefixes.includes(labelPrefix)) return;
+    if (includeLatch === false && isLatch) return;
+    if (Array.isArray(includeLabelPrefixes) && includeLabelPrefixes.length > 0 && !includeLabelPrefixes.includes(labelPrefix)) return;
     if (label) {
       labels.push(label);
       (byPrefix[labelPrefix] ||= []).push(label);
@@ -120,7 +120,7 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
     const seqs = Array.from(doc.getElementsByTagName("sequence"));
     for (const el of seqs) {
       const mt = (getAttr(el, "measType") || "").toLowerCase();
-      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
       const ct = (
         getAttr(el, "compType") ||
@@ -128,7 +128,7 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
         ""
       ).toLowerCase();
 
-      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+      if (Array.isArray(allowedCompTypes) && allowedCompTypes.length > 0 && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
       const macM = og.match(OBJGROUP_MAC);
@@ -148,7 +148,7 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
       const body = m[2] || "";
 
       const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
-      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
      const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
@@ -191,10 +191,10 @@ function extractPinsFromKrosy(
     typeof optsOrMac === "string" ? { macHint: optsOrMac } : (optsOrMac || {});
   const {
     macHint,
-    includeLatch = false,
-    allowedCompTypes,
-    includeLabelPrefixes,
-    allowedMeasTypes = ["default"],
+    includeLatch,               // optional; when false, exclude latch pins
+    allowedCompTypes,           // optional; when provided, filter by compType
+    includeLabelPrefixes,       // optional; when provided, filter by label prefix
+    allowedMeasTypes,           // optional; when provided, filter by measType
   } = opts;
 
   const take = (n: any) => (Array.isArray(n) ? n : n != null ? [n] : []);
@@ -210,10 +210,10 @@ function extractPinsFromKrosy(
   for (const seg of take(segRoot)) {
     for (const s of take(seg?.sequenceList?.sequence)) {
       const mt = String(s?.measType ?? "").trim().toLowerCase();
-      if (!allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
+      if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
       const ct = String(s?.compType ?? "").trim().toLowerCase();
-      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+      if (Array.isArray(allowedCompTypes) && allowedCompTypes.length > 0 && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = String(s?.objGroup ?? "");
       const mm = og.match(OBJGROUP_MAC);
@@ -224,8 +224,8 @@ function extractPinsFromKrosy(
 
       const { pin, label, labelPrefix, isLatch } = parsePos(pos);
       if (!Number.isFinite(pin)) continue;
-      if (includeLabelPrefixes && !includeLabelPrefixes.includes(labelPrefix)) continue;
-      if (!includeLatch && isLatch) continue;
+      if (Array.isArray(includeLabelPrefixes) && includeLabelPrefixes.length > 0 && !includeLabelPrefixes.includes(labelPrefix)) continue;
+      if (includeLatch === false && isLatch) continue;
 
       if (label) names[pin] = label;
       (isLatch ? latch : normal).push(pin);
@@ -301,7 +301,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
         ""
       ).toLowerCase();
 
-      if (allowedCompTypes && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
+      if (Array.isArray(allowedCompTypes) && allowedCompTypes.length > 0 && !allowedCompTypes.map(x => x.toLowerCase()).includes(ct)) continue;
 
       const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
       const macM = og.match(OBJGROUP_MAC);

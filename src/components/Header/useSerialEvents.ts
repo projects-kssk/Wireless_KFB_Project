@@ -15,7 +15,7 @@ type SerialEvent =
   | { type: "devices"; devices: DeviceInfo[] }
   | { type: "esp"; ok: boolean; raw?: string; error?: string; present?: boolean }
   | { type: "net"; iface: string; present: boolean; up: boolean; ip?: string | null; oper?: string | null }
-  | { type: "redis"; ready: boolean }
+  | { type: "redis"; ready: boolean; status?: string; detail?: { status?: string; lastEvent?: string; lastError?: string | null; lastAt?: number } }
   | { type: "scan"; code: string; path?: string }
   | { type: "scanner/open"; path?: string }
   | { type: "scanner/close"; path?: string }
@@ -50,6 +50,7 @@ export function useSerialEvents(macFilter?: string) {
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
   const [redisReady, setRedisReady] = useState<boolean>(false);
+  const [redisDetail, setRedisDetail] = useState<{ status?: string; lastEvent?: string; lastError?: string | null; lastAt?: number } | null>(null);
   const [lastEv, setLastEv] = useState<any>(null);
   const [lastEvTick, setLastEvTick] = useState(0);
   const [evCount, setEvCount] = useState(0);
@@ -60,6 +61,7 @@ export function useSerialEvents(macFilter?: string) {
   // internal refs
   const tickRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
+  const unloadingRef = useRef<boolean>(false);
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
   const redisOkRef = useRef(false);
@@ -128,6 +130,21 @@ export function useSerialEvents(macFilter?: string) {
     });
   }, [devices, paths]);
 
+  // Close SSE cleanly on page unload/refresh to avoid browser interruption warnings
+  useEffect(() => {
+    const markUnloading = () => {
+      unloadingRef.current = true;
+      try { esRef.current?.close(); } catch {}
+      esRef.current = null;
+    };
+    window.addEventListener('beforeunload', markUnloading);
+    window.addEventListener('pagehide', markUnloading);
+    return () => {
+      window.removeEventListener('beforeunload', markUnloading);
+      window.removeEventListener('pagehide', markUnloading);
+    };
+  }, []);
+
   // SSE wire-up (guard against StrictMode double-mounts)
   useEffect(() => {
     // close any existing (should be null normally)
@@ -182,6 +199,7 @@ export function useSerialEvents(macFilter?: string) {
           redisOkRef.current = ready;
           setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           setRedisReady(ready);
+          try { setRedisDetail((msg as any).detail ?? { status: (msg as any).status }); } catch {}
           break;
         }
 
@@ -255,8 +273,11 @@ export function useSerialEvents(macFilter?: string) {
     };
 
     es.onerror = () => {
-      setSseConnected(false);
-      // EventSource will auto-retry; we keep the instance open.
+      // Ignore expected errors during navigation/unload
+      if (!unloadingRef.current) {
+        setSseConnected(false);
+      }
+      // EventSource will auto-retry; we keep the instance open until cleanup.
     };
 
     return () => {
@@ -308,6 +329,7 @@ export function useSerialEvents(macFilter?: string) {
 
     // connection indicators
     redisReady,
+    redisDetail,
 
     // hub events
     lastEv,

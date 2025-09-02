@@ -16,7 +16,8 @@ function formatXml(xml: string) {
     let out = xml
       .replace(/^\uFEFF/, "")
       .replace(/\r?\n|\r/g, "")
-      .replace(/>\s+</g, ">\n<")
+      // Ensure a newline between every tag boundary, even when there is no whitespace
+      .replace(/>\s*</g, ">\n<")
       .trim();
 
     let pad = 0;
@@ -104,8 +105,10 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean);
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
-const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
-const OGLIEN_URL = (process.env.KROSY_OGLIEN_URL || "http://localhost:3000/api/krosy").trim();
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
+const OGLIEN_URL = (process.env.KROSY_OGLIEN_URL || "http://localhost:3001/api/visualcontrol").trim();
+const OFFLINE_PORT = Number(process.env.KROSY_OFFLINE_PORT || 3001);
+const OFFLINE_PATH = (process.env.KROSY_OFFLINE_PATH || "/api/visualcontrol").trim();
 const VC_NS = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";
 const TIMEOUT_MS = Number(process.env.KROSY_TIMEOUT_MS ?? 5000);
 const PREVIEW_LIMIT = Number(process.env.KROSY_PREVIEW_LIMIT ?? 2000);
@@ -135,6 +138,18 @@ async function ensureDir(p: string) {
 async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
+}
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try {
+    await fs.stat(tryPath(stem));
+  } catch { return tryPath(stem); }
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
 }
 
 /* ===== net id ===== */
@@ -205,9 +220,20 @@ export async function POST(req: NextRequest) {
   const requestID = String(body.requestID || Date.now());
   const sourceHostname = String(body.sourceHostname || os.hostname());
   const xmlTargetHost = String(body.targetHostName || XML_TARGET).trim();
-  const targetUrl = String(body.targetUrl || OGLIEN_URL).trim();
-
   const { ip, mac } = pickIpAndMac();
+  // Compute effective target URL:
+  // 1) Explicit body.targetUrl wins
+  // 2) If KROSY_OGLIEN_URL set, use it (localhost is OK for server-side calls)
+  // 3) Otherwise, use discovered network IP and OFFLINE_PORT/PATH (e.g., http://<ip>:3001/api/visualcontrol)
+  let targetUrl = String(body.targetUrl || "").trim();
+  if (!targetUrl) {
+    if (OGLIEN_URL) targetUrl = OGLIEN_URL;
+  }
+  if (!targetUrl) {
+    const base = `http://${ip}:${OFFLINE_PORT}`;
+    targetUrl = `${base}${OFFLINE_PATH.startsWith('/') ? OFFLINE_PATH : '/' + OFFLINE_PATH}`;
+  }
+
   const scanned = isoNoMs();
   const xml = buildXML({
     requestID,
@@ -219,8 +245,17 @@ export async function POST(req: NextRequest) {
     intksk,
   });
 
-  const stamp = nowStamp();
-  const base = path.join(LOG_DIR, `${stamp}_${requestID}`);
+  const cur = new Date();
+  const yyyy = cur.getUTCFullYear();
+  const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(cur.getUTCDate()).padStart(2, '0');
+  const hh = String(cur.getUTCHours()).padStart(2, '0');
+  const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+  const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+  const month = `${yyyy}-${mm}`;
+  const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+  const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+  const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${requestID}`);
   const lines: string[] = [];
   const push = (s: string) => {
     const l = line(s);
@@ -229,6 +264,8 @@ export async function POST(req: NextRequest) {
   };
 
   push(`POST ${targetUrl} [visualControl: working] (OFFLINE)`);
+  // Debug: surface OGLIEN_URL and effective targetUrl
+  try { log.info('offline.forward.config', { OGLIEN_URL, targetUrl }); } catch {}
 
   let status = 0,
     text = "",
@@ -299,8 +336,16 @@ export async function POST(req: NextRequest) {
   });
 
   await Promise.allSettled([
-    writeLog(base, "request.xml", prettyXml(xml)),
-    writeLog(base, "response.xml", responsePretty),
+    // Request logs: raw + pretty (normalized across online/offline)
+    writeLog(base, "request.raw.xml", xml),
+    writeLog(base, "request.pretty.xml", prettyXml(xml)),
+    // Backward-compat duplicates (for tools/scripts expecting old names)
+    writeLog(base, "request.xml", xml),
+    // Response logs: raw + pretty when available
+    writeLog(base, "response.raw.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
+    writeLog(base, "response.pretty.xml", upstreamJson ? "" : responsePretty),
+    // Backward-compat duplicate
+    writeLog(base, "response.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
     writeLog(base, "report.log", report),
     writeLog(
       base,
@@ -324,11 +369,35 @@ export async function POST(req: NextRequest) {
       ),
     ),
   ]);
+  try { await (async function pruneOldLogs(root, maxAgeDays = 31){
+    try {
+      const now = Date.now();
+      const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+      const entries = await fs.readdir(root, { withFileTypes: true });
+      for (const ent of entries) {
+        if (!ent.isDirectory()) continue;
+        const dirPath = path.join(root, ent.name);
+        let ts = 0;
+        const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+        if (m) {
+          const y = Number(m[1]); const mon = Number(m[2]);
+          ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+        } else {
+          const st = await fs.stat(dirPath);
+          ts = st.mtimeMs || st.ctimeMs || 0;
+        }
+        if (now - ts > maxAgeMs) {
+          try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+        }
+      }
+    } catch {}
+  })(LOG_DIR, 31); } catch {}
 
   const headers = {
     ...cors(req),
     "X-Krosy-Used-Url": targetUrl,
     "X-Krosy-Duration": String(ms),
+    ...(base ? { "X-Krosy-Log-Path": base } : {}),
   };
 
   // XML passthrough for Accept: xml

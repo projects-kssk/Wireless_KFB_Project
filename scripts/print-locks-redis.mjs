@@ -30,8 +30,8 @@ function loadEnvFiles() {
 loadEnvFiles();
 
 const url         = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
-const pref        = process.env.REDIS_LOCK_PREFIX || 'kssk:lock:';          // lock value keys
-const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'kssk:station:';    // station index set
+const pref        = process.env.REDIS_LOCK_PREFIX || 'ksk:';                // lock value keys
+const stationPref = process.env.Redis_STATION_PREFIX || process.env.REDIS_STATION_PREFIX || 'ksk:station:';     // station index set
 let stationId     = process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || process.env.npm_config_id || process.env.HOSTNAME || '';
 
 // --- tiny argv parser ---
@@ -63,7 +63,7 @@ function compileRegex(src) {
     return null;
   }
 }
-const matchRe = compileRegex(opts.match || process.env.KSSK_REGEX || process.env.KFB_REGEX);
+const matchRe = compileRegex(opts.match || process.env.KSK_REGEX || process.env.KFB_REGEX);
 
 const redis = new Redis(url);
 
@@ -194,6 +194,27 @@ async function main() {
       return 'in ' + parts.join(' ');
     };
 
+    const fmtPins = (arr) => {
+      const xs = Array.isArray(arr) ? arr.map(n => Number(n)).filter(n => Number.isFinite(n) && n>0) : [];
+      xs.sort((a,b)=>a-b);
+      const s = xs.join(',');
+      if (s.length <= 48) return s;
+      // trim but keep counts visible
+      const head = xs.slice(0, 12).join(',');
+      return head + ` …(+${Math.max(0, xs.length-12)})`;
+    };
+    const sampleMap = (names) => {
+      if (!names || typeof names !== 'object') return '';
+      const entries = Object.entries(names)
+        .map(([k,v]) => [Number(k), String(v)])
+        .filter(([k]) => Number.isFinite(k) && k>0)
+        .sort((a,b)=>a[0]-b[0]);
+      if (!entries.length) return '';
+      const shown = entries.slice(0, 4).map(([k,v]) => `${k}:${v}`);
+      const extra = entries.length - shown.length;
+      return extra > 0 ? `${shown.join(' | ')} …(+${extra})` : shown.join(' | ');
+    };
+
     const runOnce = async () => {
       let rows = [];
       if (stationId) rows = await listByStation(stationId);
@@ -208,6 +229,51 @@ async function main() {
         return ax - bx;
       });
 
+      // Enrich with alias data (names, pins); fallback to lastpins snapshot
+      for (const r of rows) {
+        try {
+          if (!r.mac) continue;
+          const key = `kfb:aliases:${r.mac}:${r.kssk}`;
+          const raw = await redis.get(key).catch(() => null);
+          if (raw) {
+            const d = JSON.parse(raw);
+            r.__aliases = d?.names || d?.aliases || {};
+            // Policy: do NOT derive pins from alias keys. Only trust explicit arrays.
+            r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : [];
+            r.__pinsC = Array.isArray(d?.latchPins) ? d.latchPins : [];
+          }
+        } catch {}
+        try {
+          if (!r.mac || (Array.isArray(r.__pinsN) && r.__pinsN.length) || (Array.isArray(r.__pinsC) && r.__pinsC.length)) continue;
+          const keyLP = `kfb:lastpins:${r.mac}:${r.kssk}`;
+          const rawLP = await redis.get(keyLP).catch(() => null);
+          if (rawLP) {
+            const d2 = JSON.parse(rawLP);
+            if (!Array.isArray(r.__pinsN) || r.__pinsN.length === 0) r.__pinsN = Array.isArray(d2?.normalPins) ? d2.normalPins : [];
+            if (!Array.isArray(r.__pinsC) || r.__pinsC.length === 0) r.__pinsC = Array.isArray(d2?.latchPins) ? d2.latchPins : [];
+          }
+        } catch {}
+        // Fallback names for map: pick labels from MAC union for the pins we have
+        try {
+          const havePins = (Array.isArray(r.__pinsN) && r.__pinsN.length) || (Array.isArray(r.__pinsC) && r.__pinsC.length);
+          const noNames = !r.__aliases || Object.keys(r.__aliases).length === 0;
+          if (r.mac && havePins && noNames) {
+            const rawU = await redis.get(`kfb:aliases:${r.mac}`).catch(() => null);
+            if (rawU) {
+              const dU = JSON.parse(rawU);
+              const namesU = (dU?.names && typeof dU.names === 'object') ? dU.names : {};
+              const need = new Set([...(r.__pinsN || []), ...(r.__pinsC || [])].map(n=>Number(n)).filter(n=>Number.isFinite(n)));
+              const sel = {};
+              for (const [pin, label] of Object.entries(namesU)) {
+                const p = Number(pin);
+                if (Number.isFinite(p) && need.has(p)) sel[pin] = String(label);
+              }
+              r.__aliases = sel;
+            }
+          }
+        } catch {}
+      }
+
       if (opts.clear) console.clear();
       const hdr = [`Redis: ${url}`, stationId ? `station=${stationId}` : 'station=ALL'];
       if (matchRe) hdr.push(`match=${matchRe}`);
@@ -217,12 +283,15 @@ async function main() {
         console.log('(no locks found)');
       } else {
         console.table(rows.map(r => ({
-          kssk: r.kssk,
+          ksk: (r.ksk ?? r.kssk),
           mac: r.mac,
           stationId: r.stationId,
           ttlSec: r.ttlSec,
           expiresAt: fmtLocal(r.expiresAt),
           expiresIn: fmtIn(r.ttlSec),
+          pinsN: fmtPins(r.__pinsN),
+          pinsC: fmtPins(r.__pinsC),
+          map: sampleMap(r.__aliases),
         })));
       }
 

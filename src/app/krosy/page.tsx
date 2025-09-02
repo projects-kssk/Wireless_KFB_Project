@@ -11,9 +11,11 @@ type ApiMode = "online" | "offline";
 
 const DEFAULT_API_MODE: ApiMode =
   process.env.NEXT_PUBLIC_KROSY_ONLINE === "true" ? "online" : "offline";
+const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
+const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
 
 const ENDPOINT_ONLINE =
-  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "http://172.26.202.248:3000/api/krosy";
+  process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy";
 const ENDPOINT_OFFLINE =
   process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline";
 
@@ -32,6 +34,9 @@ const IDENTITY_ENDPOINT =
   "/api/krosy-offline/checkpoint";
 
 const HTTP_TIMEOUT = Number(process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ?? "15000");
+const DEFAULT_TARGET_HOST = process.env.NEXT_PUBLIC_KROSY_XML_TARGET ?? "ksskkfb01";
+const DEFAULT_SOURCE_HOST = process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME ?? DEFAULT_TARGET_HOST;
+const OFFLINE_FORWARD_TARGET = process.env.NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL || '';
 
 /* ===== utils ===== */
 function formatXml(xml: string) {
@@ -72,12 +77,13 @@ export default function KrosyPage() {
   const busyAny = busyReq || busyChk;
 
   // inputs
-  const [requestID, setRequestID] = useState<string>("1");
+  // Leave blank to auto-generate per call
+  const [requestID, setRequestID] = useState<string>("");
   const [intksk, setIntksk] = useState("830577899396");
-  const [targetHostName, setTargetHostName] = useState("ksskkfb01");
+  const [targetHostName, setTargetHostName] = useState(DEFAULT_TARGET_HOST);
 
   // auto from backend
-  const [sourceHostname, setSourceHostname] = useState("");
+  const [sourceHostname, setSourceHostname] = useState(DEFAULT_SOURCE_HOST);
   const [sourceIp, setSourceIp] = useState("");
   const [sourceMac, setSourceMac] = useState("");
 
@@ -136,9 +142,34 @@ export default function KrosyPage() {
         const r = await withTimeout(IDENTITY_ENDPOINT, { headers: { Accept: "application/json" } });
         if (!r.ok) throw new Error(`bootstrap GET ${r.status}`);
         const j = await r.json();
-        setSourceHostname(j.hostname || "");
+        // Prefer configured source hostname; fall back to identity endpoint
+        const cfg = DEFAULT_SOURCE_HOST;
+        setSourceHostname(cfg || j.hostname || "");
         setSourceIp(j.ip || "");
         setSourceMac(j.mac || "");
+        // Auto-select api mode by identity IP when envs provided
+        try {
+          const ip = String(j?.ip || '').trim();
+          if (ip && IP_ONLINE && ip === IP_ONLINE) setApiMode('online');
+          else if (ip && IP_OFFLINE && ip === IP_OFFLINE) setApiMode('offline');
+          else {
+            // Fallback: try other identity endpoints
+            const urls = ['/api/krosy', '/api/krosy/checkpoint'];
+            for (const u of urls) {
+              try {
+                const r2 = await withTimeout(u, { headers: { Accept: 'application/json' } });
+                if (!r2.ok) continue;
+                const j2 = await r2.json();
+                const ip2 = String(j2?.ip || '').trim();
+                if (ip2 && IP_ONLINE && ip2 === IP_ONLINE) { setApiMode('online'); break; }
+                if (ip2 && IP_OFFLINE && ip2 === IP_OFFLINE) { setApiMode('offline'); break; }
+              } catch {}
+            }
+            // Final fallback: if running on localhost, assume offline
+            const host = typeof window !== 'undefined' ? window.location.hostname : '';
+            if (host === 'localhost' || host === '127.0.0.1') setApiMode('offline');
+          }
+        } catch {}
         append(`bootstrap ok (IDENTITY)`);
       } catch (e: any) {
         append(
@@ -206,12 +237,17 @@ export default function KrosyPage() {
     setWorkingDataXml(null);
     setCheckpointEligible(false);
 
+    const reqId = (requestID || "").trim() || String(Date.now());
+    if (!requestID) setRequestID(reqId);
     const payload = {
       action: "working",
-      requestID,
+      requestID: reqId,
       intksk,
       targetHostName,
       sourceHostname,
+      ...(apiMode === 'offline' && OFFLINE_FORWARD_TARGET
+        ? { targetUrl: OFFLINE_FORWARD_TARGET }
+        : {}),
     };
 
     append(`POST ${endpoint} [visualControl: working] (${apiMode.toUpperCase()})`);
@@ -327,7 +363,9 @@ export default function KrosyPage() {
     setRespBody("");
     setTab("body");
 
-    const payload = { workingDataXml, requestID };
+    const reqId = (requestID || "").trim() || String(Date.now());
+    if (!requestID) setRequestID(reqId);
+    const payload = { workingDataXml, requestID: reqId };
 
     append(`POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`);
 

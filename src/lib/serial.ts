@@ -199,9 +199,9 @@ export async function pingEsp(): Promise<{ ok: boolean; raw: string }> {
   const tmpl = (process.env.ESP_PING_CMD ?? "PING").trim();
   if (!tmpl) return { ok: true, raw: "present (no ping)" };
 
-  const mac = process.env.ESP_MAC ?? "";
+  // Build command without requiring any MAC env; remove {mac} placeholders if present
   const payload = Math.floor(Date.now() / 1000).toString();
-  const cmd = tmpl.replace(/\{mac\}/gi, mac).replace(/\{payload\}/gi, payload);
+  const cmd = tmpl.replace(/\{mac\}/gi, "").replace(/\{payload\}/gi, payload).trim();
 
   try {
     const raw = await sendAndReceive(cmd, 3000);

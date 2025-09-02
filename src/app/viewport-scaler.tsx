@@ -23,13 +23,7 @@ export default function ViewportScaler({ children }: Props) {
     const m = (q.get('mode') || '').toLowerCase()
     return m === 'tv' || m === 'pc' || m === 'auto' ? (m as DisplayMode) : null
   }
-  const getStoredMode = (): DisplayMode | null => {
-    if (!canUseDOM) return null
-    const s = (localStorage.getItem('displayMode') || '').toLowerCase()
-    if (s === 'tv' || s === 'pc' || s === 'auto') return s as DisplayMode
-    const legacy = localStorage.getItem('tvMode')
-    return legacy ? (legacy === 'true' ? 'tv' : 'auto') : null
-  }
+  const getStoredMode = (): DisplayMode | null => null
   const isTVLike = () => {
     if (!canUseDOM) return false
     const vw = window.innerWidth
@@ -53,8 +47,7 @@ export default function ViewportScaler({ children }: Props) {
     const html = document.documentElement
     html.setAttribute('data-display', mode)
     html.setAttribute('data-tv', resolveMode(mode) === 'tv' ? '1' : '0')
-    localStorage.setItem('displayMode', mode)
-    localStorage.setItem('tvMode', String(mode === 'tv'))
+    // no localStorage: rely on query param or in-memory state only
 
     const calc = () => {
       if (resizeRAF.current) return

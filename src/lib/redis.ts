@@ -6,6 +6,14 @@ const log = LOG.tag('redis');
 
 let client: any = null;
 
+// Track recent status for diagnostics
+const lastInfo: {
+  status: string;
+  lastEvent: string;
+  lastError: string | null;
+  lastAt: number;
+} = { status: 'idle', lastEvent: 'init', lastError: null, lastAt: Date.now() };
+
 function maskUrl(u: string) {
   try {
     const x = new URL(u);
@@ -20,13 +28,17 @@ function attachEventLogging(r: any, urlShown: string) {
   if ((r as any).__logAttached) return;
   (r as any).__logAttached = true;
 
-  r.on('connect',     () => log.info(`connect → ${urlShown}`));
-  r.on('ready',       () => log.info('ready'));
-  r.on('reconnecting', (ms: number) => log.info(`reconnecting in ${ms}ms`));
-  r.on('close',       () => log.info('close'));
-  r.on('end',         () => log.info('end'));
+  r.on('connect',     () => { lastInfo.status = r.status; lastInfo.lastEvent = 'connect'; lastInfo.lastAt = Date.now(); log.info(`connect → ${urlShown}`); });
+  r.on('ready',       () => { lastInfo.status = r.status; lastInfo.lastEvent = 'ready'; lastInfo.lastAt = Date.now(); log.info('ready'); });
+  r.on('reconnecting', (ms: number) => { lastInfo.status = r.status; lastInfo.lastEvent = `reconnecting(${ms})`; lastInfo.lastAt = Date.now(); log.info(`reconnecting in ${ms}ms`); });
+  r.on('close',       () => { lastInfo.status = r.status; lastInfo.lastEvent = 'close'; lastInfo.lastAt = Date.now(); log.info('close'); });
+  r.on('end',         () => { lastInfo.status = r.status; lastInfo.lastEvent = 'end'; lastInfo.lastAt = Date.now(); log.info('end'); });
   r.on('error',       (e: any) => {
     const msg = e?.message || String(e);
+    lastInfo.status = r.status;
+    lastInfo.lastEvent = 'error';
+    lastInfo.lastError = msg;
+    lastInfo.lastAt = Date.now();
     log.error(`error: ${msg}`);
   });
 }
@@ -49,10 +61,17 @@ export function getRedis() {
   attachEventLogging(client, shown);
 
   // Also log unhandled error events at process level (useful in prod)
-  process.on('unhandledRejection', (err: any) => {
-    const msg = err?.message || String(err);
-    log.error(`unhandledRejection: ${msg}`);
-  });
+  // Install once to avoid MaxListenersExceededWarning under hot-reload
+  try {
+    const g: any = globalThis as any;
+    if (!g.__redis_unhandled_attached) {
+      process.on('unhandledRejection', (err: any) => {
+        const msg = err?.message || String(err);
+        log.error(`unhandledRejection: ${msg}`);
+      });
+      g.__redis_unhandled_attached = true;
+    }
+  } catch {}
 
   return client;
 }
@@ -60,4 +79,13 @@ export function getRedis() {
 // Small helper if you want to expose current state elsewhere
 export function redisStatus(): string {
   return client?.status ?? 'idle';
+}
+
+export function redisDetail() {
+  return {
+    status: client?.status ?? 'idle',
+    lastEvent: lastInfo.lastEvent,
+    lastError: lastInfo.lastError,
+    lastAt: lastInfo.lastAt,
+  };
 }

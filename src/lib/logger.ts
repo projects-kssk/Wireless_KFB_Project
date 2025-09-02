@@ -13,7 +13,7 @@ const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
 // Monitor-only mode: show only tag=="monitor" (except allow errors always)
 const MONITOR_ONLY = (process.env.LOG_MONITOR_ONLY ?? "0") === "1";
 
-// Per-tag minimum overrides: e.g. "redis=warn,kssk-lock=warn,api:krosy-offline=warn"
+// Per-tag minimum overrides: e.g. "redis=warn,ksk-lock=warn,api:krosy-offline=warn"
 const TAG_LEVELS_RAW = process.env.LOG_TAG_LEVELS || "";
 const TAG_MIN: Record<string, Level> = {};
 for (const pair of TAG_LEVELS_RAW.split(",")) {
@@ -26,7 +26,7 @@ for (const pair of TAG_LEVELS_RAW.split(",")) {
 // Sensible defaults when not explicitly overridden and not in DEBUG mode
 if (!TAG_LEVELS_RAW && (process.env.DEBUG ?? "0") !== "1") {
   TAG_MIN["redis"]              = "warn";
-  TAG_MIN["kssk-lock"]          = "warn";
+  TAG_MIN["ksk-lock"]           = "warn";
   TAG_MIN["api:krosy-offline"]  = "warn";
   TAG_MIN["api:serial/check"]   = "warn";
   TAG_MIN["api:serial"]         = "warn";
@@ -40,6 +40,27 @@ function minFor(tag?: string): Level {
 
 let day = ""; let stream: fs.WriteStream | null = null;
 
+function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
+  try {
+    const files = fs.readdirSync(dir, { withFileTypes: true });
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    for (const ent of files) {
+      if (!ent.isFile()) continue;
+      const name = ent.name;
+      // match base-YYYY-MM-DD.log
+      const m = name.match(new RegExp(`^${base}-\\d{4}-\\d{2}-\\d{2}\\.log$`));
+      if (!m) continue;
+      const p = path.join(dir, name);
+      try {
+        const st = fs.statSync(p);
+        const ts = st.mtimeMs || st.ctimeMs || 0;
+        if (now - ts > maxAgeMs) fs.rmSync(p, { force: true });
+      } catch {}
+    }
+  } catch {}
+}
+
 function ensureStream() {
   if (!ENABLED) return null;
   const d = new Date().toISOString().slice(0,10);
@@ -48,6 +69,8 @@ function ensureStream() {
     try { stream?.end(); } catch {}
     stream = fs.createWriteStream(path.join(DIR, `${BASE}-${d}.log`), { flags: "a" });
     day = d;
+    // prune older than ~1 month
+    pruneOldAppLogs(DIR, BASE, 31);
   }
   return stream;
 }

@@ -22,6 +22,7 @@
     "predev": "if [ \"$SKIP_REDIS_BOOTSTRAP\" = \"1\" ]; then echo skip; else npm run redis:up && npm run redis:wait; fi",
     "dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"npx wait-on http://localhost:3003 && electron .\"",
     "redis:logs": "journalctl -u redis-server -f --no-pager || redis-cli MONITOR",
+
     "locks:redis": "node scripts/print-locks-redis.mjs",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
@@ -30,7 +31,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "start": "npx electron .",
     "type-check": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
+    "lint": "eslint . --ext .ts,.tsx,.js --fix",
     "format": "prettier . --write",
     "postinstall": "npx electron-builder install-app-deps",
     "logs:monitor": "LOG_MONITOR_ONLY=1 LOG_MONITOR_START_ONLY=1 LOG_LEVEL=info next dev",

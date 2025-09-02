@@ -4,6 +4,7 @@ import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
 import { LOG } from '@/lib/logger';
+import { getRedis } from '@/lib/redis';
 import { ridFrom } from '@/lib/rid';
 
 export const runtime = "nodejs";
@@ -46,22 +47,47 @@ const now = () => Date.now();
 
 /* ----------------- logging ----------------- */
 const LOG_DIR = path.join(process.cwd(), "monitor.logs");
-async function ensureLogDir() {
-  try { await fs.mkdir(LOG_DIR, { recursive: true }); } catch {}
+async function ensureLogDir(dir = LOG_DIR) { try { await fs.mkdir(dir, { recursive: true }); } catch {} }
+async function pruneOldMonitorLogs(root: string, maxAgeDays = 31) {
+  try {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(root, ent.name);
+      let ts = 0;
+      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+      if (m) {
+        const y = Number(m[1]); const mon = Number(m[2]);
+        ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+      } else {
+        const st = await fs.stat(dirPath as any);
+        ts = st.mtimeMs || st.ctimeMs || 0;
+      }
+      if (now - ts > maxAgeMs) {
+        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
 }
 function logFilePath() {
   const d = new Date();
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  return path.join(LOG_DIR, `monitor-${yyyy}-${mm}-${dd}.log`);
+  // Move logs under monthly directory
+  return path.join(LOG_DIR, `${yyyy}-${mm}`, `monitor-${yyyy}-${mm}-${dd}.log`);
 }
 
 async function appendLog(entry: Record<string, unknown>) {
   try {
-    await ensureLogDir();
+    const p = logFilePath();
+    await ensureLogDir(path.dirname(p));
     const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
-    await fs.appendFile(logFilePath(), line, "utf8");
+    await fs.appendFile(p, line, "utf8");
+    // prune old monthly folders
+    await pruneOldMonitorLogs(LOG_DIR, 31);
   } catch (err) {
     log.error("[monitor.log] append failed", err);
   }
@@ -130,14 +156,14 @@ async function loadSerial(): Promise<{
 
 /* ----------------- pin extraction ----------------- */
 function parseObjPos(objPos: string): { pin: number | null; latch: boolean } {
-  const parts = objPos.split(",");
+  const parts = String(objPos || "").split(",").map(s => s.trim());
+  // Policy: do NOT derive a pin when no comma is present
+  if (parts.length < 2) return { pin: null, latch: false };
   let latch = false;
-  if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") {
-    latch = true;
-    parts.pop();
-  }
-  const last = parts[parts.length - 1] ?? "";
-  const num = Number(last.replace(/[^\d]/g, ""));
+  if (parts.at(-1)?.toUpperCase() === "C") { latch = true; parts.pop(); }
+  if (parts.length < 2) return { pin: null, latch };
+  const last = parts.at(-1) ?? "";
+  const num = Number(String(last).replace(/[^\d]/g, ""));
   return { pin: Number.isFinite(num) ? num : null, latch };
 }
 
@@ -152,7 +178,8 @@ function extractPinsFromSequence(
   const latch: number[] = [];
 
   for (const s of seq) {
-    if (s.measType !== "default") continue;
+    const mt = String(s.measType || '').toLowerCase();
+    if (mt !== 'default') continue;
     if (s.objGroup) {
       const m = s.objGroup.match(OBJGROUP_MAC);
       if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
@@ -258,10 +285,13 @@ export async function POST(request: Request) {
   normalPins = Array.from(new Set(normalPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
   latchPins  = Array.from(new Set(latchPins.filter(n => Number.isFinite(n) && n > 0))).sort((a,b)=>a-b);
 
-  let cmd = "MONITOR";
-  if (normalPins.length) cmd += " " + normalPins.join(",");
-  if (latchPins.length)  cmd += " LATCH " + latchPins.join(",");
-  cmd += " " + mac;
+  // Build commands: send NORMAL and LATCH pins as separate MONITOR commands
+  const cmds: Array<{ cmd: string; kind: 'normal' | 'latch' }> = [];
+  if (normalPins.length) cmds.push({ cmd: `MONITOR ${normalPins.join(',')} ${mac}`, kind: 'normal' });
+  if (latchPins.length)  cmds.push({ cmd: `MONITOR LATCH ${latchPins.length} ${latchPins.join(',')} ${mac}`, kind: 'latch' });
+  // Backward-compat: if neither branch added (shouldn't happen), fall back to combined
+  const combinedFallback = (!cmds.length);
+  const fallbackCmd = `MONITOR${normalPins.length?` ${normalPins.join(',')}`:''}${latchPins.length?` LATCH ${latchPins.length} ${latchPins.join(',')}`:''} ${mac}`;
 
   const diffs = {
     normal: pinDiff(reqNormal, normalPins),
@@ -279,9 +309,10 @@ export async function POST(request: Request) {
     (diffs.normal.missing.length + diffs.normal.added.length +
     diffs.latch.missing.length  + diffs.latch.added.length) > 0;
 
+  const cmdLabel = combinedFallback ? fallbackCmd : (cmds.length ? cmds.map(c=>c.cmd).join(' && ') : fallbackCmd);
   const entry: any = {
     event: "monitor.send",
-    mac, kssk, cmd, rid,
+    mac, kssk, cmd: cmdLabel, rid,
     sent: { normalPins, latchPins },
     counts
   };
@@ -290,10 +321,50 @@ export async function POST(request: Request) {
     entry.diffs = diffs;
   }
   await appendLog(entry);
+  // Opportunistically update per-KSK pins in Redis so tools (locks:watch) show live pins
+  try {
+    if (kssk) {
+      const r: any = getRedis();
+      const macUp = String(mac).toUpperCase();
+      const keyK = `kfb:aliases:${macUp}:${String(kssk)}`;
+      const keyU = `kfb:aliases:${macUp}`;
+      let names: Record<string,string> = {};
+      try {
+        const rawK = await r.get(keyK).catch(() => null);
+        if (rawK) {
+          const d = JSON.parse(rawK);
+          if (d?.names && typeof d.names === 'object') names = d.names as Record<string,string>;
+        }
+      } catch {}
+      if (!names || Object.keys(names).length === 0) {
+        try {
+          const rawU = await r.get(keyU).catch(() => null);
+          if (rawU) {
+            const dU = JSON.parse(rawU);
+            const nU = (dU?.names && typeof dU.names === 'object') ? (dU.names as Record<string,string>) : {};
+            // only take names for pins we are sending
+            const need = new Set<number>([...normalPins, ...latchPins]);
+            const picked: Record<string,string> = {};
+            for (const [pin, label] of Object.entries(nU)) {
+              const p = Number(pin);
+              if (Number.isFinite(p) && need.has(p)) picked[pin] = String(label);
+            }
+            names = picked;
+          }
+        } catch {}
+      }
+      const tsNow = Date.now();
+      const value = JSON.stringify({ names: names || {}, normalPins, latchPins, ts: tsNow });
+      try { await r.set(keyK, value); } catch {}
+      try { await r.sadd(`kfb:aliases:index:${macUp}`, String(kssk)); } catch {}
+      // Also record "last pins used" snapshot for this KSK to support watcher fallbacks
+      try { await r.set(`kfb:lastpins:${macUp}:${String(kssk)}`, JSON.stringify({ normalPins, latchPins, ts: tsNow })); } catch {}
+    }
+  } catch {}
   await appendLog({
     event: "monitor.send",
     source: src,
-    mac, kssk, cmd,
+    mac, kssk, cmd: cmdLabel,
     requested: { normalPins: reqNormal ?? null, latchPins: reqLatch ?? null },
     built: { normalPins, latchPins },
     counts,
@@ -304,7 +375,7 @@ export async function POST(request: Request) {
   let sendToEsp: (cmd: string, opts?: { timeoutMs?: number }) => Promise<void>;
   try { ({ sendToEsp } = await loadSerial()); }
   catch (err) {
-    await appendLog({ event: "monitor.error", mac, kssk, cmd, error: "loadSerial failed" });
+    await appendLog({ event: "monitor.error", mac, kssk, cmd: cmdLabel, error: "loadSerial failed" });
     log.error("load serial helper error", err);
     const resp = NextResponse.json({ error: "Internal error" }, { status: 500 });
     resp.headers.set('X-Req-Id', rid);
@@ -312,19 +383,29 @@ export async function POST(request: Request) {
   }
 
   try {
-    await sendToEsp(cmd, { timeoutMs: 3000 });
+    const executed: string[] = [];
+    if (combinedFallback) {
+      await sendToEsp(fallbackCmd, { timeoutMs: 3000 });
+      executed.push(fallbackCmd);
+      await appendLog({ event: "monitor.success", mac, kssk, cmd: fallbackCmd, counts });
+    } else {
+      for (const c of cmds) {
+        await sendToEsp(c.cmd, { timeoutMs: 3000 });
+        executed.push(c.cmd);
+        await appendLog({ event: "monitor.success", mac, kssk, cmd: c.cmd, counts });
+      }
+    }
     health = { ts: now(), ok: true, raw: "WRITE_OK" };
-    // --- NEW: success log repeats the exact cmd & counts (easy to grep alongside device LED state) ---
-    await appendLog({ event: "monitor.success", mac, kssk, cmd, counts });
-    const resp = NextResponse.json({ success: true, cmd, normalPins, latchPins, mac });
+    const resp = NextResponse.json({ success: true, cmds: executed, normalPins, latchPins, mac });
     resp.headers.set('X-Req-Id', rid);
     return resp;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
     log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
-    await appendLog({ event: "monitor.error", mac, kssk, cmd, counts, diffs, error: message });
-    const resp = NextResponse.json({ error: message, cmdTried: cmd }, { status: 500 });
+    const tried = combinedFallback ? fallbackCmd : (cmds.length ? cmds[0].cmd : fallbackCmd);
+    await appendLog({ event: "monitor.error", mac, kssk, cmd: tried, counts, diffs, error: message });
+    const resp = NextResponse.json({ error: message, cmdTried: tried }, { status: 500 });
     resp.headers.set('X-Req-Id', rid);
     return resp;
   }

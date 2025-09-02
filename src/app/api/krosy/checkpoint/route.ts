@@ -15,7 +15,15 @@ const ORIGINS = RAW_ORIGINS.split(",").map((s) => s.trim());
 const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
-const XML_TARGET = (process.env.KROSY_XML_TARGET || "kssksun01").trim();
+const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
+// --- Force result (env) ---
+const FORCE_RESULT_RAW = (process.env.KROSY_FORCE_CHECKPOINT_RESULT || "").trim().toLowerCase();
+const FORCE_RESULT: boolean | null =
+  ["ok","true","1","yes"].includes(FORCE_RESULT_RAW)  ? true  :
+  ["nok","false","0","no"].includes(FORCE_RESULT_RAW) ? false :
+  null; // null => don't force
+
+const b2s = (b: boolean) => (b ? "true" : "false");
 
 const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
 /** newline | crlf | fin | null | none */
@@ -56,12 +64,44 @@ function cors(req: NextRequest) {
 const isoNoMs = (d = new Date()) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const nowStamp = () => isoNoMs().replace(/[:T]/g, "-").replace("Z", "");
 
-async function ensureDir(p: string) {
-  await fs.mkdir(p, { recursive: true });
-}
+async function ensureDir(p: string) { await fs.mkdir(p, { recursive: true }); }
 async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
+}
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try { await fs.stat(tryPath(stem)); }
+  catch { return tryPath(stem); }
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
+async function pruneOldLogs(root: string, maxAgeDays = 31) {
+  try {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(root, ent.name);
+      let ts = 0;
+      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+      if (m) {
+        const y = Number(m[1]); const mon = Number(m[2]);
+        ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+      } else {
+        const st = await fs.stat(dirPath);
+        ts = st.mtimeMs || st.ctimeMs || 0;
+      }
+      if (now - ts > maxAgeMs) {
+        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
 }
 function pickIpAndMac() {
   const want = (process.env.KROSY_NET_IFACE || "").trim();
@@ -248,29 +288,23 @@ function apikingRequestXML(args: {
 
 function apikingResultFromWorkingData(
   workingDataXml: string,
-  overrides?: {
-    requestID?: string;
-    resultTimeIso?: string;
-    sourceIp?: string;
-    sourceMac?: string;
-  }
+  overrides?: { requestID?: string; resultTimeIso?: string; sourceIp?: string; sourceMac?: string; },
+  opts?: { forceResult?: boolean | null }          // NEW
 ) {
   const parser = new Xmldom();
-  const doc = parser.parseFromString(workingDataXml, "text/xml");
+  // Normalize boolean-like attributes to valid XML (e.g., allowed => allowed="true")
+  const normalizeBooleanAttrs = (xml: string) => xml.replace(/(\s(?:allowed|status))(?!\s*=\s*["'])/gi, '$1="true"');
+  const fixedXml = normalizeBooleanAttrs(workingDataXml || '');
+  const doc = parser.parseFromString(fixedXml, "text/xml");
+
+  const forced = opts?.forceResult ?? null;        // true/false or null
+  const forceMode = typeof forced === "boolean";
+  const resStr = forceMode ? b2s(forced!) : "true";
 
   const header = firstDesc(doc, "header")!;
-  const requestID =
-    overrides?.requestID || textOf(header, "requestID", String(Date.now()));
-  const srcHostname_prev = textOf(
-    firstDesc(header, "sourceHost")!,
-    "hostname",
-    "unknown-source"
-  );
-  const tgtHostname_prev = textOf(
-    firstDesc(header, "targetHost")!,
-    "hostname",
-    "unknown-target"
-  );
+  const requestID = overrides?.requestID || textOf(header, "requestID", String(Date.now()));
+  const srcHostname_prev = textOf(firstDesc(header, "sourceHost")!, "hostname", "unknown-source");
+  const tgtHostname_prev = textOf(firstDesc(header, "targetHost")!, "hostname", "unknown-target");
 
   const workingData = firstDesc(doc, "workingData");
   if (!workingData) throw new Error("No <workingData> in payload");
@@ -280,21 +314,14 @@ function apikingResultFromWorkingData(
   const scanned = workingData.getAttribute("scanned") || isoNoMs();
   const resultTime = overrides?.resultTimeIso || isoNoMs();
 
-  const { ip, mac } = pickIpAndMac();
-  const sourceIp = overrides?.sourceIp || ip;
-  const sourceMac = overrides?.sourceMac || mac;
-
-  // ===== Build sequencer results; mark CL_2452 (reference="2") as false =====
-  let segmentsOut = "";
-  let segCount = 0;
-  let markedFalse = false; // ensure we still allow only one failure globally unless more desired
-  const failingClipRefs = new Set<string>(); // collect clip indices to mark false later
+  // ===== Sequencer =====
+  let segmentsOut = ""; let segCount = 0; let markedFalse = false;
+  const failingClipRefs = new Set<string>();
 
   const sequencer = firstDesc(workingData, "sequencer");
   if (sequencer) {
     const segList = firstDesc(sequencer, "segmentList") || sequencer;
-    const segments = childrenByLocal(segList, "segment");
-    segCount = segments.length;
+    const segments = childrenByLocal(segList, "segment"); segCount = segments.length;
 
     for (const seg of segments) {
       const segIdx = seg.getAttribute("index") || "";
@@ -303,119 +330,79 @@ function apikingResultFromWorkingData(
       const seqListNode = firstDesc(seg, "sequenceList") || seg;
       const sequences = childrenByLocal(seqListNode, "sequence");
 
-      let seqOut = "";
-      let segHasFalse = false;
+      let seqOut = ""; let segHasFalse = false;
 
       for (const seq of sequences) {
         const idx = seq.getAttribute("index") || "";
         const compType = (seq.getAttribute("compType") || "").toLowerCase();
         const reference = seq.getAttribute("reference") || "";
         const measType = (seq.getAttribute("measType") || "").toLowerCase();
-
         const objGroup = textOf(seq, "objGroup", "");
         const objPos = textOf(seq, "objPos", "");
 
-        // Robust match for CL_2452: reference="2" OR objPos starts with "CL_2452", measType=default, compType=clip
+        // Your original target (only used when not forcing)
         const isTarget =
-          compType === "clip" &&
-          measType === "default" &&
+          compType === "clip" && measType === "default" &&
           (reference === "2" || /^CL_2452\b/i.test(objPos));
 
-        const thisIsFalse = !markedFalse && isTarget;
-        if (thisIsFalse) {
-          markedFalse = true;
-          segHasFalse = true;
-          if (reference) failingClipRefs.add(reference); // sequence.reference -> clip.index
+        // Decide this sequence result
+        let seqResult = "true";
+        if (forceMode) {
+          seqResult = resStr;
+        } else if (!markedFalse && isTarget) {
+          seqResult = "false";
+          markedFalse = true; segHasFalse = true;
+          if (reference) failingClipRefs.add(reference);
         }
 
-        seqOut +=
-          `<sequence index="${xmlEsc(idx)}" compType="${xmlEsc(
-            compType
-          )}" reference="${xmlEsc(reference)}" result="${
-            thisIsFalse ? "false" : "true"
-          }">` +
-          (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
-          (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
-          `</sequence>`;
+        seqOut += `<sequence index="${idx}" compType="${compType}" reference="${reference}" result="${seqResult}">` +
+                  (objGroup ? `<objGroup>${xmlEsc(objGroup)}</objGroup>` : ``) +
+                  (objPos ? `<objPos>${xmlEsc(objPos)}</objPos>` : ``) +
+                  `</sequence>`;
       }
 
-      segmentsOut +=
-        `<segmentResult index="${xmlEsc(
-          segIdx
-        )}" name="${xmlEsc(segName)}" result="${
-          segHasFalse ? "false" : "true"
-        }" resultTime="${xmlEsc(resultTime)}">` +
-        `<sequenceList count="${sequences.length}">` +
-        seqOut +
-        `</sequenceList>` +
-        `</segmentResult>`;
+      const segResult = forceMode ? resStr : (segHasFalse ? "false" : "true");
+      segmentsOut += `<segmentResult index="${xmlEsc(segIdx)}" name="${xmlEsc(segName)}" result="${segResult}" resultTime="${xmlEsc(resultTime)}">` +
+                     `<sequenceList count="${sequences.length}">${seqOut}</sequenceList>` +
+                     `</segmentResult>`;
     }
   }
 
-  // ===== Build component clip results: mark those with index in failingClipRefs false =====
+  // ===== Component clips =====
   const component = firstDesc(workingData, "component");
-  let clipResultsOut = "";
-  let clipCount = 0;
+  let clipResultsOut = ""; let clipCount = 0;
   if (component) {
     const clipList = firstDesc(component, "clipList");
     const clips = clipList ? childrenByLocal(clipList, "clip") : [];
     clipCount = clips.length;
     for (const clip of clips) {
       const idx = clip.getAttribute("index") || "";
-      const isFalse = failingClipRefs.has(idx);
+      const isFalse = !forceMode && failingClipRefs.has(idx);
       if (isFalse) markedFalse = true;
-      clipResultsOut += `<clipResult index="${xmlEsc(
-        idx
-      )}" result="${isFalse ? "false" : "true"}" />`;
+      clipResultsOut += `<clipResult index="${xmlEsc(idx)}" result="${forceMode ? resStr : (isFalse ? "false" : "true")}" />`;
     }
   }
 
-  // Overall workingResult result reflects any child failure
-  const workingResultOverall = markedFalse ? "false" : "true";
+  const overall = forceMode ? resStr : (markedFalse ? "false" : "true");
 
   const xml =
     `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="${VC_NS_V01}">` +
-    `<header>` +
-    `<requestID>${xmlEsc(requestID)}</requestID>` +
-    `<sourceHost>` +
-    `<hostname>${xmlEsc(device)}</hostname>` +
-    `<ipAddress>${xmlEsc(sourceIp)}</ipAddress>` +
-    `<macAddress>${xmlEsc(sourceMac)}</macAddress>` +
-    `</sourceHost>` +
-    `<targetHost>` +
-    `<hostname>${xmlEsc(srcHostname_prev)}</hostname>` +
-    `</targetHost>` +
-    `</header>` +
-    `<body>` +
-    `<visualControl>` +
-    `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(
-      intksk
-    )}" scanned="${xmlEsc(scanned)}" result="${xmlEsc(
-      workingResultOverall
-    )}" resultTime="${xmlEsc(resultTime)}">` +
-    (segCount
-      ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>`
-      : ``) +
-    (clipCount
-      ? `<componentResult><clipResultList count="${clipCount}">${clipResultsOut}</clipResultList></componentResult>`
-      : ``) +
-    `</workingResult>` +
-    `</visualControl>` +
-    `</body>` +
+      `<header>` +
+        `<requestID>${xmlEsc(requestID)}</requestID>` +
+        `<sourceHost><hostname>${xmlEsc(device)}</hostname><ipAddress>${xmlEsc(overrides?.sourceIp || pickIpAndMac().ip)}</ipAddress><macAddress>${xmlEsc(overrides?.sourceMac || pickIpAndMac().mac)}</macAddress></sourceHost>` +
+        `<targetHost><hostname>${xmlEsc(srcHostname_prev)}</hostname></targetHost>` +
+      `</header>` +
+      `<body><visualControl>` +
+        `<workingResult device="${xmlEsc(device)}" intksk="${xmlEsc(intksk)}" scanned="${xmlEsc(scanned)}" result="${overall}" resultTime="${xmlEsc(resultTime)}">` +
+          (segCount ? `<sequencerResult><segmentResultList count="${segCount}">${segmentsOut}</segmentResultList></sequencerResult>` : ``) +
+          (clipCount ? `<componentResult><clipResultList count="${clipCount}">${clipResultsOut}</clipResultList></componentResult>` : ``) +
+        `</workingResult>` +
+      `</visualControl></body>` +
     `</krosy>`;
 
-  return {
-    xml,
-    meta: {
-      requestID,
-      device,
-      intksk,
-      scanned,
-      resultTime,
-      toHost: srcHostname_prev,
-    },
-  };
+  return { xml, meta: { requestID, device, intksk, scanned, resultTime, toHost: srcHostname_prev } };
 }
+
 
 /* ===== Handlers ===== */
 export async function OPTIONS(req: NextRequest) {
@@ -434,22 +421,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/**
- * POST JSON:
- * {
- *   // Either provide workingData directly:
- *   workingDataXml?: "<krosy ...><workingData ...>...</workingData></krosy>",
- *
- *   // Or request+derive:
- *   intksk?: "830569527900",
- *   requestID?: "1",
- *   sourceHostname?: "ksskkfb01",
- *   targetHostName?: "kssksun01",
- *
- *   // TCP connect target
- *   targetAddress?: "172.26.192.1:10080"
- * }
- */
+
 export async function POST(req: NextRequest) {
   const accept = req.headers.get("accept") || "application/json";
   const body = (await req.json().catch(() => ({}))) as any;
@@ -459,11 +431,35 @@ export async function POST(req: NextRequest) {
 
   const stamp = nowStamp();
   const reqId = String(body.requestID || Date.now());
-  const base = path.join(LOG_DIR, `${stamp}_${reqId}`);
+  const cur = new Date();
+  const yyyy = cur.getUTCFullYear();
+  const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(cur.getUTCDate()).padStart(2, '0');
+  const hh = String(cur.getUTCHours()).padStart(2, '0');
+  const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+  const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+  const month = `${yyyy}-${mm}`;
+  let idSan = (String((body as any)?.intksk || '')).replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || '';
+  if (!idSan && typeof (body as any)?.workingDataXml === 'string') {
+    const xml = String((body as any).workingDataXml);
+    try {
+      const m1 = xml.match(/<workingData\b[^>]*\bintksk=\"([^\"]+)\"/i);
+      const m2 = xml.match(/\bksknr=\"(\d{6,})\"/i);
+      idSan = (m1?.[1] || m2?.[1] || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || '';
+    } catch {}
+  }
+  if (!idSan) idSan = 'no-intksk';
+  const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+  const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${reqId}`);
 
   let workingDataXml: string | null = body.workingDataXml || null;
   const startedAll = Date.now();
 
+// normalize "forceResult" from body (available everywhere in POST)
+const bodyForceRaw = String(body.forceResult ?? "").trim().toLowerCase();
+const bodyForce: boolean | null =
+  ["ok","true","1","yes"].includes(bodyForceRaw)  ? true  :
+  ["nok","false","0","no"].includes(bodyForceRaw) ? false : null;
   // If no workingData provided, perform request leg to obtain it
   if (!workingDataXml) {
     const intksk = String(body.intksk || "830569527900");
@@ -552,27 +548,23 @@ export async function POST(req: NextRequest) {
   }
 
   // Build workingResult from workingData and send checkpoint
-  let resultXml: string;
-  let meta: any;
-  try {
-    const built = apikingResultFromWorkingData(workingDataXml!, { requestID: reqId });
-    resultXml = built.xml;
-    meta = built.meta;
-  } catch (e: any) {
-    await writeLog(
-      base,
-      "2_error.build.json",
-      JSON.stringify({ error: e?.message || String(e) }, null, 2)
-    );
-    return new Response(
-      JSON.stringify(
-        { ok: false, phase: "apikingResult", error: e?.message || String(e) },
-        null,
-        2
-      ),
-      { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } }
-    );
-  }
+
+  // Build workingResult from workingData and send checkpoint
+let resultXml: string;
+let meta: any;
+try {
+  const built = apikingResultFromWorkingData(
+    workingDataXml!,
+    { requestID: reqId },
+    { forceResult: bodyForce ?? FORCE_RESULT }  // <-- pass it here
+  );
+  resultXml = built.xml;
+  meta = built.meta;
+} catch (e: any) {
+  await writeLog(base, "2_error.build.json", JSON.stringify({ error: e?.message || String(e) }, null, 2));
+  return new Response(JSON.stringify({ ok: false, phase: "apikingResult", error: e?.message || String(e) }, null, 2),
+    { status: 400, headers: { "Content-Type": "application/json", ...cors(req) } });
+}
 
   const prettyResultReq = prettyXml(resultXml);
   const t2 = Date.now();
@@ -620,6 +612,8 @@ export async function POST(req: NextRequest) {
       )
     ),
   ]);
+  try { await pruneOldLogs(LOG_DIR, 31); } catch {}
+    await pruneOldLogs(LOG_DIR, 31);
 
   if (
     (accept.includes("xml") || accept === "*/*") &&
@@ -631,6 +625,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
         "X-Krosy-Used-Url": resOut.used,
+        "X-Krosy-Log-Path": base,
         ...cors(req),
       },
     });
@@ -657,6 +652,7 @@ export async function POST(req: NextRequest) {
       headers: {
         "Content-Type": "application/json",
         "X-Krosy-Used-Url": resOut.used,
+        "X-Krosy-Log-Path": base,
         ...cors(req),
       },
     }

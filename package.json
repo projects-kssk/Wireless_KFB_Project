@@ -32,7 +32,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "start": "npx electron .",
     "type-check": "tsc --noEmit",
-    "lint": "eslint \"src/**/*.+(ts|js|tsx)\" --fix",
+    "lint": "eslint . --ext .ts,.tsx,.js --fix",
     "format": "prettier . --write",
     "postinstall": "npx electron-builder install-app-deps",
     "logs:monitor": "LOG_MONITOR_ONLY=1 LOG_MONITOR_START_ONLY=1 LOG_LEVEL=info next dev",

@@ -138,7 +138,7 @@ const MainApplicationUI: React.FC = () => {
   const itemsAllFromAliasesRef = useRef<Array<{ ksk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
   const lastGroupsRef = useRef<Array<{ ksk: string; branches: BranchDisplayData[] }>>([]);
   useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
-
+const finalizeOkGuardRef = useRef<Set<string>>(new Set());
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -300,44 +300,12 @@ useEffect(() => {
   const matches = !evMac || evMac === ZERO || evMac === current;
 
   if ((kind === 'RESULT' || kind === 'DONE') && ok && matches) {
+    // Mark all branches OK, stop scanning/checking, flash OK, and only close the overlay.
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
-    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+    setCheckFailures([]);
+    setIsChecking(false);
+    setIsScanning(false);
     setOkFlashTick(t => t + 1);   // triggers child OK animation
-    // Send checkpoint when live event indicates success and live mode is on
-    try {
-      const mac = (macAddress || '').toUpperCase();
-      if (mac) {
-        (async () => {
-          try {
-            const hasSetup = await hasSetupDataForMac(mac);
-            if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac)) {
-              await sendCheckpointForMac(mac);
-              try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
-            } else {
-              try { setOkSystemNote('Cache cleared'); } catch {}
-            }
-          } catch {}
-          // Clear Redis aliases for this MAC regardless
-          try {
-            await fetch('/api/aliases/clear', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac })
-            });
-          } catch {}
-          // Also clear any KSK locks for this MAC across stations (force), include stationId if known
-          try {
-            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            await fetch('/api/ksk-lock', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
-            });
-          } catch {}
-        })();
-      }
-    } catch {}
-    scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
   }
 }, [serial.lastEvTick, macAddress]);
@@ -590,7 +558,33 @@ useEffect(() => {
 
 
 
-
+const finalizeOkForMac = useCallback(async (rawMac: string) => {
+  const mac = String(rawMac || '').toUpperCase();
+  if (!mac) return;
+  if (finalizeOkGuardRef.current.has(mac)) return;
+  finalizeOkGuardRef.current.add(mac);
+  try {
+    const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+    if (hasSetup && krosyLive) {
+      await sendCheckpointForMac(mac).catch(() => {});
+      try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+    } else {
+      try { setOkSystemNote('Cache cleared'); } catch {}
+    }
+    await fetch('/api/aliases/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac })
+    }).catch(() => {});
+    const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+    await fetch('/api/ksk-lock', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+    }).catch(() => {});
+  } finally {
+    setOverlay(o => ({ ...o, open: false }));
+    scheduleOkReset(); // keep your existing reset
+  }
+}, [krosyLive, sendCheckpointForMac]);
 
 
   // Narrowing guard
@@ -1534,24 +1528,32 @@ useEffect(() => {
           </>
         ) : (
           <>
-            <m.div
-              variants={heading}
-              style={{
-                fontSize: 128,
-                fontWeight: 900,
-                letterSpacing: '0.02em',
-                color: KIND_STYLES[overlay.kind],
-                textShadow: '0 8px 24px rgba(0,0,0,0.45)',
-                fontFamily:
-                  overlay.kind === 'scanning'
-                    ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                    : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-              }}
-            >
-              {overlay.kind === 'scanning' && overlay.code
-                ? overlay.code // show MAC big
-                : overlay.kind.toUpperCase()}
-            </m.div>
+            {(() => {
+              const isScanningWithCode = overlay.kind === 'scanning' && !!overlay.code;
+              const isErrorWithCode = overlay.kind === 'error' && !!overlay.code;
+              const bigText = (isScanningWithCode || isErrorWithCode)
+                ? overlay.code
+                : overlay.kind.toUpperCase();
+              return (
+                <m.div
+                  variants={heading}
+                  style={{
+                    fontSize: 136,
+                    fontWeight: 900,
+                    letterSpacing: '0.02em',
+                    color: KIND_STYLES[overlay.kind],
+                    textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                    textAlign: 'center',
+                    fontFamily:
+                      (overlay.kind === 'scanning')
+                        ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                        : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+                  }}
+                >
+                  {bigText}
+                </m.div>
+              );
+            })()}
 
             {overlay.kind === 'scanning' && overlay.code ? (
               <m.div
@@ -1561,6 +1563,20 @@ useEffect(() => {
                 style={{ fontSize: 18, color: '#f1f5f9', opacity: 0.95 }}
               >
                 SCANNING…
+              </m.div>
+            ) : overlay.kind === 'error' && overlay.code ? (
+              <m.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: reduce ? 0 : 0.05 }}
+                style={{
+                  fontSize: 18,
+                  color: '#f1f5f9',
+                  opacity: 0.95,
+                  textAlign: 'center',
+                }}
+              >
+                ERROR
               </m.div>
             ) : overlay.code ? (
               <m.div

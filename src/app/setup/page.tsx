@@ -569,6 +569,22 @@ export default function SetupPage() {
     }
   };
 
+  // Tiny, safe caller for aliases clear: POST with JSON body { mac }
+  const clearAliasesForMac = useCallback(async (macRaw: string): Promise<{ ok: boolean; status: number }> => {
+    const mac = String(macRaw || '').toUpperCase().trim();
+    if (!mac) return { ok: false, status: 400 };
+    try {
+      const res = await fetch('/api/aliases/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac }),
+      });
+      return { ok: res.ok, status: res.status };
+    } catch {
+      return { ok: false, status: 0 };
+    }
+  }, []);
+
   const [krosyLive, setKrosyLive] = useState<boolean | null>(null);
   const sendKsskToOffline = useCallback(async (ksskDigits: string): Promise<OfflineResp> => {
     // Decide endpoint at call time based on detected live flag (state → window → env)

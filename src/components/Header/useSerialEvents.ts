@@ -15,7 +15,7 @@ type SerialEvent =
   | { type: "devices"; devices: DeviceInfo[] }
   | { type: "esp"; ok: boolean; raw?: string; error?: string; present?: boolean }
   | { type: "net"; iface: string; present: boolean; up: boolean; ip?: string | null; oper?: string | null }
-  | { type: "redis"; ready: boolean }
+  | { type: "redis"; ready: boolean; status?: string; detail?: { status?: string; lastEvent?: string; lastError?: string | null; lastAt?: number } }
   | { type: "scan"; code: string; path?: string }
   | { type: "scanner/open"; path?: string }
   | { type: "scanner/close"; path?: string }
@@ -50,6 +50,7 @@ export function useSerialEvents(macFilter?: string) {
   const [paths, setPaths] = useState<string[]>([]);
   const [ports, setPorts] = useState<Record<string, ScannerPortState>>({});
   const [redisReady, setRedisReady] = useState<boolean>(false);
+  const [redisDetail, setRedisDetail] = useState<{ status?: string; lastEvent?: string; lastError?: string | null; lastAt?: number } | null>(null);
   const [lastEv, setLastEv] = useState<any>(null);
   const [lastEvTick, setLastEvTick] = useState(0);
   const [evCount, setEvCount] = useState(0);
@@ -198,6 +199,7 @@ export function useSerialEvents(macFilter?: string) {
           redisOkRef.current = ready;
           setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           setRedisReady(ready);
+          try { setRedisDetail((msg as any).detail ?? { status: (msg as any).status }); } catch {}
           break;
         }
 
@@ -327,6 +329,7 @@ export function useSerialEvents(macFilter?: string) {
 
     // connection indicators
     redisReady,
+    redisDetail,
 
     // hub events
     lastEv,

@@ -174,6 +174,38 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     isCheckingRef.current = isChecking;
   }, [isChecking]);
+
+  // Helper: compute active pins strictly from items for the currently active KSK ids
+  const computeActivePins = useCallback(
+    (
+      items: Array<{ ksk?: string; kssk?: string; normalPins?: number[]; latchPins?: number[] }> | undefined,
+      activeIds: string[] | undefined
+    ): { normal: number[]; latch: number[] } => {
+      const ids = new Set((activeIds || []).map((s) => String(s).trim()));
+      const n = new Set<number>();
+      const l = new Set<number>();
+      if (Array.isArray(items) && ids.size) {
+        for (const it of items) {
+          const id = String(((it as any)?.ksk ?? (it as any)?.kssk) || '').trim();
+          if (!id || !ids.has(id)) continue;
+          if (Array.isArray(it.normalPins))
+            for (const p of it.normalPins) {
+              const x = Number(p);
+              if (Number.isFinite(x) && x > 0) n.add(x);
+            }
+          if (Array.isArray(it.latchPins))
+            for (const p of it.latchPins) {
+              const x = Number(p);
+              if (Number.isFinite(x) && x > 0) l.add(x);
+            }
+        }
+      }
+      const norm = Array.from(n).sort((a, b) => a - b);
+      const lat = Array.from(l).sort((a, b) => a - b);
+      return { normal: norm, latch: lat };
+    },
+    []
+  );
   // Simplified flow: no UI polling; show OK for a few seconds, then hide
   const [awaitingRelease, setAwaitingRelease] = useState(false); // deprecated
   const [showRemoveCable, setShowRemoveCable] = useState(false); // deprecated
@@ -285,7 +317,7 @@ const MainApplicationUI: React.FC = () => {
     }
   };
   const scanOverlayTimerRef = useRef<number | null>(null);
-  const startScanOverlayTimeout = (ms = 5000) => {
+  const startScanOverlayTimeout = (ms = Math.max(1000, Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? '3000'))) => {
     if (scanOverlayTimerRef.current != null) {
       try {
         clearTimeout(scanOverlayTimerRef.current);
@@ -332,12 +364,30 @@ const MainApplicationUI: React.FC = () => {
           if (target && !(macAddress && macAddress.trim())) {
             (async () => {
               try {
+                // Send checkpoint for all KSKs before clearing Redis
+                try {
+                  const r = await fetch(`/api/aliases?mac=${encodeURIComponent(target)}&all=1`, { cache: 'no-store' });
+                  if (r.ok) {
+                    const j = await r.json();
+                    const items: any[] = Array.isArray(j?.items) ? j.items : [];
+                    const ids = Array.from(new Set(items
+                      .map((it: any) => String(((it?.ksk ?? it?.kssk) || '')).trim())
+                      .filter(Boolean)));
+                    if (ids.length) {
+                      try { console.log('[FLOW][CHECKPOINT] STOP path: sending for all ids', { mac: target, count: ids.length }); } catch {}
+                      await sendCheckpointForMac(target, ids).catch(() => {});
+                    } else {
+                      try { console.log('[FLOW][CHECKPOINT] STOP path: no ids found; skipping'); } catch {}
+                    }
+                  }
+                } catch {}
                 await fetch('/api/aliases/clear', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ mac: target }),
                 }).catch(() => {});
                 await clearKskLocksFully(target).catch(() => {});
+                try { console.log('[CLEANUP] Done for MAC', { mac: target }); } catch {}
               } finally {
                 lastLiveMacRef.current = null;
               }
@@ -395,29 +445,27 @@ const MainApplicationUI: React.FC = () => {
       const prev = prevRedisReadyRef.current;
       prevRedisReadyRef.current = ready;
       if (prev === null) return; // first sample
-      // Debounce drops: require it to stay false for ~1.5s
+      // Debounce drops: configurable and faster by default
+      const DEBOUNCE_MS = Math.max(300, Number(process.env.NEXT_PUBLIC_REDIS_DROP_DEBOUNCE_MS ?? '900'));
       if (prev === true && ready === false) {
         if (redisDropTimerRef.current == null) {
           lastRedisDropAtRef.current = Date.now();
-          console.warn(
-            "[REDIS] redisReady dropped → scheduling degraded-mode check (1500ms)"
-          );
+          const detail = (serial as any).redisDetail || {};
+          console.warn('[REDIS] redisReady dropped', { debounceMs: DEBOUNCE_MS, detail });
           redisDropTimerRef.current = window.setTimeout(() => {
             redisDropTimerRef.current = null;
             if (!redisReadyRef.current) {
               const ms = lastRedisDropAtRef.current
                 ? Date.now() - lastRedisDropAtRef.current
                 : undefined;
-              console.warn("[REDIS] degraded mode ON (redisReady=false)", {
-                waitedMs: ms,
-              });
+              console.warn('[REDIS] degraded mode ON (redisReady=false)', { waitedMs: ms, lastEvent: (serial as any).redisDetail?.lastEvent, lastError: (serial as any).redisDetail?.lastError });
               setRedisDegraded(true);
             } else {
               console.log(
                 "[REDIS] recovered before debounce window; staying normal"
               );
             }
-          }, 1500);
+          }, DEBOUNCE_MS);
         }
       }
       // Recovery: clear any pending timer, log recovery
@@ -432,9 +480,7 @@ const MainApplicationUI: React.FC = () => {
           ? Date.now() - lastRedisDropAtRef.current
           : undefined;
         lastRedisDropAtRef.current = null;
-        console.log("[REDIS] redisReady back to true (degraded OFF)", {
-          downMs: msDown,
-        });
+        console.log('[REDIS] redisReady back to true (degraded OFF)', { downMs: msDown, lastEvent: (serial as any).redisDetail?.lastEvent });
         setRedisDegraded(false);
       }
     } catch {}
@@ -469,11 +515,16 @@ const MainApplicationUI: React.FC = () => {
         latchPins: lp,
         names: nm,
       });
-      if (Array.isArray(u.normalPins)) setNormalPins(u.normalPins);
-      if (Array.isArray(u.latchPins)) setLatchPins(u.latchPins);
+      // IMPORTANT: restrict pins to currently active KSKs (stations locks)
+      const actIds = (lastActiveIdsRef.current && lastActiveIdsRef.current.length)
+        ? lastActiveIdsRef.current
+        : activeKssks;
+      const fromItems = computeActivePins(itemsAllFromAliasesRef.current as any, actIds);
+      setNormalPins(fromItems.normal);
+      setLatchPins(fromItems.latch);
       if (u.names && typeof u.names === "object") setNameHints(u.names as any);
     } catch {}
-  }, [serial.lastUnion, macAddress, redisDegraded, suppressLive]);
+  }, [serial.lastUnion, macAddress, redisDegraded, suppressLive, activeKssks, computeActivePins]);
 
   // On recovery from degraded mode, rehydrate and refresh union for current MAC
   useEffect(() => {
@@ -794,6 +845,9 @@ const MainApplicationUI: React.FC = () => {
       if (checkpointMacPendingRef.current.has(MAC)) return; // NEW
       checkpointMacPendingRef.current.add(MAC); // NEW
       try {
+        try {
+          console.log('[FLOW][CHECKPOINT] preparing', { mac: MAC, onlyIds: onlyIds && onlyIds.length ? onlyIds : undefined });
+        } catch {}
         const rList = await fetch(
           `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
           { cache: "no-store" }
@@ -808,7 +862,11 @@ const MainApplicationUI: React.FC = () => {
         if (onlyIds && onlyIds.length) {
           const want = new Set(onlyIds.map((s) => s.toUpperCase()));
           ids = ids.filter((id) => want.has(id.toUpperCase()));
-          if (ids.length === 0 && items.length) ids = [ids[0]]; // fallback: first
+          if (ids.length === 0 && items.length) {
+            // fallback to first discovered id
+            const firstId = String((((items[0] as any)?.ksk ?? (items[0] as any)?.kssk) ?? '')).trim();
+            ids = [firstId].filter(Boolean) as string[];
+          }
         } else if (ids.length > 1) {
           ids = [ids[0]]; // simplest: only first when no active list
         }
@@ -834,6 +892,8 @@ const MainApplicationUI: React.FC = () => {
                   sourceHostname: KROSY_SOURCE,
                   targetHostName: KROSY_TARGET,
                 };
+          // Force an OK result so checkpoint logs reflect success
+          (payload as any).forceResult = true;
 
           try {
             const resp = await fetch(CHECKPOINT_URL, {
@@ -855,6 +915,9 @@ const MainApplicationUI: React.FC = () => {
             } else {
               checkpointSentRef.current.add(id);
               sent = true;
+              try {
+                console.log('[FLOW][CHECKPOINT] sent OK checkpoint', { mac: MAC, ksk: id });
+              } catch {}
             }
           } catch (e) {
             // Network error — enable backoff briefly
@@ -925,14 +988,19 @@ const MainApplicationUI: React.FC = () => {
         // Remember this MAC for a post-reset sanity cleanup
         try { lastFinalizedMacRef.current = mac; } catch {}
 
-        // If we have setup data for this MAC and Krosy is live, send a checkpoint
+        // If we have setup data for this MAC, send a checkpoint even in offline mode
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
-        if (hasSetup && krosyLive) {
-          await sendCheckpointForMac(mac, lastActiveIdsRef.current).catch(
+        if (hasSetup) {
+          const ids = (lastActiveIdsRef.current && lastActiveIdsRef.current.length)
+            ? lastActiveIdsRef.current
+            : (activeKssks || []);
+          try { console.log('[FLOW][CHECKPOINT] finalising with ids', ids); } catch {}
+          await sendCheckpointForMac(mac, ids).catch(
             () => {}
           );
           setOkSystemNote("Checkpoint sent; cache cleared");
         } else {
+          try { console.log('[FLOW][CHECKPOINT] skip (no setup data found for MAC)'); } catch {}
           setOkSystemNote("Cache cleared");
         }
 
@@ -1152,6 +1220,7 @@ const MainApplicationUI: React.FC = () => {
           attempt,
           pinsCount: pins?.length || 0,
         });
+        try { console.log('[FLOW] State → checking'); } catch {}
         const clientBudget = Number(
           process.env.NEXT_PUBLIC_CHECK_CLIENT_TIMEOUT_MS ?? "5000"
         );
@@ -1298,23 +1367,36 @@ const MainApplicationUI: React.FC = () => {
                 kfbInfoValue: undefined,
                 isLatch: contactless.has(pin),
               }));
-              const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
-                ? ((result as any).itemsActive as Array<{
-                    ksk?: string;
-                    kssk?: string;
-                    aliases: Record<string, string>;
-                    latchPins?: number[];
-                  }>)
-                : [];
-              let itemsAllArr = Array.isArray((result as any)?.items)
-                ? ((result as any).items as Array<{
-                    ksk?: string;
-                    kssk?: string;
-                    aliases: Record<string, string>;
-                    normalPins?: number[];
-                    latchPins?: number[];
-                  }>)
-                : [];
+          const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
+            ? ((result as any).itemsActive as Array<{
+                ksk?: string;
+                kssk?: string;
+                aliases: Record<string, string>;
+                latchPins?: number[];
+              }>)
+            : [];
+          let itemsAllArr = Array.isArray((result as any)?.items)
+            ? ((result as any).items as Array<{
+                ksk?: string;
+                kssk?: string;
+                aliases: Record<string, string>;
+                normalPins?: number[];
+                latchPins?: number[];
+              }>)
+            : [];
+          // Restrict to currently active KSK ids when available
+          const activeSet = new Set<string>((activeKssks || []).map((s) => String(s).trim()))
+          const filt = (arr: any[]) =>
+            activeSet.size
+              ? arr.filter((it) => activeSet.has(String(((it as any).ksk ?? (it as any).kssk) || '').trim()))
+              : arr;
+          const itemsActiveArrF = filt(itemsActiveArr);
+          const itemsAllArrF = filt(itemsAllArr);
+          // If there are no active KSKs, avoid showing any passed groups or unions
+          if (activeSet.size === 0) {
+            setGroupedBranches([]);
+            setActiveKssks([]);
+          }
               const byIdMap = new Map<
                 string,
                 {
@@ -1324,7 +1406,7 @@ const MainApplicationUI: React.FC = () => {
                   latchPins?: number[];
                 }
               >();
-              for (const it of [...itemsAllArr, ...itemsActiveArr]) {
+              for (const it of [...itemsAllArrF, ...itemsActiveArrF]) {
                 const id = String(
                   ((it as any).ksk ?? (it as any).kssk) || ""
                 ).trim();
@@ -1358,11 +1440,8 @@ const MainApplicationUI: React.FC = () => {
                 }> = [];
                 for (const it of items) {
                   const a = it.aliases || {};
+                  // Strictly use explicit active pin arrays
                   const set = new Set<number>();
-                  for (const k of Object.keys(a)) {
-                    const n = Number(k);
-                    if (Number.isFinite(n) && n > 0) set.add(n);
-                  }
                   if (Array.isArray((it as any)?.normalPins))
                     for (const n of (it as any).normalPins) {
                       const x = Number(n);
@@ -1381,24 +1460,24 @@ const MainApplicationUI: React.FC = () => {
                       : latchPins || []
                     ).filter((n: number) => Number.isFinite(n)) as number[]
                   );
-                  const branchesG = pinsG.map(
-                    (pin) =>
-                      ({
-                        id: `${it.ksk}:${pin}`,
-                        branchName:
-                          a[String(pin)] ||
-                          aliases[String(pin)] ||
-                          `PIN ${pin}`,
-                        testStatus: failures.includes(pin)
-                          ? ("nok" as TestStatus)
-                          : contactless.has(pin)
-                            ? ("not_tested" as TestStatus)
-                            : ("ok" as TestStatus),
-                        pinNumber: pin,
-                        kfbInfoValue: undefined,
-                        isLatch: contactless.has(pin),
-                      }) as BranchDisplayData
-                  );
+                  const branchesG = pinsG.map((pin) => {
+                    const nameRaw = a[String(pin)] || aliases[String(pin)] || '';
+                    const name = String(nameRaw || '').startsWith('CL_')
+                      ? String(nameRaw)
+                      : `PIN ${pin}`;
+                    return {
+                      id: `${it.ksk}:${pin}`,
+                      branchName: name,
+                      testStatus: failures.includes(pin)
+                        ? ("nok" as TestStatus)
+                        : contactless.has(pin)
+                          ? ("not_tested" as TestStatus)
+                          : ("ok" as TestStatus),
+                      pinNumber: pin,
+                      kfbInfoValue: undefined,
+                      isLatch: contactless.has(pin),
+                    } as BranchDisplayData;
+                  });
                   groupsRaw.push({
                     ksk: String(((it as any).ksk ?? (it as any).kssk) || ""),
                     branches: branchesG,
@@ -1660,6 +1739,7 @@ const MainApplicationUI: React.FC = () => {
       cancelOkReset();
       setOkFlashTick(0);
       setDisableOkAnimation(false);
+      try { console.log('[FLOW] State → scanning'); } catch {}
       const kfbRaw = (value ?? kfbInputRef.current).trim();
       if (!kfbRaw) return;
       const normalized = kfbRaw.toUpperCase();
@@ -1689,6 +1769,7 @@ const MainApplicationUI: React.FC = () => {
         setShowScanUi(true);
       }
       setIsScanning(true);
+      try { console.log('[FLOW] State → scanning'); } catch {}
       setErrorMsg(null);
       setKfbInfo(null);
       setCheckFailures(null);
@@ -1734,6 +1815,28 @@ const MainApplicationUI: React.FC = () => {
         let aliases: Record<string, string> = {};
         let hadGroups = false;
         let pins: number[] = [];
+        // Determine the currently active KSK ids for this MAC from Redis locks
+        let activeIds: string[] = await (async () => {
+          try {
+            const r = await fetch('/api/ksk-lock', { cache: 'no-store' });
+            if (!r.ok) return [] as string[];
+            const j = await r.json();
+            const rows: Array<{ ksk?: string; kssk?: string; mac?: string }> = Array.isArray(j?.locks) ? j.locks : [];
+            const MAC = mac.toUpperCase();
+            const list = rows
+              .filter((l) => String(l?.mac || '').toUpperCase() === MAC)
+              .map((l) => String((l as any).ksk ?? (l as any).kssk).trim())
+              .filter(Boolean);
+            const uniq = Array.from(new Set(list));
+            try { console.log('[ACTIVE] KSK ids from locks', { mac: MAC, ids: uniq }); } catch {}
+            return uniq;
+          } catch {
+            return [] as string[];
+          }
+        })();
+        // Respect per-MAC max three; if more leak in, keep first three deterministically
+        if (activeIds.length > 3) activeIds = activeIds.slice(0, 3);
+        if (activeIds.length) setActiveKssks(activeIds);
         {
           try {
             try {
@@ -1764,19 +1867,21 @@ const MainApplicationUI: React.FC = () => {
                 itemsAllFromAliasesRef.current = items as any;
               } catch {}
 
-              if (items.length) {
+              // Filter items strictly to currently active KSK ids; when none, treat as none
+              const itemsFiltered = activeIds.length
+                ? items.filter((it: any) => activeIds.includes(String((it.ksk ?? it.kssk) || '').trim()))
+                : [];
+
+              if (itemsFiltered.length) {
                 try {
                   console.log("[FLOW][LOAD] aliases snapshot items", {
-                    count: items.length,
+                    count: itemsFiltered.length,
                   });
                 } catch {}
-                const groupsRaw = items.map((it: any) => {
+                const groupsRaw = itemsFiltered.map((it: any) => {
                   const a = it.aliases || {};
+                  // Strictly use explicit active pin arrays (normal + latch)
                   const set = new Set<number>();
-                  for (const k of Object.keys(a)) {
-                    const n = Number(k);
-                    if (Number.isFinite(n) && n > 0) set.add(n);
-                  }
                   if (Array.isArray(it.normalPins))
                     for (const n of it.normalPins) {
                       const x = Number(n);
@@ -1791,14 +1896,19 @@ const MainApplicationUI: React.FC = () => {
                   const idStr = String(
                     ((it as any).ksk ?? (it as any).kssk) || ""
                   );
-                  const branches = pins.map((pin) => ({
-                    id: `${idStr}:${pin}`,
-                    branchName:
-                      a[String(pin)] || aliases[String(pin)] || `PIN ${pin}`,
-                    testStatus: "not_tested" as TestStatus,
-                    pinNumber: pin,
-                    kfbInfoValue: undefined,
-                  }));
+                  const branches = pins.map((pin) => {
+                    const nameRaw = a[String(pin)] || aliases[String(pin)] || '';
+                    const name = String(nameRaw || '').startsWith('CL_')
+                      ? String(nameRaw)
+                      : `PIN ${pin}`;
+                    return {
+                      id: `${idStr}:${pin}`,
+                      branchName: name,
+                      testStatus: "not_tested" as TestStatus,
+                      pinNumber: pin,
+                      kfbInfoValue: undefined,
+                    } as BranchDisplayData;
+                  });
                   return { ksk: idStr, branches };
                 });
                 const byId = new Map<string, BranchDisplayData[]>();
@@ -1821,7 +1931,7 @@ const MainApplicationUI: React.FC = () => {
                   .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
                   .map(([k, branches]) => ({ ksk: k, branches }));
                 setGroupedBranches(groups);
-                setActiveKssks(groups.map((g) => g.ksk).filter(Boolean));
+                // Do NOT derive active ids from aliases; only trust locks
                 hadGroups = groups.length > 0;
                 try {
                   console.log("[FLOW][LOAD] groupedBranches built", {
@@ -1834,15 +1944,7 @@ const MainApplicationUI: React.FC = () => {
               }
 
               const pinSet = new Set<number>();
-              for (const it of items) {
-                const a =
-                  it.aliases && typeof it.aliases === "object"
-                    ? it.aliases
-                    : {};
-                for (const k of Object.keys(a)) {
-                  const n = Number(k);
-                  if (Number.isFinite(n) && n > 0) pinSet.add(n);
-                }
+              for (const it of itemsFiltered) {
                 if (Array.isArray(it.normalPins))
                   for (const n of it.normalPins)
                     if (Number.isFinite(n) && n > 0) pinSet.add(Number(n));
@@ -1852,50 +1954,38 @@ const MainApplicationUI: React.FC = () => {
               }
               if (pinSet.size && pins.length === 0)
                 pins = Array.from(pinSet).sort((x, y) => x - y);
-              try {
-                console.log("[FLOW][LOAD] GET union /api/aliases", { mac });
-                const rUnion = await fetch(
-                  `/api/aliases?mac=${encodeURIComponent(mac)}`,
-                  { cache: "no-store" }
-                );
-                if (rUnion.ok) {
-                  const jU = await rUnion.json();
-                  const aU =
-                    jU?.aliases && typeof jU.aliases === "object"
-                      ? (jU.aliases as Record<string, string>)
-                      : {};
-                  if (Object.keys(aU).length) {
-                    aliases = aU;
+              // Do not include global union when no active KSKs; only trust active maps
+              if (activeIds.length) {
+                try {
+                  console.log("[FLOW][LOAD] GET union /api/aliases", { mac });
+                  const rUnion = await fetch(
+                    `/api/aliases?mac=${encodeURIComponent(mac)}`,
+                    { cache: "no-store" }
+                  );
+                  if (rUnion.ok) {
+                    const jU = await rUnion.json();
+                    const aU =
+                      jU?.aliases && typeof jU.aliases === "object"
+                        ? (jU.aliases as Record<string, string>)
+                        : {};
+                    if (Object.keys(aU).length) {
+                      aliases = aU;
+                    }
+                    try {
+                      // Restrict pins strictly to active KSKs
+                      const filtered = computeActivePins(itemsFiltered as any, activeIds);
+                      setNormalPins(filtered.normal);
+                      setLatchPins(filtered.latch);
+                      pins = Array.from(new Set([...filtered.normal, ...filtered.latch])).sort((a, b) => a - b);
+                      console.log("[FLOW][LOAD] active pins (filtered)", {
+                        normalPins: filtered.normal.length,
+                        latchPins: filtered.latch.length,
+                        totalPins: pins.length,
+                      });
+                    } catch {}
                   }
-                  try {
-                    const n = Array.isArray(jU?.normalPins)
-                      ? (jU.normalPins as number[])
-                      : undefined;
-                    const l = Array.isArray(jU?.latchPins)
-                      ? (jU.latchPins as number[])
-                      : undefined;
-                    setNormalPins(n);
-                    setLatchPins(l);
-                    const acc = new Set<number>(pins);
-                    if (Array.isArray(n))
-                      for (const p of n) {
-                        const x = Number(p);
-                        if (Number.isFinite(x) && x > 0) acc.add(x);
-                      }
-                    if (Array.isArray(l))
-                      for (const p of l) {
-                        const x = Number(p);
-                        if (Number.isFinite(x) && x > 0) acc.add(x);
-                      }
-                    pins = Array.from(acc).sort((a, b) => a - b);
-                    console.log("[FLOW][LOAD] union pins merged", {
-                      normalPins: n?.length || 0,
-                      latchPins: l?.length || 0,
-                      totalPins: pins.length,
-                    });
-                  } catch {}
-                }
-              } catch {}
+                } catch {}
+              }
             }
           } catch {}
         }
@@ -1911,7 +2001,8 @@ const MainApplicationUI: React.FC = () => {
             });
           } catch {}
           clearScanOverlayTimeout();
-          showOverlay("error", "NOTHING TO CHECK HERE");
+          const reason = activeIds.length === 0 ? " (no active KSK lock for this MAC)" : "";
+          showOverlay("error", `NOTHING TO CHECK HERE${reason}`);
           hideOverlaySoon(600);
           setGroupedBranches([]);
           setActiveKssks([]);

@@ -268,6 +268,13 @@ const MainApplicationUI: React.FC = () => {
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
   const [suppressLive, setSuppressLive] = useState(false);
+  const zeroFeedLoggedRef = useRef(false);
+  useEffect(() => {
+    // Reset zero-feed log guard whenever a MAC becomes active again
+    if (macAddress && macAddress.trim()) {
+      zeroFeedLoggedRef.current = false;
+    }
+  }, [macAddress]);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => {
     if (retryTimerRef.current != null) {
@@ -299,7 +306,26 @@ const MainApplicationUI: React.FC = () => {
     }
   };
 
-  const serial = useSerialEvents((macAddress || "").toUpperCase() || undefined);
+  const serial = useSerialEvents(
+    suppressLive || !(macAddress && macAddress.trim())
+      ? "00:00:00:00:00:00"
+      : (macAddress || "").toUpperCase()
+  );
+
+  // Log when live stream starts/stops based on mac + suppression
+  const liveStateRef = useRef<string>("off");
+  useEffect(() => {
+    const hasMac = !!(macAddress && macAddress.trim());
+    const on = hasMac && !suppressLive && mainView === 'dashboard';
+    const next = on ? 'on' : 'off';
+    if (next !== liveStateRef.current) {
+      liveStateRef.current = next;
+      try {
+        if (on) console.log('[LIVE] START', { mac: (macAddress || '').toUpperCase() });
+        else console.log('[LIVE] STOP');
+      } catch {}
+    }
+  }, [macAddress, suppressLive, mainView]);
   const lastScan = serial.lastScan;
   const lastScanPath = (serial as any).lastScanPath as
     | string
@@ -606,71 +632,6 @@ const MainApplicationUI: React.FC = () => {
           setActiveKssks((prev) =>
             Array.from(new Set<string>([...prev, ...ids]))
           );
-          if (
-            !kfbNumber &&
-            groupedBranches.length === 0 &&
-            branchesData.length === 0
-          ) {
-            const groupsRaw = rows.map((it) => {
-              const a =
-                it && it.aliases && typeof it.aliases === "object"
-                  ? (it.aliases as Record<string, string>)
-                  : {};
-              const pinSet = new Set<number>();
-              for (const k of Object.keys(a)) {
-                const n = Number(k);
-                if (Number.isFinite(n) && n > 0) pinSet.add(n);
-              }
-              if (Array.isArray((it as any)?.normalPins))
-                for (const n of (it as any).normalPins) {
-                  const x = Number(n);
-                  if (Number.isFinite(x) && x > 0) pinSet.add(x);
-                }
-              if (Array.isArray((it as any)?.latchPins))
-                for (const n of (it as any).latchPins) {
-                  const x = Number(n);
-                  if (Number.isFinite(x) && x > 0) pinSet.add(x);
-                }
-              const pins = Array.from(pinSet).sort((a, b) => a - b);
-              const setLatch = new Set<number>(
-                ((it as any)?.latchPins || []) as number[]
-              );
-              const idStr = String(((it as any).ksk ?? (it as any).kssk) || "");
-              const branches = pins.map(
-                (pin) =>
-                  ({
-                    id: `${idStr}:${pin}`,
-                    branchName: a[String(pin)] || `PIN ${pin}`,
-                    testStatus: setLatch.has(pin)
-                      ? ("not_tested" as TestStatus)
-                      : ("not_tested" as TestStatus),
-                    pinNumber: pin,
-                    kfbInfoValue: undefined,
-                    isLatch: setLatch.has(pin),
-                  }) as BranchDisplayData
-              );
-              return { ksk: idStr, branches };
-            });
-            const byId = new Map<string, BranchDisplayData[]>();
-            for (const g of groupsRaw) {
-              const id = String(g.ksk).trim().toUpperCase();
-              const prev = byId.get(id) || [];
-              const merged = [...prev, ...g.branches];
-              const seen = new Set<number>();
-              const dedup = merged.filter((b) => {
-                const p = typeof b.pinNumber === "number" ? b.pinNumber : NaN;
-                if (!Number.isFinite(p)) return true;
-                if (seen.has(p)) return false;
-                seen.add(p);
-                return true;
-              });
-              byId.set(id, dedup);
-            }
-            const groups = Array.from(byId.entries())
-              .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-              .map(([k, branches]) => ({ ksk: k, branches }));
-            if (groups.length) setGroupedBranches(groups);
-          }
         }
       } catch {}
     };
@@ -794,12 +755,20 @@ const MainApplicationUI: React.FC = () => {
   const checkpointSentRef = useRef<Set<string>>(new Set());
   const checkpointMacSentRef = useRef<Set<string>>(new Set());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
+  const checkpointBlockUntilTsRef = useRef<number>(0);
   // Track last active KSK ids from CHECK
   const lastActiveIdsRef = useRef<string[]>([]);
 
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]) => {
       const MAC = mac.toUpperCase();
+      // Backoff if the checkpoint endpoint recently failed
+      if (Date.now() < (checkpointBlockUntilTsRef.current || 0)) {
+        try {
+          console.warn('[FLOW][CHECKPOINT] suppressed due to recent failure backoff');
+        } catch {}
+        return;
+      }
       if (checkpointMacSentRef.current.has(MAC)) return;
       if (checkpointMacPendingRef.current.has(MAC)) return; // NEW
       checkpointMacPendingRef.current.add(MAC); // NEW
@@ -845,16 +814,32 @@ const MainApplicationUI: React.FC = () => {
                   targetHostName: KROSY_TARGET,
                 };
 
-          await fetch(CHECKPOINT_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify(payload),
-          }).catch(() => {});
-          checkpointSentRef.current.add(id);
-          sent = true;
+          try {
+            const resp = await fetch(CHECKPOINT_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+              // Backoff on 5xx errors to avoid repeated noisy posts
+              if (resp.status >= 500) {
+                checkpointBlockUntilTsRef.current = Date.now() + 120_000; // 2 minutes
+                try {
+                  console.warn('[FLOW][CHECKPOINT] server error; enabling backoff', { status: resp.status });
+                } catch {}
+              }
+            } else {
+              checkpointSentRef.current.add(id);
+              sent = true;
+            }
+          } catch (e) {
+            // Network error — enable backoff briefly
+            checkpointBlockUntilTsRef.current = Date.now() + 60_000; // 1 minute
+            try { console.warn('[FLOW][CHECKPOINT] network error; backoff enabled'); } catch {}
+          }
         }
         if (sent) checkpointMacSentRef.current.add(MAC);
       } finally {
@@ -910,10 +895,14 @@ const MainApplicationUI: React.FC = () => {
         // Show the OK overlay and disable live updates
         setOverlay({ open: true, kind: "success", code: "" });
         setSuppressLive(true);
+        try { console.log('[LIVE] OFF → OK latched; suppressing live updates'); } catch {}
 
         // Drop any displayed identifiers to avoid stale "Live: on" badges
         setMacAddress("");
         setKfbNumber("");
+
+        // Remember this MAC for a post-reset sanity cleanup
+        try { lastFinalizedMacRef.current = mac; } catch {}
 
         // If we have setup data for this MAC and Krosy is live, send a checkpoint
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
@@ -963,6 +952,31 @@ const MainApplicationUI: React.FC = () => {
           await new Promise((res) => setTimeout(res, 250));
           locksCleared = await clearKskLocksFully(mac);
         }
+        // Fallback: if stationId is configured, also clear station-wide locks
+        try {
+          const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+          if (sid) {
+            await fetch('/api/ksk-lock', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ stationId: sid, mac, force: 1 }),
+            }).catch(() => {});
+          }
+        } catch {}
+
+        // Final verification loop: ensure aliases are empty
+        try {
+          const maxTry = 5;
+          for (let i = 0; i < maxTry; i++) {
+            const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' }).catch(() => null);
+            const ok = !!r && r.ok;
+            const j = ok ? await r!.json().catch(() => null) : null;
+            const items = Array.isArray(j?.items) ? j.items : [];
+            if (ok && items.length === 0) break;
+            await tryClearAliases();
+            await new Promise((res) => setTimeout(res, 300));
+          }
+        } catch {}
       } finally {
         // Always reset UI at the end
         finalizeOkGuardRef.current.delete(mac);
@@ -977,6 +991,36 @@ const MainApplicationUI: React.FC = () => {
       clearKskLocksFully,
     ]
   );
+
+  // Post-reset sanity cleanup: when on scan view and idle, ensure Redis state is empty for lastFinalizedMac
+  useEffect(() => {
+    const mac = lastFinalizedMacRef.current;
+    if (!mac) return;
+    const onScanView = mainView === 'dashboard' && !(macAddress && macAddress.trim());
+    if (!onScanView) return;
+    if (isScanning || isChecking) return;
+    (async () => {
+      try {
+        console.log('[REDIS][SANITY] post-reset cleanup for', mac);
+        await fetch('/api/aliases/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac }),
+        }).catch(() => {});
+        await clearKskLocksFully(mac).catch(() => {});
+      } finally {
+        lastFinalizedMacRef.current = null;
+      }
+    })();
+  }, [mainView, macAddress, isScanning, isChecking]);
+
+  // After returning to scan view, perform one last sanity clear for the last finalised MAC
+  const lastFinalizedMacRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Update lastFinalizedMacRef when finalisation starts
+    // (We hook this in via finalizeOkForMac by setting ref there)
+  }, []);
+
 
   // Add this useEffect inside MainApplicationUI, near other useEffects
   useEffect(() => {
@@ -1637,16 +1681,24 @@ const MainApplicationUI: React.FC = () => {
           const prevMac = (macAddress || "").toUpperCase();
           const nextMac = String(mac).toUpperCase();
           if (prevMac && prevMac !== nextMac) {
-            console.log("[FLOW][SCAN] switching MAC; clearing previous", { prevMac });
+            console.log("[FLOW][SCAN] switching MAC; clearing previous", {
+              prevMac,
+            });
             await fetch("/api/aliases/clear", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ mac: prevMac }),
             }).catch(() => {});
             await clearKskLocksFully(prevMac).catch(() => {});
-            try { setActiveKssks([]); } catch {}
-            try { itemsAllFromAliasesRef.current = []; } catch {}
-            try { lastActiveIdsRef.current = []; } catch {}
+            try {
+              setActiveKssks([]);
+            } catch {}
+            try {
+              itemsAllFromAliasesRef.current = [];
+            } catch {}
+            try {
+              lastActiveIdsRef.current = [];
+            } catch {}
           }
         } catch {}
         try {
@@ -2237,30 +2289,52 @@ const MainApplicationUI: React.FC = () => {
               {errorMsg && (
                 <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>
               )}
+              {(() => {
+                const hasMac = !!(macAddress && macAddress.trim());
+                const effBranches = hasMac ? branchesData : [];
+                const effGroups = hasMac ? groupedBranches : [];
+                const effFailures = hasMac ? checkFailures : null;
+                const effActiveKssks = hasMac ? activeKssks : [];
+                const effNormalPins = hasMac ? normalPins : undefined;
+                const effLatchPins = hasMac ? latchPins : undefined;
+                if (!hasMac && !zeroFeedLoggedRef.current) {
+                  try {
+                    console.log("[LIVE][FEED] zeroed props for scan view", {
+                      branches: 0,
+                      grouped: 0,
+                      failures: 0,
+                      activeKssks: 0,
+                    });
+                  } catch {}
+                  zeroFeedLoggedRef.current = true;
+                }
+                return (
               <BranchDashboardMainContent
                 key={session}
                 appHeaderHeight={actualHeaderHeight}
                 onManualSubmit={handleManualSubmit}
                 onScanAgainRequest={() => loadBranchesData()}
-                branchesData={branchesData}
-                groupedBranches={groupedBranches}
-                checkFailures={checkFailures}
+                branchesData={effBranches}
+                groupedBranches={effGroups}
+                checkFailures={effFailures}
                 nameHints={nameHints}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
-                activeKssks={activeKssks}
+                activeKssks={effActiveKssks}
                 lastEv={suppressLive ? null : (serial as any).lastEv}
                 lastEvTick={suppressLive ? 0 : (serial as any).lastEvTick}
-                normalPins={suppressLive ? undefined : normalPins}
-                latchPins={suppressLive ? undefined : latchPins}
+                normalPins={suppressLive ? undefined : effNormalPins}
+                latchPins={suppressLive ? undefined : effLatchPins}
                 onResetKfb={handleResetKfb}
                 onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
                 disableOkAnimation={disableOkAnimation}
               />
+                );
+              })()}
 
               <form onSubmit={handleKfbSubmit} className="hidden" />
             </>

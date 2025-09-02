@@ -233,6 +233,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   flashOkTick,
   okSystemNote,
 }) => {
+  // Lifecycle logs for entering/leaving the dashboard view
+  useEffect(() => {
+    try { console.log('[VIEW] Dashboard enter'); } catch {}
+    return () => { try { console.log('[VIEW] Dashboard exit'); } catch {} };
+  }, []);
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);
@@ -277,6 +282,37 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return Array.from(s).sort((a, b) => a - b);
   }, [JSON.stringify(latchPins ?? [])]);
 
+  // Snapshot key props/state for debugging
+  const lastPropsSnapRef = useRef<string>("");
+  useEffect(() => {
+    const nh = nameHints ? Object.keys(nameHints).length : 0;
+    const snapObj = {
+      branches: branchesData.length,
+      grouped: Array.isArray(groupedBranches) ? groupedBranches.length : 0,
+      failures: Array.isArray(checkFailures) ? checkFailures.length : 0,
+      nameHints: nh,
+      normalPins: normalizedNormalPins.length,
+      latchPins: normalizedLatchPins.length,
+      activeKssks: Array.isArray(activeKssks) ? activeKssks.length : 0,
+      scanning: isScanning,
+    };
+    const snap = JSON.stringify(snapObj);
+    if (snap === lastPropsSnapRef.current) return;
+    lastPropsSnapRef.current = snap;
+    try {
+      console.log("[LIVE][PROPS] update", snapObj);
+    } catch {}
+  }, [
+    branchesData,
+    groupedBranches,
+    checkFailures,
+    nameHints,
+    normalizedNormalPins.length,
+    normalizedLatchPins.length,
+    activeKssks,
+    isScanning,
+  ]);
+
   // Expected = normal ∪ latch (contactless pins NOT included)
   const expectedPins = useMemo(() => {
     const s = new Set<number>([
@@ -290,6 +326,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => {
     setLocalBranches(branchesData);
   }, [branchesData]);
+  useEffect(() => {
+    try {
+      const counts = localBranches.reduce(
+        (acc, b) => {
+          acc[b.testStatus] = (acc[b.testStatus] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
+      console.log("[LIVE][SNAP] localBranches", counts);
+    } catch {}
+  }, [localBranches]);
   useEffect(() => {
     setHasMounted(true);
   }, []);
@@ -332,6 +380,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       }
     };
   }, [isScanning, isChecking, hasData]);
+
+  // Log scanning/checking transitions
+  useEffect(() => {
+    try {
+      console.log("[LIVE][STATE] scanning", { isScanning });
+    } catch {}
+  }, [isScanning]);
+  useEffect(() => {
+    try {
+      console.log("[LIVE][STATE] checking", { isChecking });
+    } catch {}
+  }, [isChecking]);
 
   // -------------------- LIVE EV UPDATES --------------------
   useEffect(() => {
@@ -566,6 +626,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         }),
     [localBranches]
   );
+  useEffect(() => {
+    try {
+      console.log("[LIVE][SNAP] pending failures", { count: pending.length });
+    } catch {}
+  }, [pending.length]);
 
   // Failures from server or derived from pending
   const failurePins: number[] = useMemo(() => {
@@ -1374,6 +1439,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     isManualEntry,
     groupedBranches,
   ]);
+  useEffect(() => {
+    try {
+      if (viewKey === "scan") console.log("[LIVE] OFF → scan view");
+      else console.log("[LIVE][VIEW]", { viewKey });
+    } catch {}
+  }, [viewKey]);
 
   return (
     <div className="flex-grow flex flex-col items-center justify-start p-2">

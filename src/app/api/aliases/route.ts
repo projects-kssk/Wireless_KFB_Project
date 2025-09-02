@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
 
 function keyFor(mac: string) { return `kfb:aliases:${mac.toUpperCase()}`; }
-function keyForKssk(mac: string, kssk: string) { return `kfb:aliases:${mac.toUpperCase()}:${kssk}`; }
+function keyForKsk(mac: string, ksk: string) { return `kfb:aliases:${mac.toUpperCase()}:${ksk}`; }
 function indexKey(mac: string) { return `kfb:aliases:index:${mac.toUpperCase()}`; }
 
 export async function GET(req: Request) {
@@ -23,11 +23,11 @@ export async function GET(req: Request) {
     const r = getRedis();
     log.info('GET aliases', { mac: macRaw, all });
     if (all) {
-      // Return all KSSK-specific alias bundles we know for this MAC
+      // Return all KSK-specific alias bundles we know for this MAC
       let members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
       // Fallback/augment: scan keys if index is empty or incomplete
       try {
-        const pattern = `${keyForKssk(macRaw, '*')}`;
+        const pattern = `${keyForKsk(macRaw, '*')}`;
         if (typeof (r as any).scan === 'function') {
           let cursor = '0';
           const keys: string[] = [];
@@ -48,13 +48,14 @@ export async function GET(req: Request) {
         }
       } catch {}
       const rows = await Promise.all(
-        members.map(async (kssk) => {
+        members.map(async (ksk) => {
           try {
-            const raw = await r.get(keyForKssk(macRaw, kssk));
+            const raw = await r.get(keyForKsk(macRaw, ksk));
             if (!raw) return null;
             const data = JSON.parse(raw);
             return {
-              kssk,
+              ksk,
+              kssk: ksk,
               aliases: data?.names || data?.aliases || {},
               normalPins: Array.isArray(data?.normalPins) ? data.normalPins : [],
               latchPins: Array.isArray(data?.latchPins) ? data.latchPins : [],
@@ -90,31 +91,31 @@ export async function POST(req: Request) {
     const aliases = body?.aliases && typeof body.aliases === 'object' ? body.aliases : {};
     const normalPins = Array.isArray(body?.normalPins) ? body.normalPins : [];
     const latchPins = Array.isArray(body?.latchPins) ? body.latchPins : [];
-    const kssk = (body?.kssk ? String(body.kssk) : '').trim();
+    const ksk = ((body as any)?.ksk ? String((body as any).ksk) : ((body as any)?.kssk ? String((body as any).kssk) : '')).trim();
     const xml = typeof body?.xml === 'string' && body.xml.trim() ? String(body.xml) : null;
     const hints = body?.hints && typeof body.hints === 'object' ? body.hints : undefined;
     const value = JSON.stringify({ names: aliases, normalPins, latchPins, ...(hints?{hints}:{}) , ts: Date.now() });
     const r = getRedis();
     try { await r.set(keyFor(mac), value); }
     catch (e: any) { log.error('POST aliases set mac failed', { mac, error: String(e?.message ?? e) }); }
-    if (kssk) {
-      try { await r.set(keyForKssk(mac, kssk), value); }
-      catch (e: any) { log.error('POST aliases set kssk failed', { mac, kssk, error: String(e?.message ?? e) }); }
-      try { await r.sadd(indexKey(mac), kssk); }
-      catch (e: any) { log.error('POST aliases index sadd failed', { mac, kssk, error: String(e?.message ?? e) }); }
+    if (ksk) {
+      try { await r.set(keyForKsk(mac, ksk), value); }
+      catch (e: any) { log.error('POST aliases set ksk failed', { mac, ksk, error: String(e?.message ?? e) }); }
+      try { await r.sadd(indexKey(mac), ksk); }
+      catch (e: any) { log.error('POST aliases index sadd failed', { mac, ksk, error: String(e?.message ?? e) }); }
       if (xml) {
-        try { await r.set(`kfb:aliases:xml:${mac}:${kssk}`, xml); }
-        catch (e: any) { log.error('POST aliases xml set failed', { mac, kssk, error: String(e?.message ?? e) }); }
+        try { await r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml); }
+        catch (e: any) { log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) }); }
       }
     }
-    log.info('POST aliases saved', { mac, kssk: kssk || null, normalPins: normalPins.length, latchPins: latchPins.length });
-    // Rebuild union for MAC key from all KSSK entries so UI has complete map
+    log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
+    // Rebuild union for MAC key from all KSK entries so UI has complete map
     try {
-      // Rehydrate index by scanning keys and SADD any missing KSSKs
+      // Rehydrate index by scanning keys and SADD any missing KSKs
       const curMembers: string[] = await r.smembers(indexKey(mac)).catch(() => []);
       let foundIds: string[] = [];
       try {
-        const pattern = `${keyForKssk(mac, '*')}`;
+        const pattern = `${keyForKsk(mac, '*')}`;
         if (typeof (r as any).scan === 'function') {
           let cursor = '0';
           const keys: string[] = [];
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
       let unionHints: Record<string,string> = {};
       for (const id of members) {
         try {
-          const raw = await r.get(keyForKssk(mac, id));
+          const raw = await r.get(keyForKsk(mac, id));
           if (!raw) continue;
           const d = JSON.parse(raw);
           const names = d?.names || d?.aliases || {};
@@ -165,7 +166,7 @@ export async function POST(req: Request) {
       const unionVal = JSON.stringify({ names: merged, normalPins: allN, latchPins: allL, ...(Object.keys(unionHints).length?{hints: unionHints}:{}) , ts: Date.now() });
       try { await r.set(keyFor(mac), unionVal); }
       catch (e: any) { log.error('POST aliases union set failed', { mac, error: String(e?.message ?? e) }); }
-      log.info('POST aliases union rebuilt', { mac, ksskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
+      log.info('POST aliases union rebuilt', { mac, kskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
       try { broadcast({ type: 'aliases/union', mac, names: merged, normalPins: allN, latchPins: allL }); } catch {}
     } catch {}
     return NextResponse.json({ ok: true });

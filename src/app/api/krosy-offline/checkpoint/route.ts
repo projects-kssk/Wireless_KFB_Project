@@ -62,6 +62,29 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function pruneOldLogs(root: string, maxAgeDays = 31) {
+  try {
+    const now = Date.now();
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const dirPath = path.join(root, ent.name);
+      let ts = 0;
+      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
+      if (m) {
+        const y = Number(m[1]); const mon = Number(m[2]);
+        ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
+      } else {
+        const st = await fs.stat(dirPath);
+        ts = st.mtimeMs || st.ctimeMs || 0;
+      }
+      if (now - ts > maxAgeMs) {
+        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
+      }
+    }
+  } catch {}
+}
 function pickIpAndMac() {
   const want = (process.env.KROSY_NET_IFACE || "").trim();
   const rows: { name: string; address?: string; mac?: string; internal?: boolean; family?: string }[] = [];
@@ -314,7 +337,9 @@ export async function POST(req: NextRequest) {
 
   const stamp = nowStamp();
   const reqId = String(body.requestID || Date.now());
-  const base = path.join(LOG_DIR, `${stamp}_${reqId}`);
+  const cur = new Date();
+  const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
+  const base = path.join(LOG_DIR, month, `${stamp}_${reqId}`);
 
   let workingDataXml: string | null = body.workingDataXml || null;
   const startedAll = Date.now();
@@ -397,6 +422,7 @@ export async function POST(req: NextRequest) {
       terminator: TCP_TERMINATOR, timeoutMs: TCP_TIMEOUT_MS, totalMs: Date.now() - startedAll,
     }, null, 2)),
   ]);
+  try { await pruneOldLogs(LOG_DIR, 31); } catch {}
 
   if ((accept.includes("xml") || accept === "*/*") && resOut.text && resOut.text.trim().startsWith("<")) {
     return new Response(prettyResultResp || resOut.text, {

@@ -20,12 +20,12 @@ const HTTP_TIMEOUT_MS = Number(process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? 
 const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || '').trim();
 const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || '').trim();
 const STATION_ID = process.env.NEXT_PUBLIC_STATION_ID || window.location.hostname;
-const KSSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSSK_TTL_SEC ?? "1800"));
+const KSK_TTL_SEC = Math.max(5, Number(process.env.NEXT_PUBLIC_KSK_TTL_SEC ?? "1800"));
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
   (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
-const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSSK_REQUIRE_REDIS ?? "0") === "1";
+const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSK_REQUIRE_REDIS ?? "0") === "1";
 // Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
 const PREFER_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_PREFER_REDIS ?? "1") === "1";
 const REQUIRE_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_REQUIRE_REDIS ?? "0") === "1";
@@ -320,7 +320,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
 
 /* ===== KFB as MAC (AA:BB:CC:DD:EE:FF) ===== */
 const MAC_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i);
-const KSSK_DIGITS_REGEX = /^\d{12}$/;
+const KSK_DIGITS_REGEX = /^\d{12}$/;
 const digitsOnly = (s: string) => String(s ?? "").replace(/\D+/g, "");
 function canonicalMac(raw: string): string | null {
   if (!/[:\-]/.test(raw) && !/[A-Fa-f]/.test(raw)) return null;
@@ -332,7 +332,7 @@ function canonicalMac(raw: string): string | null {
 
 function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
   const asKssk = digitsOnly(raw);
-  if (KSSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
+  if (KSK_DIGITS_REGEX.test(asKssk)) return { type: "kssk", code: asKssk };
   const mac = canonicalMac(raw);
   if (mac) return { type: "kfb", code: mac };
   return { type: null, code: raw };
@@ -340,9 +340,9 @@ function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
 
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
-type KsskIndex = 0 | 1 | 2;
-type KsskPanel = `kssk${KsskIndex}`;
-type PanelKey = "kfb" | KsskPanel;
+type KskIndex = 0 | 1 | 2;
+type KskPanel = `ksk${KskIndex}`;
+type PanelKey = "kfb" | KskPanel;
 type OfflineResp = { ok: boolean; status: number; data: any | null };
 type Ov = {
   open: boolean;
@@ -404,21 +404,8 @@ export default function SetupPage() {
 
   const hb = useRef<Map<string, number>>(new Map());
 
-  const LS_KEY = `setup.activeKsskLocks::${STATION_ID}`;
-  const loadLocalLocks = (): Set<string> => {
-    if (REQUIRE_REDIS_ONLY) return new Set();
-    try {
-      return new Set<string>(JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"));
-    } catch {
-      return new Set();
-    }
-  };
-  const saveLocalLocks = (s: Set<string>) => {
-    if (REQUIRE_REDIS_ONLY) return; // do not persist client locks when Redis-only
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify([...s]));
-    } catch {}
-  };
+  // No localStorage fallback; always rely on Redis for locks
+  const saveLocalLocks = (_s: Set<string>) => {};
   const activeLocks = useRef<Set<string>>(new Set());
 
   // Alias cache policy flags
@@ -437,14 +424,7 @@ export default function SetupPage() {
         const j = await r.json();
         const a = (j?.aliases && typeof j.aliases === 'object') ? (j.aliases as Record<string,string>) : {};
         if (abort) return;
-        if (Object.keys(a).length === 0) {
-          try { localStorage.removeItem(`PIN_ALIAS::${mac}`); } catch {}
-        } else {
-          try {
-            if (CLEAR_LOCAL_ALIAS) localStorage.removeItem(`PIN_ALIAS::${mac}`);
-            else localStorage.setItem(`PIN_ALIAS::${mac}`, JSON.stringify(a));
-          } catch {}
-        }
+        // No client alias cache updates
       } catch {}
     })();
     return () => { abort = true; };
@@ -453,10 +433,10 @@ export default function SetupPage() {
   const startHeartbeat = (kssk: string) => {
     stopHeartbeat(kssk);
     const id = window.setInterval(() => {
-      fetch("/api/kssk-lock", {
+      fetch("/api/ksk-lock", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+        body: JSON.stringify({ kssk, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
       }).catch(() => {});
     }, 60_000);
     hb.current.set(kssk, id);
@@ -480,7 +460,7 @@ export default function SetupPage() {
     activeLocks.current.delete(kssk);
     saveLocalLocks(activeLocks.current);
     try {
-      await fetch("/api/kssk-lock", {
+      await fetch("/api/ksk-lock", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kssk, stationId: STATION_ID }),
@@ -500,7 +480,7 @@ export default function SetupPage() {
     (async () => {
       let hydrated = false;
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(STATION_ID)}`);
         if (r.ok) {
           const j = await r.json();
           const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -509,10 +489,7 @@ export default function SetupPage() {
           hydrated = true;
         }
       } catch {}
-      if (!hydrated) {
-        // Redis-only: do not fall back to local cache
-        activeLocks.current = loadLocalLocks();
-      }
+      // No local fallback when Redis is unavailable
       activeLocks.current.forEach((k) => startHeartbeat(k));
     })();
   }, []);
@@ -522,7 +499,7 @@ export default function SetupPage() {
     try {
       const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
       if (!stationId) return;
-      const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+      const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
       if (!r.ok) return;
       const j = await r.json();
       const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -538,7 +515,7 @@ export default function SetupPage() {
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
         const ks: string[] = (j?.locks ?? []).map((l: any) => String(l.kssk));
@@ -730,7 +707,7 @@ const acceptKsskToIndex = useCallback(
   async (codeRaw: string, idx?: number) => {
     const code = digitsOnly(codeRaw);
     if (sendBusyRef.current) {
-      showErr(code, "Busy — finishing previous KSSK", "global");
+      showErr(code, "Busy — finishing previous KSK", "global");
       return;
     }
     sendBusyRef.current = true;
@@ -739,7 +716,7 @@ const acceptKsskToIndex = useCallback(
       // Reconcile locks with server before local duplicate check
       await reconcileLocksNow();
       const target = typeof idx === "number" ? idx : ksskSlots.findIndex((v) => v === null);
-      const panel: PanelTarget = target >= 0 ? (`kssk${target}` as PanelKey) : "global";
+      const panel: PanelTarget = target >= 0 ? (`ksk${target}` as PanelKey) : "global";
 
       // 1) server is source of truth
       if (!kfb) {
@@ -760,10 +737,10 @@ const acceptKsskToIndex = useCallback(
       bump(target, code, "pending");
 
       // 2) acquire server lock
-      const lockRes = await fetch("/api/kssk-lock", {
+      const lockRes = await fetch("/api/ksk-lock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSSK_TTL_SEC }),
+        body: JSON.stringify({ kssk: code, mac: kfb, stationId: STATION_ID, ttlSec: KSK_TTL_SEC }),
       });
 
       if (!lockRes.ok) {
@@ -817,7 +794,7 @@ const acceptKsskToIndex = useCallback(
         if (!out && REQUIRE_ALIAS_REDIS) {
           await releaseLock(code);
           bump(target, null, 'idle');
-          showErr(code, 'No pin map in Redis for this KSSK', panel);
+          showErr(code, 'No pin map in Redis for this KSK', panel);
           return;
         }
       }
@@ -871,14 +848,7 @@ const acceptKsskToIndex = useCallback(
         }
       } catch {}
 
-      // Persist pin→label mapping for this MAC so dashboard can render names after CHECK-only
-      try {
-        localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(out.names || {}));
-        localStorage.setItem(
-          `PIN_ALIAS_UNION::${macUp}`,
-          JSON.stringify({ names: out.names || {}, normalPins: out.normalPins || [], latchPins: out.latchPins || [], ts: Date.now() })
-        );
-      } catch {}
+      // No client-side alias cache; rely on Redis via aliases API
 
       // Also save to Redis so other clients can render after CHECK-only
       try {
@@ -889,7 +859,7 @@ const acceptKsskToIndex = useCallback(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             mac: macUp,
-            kssk: code,
+            ksk: code,
             aliases: out.names || {},
             normalPins: out.normalPins || [],
             latchPins: out.latchPins || [],
@@ -897,63 +867,9 @@ const acceptKsskToIndex = useCallback(
             hints,
           }),
         });
-        // Pull fresh union and cache locally so dashboard has full set without refresh
-        try {
-          const ru = await fetch(`/api/aliases?mac=${encodeURIComponent(macUp)}`, { cache: 'no-store' });
-          if (ru.ok) {
-            const ju = await ru.json();
-            const aU = (ju?.aliases && typeof ju.aliases === 'object') ? (ju.aliases as Record<string,string>) : {};
-            if (MIRROR_ALIAS_WITH_REDIS) {
-              if (Object.keys(aU).length === 0) {
-                try {
-                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                } catch {}
-              } else {
-                try {
-                  if (CLEAR_LOCAL_ALIAS) {
-                    localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                    localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                  } else {
-                    localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                    localStorage.setItem(
-                      `PIN_ALIAS_UNION::${macUp}`,
-                      JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
-                    );
-                  }
-                } catch {}
-              }
-            } else if (Object.keys(aU).length) {
-              try {
-                localStorage.setItem(`PIN_ALIAS::${macUp}`, JSON.stringify(aU));
-                localStorage.setItem(
-                  `PIN_ALIAS_UNION::${macUp}`,
-                  JSON.stringify({ names: aU, normalPins: ju?.normalPins || [], latchPins: ju?.latchPins || [], ts: Date.now() })
-                );
-              } catch {}
-            }
-          }
-        } catch {}
       } catch {}
 
-      // Persist per-KSSK grouping locally so dashboard can reconstruct groups without server
-      try {
-        const entry = {
-          kssk: String(code),
-          aliases: out.names || {},
-          normalPins: out.normalPins || [],
-          latchPins: out.latchPins || [],
-          ts: Date.now(),
-        } as any;
-        const key = `PIN_ALIAS_GROUPS::${macUp}`;
-        const raw = localStorage.getItem(key);
-        const arr = raw ? JSON.parse(raw) : [];
-        const list: Array<any> = Array.isArray(arr) ? arr : [];
-        const idx = list.findIndex((it) => String(it?.kssk || '') === String(code));
-        if (idx >= 0) list[idx] = entry; else list.push(entry);
-        localStorage.setItem(key, JSON.stringify(list));
-        try { console.log('[SETUP] Saved group for', code, 'pins', entry.normalPins?.length + entry.latchPins?.length); } catch {}
-      } catch {}
+      // No local grouping persistence; dashboard derives from Redis
 
       const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0)) > 0;
       if (!hasPins) {
@@ -993,7 +909,7 @@ const acceptKsskToIndex = useCallback(
 
       // success
       startHeartbeat(code);
-      showOk(code, espOk ? "KSSK OK" : "KSSK OK (ESP offline)", panel);
+      showOk(code, espOk ? "KSK OK" : "KSK OK (ESP offline)", panel);
       bump(target, code, "ok");
     } finally {
       sendBusyRef.current = false;
@@ -1018,10 +934,10 @@ const acceptKsskToIndex = useCallback(
         acceptKfb(code);
       } else {
         if (type !== "kssk") {
-          showErr(code, "Expected KSSK (12 digits)", panel);
+          showErr(code, "Expected KSK (12 digits)", panel);
           return;
         }
-        const idx = Number(panel.slice(-1)) as KsskIndex;
+        const idx = Number(panel.slice(-1)) as KskIndex;
         void acceptKsskToIndex(code, idx);
       }
       setShowManualFor((s) => ({ ...s, [panel]: false }));
@@ -1033,8 +949,8 @@ const acceptKsskToIndex = useCallback(
     (raw: string) => {
       const { type, code } = classify(raw);
       const nextIdx = ksskSlots.findIndex((v) => v === null);
-      const defaultKsskPanel: PanelKey = (nextIdx >= 0 ? `kssk${nextIdx}` : "kssk0") as PanelKey;
-      const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKsskPanel;
+      const defaultKskPanel: PanelKey = (nextIdx >= 0 ? `ksk${nextIdx}` : "ksk0") as PanelKey;
+      const defaultPanel: PanelTarget = !kfb ? "kfb" : defaultKskPanel;
 
       if (!type) {
         showErr(code || raw, "Unrecognized code", defaultPanel);
@@ -1134,7 +1050,7 @@ const acceptKsskToIndex = useCallback(
     if (KEEP_LOCKS_ON_UNLOAD) return;
     const h = () => {
       activeLocks.current.forEach((k) => {
-        fetch("/api/kssk-lock", {
+        fetch("/api/ksk-lock", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kssk: k, stationId: STATION_ID }),
@@ -1357,7 +1273,7 @@ const acceptKsskToIndex = useCallback(
         )}
       </AnimatePresence>
 
-      {/* Step 2: KSSK */}
+      {/* Step 2: KSK */}
       {kfb && (
         <section style={section}>
           <section style={card}>
@@ -1371,16 +1287,16 @@ const acceptKsskToIndex = useCallback(
                 const code = ksskSlots[idx];
                 const status = ksskStatus[idx];
                 // only light the slot that matches, not "global"
-                const hit = flash && flash.panel === (`kssk${idx}` as PanelKey);
+                const hit = flash && flash.panel === (`ksk${idx}` as PanelKey);
                 return (
                   <KsskSlotCompact
                     key={idx}
                     index={idx}
                     code={code}
                     status={status}
-                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`kssk${idx}`]: !s[`kssk${idx}`] }))}
-                    manualOpen={!!(showManualFor as any)[`kssk${idx}`]}
-                    onSubmit={(v) => handleManualSubmit(`kssk${idx}`, v)}
+                    onManualToggle={() => setShowManualFor((s) => ({ ...s, [`ksk${idx}`]: !s[`ksk${idx}`] }))}
+                    manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
+                    onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
                     flashKind={hit ? flash!.kind : null}
                     flashId={hit ? flash!.id : undefined}
                   />
@@ -1542,7 +1458,7 @@ function ScanBoxAnimated({ ariaLabel, height = 176, flashKind, flashId }: Props)
   );
 }
 
-/* ===== KSSK slots ===== */
+/* ===== KSK slots ===== */
 const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
@@ -1620,7 +1536,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
 
       {/* static scan stripes */}
       <div
-        aria-label={`KSSK scan zone ${index + 1}`}
+        aria-label={`KSK scan zone ${index + 1}`}
         style={{
           width: "100%",
           height: 112,
@@ -1655,7 +1571,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         {manualOpen && (
           <m.div key="manual" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.14 }}>
             <ManualInput
-              placeholder={`Type KSSK for slot ${index + 1}`}
+              placeholder={`Type KSK for slot ${index + 1}`}
               onSubmit={onSubmit}
               inputStyle={{ width: "100%", height: 46, borderRadius: 10, border: "1px solid #cbd5e1", padding: "0 12px", fontSize: 18, outline: "none", background: "#fff", color: "#0f172a", caretColor: "#0f172a" }}
             />

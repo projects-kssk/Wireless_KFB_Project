@@ -123,7 +123,7 @@ export interface BranchDashboardMainContentProps {
   showRemoveCable?: boolean;
   onResetKfb?: () => void;
   macAddress?: string;
-  groupedBranches?: Array<{ kssk: string; branches: BranchDisplayData[] }>;
+  groupedBranches?: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
   nameHints?: Record<string, string> | undefined;
   activeKssks?: string[];
@@ -187,8 +187,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showingGrouped = useMemo(() => Array.isArray(groupedBranches) && groupedBranches.length > 0, [groupedBranches]);
-const HIDE_KSSK_IDS = (process.env.NEXT_PUBLIC_HIDE_KSSK_IDS ?? '1') === '1'; // default: hide
-const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') === '1'; // default: don't show
+const HIDE_KSK_IDS = (process.env.NEXT_PUBLIC_HIDE_KSK_IDS ?? '1') === '1'; // default: hide
+const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '1'; // default: don't show
 
   // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
   const pinStateRef = useRef<Map<number, number>>(new Map());
@@ -387,14 +387,7 @@ const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') ===
     } catch {}
   }, [lastEvTick, expectedPins]);
 
-  // load recent macs
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('RECENT_MACS') || '[]';
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) setRecentMacs(list.filter((s) => typeof s === 'string'));
-    } catch {}
-  }, []);
+  // No recent MACs loaded from localStorage; keep ephemeral in memory
 
 
   // Only NOK in the main flat list. Sort by pin then name
@@ -459,6 +452,41 @@ const SHOW_ACTIVE_KSSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSSKS ?? '0') ===
     if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
+
+  // When in live mode and everything turns OK, clear Redis values for this MAC once
+  const clearedMacsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const mac = (macAddress || '').toUpperCase();
+    // Consider presence of live events as indicator of live mode
+    const liveMode = !!lastEv && !!lastEvTick;
+    if (!settled || !allOk || !liveMode || !mac) return;
+    if (clearedMacsRef.current.has(mac)) return;
+    clearedMacsRef.current.add(mac);
+    (async () => {
+      try {
+        // Clear aliases in Redis for this MAC
+        await fetch('/api/aliases/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac }),
+        }).catch(() => {});
+      } catch {}
+      try {
+        // Clear local caches for this MAC
+        // No client alias caches to clear
+      } catch {}
+      try {
+        // Also clear any KSK locks for this MAC across stations (force)
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+        const body = sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 } as any;
+        await fetch('/api/ksk-lock', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        }).catch(() => {});
+      } catch {}
+    })();
+  }, [allOk, settled, lastEv, lastEvTick, macAddress]);
 
   // Reset pipeline
   const returnToScan = useCallback(() => {
@@ -587,10 +615,10 @@ useEffect(() => {
       if (!res.ok) throw new Error(data?.error || String(res.status));
       const failures: number[] = Array.isArray(data?.failures) ? data.failures : [];
 
+      // No localStorage of recent MACs; keep in-memory if needed
       try {
         const mac = macAddress.toUpperCase();
         const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
-        localStorage.setItem('RECENT_MACS', JSON.stringify(now));
         setRecentMacs(now);
       } catch {}
 
@@ -908,15 +936,15 @@ useEffect(() => {
 
         const missingNames = failedItems.map(f => f.name);
         const activeSet = new Set((activeKssks || []).map(String));
-        const isActive = activeSet.has(String(grp.kssk));
+        const isActive = activeSet.has(String((grp as any).ksk ?? ''));
 
         return (
-          <section key={grp.kssk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+          <section key={(grp as any).ksk} className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow">
             <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String(grp.kssk).slice(-2)}</span>
+                <span className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive?'bg-blue-600':'bg-blue-500'} text-white font-extrabold shadow`}>{String((grp as any).ksk).slice(-2)}</span>
                 <div className="flex flex-col">
-                  <div className="text-xl font-black text-slate-800 leading-tight">{grp.kssk}</div>
+                  <div className="text-xl font-black text-slate-800 leading-tight">{(grp as any).ksk}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -929,7 +957,7 @@ useEffect(() => {
                   <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Missing items</div>
                   <div className="grid gap-2">
                     {failedItems.map((f) => (
-                      <div key={`f-${grp.kssk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
+                      <div key={`f-${(grp as any).ksk}-${f.pin}`} className="rounded-xl border border-red-200 bg-red-50/40 p-3">
                         <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">{f.name}</div>
                         <div className="mt-1 flex items-center gap-2">
                           <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">NOK</span>
@@ -950,7 +978,7 @@ useEffect(() => {
                   <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">Passed</div>
                   <div className="flex flex-wrap gap-1.5">
                     {okNames.slice(0, 24).map((nm, i) => (
-                      <span key={`ok-${grp.kssk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
+                      <span key={`ok-${(grp as any).ksk}-${i}`} className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold">{nm}</span>
                     ))}
                     {okNames.length > 24 && (
                       <span className="text-[11px] text-slate-500">+{okNames.length-24} more</span>
@@ -1008,9 +1036,9 @@ useEffect(() => {
 
       {macAddress && localBranches.length > 0 && (
   <div className="flex items-center justify-end gap-4 w-full">
-    {!showingGrouped && SHOW_ACTIVE_KSSKS && (
+    {!showingGrouped && SHOW_ACTIVE_KSKS && (
       <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-        <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSSKs</div>
+        <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">Active KSKs</div>
         <div className="flex flex-wrap gap-2 mt-1 justify-end">
           {(activeKssks && activeKssks.length > 0)
             ? activeKssks.map(id => (

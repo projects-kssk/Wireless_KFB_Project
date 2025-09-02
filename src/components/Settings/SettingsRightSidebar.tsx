@@ -79,26 +79,7 @@ export default function SettingsRightSidebar({
   const [attemptsLeft, setAttemptsLeft] = useState(3);
   const [pinError, setPinError] = useState('');
 
-  // Restore locks once
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LOCK_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as LockMap;
-      const cleaned: LockMap = { MAIN_S: null, CONFIG_S: null, BRANCHES_S: null };
-      (Object.keys(parsed) as SettingsSectionId[]).forEach((k) => {
-        const until = parsed[k];
-        cleaned[k] = until && until > Date.now() ? until : null;
-      });
-      setLocks(cleaned);
-    } catch { /* ignore */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Persist locks
-  useEffect(() => {
-    try { localStorage.setItem(LOCK_STORAGE_KEY, JSON.stringify(locks)); } catch {}
-  }, [locks]);
+  // No local lock persistence; in-memory only
 
   // Schedule a single timeout for the next expiry
   const scheduleNextExpiry = useCallback((map: LockMap) => {
@@ -603,5 +584,4 @@ const PinForm: React.FC<PinFormProps> = React.memo(
   }
 );
 PinForm.displayName = 'PinForm';
-
 

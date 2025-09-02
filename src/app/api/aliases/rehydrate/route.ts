@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const r: any = getRedis();
 
-    // Scan per-KSSK entries (tolerate Redis errors → behave like empty)
+    // Scan per-KSK entries (tolerate Redis errors → behave like empty)
     const pattern = `kfb:aliases:${mac}:*`;
     let cursor = '0';
     const keys: string[] = [];

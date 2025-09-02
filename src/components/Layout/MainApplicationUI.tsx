@@ -121,7 +121,7 @@ const MainApplicationUI: React.FC = () => {
   const bumpSession = () => setSession(s => s + 1);
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
-  const [groupedBranches, setGroupedBranches] = useState<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
+  const [groupedBranches, setGroupedBranches] = useState<Array<{ ksk: string; branches: BranchDisplayData[] }>>([]);
   const [kfbNumber, setKfbNumber] = useState('');
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
   const [macAddress, setMacAddress] = useState('');
@@ -134,11 +134,11 @@ const MainApplicationUI: React.FC = () => {
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
   const [scanningError, setScanningError] = useState(false);
-  // Snapshot of KSSK items discovered via /api/aliases?all=1 for this MAC
-  const itemsAllFromAliasesRef = useRef<Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
-  const lastGroupsRef = useRef<Array<{ kssk: string; branches: BranchDisplayData[] }>>([]);
+  // Snapshot of KSK items discovered via /api/aliases?all=1 for this MAC
+  const itemsAllFromAliasesRef = useRef<Array<{ ksk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>>([]);
+  const lastGroupsRef = useRef<Array<{ ksk: string; branches: BranchDisplayData[] }>>([]);
   useEffect(() => { lastGroupsRef.current = groupedBranches; }, [groupedBranches]);
-
+const finalizeOkGuardRef = useRef<Set<string>>(new Set());
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -248,11 +248,7 @@ const MainApplicationUI: React.FC = () => {
       if (prev === true && ready === false) {
         const macUp = String((macAddress || '').toUpperCase());
         if (macUp) {
-          try {
-            localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-            localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-            localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-          } catch {}
+          // No client alias cache to clear
           // Also clear in-memory UI state so stale data is not shown
           try {
             setBranchesData([]);
@@ -264,10 +260,7 @@ const MainApplicationUI: React.FC = () => {
             setCheckFailures(null);
           } catch {}
           // Also clear local Setup-page lock cache for this station to avoid stale UI
-          try {
-            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
-          } catch {}
+          // No local Setup lock cache to clear
         }
       }
     } catch {}
@@ -324,7 +317,7 @@ useEffect(() => {
               try { setOkSystemNote('Cache cleared'); } catch {}
             }
           } catch {}
-          // Clear Redis aliases for this MAC regardless, then clear local cache
+          // Clear Redis aliases for this MAC regardless
           try {
             await fetch('/api/aliases/clear', {
               method: 'POST',
@@ -332,15 +325,10 @@ useEffect(() => {
               body: JSON.stringify({ mac })
             });
           } catch {}
-          try {
-            localStorage.removeItem(`PIN_ALIAS::${mac}`);
-            localStorage.removeItem(`PIN_ALIAS_UNION::${mac}`);
-            localStorage.removeItem(`PIN_ALIAS_GROUPS::${mac}`);
-          } catch {}
-          // Also clear any KSSK locks for this MAC across stations (force), include stationId if known
+          // Also clear any KSK locks for this MAC across stations (force), include stationId if known
           try {
             const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            await fetch('/api/kssk-lock', {
+            await fetch('/api/ksk-lock', {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
@@ -401,15 +389,10 @@ useEffect(() => {
                 try { setOkSystemNote('Cache cleared'); } catch {}
               }
               try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
-              try {
-                localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-              } catch {}
-              // Also clear any KSSK locks for this MAC across stations (force)
+              // Also clear any KSK locks for this MAC across stations (force)
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                await fetch('/api/kssk-lock', {
+                await fetch('/api/ksk-lock', {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
@@ -424,18 +407,18 @@ useEffect(() => {
     }
   }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
 
-  // Load station KSSKs as a fallback source for "KSSKs used" display
+  // Load station KSKs as a fallback source for "KSKs used" display
   useEffect(() => {
     let stop = false;
     const stationId = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
     if (!stationId) return;
     const tick = async () => {
       try {
-        const r = await fetch(`/api/kssk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
+        const r = await fetch(`/api/ksk-lock?stationId=${encodeURIComponent(stationId)}&include=aliases`, { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        const rows: Array<{ kssk: string; mac?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.locks) ? j.locks : [];
-        const ids: string[] = rows.map((l) => String(l.kssk)).filter(Boolean);
+        const rows: Array<{ ksk?: string; kssk?: string; mac?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.locks) ? j.locks : [];
+        const ids: string[] = rows.map((l) => String((l as any).ksk ?? (l as any).kssk)).filter(Boolean);
         if (!stop && ids.length) {
           setActiveKssks((prev) => Array.from(new Set<string>([...prev, ...ids])));
           if (!kfbNumber && groupedBranches.length === 0 && branchesData.length === 0) {
@@ -448,19 +431,20 @@ useEffect(() => {
                 if (Array.isArray((it as any)?.latchPins)) for (const n of (it as any).latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) pinSet.add(x); }
                 const pins = Array.from(pinSet).sort((a,b)=>a-b);
                 const setLatch = new Set<number>(((it as any)?.latchPins || []) as number[]);
+                const idStr = String(((it as any).ksk ?? (it as any).kssk) || '');
                 const branches = pins.map((pin) => ({
-                  id: `${String(it.kssk)}:${pin}`,
+                  id: `${idStr}:${pin}`,
                   branchName: a[String(pin)] || `PIN ${pin}`,
                   testStatus: setLatch.has(pin) ? 'not_tested' as TestStatus : 'not_tested' as TestStatus,
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                   isLatch: setLatch.has(pin),
                 } as BranchDisplayData));
-                return { kssk: String(it.kssk || ''), branches };
+                return { ksk: idStr, branches };
               });
             const byId = new Map<string, BranchDisplayData[]>();
             for (const g of groupsRaw) {
-              const id = String(g.kssk).trim().toUpperCase();
+              const id = String(g.ksk).trim().toUpperCase();
               const prev = byId.get(id) || [];
               const merged = [...prev, ...g.branches];
               const seen = new Set<number>();
@@ -475,7 +459,7 @@ useEffect(() => {
             }
             const groups = Array.from(byId.entries())
               .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
-              .map(([k, branches]) => ({ kssk: k, branches }));
+              .map(([k, branches]) => ({ ksk: k, branches }));
             if (groups.length) setGroupedBranches(groups);
           }
         }
@@ -486,7 +470,7 @@ useEffect(() => {
     return () => { stop = true; clearInterval(h); };
   }, []);
 
-  // Do NOT override Active KSSKs from Redis with aliases index; show only station-active
+  // Do NOT override Active KSKs from Redis with aliases index; show only station-active
 
   // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>('');
@@ -555,7 +539,7 @@ useEffect(() => {
       const rList = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
       if (!rList.ok) return;
       const j = await rList.json();
-      const items: Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.items) ? j.items : [];
+      const items: Array<{ ksk?: string; kssk?: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> = Array.isArray(j?.items) ? j.items : [];
 
       // If there is nothing to check (no items, no aliases/pins), do not send checkpoint
       let hasData = items.length > 0 && items.some(it => {
@@ -580,23 +564,23 @@ useEffect(() => {
 
       let sentAny = false;
       for (const it of items) {
-        const kssk = String(it.kssk || '').trim();
-        if (!kssk || checkpointSentRef.current.has(kssk)) continue;
+        const id = String(((it as any).ksk ?? (it as any).kssk) || '').trim();
+        if (!id || checkpointSentRef.current.has(id)) continue;
         let workingDataXml: string | null = null;
         try {
-          const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(kssk)}`, { cache: 'no-store' });
+          const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(id)}`, { cache: 'no-store' });
           if (rXml.ok) workingDataXml = await rXml.text();
         } catch {}
         const payload = workingDataXml && workingDataXml.trim()
           ? { requestID: '1', workingDataXml }
-          : { requestID: '1', intksk: kssk, sourceHostname: KROSY_SOURCE, targetHostName: KROSY_TARGET };
+          : { requestID: '1', intksk: id, sourceHostname: KROSY_SOURCE, targetHostName: KROSY_TARGET };
         try {
           await fetch(CHECKPOINT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
             body: JSON.stringify(payload),
           });
-          checkpointSentRef.current.add(kssk);
+          checkpointSentRef.current.add(id);
           sentAny = true;
         } catch {}
       }
@@ -606,7 +590,33 @@ useEffect(() => {
 
 
 
-
+const finalizeOkForMac = useCallback(async (rawMac: string) => {
+  const mac = String(rawMac || '').toUpperCase();
+  if (!mac) return;
+  if (finalizeOkGuardRef.current.has(mac)) return;
+  finalizeOkGuardRef.current.add(mac);
+  try {
+    const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+    if (hasSetup && krosyLive) {
+      await sendCheckpointForMac(mac).catch(() => {});
+      try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
+    } else {
+      try { setOkSystemNote('Cache cleared'); } catch {}
+    }
+    await fetch('/api/aliases/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mac })
+    }).catch(() => {});
+    const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
+    await fetch('/api/ksk-lock', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
+    }).catch(() => {});
+  } finally {
+    setOverlay(o => ({ ...o, open: false }));
+    scheduleOkReset(); // keep your existing reset
+  }
+}, [krosyLive, sendCheckpointForMac]);
 
 
   // Narrowing guard
@@ -654,10 +664,10 @@ useEffect(() => {
           } catch {}
           setCheckFailures(failures);
           startTransition(() => setBranchesData(_prev => {
-            // Always rebuild list so all KSSKs are reflected
+            // Always rebuild list so all KSKs are reflected
             const macUp = mac.toUpperCase();
             let aliases: Record<string,string> = {};
-            // Prefer API items (all KSSKs), else fallback
+            // Prefer API items (all KSKs), else fallback
             const itemsPref = Array.isArray((result as any)?.itemsActive) ? (result as any).itemsActive
                               : (Array.isArray((result as any)?.items) ? (result as any).items : null);
             if (itemsPref) {
@@ -710,41 +720,31 @@ useEffect(() => {
               isLatch: contactless.has(pin),
             }));
 
-            // Build grouped sections per KSSK if available from API
-            // Prefer union of all KSSKs and station-active ones
+            // Build grouped sections per KSK if available from API
+            // Prefer union of all KSKs and station-active ones
             const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
-              ? (result as any).itemsActive as Array<{ kssk: string; aliases: Record<string,string>; latchPins?: number[] }>
+              ? (result as any).itemsActive as Array<{ ksk?: string; kssk?: string; aliases: Record<string,string>; latchPins?: number[] }>
               : [];
             let itemsAllArr = Array.isArray((result as any)?.items)
-              ? (result as any).items as Array<{ kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
+              ? (result as any).items as Array<{ ksk?: string; kssk?: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>
               : [];
-            // Fallback to locally persisted groups when server did not return any
-            try {
-              if (!itemsAllArr.length) {
-                const macUp = mac.toUpperCase();
-                const rawGroups = localStorage.getItem(`PIN_ALIAS_GROUPS::${macUp}`);
-                if (rawGroups) {
-                  const arr = JSON.parse(rawGroups);
-                  if (Array.isArray(arr)) itemsAllArr = arr as any;
-                }
-              }
-            } catch {}
+            // No localStorage fallback; rely on Redis responses only
             // Merge API-provided items with pre-scan Redis snapshot to avoid missing groups
-            const byKssk = new Map<string, { kssk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>();
+            const byIdMap = new Map<string, { ksk: string; aliases: Record<string,string>; normalPins?: number[]; latchPins?: number[] }>();
             for (const it of [...itemsAllArr, ...itemsActiveArr]) {
-              const id = String(it.kssk || '').trim();
+              const id = String(((it as any).ksk ?? (it as any).kssk) || '').trim();
               if (!id) continue;
-              if (!byKssk.has(id)) byKssk.set(id, { kssk: id, aliases: it.aliases || {}, normalPins: (it as any).normalPins, latchPins: (it as any).latchPins });
+              if (!byIdMap.has(id)) byIdMap.set(id, { ksk: id, aliases: it.aliases || {}, normalPins: (it as any).normalPins, latchPins: (it as any).latchPins });
             }
             for (const it of itemsAllFromAliasesRef.current || []) {
-              const id = String(it.kssk || '').trim();
-              if (!id || byKssk.has(id)) continue;
-              byKssk.set(id, { kssk: id, aliases: (it.aliases as any) || {}, normalPins: it.normalPins, latchPins: it.latchPins });
+              const id = String(((it as any).ksk ?? (it as any).kssk) || '').trim();
+              if (!id || byIdMap.has(id)) continue;
+              byIdMap.set(id, { ksk: id, aliases: (it.aliases as any) || {}, normalPins: it.normalPins, latchPins: it.latchPins });
             }
-            const items = Array.from(byKssk.values());
+            const items = Array.from(byIdMap.values());
             if (items.length) {
-              // Build raw groups and then de-duplicate by KSSK and pin
-              const groupsRaw: Array<{ kssk: string; branches: BranchDisplayData[] }> = [];
+              // Build raw groups and then de-duplicate by KSK and pin
+              const groupsRaw: Array<{ ksk: string; branches: BranchDisplayData[] }> = [];
               for (const it of items) {
                 const a = it.aliases || {};
                 const set = new Set<number>();
@@ -755,7 +755,7 @@ useEffect(() => {
                 // Use group-specific latchPins when present
                 const contactless = new Set<number>((Array.isArray((it as any)?.latchPins) ? (it as any).latchPins : (latchPins || [])).filter((n: number) => Number.isFinite(n)) as number[]);
                 const branchesG = pinsG.map(pin => ({
-                  id: `${it.kssk}:${pin}`,
+                  id: `${it.ksk}:${pin}`,
                   branchName: a[String(pin)] || aliases[String(pin)] || `PIN ${pin}`,
                   testStatus: failures.includes(pin)
                     ? 'nok' as TestStatus
@@ -764,11 +764,11 @@ useEffect(() => {
                   kfbInfoValue: undefined,
                   isLatch: contactless.has(pin),
                 } as BranchDisplayData));
-                groupsRaw.push({ kssk: String((it as any).kssk || ''), branches: branchesG });
+                groupsRaw.push({ ksk: String((((it as any).ksk ?? (it as any).kssk) || '')), branches: branchesG });
               }
               const byId = new Map<string, BranchDisplayData[]>();
               for (const g of groupsRaw) {
-                const id = String(g.kssk).trim().toUpperCase();
+                const id = String(g.ksk).trim().toUpperCase();
                 const prev = byId.get(id) || [];
                 const merged = [...prev, ...g.branches];
                 const seen = new Set<number>();
@@ -781,9 +781,9 @@ useEffect(() => {
                 });
                 byId.set(id, dedup);
               }
-              const groups: Array<{ kssk: string; branches: BranchDisplayData[] }> = Array.from(byId.entries())
+              const groups: Array<{ ksk: string; branches: BranchDisplayData[] }> = Array.from(byId.entries())
                 .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
-                .map(([k, branches]) => ({ kssk: k, branches }));
+                .map(([k, branches]) => ({ ksk: k, branches }));
               // Add any failure pins that are not present in any group as an extra synthetic group
               const knownPinsSet = new Set<number>();
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') knownPinsSet.add(b.pinNumber);
@@ -796,15 +796,15 @@ useEffect(() => {
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                 } as BranchDisplayData));
-                groups.push({ kssk: 'CHECK', branches: extraBranches });
+                groups.push({ ksk: 'CHECK', branches: extraBranches });
               }
               // Merge with any previously shown groups if API dropped some
               const prev = lastGroupsRef.current || [];
-              const have = new Set(groups.map(g => g.kssk));
+              const have = new Set(groups.map(g => g.ksk));
               const mergedGroups = [...groups];
-              for (const g of prev) { if (!have.has(g.kssk)) mergedGroups.push(g); }
+              for (const g of prev) { if (!have.has(g.ksk)) mergedGroups.push(g); }
               setGroupedBranches(mergedGroups);
-              setActiveKssks(mergedGroups.map(g => g.kssk).filter(Boolean));
+              setActiveKssks(mergedGroups.map(g => g.ksk).filter(Boolean));
               // Also use union of all group pins for flat list
               const unionMap: Record<number, string> = {};
               for (const g of groups) for (const b of g.branches) if (typeof b.pinNumber === 'number') unionMap[b.pinNumber] = b.branchName;
@@ -857,32 +857,20 @@ useEffect(() => {
                 } else {
                   try { setOkSystemNote('Cache cleared'); } catch {}
                 }
-                try {
-                  await fetch('/api/aliases/clear', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac })
-                  });
-                } catch {}
-                try {
-                  localStorage.removeItem(`PIN_ALIAS::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_UNION::${macUp}`);
-                  localStorage.removeItem(`PIN_ALIAS_GROUPS::${macUp}`);
-                } catch {}
+                try { await fetch('/api/aliases/clear', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac }) }); } catch {}
               } catch {}
 
-              // Clear any KSSK locks for this MAC across stations (force), include stationId if known
+              // Clear any KSK locks for this MAC across stations (force), include stationId if known
               try {
                 const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                await fetch('/api/kssk-lock', {
+                await fetch('/api/ksk-lock', {
                   method: 'DELETE',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
                 });
               } catch {}
               // Also clear local Setup-page lock cache for this station
-              try {
-                const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-                if (sid) localStorage.removeItem(`setup.activeKsskLocks::${sid}`);
-              } catch {}
+              // No local Setup lock cache to clear
 
           } else {
             const rawLine = typeof (result as any)?.raw === 'string' ? String((result as any).raw) : null;
@@ -1038,7 +1026,7 @@ useEffect(() => {
       let hadGroups = false;
       let pins: number[] = [];
       {
-        // Fallback to Redis (prefer all KSSK items union). Force a rehydrate first.
+        // Fallback to Redis (prefer all KSK items union). Force a rehydrate first.
         try {
           try {
             await fetch('/api/aliases/rehydrate', {
@@ -1050,11 +1038,11 @@ useEffect(() => {
           const rAll = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
           if (rAll.ok) {
             const jAll = await rAll.json();
-            const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; kssk: string; }> : [];
+            const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[]; ksk?: string; kssk?: string; }> : [];
             try { itemsAllFromAliasesRef.current = items as any; } catch {}
             
              if (items.length) {
-              // Build raw groups, then de-duplicate by KSSK and pin
+              // Build raw groups, then de-duplicate by KSK and pin
               const groupsRaw = items.map((it: any) => {
                 const a = it.aliases || {};
                 const set = new Set<number>();
@@ -1062,18 +1050,19 @@ useEffect(() => {
                 if (Array.isArray(it.normalPins)) for (const n of it.normalPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
                 if (Array.isArray(it.latchPins)) for (const n of it.latchPins) { const x = Number(n); if (Number.isFinite(x) && x>0) set.add(x); }
                 const pins = Array.from(set).sort((a,b)=>a-b);
+                const idStr = String(((it as any).ksk ?? (it as any).kssk) || '');
                 const branches = pins.map(pin => ({
-                  id: `${it.kssk}:${pin}`,
+                  id: `${idStr}:${pin}`,
                   branchName: aliases[String(pin)] || `PIN ${pin}`,
                   testStatus: 'not_tested' as TestStatus,
                   pinNumber: pin,
                   kfbInfoValue: undefined,
                 }));
-                return { kssk: String(it.kssk || ''), branches };
+                return { ksk: idStr, branches };
               });
               const byId = new Map<string, BranchDisplayData[]>();
               for (const g of groupsRaw) {
-                const id = String(g.kssk).trim().toUpperCase();
+                const id = String(g.ksk).trim().toUpperCase();
                 const prev = byId.get(id) || [];
                 const merged = [...prev, ...g.branches];
                 const seen = new Set<number>();
@@ -1088,9 +1077,9 @@ useEffect(() => {
               }
               const groups = Array.from(byId.entries())
                 .sort((a,b)=> String(a[0]).localeCompare(String(b[0])))
-                .map(([k, branches]) => ({ kssk: k, branches }));
+                .map(([k, branches]) => ({ ksk: k, branches }));
               setGroupedBranches(groups);
-              setActiveKssks(groups.map(g => g.kssk).filter(Boolean));
+              setActiveKssks(groups.map(g => g.ksk).filter(Boolean));
               hadGroups = groups.length > 0;
             }
                         
@@ -1119,7 +1108,7 @@ useEffect(() => {
                   const l = Array.isArray(jU?.latchPins) ? (jU.latchPins as number[]) : undefined;
                   setNormalPins(n);
                   setLatchPins(l);
-                  // Always merge union pins into the pins we send to CHECK so first scan uses all KSSKs
+                  // Always merge union pins into the pins we send to CHECK so first scan uses all KSKs
                   const acc = new Set<number>(pins);
                   if (Array.isArray(n)) for (const p of n) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
                   if (Array.isArray(l)) for (const p of l) { const x = Number(p); if (Number.isFinite(x) && x>0) acc.add(x); }
@@ -1477,6 +1466,7 @@ useEffect(() => {
                 onResetKfb={handleResetKfb}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
+                onOkShown={(m) => finalizeOkForMac(m || (macAddress || '').toUpperCase())}
 
             />
 

@@ -8,10 +8,8 @@ import React, {
   FormEvent,
   startTransition,
 } from "react";
-import dynamic from "next/dynamic";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import type { Transition, Variants } from "framer-motion";
-
 import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
 import { Header } from "@/components/Header/Header";
 import { BranchControlSidebar } from "@/components/Program/BranchControlSidebar";
@@ -19,10 +17,8 @@ import { SettingsPageContent } from "@/components/Settings/SettingsPageContent";
 import { SettingsBranchesPageContent } from "@/components/Settings/SettingsBranchesPageContent";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
-
 import SettingsRightSidebar from "@/components/Settings/SettingsRightSidebar";
 
-// Helper: check if Redis has setup/alias data for this MAC (any aliases or pins)
 async function hasSetupDataForMac(mac: string): Promise<boolean> {
   try {
     const rAll = await fetch(
@@ -67,8 +63,6 @@ async function hasSetupDataForMac(mac: string): Promise<boolean> {
 const SIDEBAR_WIDTH = "24rem";
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type OverlayKind = "success" | "error" | "scanning";
-
-// Accept any ttyACM<N> and common by-id variants
 const isAcmPath = (p?: string | null) =>
   !p ||
   /(^|\/)ttyACM\d+$/.test(p) ||
@@ -88,13 +82,11 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
     return fallback;
   }
 }
-
-// ENV-configurable KFB regex (fallback: 4 alphanumerics)
 const KFB_REGEX = compileRegex(
   process.env.NEXT_PUBLIC_KFB_REGEX,
   /^[A-Z0-9]{4}$/
 );
-// Accept common MAC formats and normalize to colon-separated uppercase
+
 const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
 const canonicalMac = (raw: string): string | null => {
   const s = String(raw || "").trim();
@@ -327,8 +319,6 @@ const MainApplicationUI: React.FC = () => {
       if (prev === true && ready === false) {
         const macUp = String((macAddress || "").toUpperCase());
         if (macUp) {
-          // No client alias cache to clear
-          // Also clear in-memory UI state so stale data is not shown
           try {
             setBranchesData([]);
             setGroupedBranches([]);
@@ -338,7 +328,6 @@ const MainApplicationUI: React.FC = () => {
             setLatchPins(undefined);
             setCheckFailures(null);
           } catch {}
-          // Also clear local Setup-page lock cache for this station to avoid stale UI
           // No local Setup lock cache to clear
         }
       }
@@ -407,8 +396,10 @@ const MainApplicationUI: React.FC = () => {
       setOkFlashTick((t) => t + 1); // triggers child OK animation
       setOverlay((o) => ({ ...o, open: false })); // close SCANNING overlay
       // Finalize now: checkpoint (if live) + clear aliases/locks + drop MAC to turn Live off
-      const mac = (macAddress || '').toUpperCase();
-      if (mac) { void finalizeOkForMac(mac); }
+      const mac = (macAddress || "").toUpperCase();
+      if (mac) {
+        void finalizeOkForMac(mac);
+      }
     }
   }, [serial.lastEvTick, macAddress]);
 
@@ -618,17 +609,11 @@ const MainApplicationUI: React.FC = () => {
     };
   }, []);
 
-  // Do NOT override Active KSKs from Redis with aliases index; show only station-active
-
-  // De-bounce duplicate scans
   const lastHandledScanRef = useRef<string>("");
   const scanDebounceRef = useRef<number>(0);
   const lastErrorStampRef = useRef<number>(0);
-  // Prevent concurrent scan flows (SSE connect + poll race on refresh)
   const scanInFlightRef = useRef<boolean>(false);
-  // Guard to avoid forcing OK multiple times per cycle
   const okForcedRef = useRef<boolean>(false);
-  // Queue scans that arrive while a CHECK is running
   const pendingScansRef = useRef<string[]>([]);
   const enqueueScan = useCallback((raw: string) => {
     const code = String(raw || "")
@@ -636,17 +621,18 @@ const MainApplicationUI: React.FC = () => {
       .toUpperCase();
     if (!code) return;
     const q = pendingScansRef.current;
-    // coalesce identical consecutive entries; keep last 5
     if (q.length === 0 || q[q.length - 1] !== code) q.push(code);
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
-  // Provide stable reference to handleScan for async drains
   const handleScanRef = useRef<(code: string) => void | Promise<void>>(
     () => {}
   );
 
   const handleResetKfb = useCallback(() => {
     cancelOkReset?.();
+    clearRetryTimer();
+    clearScanOverlayTimeout();
+    setOverlay((o) => ({ ...o, open: false }));
     setOkFlashTick(0);
     setOkSystemNote(null);
     setKfbNumber("");
@@ -656,9 +642,21 @@ const MainApplicationUI: React.FC = () => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
-    // Keep MAC address to persist scanned value through the flow
+    setMacAddress("");
+    pendingScansRef.current = [];
+    scanInFlightRef.current = false;
     okForcedRef.current = false;
-    try { finalizeOkGuardRef.current.clear(); } catch {}
+    isCheckingRef.current = false;
+    setIsChecking(false);
+    setIsScanning(false);
+
+    lastHandledScanRef.current = ""; // let the same code be scanned again immediately
+    scanDebounceRef.current = 0; // clear debounce window
+    lastScanRef.current = ""; // (optional) clear displayed scan echo
+    try {
+      finalizeOkGuardRef.current.clear();
+    } catch {}
+    skippedFirstSseRef.current = false;
     bumpSession();
   }, []);
 
@@ -712,8 +710,6 @@ const MainApplicationUI: React.FC = () => {
           normalPins?: number[];
           latchPins?: number[];
         }> = Array.isArray(j?.items) ? j.items : [];
-
-        // If there is nothing to check (no items, no aliases/pins), do not send checkpoint
         let hasData =
           items.length > 0 &&
           items.some((it) => {
@@ -777,7 +773,6 @@ const MainApplicationUI: React.FC = () => {
               },
               body: JSON.stringify(payload),
             });
-            // If checkpoint fails (e.g., 5xx), do not leave any SCANNING overlay lingering
             if (!resp.ok) {
               setOverlay((o) => ({ ...o, open: false }));
             }
@@ -842,7 +837,7 @@ const MainApplicationUI: React.FC = () => {
           await tryClear();
           ok = await verifyEmpty();
         }
-        const sid = (process.env.NEXT_PUBLIC_STATION_ID || '').trim();
+        const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
         // Clear locks across ALL stations first (global scan by MAC), then current station as belt-and-suspenders
         await fetch("/api/ksk-lock", {
           method: "DELETE",

@@ -20,9 +20,11 @@ export async function GET(req: Request) {
     const macRaw = String(url.searchParams.get('mac') || '').toUpperCase();
     if (!MAC_RE.test(macRaw)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const all = url.searchParams.get('all') === '1';
-    const r = getRedis();
+    const r: any = getRedis();
     log.info('GET aliases', { mac: macRaw, all });
     if (all) {
+      // Graceful guard: if Redis is temporarily unavailable, don't throw 500 — return empty list
+      try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
       // Return all KSK-specific alias bundles we know for this MAC
       let members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
       // Fallback/augment: scan keys if index is empty or incomplete
@@ -68,7 +70,9 @@ export async function GET(req: Request) {
       log.info('GET aliases items', { mac: macRaw, count: items.length });
       return NextResponse.json({ items });
     }
-    const raw = await r.get(keyFor(macRaw));
+    // Guard non-ready redis for single get as well
+    try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
+    const raw = await r.get(keyFor(macRaw)).catch(() => null as any);
     if (!raw) return NextResponse.json({ aliases: {}, normalPins: [], latchPins: [] });
     let data: any = {};
     try { data = JSON.parse(raw); } catch { data = {}; }

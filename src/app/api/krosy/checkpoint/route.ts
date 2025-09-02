@@ -422,7 +422,8 @@ export async function POST(req: NextRequest) {
   const reqId = String(body.requestID || Date.now());
   const cur = new Date();
   const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-  const base = path.join(LOG_DIR, month, `${stamp}_${reqId}`);
+  const idSan = (String((body as any)?.intksk || '')).replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+  const base = path.join(LOG_DIR, month, `${stamp}_${idSan}_${reqId}`);
 
   let workingDataXml: string | null = body.workingDataXml || null;
   const startedAll = Date.now();

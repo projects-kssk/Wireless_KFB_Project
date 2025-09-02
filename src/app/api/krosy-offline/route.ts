@@ -236,7 +236,8 @@ export async function POST(req: NextRequest) {
   const stamp = nowStamp();
   const cur = new Date();
   const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-  const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
+  const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+  const base = path.join(LOG_DIR, month, `${stamp}_${idSan}_${requestID}`);
   const lines: string[] = [];
   const push = (s: string) => {
     const l = line(s);
@@ -317,12 +318,16 @@ export async function POST(req: NextRequest) {
   });
 
   await Promise.allSettled([
-    // Request logs: raw + pretty (match naming used elsewhere)
+    // Request logs: raw + pretty (normalized across online/offline)
     writeLog(base, "request.raw.xml", xml),
     writeLog(base, "request.pretty.xml", prettyXml(xml)),
+    // Backward-compat duplicates (for tools/scripts expecting old names)
+    writeLog(base, "request.xml", xml),
     // Response logs: raw + pretty when available
     writeLog(base, "response.raw.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
     writeLog(base, "response.pretty.xml", upstreamJson ? "" : responsePretty),
+    // Backward-compat duplicate
+    writeLog(base, "response.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
     writeLog(base, "report.log", report),
     writeLog(
       base,

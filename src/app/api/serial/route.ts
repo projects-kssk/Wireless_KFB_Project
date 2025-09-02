@@ -178,7 +178,8 @@ function extractPinsFromSequence(
   const latch: number[] = [];
 
   for (const s of seq) {
-    if (s.measType !== "default") continue;
+    const mt = String(s.measType || '').toLowerCase();
+    if (mt !== 'default') continue;
     if (s.objGroup) {
       const m = s.objGroup.match(OBJGROUP_MAC);
       if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;

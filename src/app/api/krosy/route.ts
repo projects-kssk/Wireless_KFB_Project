@@ -234,12 +234,17 @@ export async function POST(req: NextRequest) {
     const stamp = nowStamp();
     const cur = new Date();
     const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-    const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
+    const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+    const base = path.join(LOG_DIR, month, `${stamp}_${idSan}_${requestID}`);
     await Promise.all([
-      writeLog(base, "request.xml", xml),
+      // Normalized file names
+      writeLog(base, "request.raw.xml", xml),
       writeLog(base, "request.pretty.xml", prettyReq),
-      writeLog(base, "response.xml", responseXmlRaw),
+      writeLog(base, "response.raw.xml", responseXmlRaw),
       writeLog(base, "response.pretty.xml", prettyResp || responseXmlRaw),
+      // Backward-compat duplicates
+      writeLog(base, "request.xml", xml),
+      writeLog(base, "response.xml", responseXmlRaw),
       writeLog(base, "meta.json", JSON.stringify({
         mode: "visualControl.working",
         requestID,

@@ -843,7 +843,7 @@ const acceptKsskToIndex = useCallback(
           includeLatch: true,               // include contactless pins (",C")
           // Filters are optional now; provide only when needed
           includeLabelPrefixes: ["CN", "CL"],     // contacts only (first pass)
-          allowedMeasTypes: ["default"],          // measType filter (first pass)
+          allowedMeasTypes: ["default"],          // only default pins are persisted
           allowedCompTypes: ["clip", "contact"],  // component types (first pass)
         };
         // Primary extraction with strict label prefixes (CN/CL)

@@ -14,6 +14,50 @@ function keyFor(mac: string) { return `kfb:aliases:${mac.toUpperCase()}`; }
 function keyForKsk(mac: string, ksk: string) { return `kfb:aliases:${mac.toUpperCase()}:${ksk}`; }
 function indexKey(mac: string) { return `kfb:aliases:index:${mac.toUpperCase()}`; }
 
+async function connectIfNeeded(r: any, timeoutMs = 600): Promise<boolean> {
+  if (!r) return false;
+  const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+  try {
+    if (typeof r.isOpen === 'boolean') {
+      if (!r.isOpen) {
+        try { const p = r.connect(); await Promise.race([p, sleep(timeoutMs)]); } catch {}
+      }
+      return r.isOpen === true;
+    }
+    if (typeof r.status === 'string') {
+      if (r.status === 'ready') return true;
+      if (['connecting','connect','reconnecting'].includes(r.status)) {
+        await Promise.race([
+          new Promise<void>(resolve => {
+            const done = () => { r.off?.('ready', done); r.off?.('error', done); r.off?.('end', done); resolve(); };
+            r.once?.('ready', done); r.once?.('error', done); r.once?.('end', done);
+          }),
+          sleep(timeoutMs),
+        ]);
+        return r.status === 'ready';
+      }
+      try { await r.connect?.().catch(() => {}); } catch {}
+      await Promise.race([
+        new Promise<void>(resolve => {
+          const done = () => { r.off?.('ready', done); r.off?.('error', done); resolve(); };
+          r.once?.('ready', done); r.once?.('error', done);
+        }),
+        sleep(timeoutMs),
+      ]);
+      return r.status === 'ready';
+    }
+  } catch {}
+  return false;
+}
+
+async function withRetry<T>(fn: () => Promise<T>, tries = 3, delayMs = 150): Promise<T | null> {
+  let last: any = null;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); } catch (e: any) { last = e; if (i < tries - 1) await new Promise(res => setTimeout(res, delayMs)); }
+  }
+  throw last ?? new Error('retry-failed');
+}
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
@@ -22,6 +66,13 @@ export async function GET(req: Request) {
     const all = url.searchParams.get('all') === '1';
     const r: any = getRedis();
     log.info('GET aliases', { mac: macRaw, all });
+    const ready = await connectIfNeeded(r, 600);
+    if (!ready) {
+      log.warn('GET aliases redis_unavailable; returning empty', { mac: macRaw, all });
+      const resp = all ? NextResponse.json({ items: [] }) : NextResponse.json({ aliases: {}, normalPins: [], latchPins: [] });
+      resp.headers.set('X-KSK-Mode', 'noop');
+      return resp;
+    }
     if (all) {
       // Graceful guard: if Redis is temporarily unavailable, don't throw 500 — return empty list
       try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
@@ -70,8 +121,6 @@ export async function GET(req: Request) {
       log.info('GET aliases items', { mac: macRaw, count: items.length });
       return NextResponse.json({ items });
     }
-    // Guard non-ready redis for single get as well
-    try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
     const raw = await r.get(keyFor(macRaw)).catch(() => null as any);
     if (!raw) return NextResponse.json({ aliases: {}, normalPins: [], latchPins: [] });
     let data: any = {};
@@ -145,26 +194,33 @@ export async function POST(req: Request) {
       } catch {}
     }
     const value = JSON.stringify({ names: aliases, normalPins, latchPins, ...(hints?{hints}:{}) , ts: Date.now() });
-    const r = getRedis();
-    try { await r.set(keyFor(mac), value); }
+    const r: any = getRedis();
+    const ready = await connectIfNeeded(r, 800);
+    if (!ready) {
+      log.error('POST aliases redis_unavailable');
+      return NextResponse.json({ error: 'redis_unavailable' }, { status: 503 });
+    }
+    let wroteMac = false;
+    try { await withRetry(() => r.set(keyFor(mac), value)); wroteMac = true; }
     catch (e: any) { log.error('POST aliases set mac failed', { mac, error: String(e?.message ?? e) }); }
     if (ksk) {
-      try { await r.set(keyForKsk(mac, ksk), value); }
+      try { await withRetry(() => r.set(keyForKsk(mac, ksk), value)); }
       catch (e: any) { log.error('POST aliases set ksk failed', { mac, ksk, error: String(e?.message ?? e) }); }
-      try { await r.sadd(indexKey(mac), ksk); }
+      try { await withRetry(() => r.sadd(indexKey(mac), ksk)); }
       catch (e: any) { log.error('POST aliases index sadd failed', { mac, ksk, error: String(e?.message ?? e) }); }
       if (xml) {
-        try { await r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml); }
+        try { await withRetry(() => r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml)); }
         catch (e: any) { log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) }); }
       }
       // Also persist a lightweight last-pins snapshot for tooling/watchers
       try {
         const ts = Date.now();
-        await r.set(`kfb:lastpins:${mac}:${ksk}`, JSON.stringify({ normalPins, latchPins, ts }));
+        await withRetry(() => r.set(`kfb:lastpins:${mac}:${ksk}`, JSON.stringify({ normalPins, latchPins, ts })));
       } catch (e: any) {
         log.error('POST aliases lastpins set failed', { mac, ksk, error: String(e?.message ?? e) });
       }
     }
+    if (!wroteMac) return NextResponse.json({ error: 'redis_write_failed' }, { status: 503 });
     log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
     // Rebuild union for MAC key from all KSK entries so UI has complete map
     try {
@@ -221,7 +277,7 @@ export async function POST(req: Request) {
         } catch {}
       }
       const unionVal = JSON.stringify({ names: merged, normalPins: allN, latchPins: allL, ...(Object.keys(unionHints).length?{hints: unionHints}:{}) , ts: Date.now() });
-      try { await r.set(keyFor(mac), unionVal); }
+      try { await withRetry(() => r.set(keyFor(mac), unionVal)); }
       catch (e: any) { log.error('POST aliases union set failed', { mac, error: String(e?.message ?? e) }); }
       log.info('POST aliases union rebuilt', { mac, kskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
       try { broadcast({ type: 'aliases/union', mac, names: merged, normalPins: allN, latchPins: allL }); } catch {}

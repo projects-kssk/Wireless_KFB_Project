@@ -1147,16 +1147,31 @@ export default function SetupPage() {
             let tmp = resp.data?.__xml
               ? extractPinsFromKrosyXML(resp.data.__xml, extractOpts)
               : extractPinsFromKrosy(resp.data, extractOpts);
-            const got = ((tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0)) > 0;
+            const got =
+              (tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0) >
+              0;
             if (!got) {
-              const loose: KrosyOpts = { macHint: macUp, includeLatch: true, allowedMeasTypes: ["default"] };
+              const loose: KrosyOpts = {
+                macHint: macUp,
+                includeLatch: true,
+                allowedMeasTypes: ["default"],
+              };
               tmp = resp.data?.__xml
                 ? extractPinsFromKrosyXML(resp.data.__xml, loose)
                 : extractPinsFromKrosy(resp.data, loose);
             }
-            if ((tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0) > 0) {
-              out = { names: tmp.names || {}, normalPins: tmp.normalPins || [], latchPins: tmp.latchPins || [] } as Out;
-              try { xmlRawForName = resp.data?.__xml || xmlRawForName; } catch {}
+            if (
+              (tmp?.normalPins?.length ?? 0) + (tmp?.latchPins?.length ?? 0) >
+              0
+            ) {
+              out = {
+                names: tmp.names || {},
+                normalPins: tmp.normalPins || [],
+                latchPins: tmp.latchPins || [],
+              } as Out;
+              try {
+                xmlRawForName = resp.data?.__xml || xmlRawForName;
+              } catch {}
             }
           }
         }
@@ -1237,7 +1252,7 @@ export default function SetupPage() {
               .sort((a, b) => (a[0] as number) - (b[0] as number))
               .map(([p, l]) => `${p}:${l}`)
               .join(" | ");
-            if (mapStr) console.log('[SETUP] pin map (by pin)', mapStr);
+            if (mapStr) console.log("[SETUP] pin map (by pin)", mapStr);
           } catch {}
           try {
             xmlRawForName = resp.data?.__xml || null;
@@ -1277,19 +1292,30 @@ export default function SetupPage() {
           try {
             if (persistKsk && persistKsk !== code) {
               // Acquire lock for persistKsk
-              await fetch('/api/ksk-lock', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ kssk: persistKsk, mac: macUp, stationId: STATION_ID, ttlSec: KSK_TTL_SEC })
+              await fetch("/api/ksk-lock", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  kssk: persistKsk,
+                  mac: macUp,
+                  stationId: STATION_ID,
+                  ttlSec: KSK_TTL_SEC,
+                }),
               }).catch(() => {});
               // Release original scanned lock
-              await fetch('/api/ksk-lock', {
-                method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ kssk: code, stationId: STATION_ID, force: 1 })
+              await fetch("/api/ksk-lock", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  kssk: code,
+                  stationId: STATION_ID,
+                  force: 1,
+                }),
               }).catch(() => {});
             }
           } catch {}
 
-          await fetch("/api/aliases", {
+          const saveResp = await fetch("/api/aliases", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1302,47 +1328,255 @@ export default function SetupPage() {
               hints,
             }),
           });
+          if (!saveResp.ok) {
+            let reason = "";
+            try {
+              const j = await saveResp.json();
+              reason = String(j?.error || "");
+            } catch {}
+            // Toast-only (no intrusive overlay): inform operator to rescan
+            try {
+              const id = ++flashSeq.current;
+              pushToast({
+                id,
+                kind: "error",
+                panel,
+                code: "SAVE FAILED",
+                msg: reason || "Redis unavailable; not saved",
+                ts: Date.now(),
+              });
+            } catch {}
+            // Release lock for the response KSK and reset the slot
+            try {
+              await releaseLock(persistKsk);
+            } catch {}
+            bump(target, null, "idle");
+            return;
+          }
+
+          // Toast success summary before verification
+          try {
+            const id = ++flashSeq.current;
+            const n = out.normalPins?.length ?? 0;
+            const l = out.latchPins?.length ?? 0;
+            pushToast({
+              id,
+              kind: "success",
+              panel,
+              code: "Saved",
+              msg: `Pins saved: ${n} normal${l ? `, ${l} latch` : ""}`,
+              ts: Date.now(),
+            });
+          } catch {}
+
+          // Verify persistence: ensure per‑KSK arrays were saved; otherwise surface a hard error
+          try {
+            const rAll = await fetch(
+              `/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`,
+              { cache: "no-store" }
+            );
+            if (rAll.ok) {
+              const jAll = await rAll.json();
+              const items = Array.isArray(jAll?.items)
+                ? (jAll.items as Array<{
+                    ksk?: string;
+                    kssk?: string;
+                    normalPins?: number[];
+                    latchPins?: number[];
+                  }>)
+                : [];
+              const hit = items.find(
+                (it) =>
+                  String(((it as any).ksk ?? (it as any).kssk) || "").trim() ===
+                  persistKsk
+              );
+              const nOk =
+                Array.isArray(hit?.normalPins) &&
+                (hit!.normalPins as number[]).length > 0;
+              const lOk =
+                Array.isArray(hit?.latchPins) &&
+                (hit!.latchPins as number[]).length > 0;
+              if (!nOk && !lOk) {
+                // Do not proceed silently — release lock and ask user to rescan
+                await releaseLock(persistKsk);
+                bump(target, null, "idle");
+                showErr(
+                  persistKsk,
+                  "Failed to persist pins in Redis. Please scan again.",
+                  panel
+                );
+                return;
+              }
+            }
+          } catch {}
         } catch {}
 
         // No local grouping persistence; dashboard derives from Redis
 
-        const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
+        const hasPins =
+          !!out &&
+          (out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0;
         if (!hasPins) {
           // Optional auto-retry on no pins
-          const RETRIES = Math.max(0, Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRIES ?? '1'));
-          const RETRY_DELAY_MS = Math.max(100, Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRY_MS ?? '600'));
+          const RETRIES = Math.max(
+            0,
+            Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRIES ?? "1")
+          );
+          const RETRY_DELAY_MS = Math.max(
+            100,
+            Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRY_MS ?? "600")
+          );
           let retried = 0;
           while (retried < RETRIES) {
             retried++;
-            try { console.warn('[SETUP] no pins — retry', retried); } catch {}
-            await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+            try {
+              console.warn("[SETUP] no pins — retry", retried);
+            } catch {}
+            await new Promise((res) => setTimeout(res, RETRY_DELAY_MS));
             const again = await sendKsskToOffline(code);
             if (again?.ok) {
-              const strict: KrosyOpts = { macHint: macUp, includeLatch: true, includeLabelPrefixes: ["CN","CL"], allowedMeasTypes: ["default"], allowedCompTypes: ["clip","contact"] };
-              let tmp2 = again.data?.__xml ? extractPinsFromKrosyXML(again.data.__xml, strict) : extractPinsFromKrosy(again.data, strict);
-              if (((tmp2?.normalPins?.length ?? 0) + (tmp2?.latchPins?.length ?? 0)) === 0) {
-                const loose2: KrosyOpts = { macHint: macUp, includeLatch: true, allowedMeasTypes: ["default"] };
-                tmp2 = again.data?.__xml ? extractPinsFromKrosyXML(again.data.__xml, loose2) : extractPinsFromKrosy(again.data, loose2);
+              const strict: KrosyOpts = {
+                macHint: macUp,
+                includeLatch: true,
+                includeLabelPrefixes: ["CN", "CL"],
+                allowedMeasTypes: ["default"],
+                allowedCompTypes: ["clip", "contact"],
+              };
+              let tmp2 = again.data?.__xml
+                ? extractPinsFromKrosyXML(again.data.__xml, strict)
+                : extractPinsFromKrosy(again.data, strict);
+              if (
+                (tmp2?.normalPins?.length ?? 0) +
+                  (tmp2?.latchPins?.length ?? 0) ===
+                0
+              ) {
+                const loose2: KrosyOpts = {
+                  macHint: macUp,
+                  includeLatch: true,
+                  allowedMeasTypes: ["default"],
+                };
+                tmp2 = again.data?.__xml
+                  ? extractPinsFromKrosyXML(again.data.__xml, loose2)
+                  : extractPinsFromKrosy(again.data, loose2);
               }
-              if (((tmp2?.normalPins?.length ?? 0) + (tmp2?.latchPins?.length ?? 0)) > 0) {
-                out = { names: tmp2.names || {}, normalPins: tmp2.normalPins || [], latchPins: tmp2.latchPins || [] } as Out;
-                try { xmlRawForName = again.data?.__xml || xmlRawForName; } catch {}
+              if (
+                (tmp2?.normalPins?.length ?? 0) +
+                  (tmp2?.latchPins?.length ?? 0) >
+                0
+              ) {
+                out = {
+                  names: tmp2.names || {},
+                  normalPins: tmp2.normalPins || [],
+                  latchPins: tmp2.latchPins || [],
+                } as Out;
+                try {
+                  xmlRawForName = again.data?.__xml || xmlRawForName;
+                } catch {}
                 break;
               }
             }
           }
-          const nowPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
+          const nowPins =
+            !!out &&
+            (out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0;
           if (!nowPins) {
             try {
-              const meta = { mac: macUp, ksk: code, normalPins: out?.normalPins?.length ?? 0, latchPins: out?.latchPins?.length ?? 0, haveXml: !!xmlRawForName && xmlRawForName.length };
-              const summarizeXml = (xml: string) => { try { const seqCount = (xml.match(/<sequence\b/gi) || []).length; const meas = Array.from(new Set((xml.match(/\bmeasType=\"([^\"]*)\"/gi) || []).map((s) => s.replace(/^.*measType=\"|\"$/g, "")))); const comp = Array.from(new Set((xml.match(/<compType>([^<]*)<\/compType>/gi) || []).map((s) => s.replace(/^.*<compType>|<\/compType>.*$/g, "")))); const macs = Array.from(new Set((xml.match(/<objGroup>[^<]*<\/objGroup>/gi) || []).map((s) => (s.match(/\(([0-9A-F:]{17})\)/i)?.[1] || "").toUpperCase()).filter(Boolean))); return { seqCount, measTypes: meas, compTypes: comp, macs }; } catch { return null; } };
-              const summarizeJson = (j: any) => { try { const vc = j?.response?.krosy?.body?.visualControl; const wd = vc?.workingData || vc?.loadedData; const seg = wd?.sequencer?.segmentList?.segment; const take = (n: any) => Array.isArray(n) ? n : n != null ? [n] : []; const seqs = take(seg).flatMap((s: any) => take(s?.sequenceList?.sequence)); const meas = Array.from(new Set(seqs.map((s: any) => String(s?.measType ?? "").toLowerCase()).filter(Boolean))); const comp = Array.from(new Set(seqs.map((s: any) => String(s?.compType ?? "").toLowerCase()).filter(Boolean))); const groups = Array.from(new Set(seqs.map((s: any) => String(s?.objGroup ?? "")).filter(Boolean))); return { seqCount: seqs.length, measTypes: meas, compTypes: comp, objGroups: groups }; } catch { return null; } };
-              const diag = krosyDiag?.xml ? summarizeXml(krosyDiag.xml) : summarizeJson(krosyDiag?.json);
-              console.warn('[SETUP] NO PINS after extraction (final)', { ...meta, diag });
+              const meta = {
+                mac: macUp,
+                ksk: code,
+                normalPins: out?.normalPins?.length ?? 0,
+                latchPins: out?.latchPins?.length ?? 0,
+                haveXml: !!xmlRawForName && xmlRawForName.length,
+              };
+              const summarizeXml = (xml: string) => {
+                try {
+                  const seqCount = (xml.match(/<sequence\b/gi) || []).length;
+                  const meas = Array.from(
+                    new Set(
+                      (xml.match(/\bmeasType=\"([^\"]*)\"/gi) || []).map((s) =>
+                        s.replace(/^.*measType=\"|\"$/g, "")
+                      )
+                    )
+                  );
+                  const comp = Array.from(
+                    new Set(
+                      (xml.match(/<compType>([^<]*)<\/compType>/gi) || []).map(
+                        (s) => s.replace(/^.*<compType>|<\/compType>.*$/g, "")
+                      )
+                    )
+                  );
+                  const macs = Array.from(
+                    new Set(
+                      (xml.match(/<objGroup>[^<]*<\/objGroup>/gi) || [])
+                        .map((s) =>
+                          (
+                            s.match(/\(([0-9A-F:]{17})\)/i)?.[1] || ""
+                          ).toUpperCase()
+                        )
+                        .filter(Boolean)
+                    )
+                  );
+                  return { seqCount, measTypes: meas, compTypes: comp, macs };
+                } catch {
+                  return null;
+                }
+              };
+              const summarizeJson = (j: any) => {
+                try {
+                  const vc = j?.response?.krosy?.body?.visualControl;
+                  const wd = vc?.workingData || vc?.loadedData;
+                  const seg = wd?.sequencer?.segmentList?.segment;
+                  const take = (n: any) =>
+                    Array.isArray(n) ? n : n != null ? [n] : [];
+                  const seqs = take(seg).flatMap((s: any) =>
+                    take(s?.sequenceList?.sequence)
+                  );
+                  const meas = Array.from(
+                    new Set(
+                      seqs
+                        .map((s: any) =>
+                          String(s?.measType ?? "").toLowerCase()
+                        )
+                        .filter(Boolean)
+                    )
+                  );
+                  const comp = Array.from(
+                    new Set(
+                      seqs
+                        .map((s: any) =>
+                          String(s?.compType ?? "").toLowerCase()
+                        )
+                        .filter(Boolean)
+                    )
+                  );
+                  const groups = Array.from(
+                    new Set(
+                      seqs
+                        .map((s: any) => String(s?.objGroup ?? ""))
+                        .filter(Boolean)
+                    )
+                  );
+                  return {
+                    seqCount: seqs.length,
+                    measTypes: meas,
+                    compTypes: comp,
+                    objGroups: groups,
+                  };
+                } catch {
+                  return null;
+                }
+              };
+              const diag = krosyDiag?.xml
+                ? summarizeXml(krosyDiag.xml)
+                : summarizeJson(krosyDiag?.json);
+              console.warn("[SETUP] NO PINS after extraction (final)", {
+                ...meta,
+                diag,
+              });
             } catch {}
             await releaseLock(code);
-            bump(target, null, 'idle');
-            showErr(code, 'No pins extracted. Please scan again.', panel);
+            bump(target, null, "idle");
+            showErr(code, "No pins extracted. Please scan again.", panel);
             return;
           }
         }
@@ -1742,7 +1976,7 @@ export default function SetupPage() {
                   : "OFFLINE"}
               </span>
             </m.div>
-            {(desiredTail || true) && (
+            {desiredTail && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {desiredTail &&
                   (() => {
@@ -1909,19 +2143,35 @@ export default function SetupPage() {
                     onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
                     onForceClear={async () => {
                       const kssk = ksskSlots[idx];
-                      const macUp = (kfb || '').toUpperCase();
+                      const macUp = (kfb || "").toUpperCase();
                       if (!kssk || !macUp) return;
                       try {
-                        await fetch('/api/aliases/clear', {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ mac: macUp, ksk: kssk })
+                        await fetch("/api/aliases/clear", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ mac: macUp, ksk: kssk }),
                         }).catch(() => {});
                       } catch {}
-                      try { await releaseLock(kssk); } catch {}
+                      try {
+                        await releaseLock(kssk);
+                      } catch {}
                       activeLocks.current.delete(kssk);
-                      setKsskSlots(prev => { const n=[...prev]; n[idx]=null; return n; });
-                      setKsskStatus(prev => { const n=[...prev] as Array<typeof prev[number]>; n[idx]='idle'; return n; });
-                      fireFlash('success', kssk, (`ksk${idx}` as PanelKey), 'Cleared');
+                      setKsskSlots((prev) => {
+                        const n = [...prev];
+                        n[idx] = null;
+                        return n;
+                      });
+                      setKsskStatus((prev) => {
+                        const n = [...prev] as Array<(typeof prev)[number]>;
+                        n[idx] = "idle";
+                        return n;
+                      });
+                      fireFlash(
+                        "success",
+                        kssk,
+                        `ksk${idx}` as PanelKey,
+                        "Cleared"
+                      );
                     }}
                     flashKind={hit ? flash!.kind : null}
                     flashId={hit ? flash!.id : undefined}

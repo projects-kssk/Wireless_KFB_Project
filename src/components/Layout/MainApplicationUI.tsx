@@ -314,6 +314,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Log when live stream starts/stops based on mac + suppression
   const liveStateRef = useRef<string>("off");
+  const lastLiveMacRef = useRef<string | null>(null);
   useEffect(() => {
     const hasMac = !!(macAddress && macAddress.trim());
     const on = hasMac && !suppressLive && mainView === 'dashboard';
@@ -321,8 +322,28 @@ const MainApplicationUI: React.FC = () => {
     if (next !== liveStateRef.current) {
       liveStateRef.current = next;
       try {
-        if (on) console.log('[LIVE] START', { mac: (macAddress || '').toUpperCase() });
-        else console.log('[LIVE] STOP');
+        if (on) {
+          lastLiveMacRef.current = (macAddress || '').toUpperCase();
+          console.log('[LIVE] START', { mac: lastLiveMacRef.current });
+        } else {
+          console.log('[LIVE] STOP');
+          // On STOP, best-effort clear for the last live MAC if we didn't finalise
+          const target = lastLiveMacRef.current;
+          if (target && !(macAddress && macAddress.trim())) {
+            (async () => {
+              try {
+                await fetch('/api/aliases/clear', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ mac: target }),
+                }).catch(() => {});
+                await clearKskLocksFully(target).catch(() => {});
+              } finally {
+                lastLiveMacRef.current = null;
+              }
+            })();
+          }
+        }
       } catch {}
     }
   }, [macAddress, suppressLive, mainView]);

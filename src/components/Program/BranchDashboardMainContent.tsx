@@ -233,11 +233,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   flashOkTick,
   okSystemNote,
 }) => {
-  // Lifecycle logs for entering/leaving the dashboard view
+  // Lifecycle logs for live-session enter/exit based on MAC binding
+  const prevMacRef = useRef<string>("");
   useEffect(() => {
-    try { console.log('[VIEW] Dashboard enter'); } catch {}
-    return () => { try { console.log('[VIEW] Dashboard exit'); } catch {} };
-  }, []);
+    const cur = (macAddress || '').toUpperCase();
+    const prev = prevMacRef.current;
+    if (!prev && cur) {
+      try { console.log('[VIEW] Dashboard enter'); } catch {}
+    } else if (prev && !cur) {
+      try { console.log('[VIEW] Dashboard exit'); } catch {}
+    }
+    prevMacRef.current = cur;
+  }, [macAddress]);
   const [hasMounted, setHasMounted] = useState(false);
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const [isManualEntry, setIsManualEntry] = useState(false);

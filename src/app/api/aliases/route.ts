@@ -147,7 +147,7 @@ export async function POST(req: Request) {
     const ksk = ((body as any)?.ksk ? String((body as any).ksk) : ((body as any)?.kssk ? String((body as any).kssk) : '')).trim();
     const xml = typeof body?.xml === 'string' && body.xml.trim() ? String(body.xml) : null;
     const hints = body?.hints && typeof body.hints === 'object' ? body.hints : undefined;
-    // Server-side guardrail: if XML is provided, re-derive pins from XML (default-only) to avoid client-side drift
+    // Server-side guardrail: if XML is provided, re-derive pins from XML (policy: require measType="default" and matching MAC)
     if (xml) {
       try {
         const parsePos = (pos: string) => {
@@ -160,6 +160,7 @@ export async function POST(req: Request) {
           const pinNum = Number(String(last).replace(/\D+/g, ''));
           return { pin: Number.isFinite(pinNum) ? pinNum : NaN, isLatch };
         };
+        const OBJGROUP_MAC = /\(([0-9A-F:]{17})\)/i;
         const ex = (() => {
           const names: Record<string,string> = {};
           const normal: number[] = [];
@@ -173,6 +174,11 @@ export async function POST(req: Request) {
               // Strict: only measType="default" or <measType>default</measType>
               const mt = (attrs.match(/\bmeasType=\"([^\"]*)\"/i)?.[1] || bodyS.match(/<measType>([^<]*)<\/measType>/i)?.[1] || '').toLowerCase();
               if (mt !== 'default') continue;
+              // Require MAC in objGroup matching the provided MAC
+              const og = bodyS.match(/<objGroup>([^<]*)<\/objGroup>/i)?.[1] || '';
+              const mm = og.match(OBJGROUP_MAC);
+              const ogMac = (mm?.[1] || '').toUpperCase();
+              if (!ogMac || ogMac === '00:00:00:00:00:00' || ogMac !== mac) continue;
               const pos = bodyS.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || '';
               if (!pos) continue;
               const { pin, isLatch } = parsePos(pos);

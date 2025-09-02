@@ -163,12 +163,12 @@ function extractNameHintsFromKrosyXML(
         el.getElementsByTagName("measType")[0]?.textContent ||
         ""
       ).toLowerCase();
-      if (
-        Array.isArray(allowedMeasTypes) &&
-        allowedMeasTypes.length > 0 &&
-        !allowedMeasTypes.map((x) => x.toLowerCase()).includes(mt)
-      )
-        continue;
+      // Policy: default-only unless explicitly overridden
+      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+        ? allowedMeasTypes
+        : ["default"]) // enforce default by default
+        .map((x) => x.toLowerCase());
+      if (!wantedMeas.includes(mt)) continue;
 
       const ct = (
         getAttr(el, "compType") ||
@@ -189,8 +189,10 @@ function extractNameHintsFromKrosyXML(
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac)
-        continue;
+      // Policy: require a concrete MAC match when macHint is provided
+      if (wantMac) {
+        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
+      }
 
       const pos = String(
         el.getElementsByTagName("objPos")[0]?.textContent || ""
@@ -214,12 +216,10 @@ function extractNameHintsFromKrosyXML(
         body.match(/<measType>([^<]*)<\/measType>/i)?.[1] ||
         ""
       ).toLowerCase();
-      if (
-        Array.isArray(allowedMeasTypes) &&
-        allowedMeasTypes.length > 0 &&
-        !allowedMeasTypes.map((x) => x.toLowerCase()).includes(mt)
-      )
-        continue;
+      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+        ? allowedMeasTypes
+        : ["default"]).map((x) => x.toLowerCase());
+      if (!wantedMeas.includes(mt)) continue;
 
       const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
@@ -237,8 +237,9 @@ function extractNameHintsFromKrosyXML(
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac)
-        continue;
+      if (wantMac) {
+        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
+      }
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushFromObjPos(pos);
@@ -295,12 +296,11 @@ function extractPinsFromKrosy(
       const mt = String(s?.measType ?? "")
         .trim()
         .toLowerCase();
-      if (
-        Array.isArray(allowedMeasTypes) &&
-        allowedMeasTypes.length > 0 &&
-        !allowedMeasTypes.map((x) => x.toLowerCase()).includes(mt)
-      )
-        continue;
+      // Policy: default-only unless explicitly overridden
+      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+        ? allowedMeasTypes
+        : ["default"]).map((x) => x.toLowerCase());
+      if (!wantedMeas.includes(mt)) continue;
 
       const ct = String(s?.compType ?? "")
         .trim()
@@ -316,8 +316,9 @@ function extractPinsFromKrosy(
       const mm = og.match(OBJGROUP_MAC);
       const ogMac = (mm?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (mm && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac)
-        continue;
+      if (wantMac) {
+        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
+      }
 
       const pos = String(s?.objPos ?? "");
       if (!pos) continue;
@@ -381,12 +382,10 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
         el.getElementsByTagName("measType")[0]?.textContent ||
         ""
       ).toLowerCase();
-      if (
-        Array.isArray(allowedMeasTypes) &&
-        allowedMeasTypes.length > 0 &&
-        !allowedMeasTypes.map((x) => x.toLowerCase()).includes(mt)
-      )
-        continue;
+      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+        ? allowedMeasTypes
+        : ["default"]).map((x) => x.toLowerCase());
+      if (!wantedMeas.includes(mt)) continue;
 
       const ct = (
         getAttr(el, "compType") ||
@@ -407,8 +406,9 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       const m = og.match(OBJGROUP_MAC);
       const ogMac = (m?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (m && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac)
-        continue;
+      if (wantMac) {
+        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
+      }
 
       const pos = String(
         el.getElementsByTagName("objPos")[0]?.textContent || ""
@@ -431,12 +431,10 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
         body.match(/<measType>([^<]*)<\/measType>/i)?.[1] ||
         ""
       ).toLowerCase();
-      if (
-        Array.isArray(allowedMeasTypes) &&
-        allowedMeasTypes.length > 0 &&
-        !allowedMeasTypes.map((x) => x.toLowerCase()).includes(mt)
-      )
-        continue;
+      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+        ? allowedMeasTypes
+        : ["default"]).map((x) => x.toLowerCase());
+      if (!wantedMeas.includes(mt)) continue;
       const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
         attrs.match(/\bcompType="([^"]*)"/i)?.[1] ||
@@ -454,8 +452,9 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac)
-        continue;
+      if (wantMac) {
+        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
+      }
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushPin(pos);

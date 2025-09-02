@@ -259,6 +259,7 @@ const MainApplicationUI: React.FC = () => {
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
+  const [suppressLive, setSuppressLive] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => {
     if (retryTimerRef.current != null) {
@@ -490,6 +491,7 @@ const MainApplicationUI: React.FC = () => {
           kind,
         });
       } catch {}
+      setSuppressLive(true);
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
       );
@@ -553,6 +555,7 @@ const MainApplicationUI: React.FC = () => {
       clearScanOverlayTimeout();
       setOverlay((o) => ({ ...o, open: false }));
       okForcedRef.current = true;
+      setSuppressLive(true);
       setOkFlashTick((t) => t + 1);
       const macUp = (macAddress || "").toUpperCase();
       if (macUp) {
@@ -749,7 +752,10 @@ const MainApplicationUI: React.FC = () => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
+    setNormalPins(undefined);
+    setLatchPins(undefined);
     setMacAddress("");
+    setSuppressLive(false);
     pendingScansRef.current = [];
     scanInFlightRef.current = false;
     okForcedRef.current = false;
@@ -1014,6 +1020,20 @@ const MainApplicationUI: React.FC = () => {
         // Force a one-time reset after ~1.5s OK overlay
         const primary = 1500;
         forceResetOnce(primary, primary + 1200);
+        // Optional: trigger a full page refresh (hot reload) after OK window
+        try {
+          const WANT_RELOAD =
+            String(process.env.NEXT_PUBLIC_RELOAD_AFTER_OK || "").trim() ===
+            "1";
+          if (WANT_RELOAD) {
+            window.setTimeout(() => {
+              try {
+                console.log("[FLOW][FINALIZE] reloading page after OK overlay");
+                window.location.reload();
+              } catch {}
+            }, primary + 50);
+          }
+        } catch {}
       }
     },
     [krosyLive, sendCheckpointForMac]
@@ -1391,6 +1411,7 @@ const MainApplicationUI: React.FC = () => {
             clearScanOverlayTimeout();
             setOverlay((o) => ({ ...o, open: false }));
             okForcedRef.current = true;
+            setSuppressLive(true);
             setOkFlashTick((t) => t + 1); // show OK in child
             // Run finalization (checkpoint if live + clear Redis/locks + Live off)
             await finalizeOkForMac(mac);
@@ -2175,8 +2196,8 @@ const MainApplicationUI: React.FC = () => {
                 isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
                 activeKssks={activeKssks}
-                lastEv={(serial as any).lastEv}
-                lastEvTick={(serial as any).lastEvTick}
+                lastEv={suppressLive ? null : (serial as any).lastEv}
+                lastEvTick={suppressLive ? 0 : (serial as any).lastEvTick}
                 normalPins={normalPins}
                 latchPins={latchPins}
                 onResetKfb={handleResetKfb}

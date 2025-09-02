@@ -909,9 +909,9 @@ const MainApplicationUI: React.FC = () => {
       finalizeOkGuardRef.current.add(mac);
       try {
         console.log("[FLOW][FINALIZE] start", { mac });
-        // Always flash OK when we are about to clear Redis, per requirement
+        // Show OK overlay briefly (target ~1.5s)
         setOverlay({ open: true, kind: "success", code: "" });
-        // Drop MAC/code immediately to avoid lingering Live state in UI
+        // Drop MAC/code immediately to avoid lingering Live state in UI while OK shows
         try {
           setMacAddress("");
           setKfbNumber("");
@@ -1010,9 +1010,9 @@ const MainApplicationUI: React.FC = () => {
           }
         } catch {}
 
-        console.log("[FLOW][FINALIZE] done; forcing reset soon");
-        // Force a one-time reset; use OK overlay budget as the primary delay
-        const primary = Math.max(300, OK_OVERLAY_MS);
+        console.log("[FLOW][FINALIZE] done; forcing reset after OK overlay");
+        // Force a one-time reset after ~1.5s OK overlay
+        const primary = 1500;
         forceResetOnce(primary, primary + 1200);
       }
     },

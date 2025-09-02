@@ -1102,7 +1102,8 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
         clearScanOverlayTimeout();
         // Show a prominent message, then return to scan view
         showOverlay('error', 'NOTHING TO CHECK HERE');
-        hideOverlaySoon();
+        // Make this highlight brief to avoid blocking the flow
+        hideOverlaySoon(600);
         setGroupedBranches([]);
         setActiveKssks([]);
         setIsScanning(false);
@@ -1442,6 +1443,7 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
                 latchPins={latchPins}
                 
                 onResetKfb={handleResetKfb}
+                onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
 

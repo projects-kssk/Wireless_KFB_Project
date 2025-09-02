@@ -1290,102 +1290,45 @@ export default function SetupPage() {
 
         // No local grouping persistence; dashboard derives from Redis
 
-        const hasPins =
-          !!out &&
-          (out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0;
+        const hasPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
         if (!hasPins) {
-          try {
-            const meta = {
-              mac: macUp,
-              ksk: code,
-              normalPins: out?.normalPins?.length ?? 0,
-              latchPins: out?.latchPins?.length ?? 0,
-              haveXml: !!xmlRawForName && xmlRawForName.length,
-            };
-            // Attempt to summarize upstream payload for quick diagnosis
-            const summarizeXml = (xml: string) => {
-              try {
-                const seqCount = (xml.match(/<sequence\b/gi) || []).length;
-                const meas = Array.from(
-                  new Set(
-                    (xml.match(/\bmeasType=\"([^\"]*)\"/gi) || []).map((s) =>
-                      s.replace(/^.*measType=\"|\"$/g, "")
-                    )
-                  )
-                );
-                const comp = Array.from(
-                  new Set(
-                    (xml.match(/<compType>([^<]*)<\/compType>/gi) || []).map(
-                      (s) => s.replace(/^.*<compType>|<\/compType>.*$/g, "")
-                    )
-                  )
-                );
-                const macs = Array.from(
-                  new Set(
-                    (xml.match(/<objGroup>[^<]*<\/objGroup>/gi) || [])
-                      .map((s) =>
-                        (
-                          s.match(/\(([0-9A-F:]{17})\)/i)?.[1] || ""
-                        ).toUpperCase()
-                      )
-                      .filter(Boolean)
-                  )
-                );
-                return { seqCount, measTypes: meas, compTypes: comp, macs };
-              } catch {
-                return null;
+          // Optional auto-retry on no pins
+          const RETRIES = Math.max(0, Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRIES ?? '1'));
+          const RETRY_DELAY_MS = Math.max(100, Number(process.env.NEXT_PUBLIC_SETUP_EXTRACT_RETRY_MS ?? '600'));
+          let retried = 0;
+          while (retried < RETRIES) {
+            retried++;
+            try { console.warn('[SETUP] no pins — retry', retried); } catch {}
+            await new Promise(res => setTimeout(res, RETRY_DELAY_MS));
+            const again = await sendKsskToOffline(code);
+            if (again?.ok) {
+              const strict: KrosyOpts = { macHint: macUp, includeLatch: true, includeLabelPrefixes: ["CN","CL"], allowedMeasTypes: ["default"], allowedCompTypes: ["clip","contact"] };
+              let tmp2 = again.data?.__xml ? extractPinsFromKrosyXML(again.data.__xml, strict) : extractPinsFromKrosy(again.data, strict);
+              if (((tmp2?.normalPins?.length ?? 0) + (tmp2?.latchPins?.length ?? 0)) === 0) {
+                const loose2: KrosyOpts = { macHint: macUp, includeLatch: true, allowedMeasTypes: ["default"] };
+                tmp2 = again.data?.__xml ? extractPinsFromKrosyXML(again.data.__xml, loose2) : extractPinsFromKrosy(again.data, loose2);
               }
-            };
-            const summarizeJson = (j: any) => {
-              try {
-                const vc = j?.response?.krosy?.body?.visualControl;
-                const wd = vc?.workingData || vc?.loadedData;
-                const seg = wd?.sequencer?.segmentList?.segment;
-                const take = (n: any) =>
-                  Array.isArray(n) ? n : n != null ? [n] : [];
-                const seqs = take(seg).flatMap((s: any) =>
-                  take(s?.sequenceList?.sequence)
-                );
-                const meas = Array.from(
-                  new Set(
-                    seqs
-                      .map((s: any) => String(s?.measType ?? "").toLowerCase())
-                      .filter(Boolean)
-                  )
-                );
-                const comp = Array.from(
-                  new Set(
-                    seqs
-                      .map((s: any) => String(s?.compType ?? "").toLowerCase())
-                      .filter(Boolean)
-                  )
-                );
-                const groups = Array.from(
-                  new Set(
-                    seqs
-                      .map((s: any) => String(s?.objGroup ?? ""))
-                      .filter(Boolean)
-                  )
-                );
-                return {
-                  seqCount: seqs.length,
-                  measTypes: meas,
-                  compTypes: comp,
-                  objGroups: groups,
-                };
-              } catch {
-                return null;
+              if (((tmp2?.normalPins?.length ?? 0) + (tmp2?.latchPins?.length ?? 0)) > 0) {
+                out = { names: tmp2.names || {}, normalPins: tmp2.normalPins || [], latchPins: tmp2.latchPins || [] } as Out;
+                try { xmlRawForName = again.data?.__xml || xmlRawForName; } catch {}
+                break;
               }
-            };
-            const diag = krosyDiag?.xml
-              ? summarizeXml(krosyDiag.xml)
-              : summarizeJson(krosyDiag?.json);
-            console.warn("[SETUP] NO PINS after extraction", { ...meta, diag });
-          } catch {}
-          await releaseLock(code);
-          bump(target, null, "idle");
-          showErr(code, "Krosy configuration error: no PINS", panel);
-          return;
+            }
+          }
+          const nowPins = !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
+          if (!nowPins) {
+            try {
+              const meta = { mac: macUp, ksk: code, normalPins: out?.normalPins?.length ?? 0, latchPins: out?.latchPins?.length ?? 0, haveXml: !!xmlRawForName && xmlRawForName.length };
+              const summarizeXml = (xml: string) => { try { const seqCount = (xml.match(/<sequence\b/gi) || []).length; const meas = Array.from(new Set((xml.match(/\bmeasType=\"([^\"]*)\"/gi) || []).map((s) => s.replace(/^.*measType=\"|\"$/g, "")))); const comp = Array.from(new Set((xml.match(/<compType>([^<]*)<\/compType>/gi) || []).map((s) => s.replace(/^.*<compType>|<\/compType>.*$/g, "")))); const macs = Array.from(new Set((xml.match(/<objGroup>[^<]*<\/objGroup>/gi) || []).map((s) => (s.match(/\(([0-9A-F:]{17})\)/i)?.[1] || "").toUpperCase()).filter(Boolean))); return { seqCount, measTypes: meas, compTypes: comp, macs }; } catch { return null; } };
+              const summarizeJson = (j: any) => { try { const vc = j?.response?.krosy?.body?.visualControl; const wd = vc?.workingData || vc?.loadedData; const seg = wd?.sequencer?.segmentList?.segment; const take = (n: any) => Array.isArray(n) ? n : n != null ? [n] : []; const seqs = take(seg).flatMap((s: any) => take(s?.sequenceList?.sequence)); const meas = Array.from(new Set(seqs.map((s: any) => String(s?.measType ?? "").toLowerCase()).filter(Boolean))); const comp = Array.from(new Set(seqs.map((s: any) => String(s?.compType ?? "").toLowerCase()).filter(Boolean))); const groups = Array.from(new Set(seqs.map((s: any) => String(s?.objGroup ?? "")).filter(Boolean))); return { seqCount: seqs.length, measTypes: meas, compTypes: comp, objGroups: groups }; } catch { return null; } };
+              const diag = krosyDiag?.xml ? summarizeXml(krosyDiag.xml) : summarizeJson(krosyDiag?.json);
+              console.warn('[SETUP] NO PINS after extraction (final)', { ...meta, diag });
+            } catch {}
+            await releaseLock(code);
+            bump(target, null, 'idle');
+            showErr(code, 'No pins extracted. Please scan again.', panel);
+            return;
+          }
         }
 
         // 5) ESP

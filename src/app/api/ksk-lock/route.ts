@@ -500,7 +500,11 @@ export async function PATCH(req: NextRequest) {
 
     if (haveRedis) {
       const existing = await rGet(key);
-      if (!existing) { log.info('PATCH not_locked', { rid: id, ksk, durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ error: "not_locked" }, { status: 404 }), mode); }
+      if (!existing) {
+        // Idempotent: if lock missing (already cleared), treat as OK no-op
+        log.info('PATCH not_locked (idempotent_ok)', { rid: id, ksk, durationMs: Date.now()-t0 });
+        return withMode(NextResponse.json({ ok: true, note: 'not_locked' }), mode);
+      }
       if (existing.stationId !== String(stationId)) {
         log.info('PATCH not_owner', { rid: id, ksk, stationId, owner: existing.stationId, durationMs: Date.now()-t0 });
         return withMode(NextResponse.json({ error: "not_owner", existing }, { status: 403 }), mode);
@@ -513,7 +517,7 @@ export async function PATCH(req: NextRequest) {
 
     const ok = memTouchIfOwner(key, String(stationId), ttlMs);
     log.info('PATCH mem', { rid: id, ksk, stationId, ok, durationMs: Date.now()-t0 });
-    return withMode(ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "not_locked_or_not_owner" }, { status: 403 }), mode);
+    return withMode(ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: true, note: 'not_locked_or_not_owner' }), mode);
   } catch (e: unknown) {
     log.info('PATCH error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });

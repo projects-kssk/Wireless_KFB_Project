@@ -650,7 +650,7 @@ export default function SetupPage() {
       await fetch("/api/ksk-lock", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kssk, stationId: STATION_ID }),
+        body: JSON.stringify({ kssk, stationId: STATION_ID, force: 1 }),
         keepalive: true,
       });
     } catch {}
@@ -1273,6 +1273,22 @@ export default function SetupPage() {
               if (x) persistKsk = x;
             }
           } catch {}
+          // If the authoritative response KSK differs from the scanned code, switch lock to the response KSK
+          try {
+            if (persistKsk && persistKsk !== code) {
+              // Acquire lock for persistKsk
+              await fetch('/api/ksk-lock', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kssk: persistKsk, mac: macUp, stationId: STATION_ID, ttlSec: KSK_TTL_SEC })
+              }).catch(() => {});
+              // Release original scanned lock
+              await fetch('/api/ksk-lock', {
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kssk: code, stationId: STATION_ID, force: 1 })
+              }).catch(() => {});
+            }
+          } catch {}
+
           await fetch("/api/aliases", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

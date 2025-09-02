@@ -577,10 +577,31 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
     } else {
       try { setOkSystemNote('Cache cleared'); } catch {}
     }
-    await fetch('/api/aliases/clear', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mac })
-    }).catch(() => {});
+    // Clear aliases with small retries and verify emptiness
+    const tryClear = async () => {
+      await fetch('/api/aliases/clear', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac })
+      }).catch(() => {});
+    };
+    const verifyEmpty = async (): Promise<boolean> => {
+      try {
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+        if (!r.ok) return false;
+        const j = await r.json();
+        const items = Array.isArray(j?.items) ? j.items : [];
+        return items.length === 0;
+      } catch { return false; }
+    };
+    await tryClear();
+    let ok = await verifyEmpty();
+    let attempts = 0;
+    while (!ok && attempts < 2) {
+      attempts++;
+      await new Promise(res => setTimeout(res, 250));
+      await tryClear();
+      ok = await verifyEmpty();
+    }
     const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
     await fetch('/api/ksk-lock', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },

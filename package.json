@@ -17,13 +17,12 @@
     "typescript"
   ],
   "scripts": {
-    "redis:up": "bash ./scripts/redis-up.sh",
+    "redis:up": "bash ./scripts/redis-up-local.sh",
     "redis:wait": "npx wait-on tcp:127.0.0.1:6379",
-    "predev": "npm run redis:up && npm run redis:wait",
+    "predev": "if [ \"$SKIP_REDIS_BOOTSTRAP\" = \"1\" ]; then echo skip; else npm run redis:up && npm run redis:wait; fi",
     "dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"npx wait-on http://localhost:3003 && electron .\"",
-    "electron:dev": "concurrently -k -n \"SERVER,ELECTRON\" -c \"magenta,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"npx wait-on http://localhost:3003 && electron .\"",
-    "electron:open": "npx wait-on http://localhost:3003 && electron .",
-    "redis:logs": "docker logs -f ${REDIS_CONTAINER_NAME:-redis}",
+    "redis:logs": "journalctl -u redis-server -f --no-pager || redis-cli MONITOR",
+
     "locks:redis": "node scripts/print-locks-redis.mjs",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",

@@ -226,6 +226,29 @@ const MainApplicationUI: React.FC = () => {
       okResetTimerRef.current = null;
     }, ms + 100);
   };
+  // Forced reset path that cannot be canceled by cancelOkReset()
+  const forceResetDoneRef = useRef(false);
+  const forceResetTimer1Ref = useRef<number | null>(null);
+  const forceResetTimer2Ref = useRef<number | null>(null);
+  const forceResetOnce = (primaryMs = 700, fallbackMs = 2200) => {
+    if (forceResetDoneRef.current) return;
+    const fire = () => {
+      if (forceResetDoneRef.current) return;
+      forceResetDoneRef.current = true;
+      try {
+        setOverlay((o) => ({ ...o, open: false }));
+      } catch {}
+      handleResetKfb();
+      if (forceResetTimer1Ref.current) clearTimeout(forceResetTimer1Ref.current);
+      if (forceResetTimer2Ref.current) clearTimeout(forceResetTimer2Ref.current);
+      forceResetTimer1Ref.current = null;
+      forceResetTimer2Ref.current = null;
+    };
+    if (forceResetTimer1Ref.current == null)
+      forceResetTimer1Ref.current = window.setTimeout(fire, Math.max(0, primaryMs));
+    if (forceResetTimer2Ref.current == null)
+      forceResetTimer2Ref.current = window.setTimeout(fire, Math.max(primaryMs + 500, fallbackMs));
+  };
   const cancelOkReset = () => {
     if (okResetTimerRef.current) {
       clearTimeout(okResetTimerRef.current);
@@ -235,6 +258,7 @@ const MainApplicationUI: React.FC = () => {
 
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
+  const [disableOkAnimation, setDisableOkAnimation] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => {
     if (retryTimerRef.current != null) {
@@ -887,6 +911,11 @@ const MainApplicationUI: React.FC = () => {
         console.log("[FLOW][FINALIZE] start", { mac });
         // Always flash OK when we are about to clear Redis, per requirement
         setOverlay({ open: true, kind: "success", code: "" });
+        // Drop MAC/code immediately to avoid lingering Live state in UI
+        try {
+          setMacAddress("");
+          setKfbNumber("");
+        } catch {}
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
         console.log("[FLOW][FINALIZE] setup existence", {
           hasSetup,
@@ -981,9 +1010,10 @@ const MainApplicationUI: React.FC = () => {
           }
         } catch {}
 
-        setOverlay((o) => ({ ...o, open: false }));
-        console.log("[FLOW][FINALIZE] done; scheduling reset");
-        scheduleOkReset();
+        console.log("[FLOW][FINALIZE] done; forcing reset soon");
+        // Force a one-time reset; use OK overlay budget as the primary delay
+        const primary = Math.max(300, OK_OVERLAY_MS);
+        forceResetOnce(primary, primary + 1200);
       }
     },
     [krosyLive, sendCheckpointForMac]
@@ -1419,6 +1449,7 @@ const MainApplicationUI: React.FC = () => {
             } else {
               console.warn("CHECK pending/no-result");
               setScanningError(true);
+              setDisableOkAnimation(true);
               showOverlay("error", "SCANNING ERROR");
               clearScanOverlayTimeout();
               // Reset view back to default scan state shortly after showing error (preserve MAC)
@@ -1432,6 +1463,7 @@ const MainApplicationUI: React.FC = () => {
           } else {
             console.error("CHECK error:", result);
             setScanningError(true);
+            setDisableOkAnimation(true);
             showOverlay("error", "CHECK ERROR");
             clearScanOverlayTimeout();
             // Reset view back to default scan state shortly after showing error (preserve MAC)
@@ -1472,6 +1504,7 @@ const MainApplicationUI: React.FC = () => {
         } else {
           console.error("CHECK error", err);
           showOverlay("error", "CHECK exception");
+          setDisableOkAnimation(true);
           setAwaitingRelease(false);
           clearScanOverlayTimeout();
           hideOverlaySoon();
@@ -1502,6 +1535,7 @@ const MainApplicationUI: React.FC = () => {
       } catch {}
       cancelOkReset();
       setOkFlashTick(0);
+      setDisableOkAnimation(false);
       const kfbRaw = (value ?? kfbInputRef.current).trim();
       if (!kfbRaw) return;
       const normalized = kfbRaw.toUpperCase();
@@ -1734,6 +1768,7 @@ const MainApplicationUI: React.FC = () => {
           setActiveKssks([]);
           setIsScanning(false);
           setShowScanUi(false);
+          setDisableOkAnimation(true);
           return;
         }
 
@@ -1750,6 +1785,7 @@ const MainApplicationUI: React.FC = () => {
         const msg =
           "Failed to load setup data. Please run Setup or scan MAC again.";
         setErrorMsg(msg);
+        setDisableOkAnimation(true);
         if (source === "scan") {
           showOverlay("error", "Load failed");
           hideOverlaySoon();
@@ -2147,6 +2183,7 @@ const MainApplicationUI: React.FC = () => {
                 onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
+                disableOkAnimation={disableOkAnimation}
               />
 
               <form onSubmit={handleKfbSubmit} className="hidden" />

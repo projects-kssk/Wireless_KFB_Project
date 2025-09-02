@@ -61,12 +61,19 @@ type KrosyNameHints = {
 const OBJGROUP_MAC = /\(([0-9A-F:]{17})\)/i;
 
 function parsePos(pos: string) {
-  const parts = pos.split(",");
+  const raw = String(pos || "");
+  const parts = raw.split(",").map(s => s.trim());
+  // Policy: do NOT derive a pin if there is no comma
+  if (parts.length < 2) return { pin: NaN, label: parts[0] || "", labelPrefix: (parts[0] || "").split("_")[0] || "", isLatch: false };
   let isLatch = false;
-  if (parts.at(-1)?.trim().toUpperCase() === "C") { isLatch = true; parts.pop(); }
-  const pin = Number((parts.at(-1) || "").replace(/\D+/g, ""));
-  const label = (pos.split(",")[0] || "").trim();
+  if (parts.at(-1)?.toUpperCase() === "C") { isLatch = true; parts.pop(); }
+  // After removing 'C', ensure there is still a numeric segment separate from the label
+  if (parts.length < 2) return { pin: NaN, label: parts[0] || "", labelPrefix: (parts[0] || "").split("_")[0] || "", isLatch };
+  const label = (parts[0] || "").trim();
   const labelPrefix = label.split("_")[0] || "";
+  const last = parts.at(-1) || "";
+  const pinNum = Number(String(last).replace(/\D+/g, ""));
+  const pin = Number.isFinite(pinNum) ? pinNum : NaN;
   return { pin, label, labelPrefix, isLatch };
 }
 
@@ -119,7 +126,7 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
     const doc = parseMarkupSafely(xml);
     const seqs = Array.from(doc.getElementsByTagName("sequence"));
     for (const el of seqs) {
-      const mt = (getAttr(el, "measType") || "").toLowerCase();
+      const mt = ((getAttr(el, "measType") || el.getElementsByTagName("measType")[0]?.textContent || "")).toLowerCase();
       if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
       const ct = (
@@ -149,7 +156,7 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
       const attrs = m[1] || "";
       const body = m[2] || "";
 
-      const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
+      const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || body.match(/<measType>([^<]*)<\/measType>/i)?.[1] || "").toLowerCase();
       if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
      const ct = (
@@ -272,7 +279,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
     const doc = parseMarkupSafely(xml);
     const seqs = Array.from(doc.getElementsByTagName("sequence"));
     for (const el of seqs) {
-      const mt = (getAttr(el, "measType") || "").toLowerCase();
+      const mt = ((getAttr(el, "measType") || el.getElementsByTagName("measType")[0]?.textContent || "")).toLowerCase();
       if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
 
      const ct = (
@@ -301,7 +308,7 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
     while ((m = re.exec(xml))) {
       const attrs = m[1] || "";
       const body = m[2] || "";
-      const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || "").toLowerCase();
+      const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || body.match(/<measType>([^<]*)<\/measType>/i)?.[1] || "").toLowerCase();
       if (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0 && !allowedMeasTypes.map(x => x.toLowerCase()).includes(mt)) continue;
       const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||

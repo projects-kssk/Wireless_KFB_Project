@@ -331,13 +331,17 @@ export async function GET(req: NextRequest) {
         // Minimal XML extractor to recover pins/names when arrays are missing
         const parsePos = (pos: string) => {
           try {
-            const parts = String(pos || '').split(',');
+            const parts = String(pos || '').split(',').map(s => s.trim());
+            // Policy: do not derive pins if no comma present
+            if (parts.length < 2) return { pin: NaN, label: parts[0] || '', isLatch: false, labelPrefix: (parts[0] || '').split('_')[0] || '' };
             let isLatch = false;
-            if (parts.at(-1)?.trim().toUpperCase() === 'C') { isLatch = true; parts.pop(); }
+            if (parts.at(-1)?.toUpperCase() === 'C') { isLatch = true; parts.pop(); }
+            if (parts.length < 2) return { pin: NaN, label: parts[0] || '', isLatch, labelPrefix: (parts[0] || '').split('_')[0] || '' };
             const label = String(parts[0] || '').trim();
-            const pin = Number((parts.at(-1) || '').replace(/\D+/g, ''));
             const labelPrefix = label.split('_')[0] || '';
-            return { pin, label, isLatch, labelPrefix };
+            const last = parts.at(-1) || '';
+            const pinNum = Number(String(last).replace(/\D+/g, ''));
+            return { pin: Number.isFinite(pinNum) ? pinNum : NaN, label, isLatch, labelPrefix };
           } catch { return { pin: NaN, label: '', isLatch: false, labelPrefix: '' }; }
         };
         const extractFromXml = (xml: string) => {

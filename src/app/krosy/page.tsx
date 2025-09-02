@@ -77,7 +77,8 @@ export default function KrosyPage() {
   const busyAny = busyReq || busyChk;
 
   // inputs
-  const [requestID, setRequestID] = useState<string>("1");
+  // Leave blank to auto-generate per call
+  const [requestID, setRequestID] = useState<string>("");
   const [intksk, setIntksk] = useState("830577899396");
   const [targetHostName, setTargetHostName] = useState(DEFAULT_TARGET_HOST);
 
@@ -236,9 +237,11 @@ export default function KrosyPage() {
     setWorkingDataXml(null);
     setCheckpointEligible(false);
 
+    const reqId = (requestID || "").trim() || String(Date.now());
+    if (!requestID) setRequestID(reqId);
     const payload = {
       action: "working",
-      requestID,
+      requestID: reqId,
       intksk,
       targetHostName,
       sourceHostname,
@@ -360,7 +363,9 @@ export default function KrosyPage() {
     setRespBody("");
     setTab("body");
 
-    const payload = { workingDataXml, requestID };
+    const reqId = (requestID || "").trim() || String(Date.now());
+    if (!requestID) setRequestID(reqId);
+    const payload = { workingDataXml, requestID: reqId };
 
     append(`POST ${endpointCheckpoint} [visualControl: workingResult] (${apiMode.toUpperCase()})`);
 

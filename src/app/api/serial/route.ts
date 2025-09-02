@@ -156,14 +156,14 @@ async function loadSerial(): Promise<{
 
 /* ----------------- pin extraction ----------------- */
 function parseObjPos(objPos: string): { pin: number | null; latch: boolean } {
-  const parts = objPos.split(",");
+  const parts = String(objPos || "").split(",").map(s => s.trim());
+  // Policy: do NOT derive a pin when no comma is present
+  if (parts.length < 2) return { pin: null, latch: false };
   let latch = false;
-  if (parts.length && parts[parts.length - 1].trim().toUpperCase() === "C") {
-    latch = true;
-    parts.pop();
-  }
-  const last = parts[parts.length - 1] ?? "";
-  const num = Number(last.replace(/[^\d]/g, ""));
+  if (parts.at(-1)?.toUpperCase() === "C") { latch = true; parts.pop(); }
+  if (parts.length < 2) return { pin: null, latch };
+  const last = parts.at(-1) ?? "";
+  const num = Number(String(last).replace(/[^\d]/g, ""));
   return { pin: Number.isFinite(num) ? num : null, latch };
 }
 

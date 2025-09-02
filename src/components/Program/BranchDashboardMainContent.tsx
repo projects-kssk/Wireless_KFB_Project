@@ -881,6 +881,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return () => clearTimeout(id);
   }, [allOk, showOkAnimation, returnToScan, OK_FLASH_MS, onFinalizeOk]);
 
+  // Optional: after OK, force a page reload (hot reload) to avoid any stuck UI
+  const reloadScheduledRef = useRef(false);
+  useEffect(() => {
+    if (!allOk) return;
+    const WANT = String(process.env.NEXT_PUBLIC_RELOAD_AFTER_OK || "").trim() === "1";
+    if (!WANT) return;
+    if (reloadScheduledRef.current) return;
+    reloadScheduledRef.current = true;
+    const delay = Math.max(300, OK_FLASH_MS) + 400; // just after OK flash
+    const id = setTimeout(() => {
+      try {
+        console.log('[LIVE][OK] reloading page after OK flash');
+        window.location.reload();
+      } catch {}
+    }, delay);
+    return () => clearTimeout(id);
+  }, [allOk, OK_FLASH_MS]);
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {

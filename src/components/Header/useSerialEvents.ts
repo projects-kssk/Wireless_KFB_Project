@@ -60,6 +60,7 @@ export function useSerialEvents(macFilter?: string) {
   // internal refs
   const tickRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
+  const unloadingRef = useRef<boolean>(false);
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
   const redisOkRef = useRef(false);
@@ -127,6 +128,21 @@ export function useSerialEvents(macFilter?: string) {
       return next;
     });
   }, [devices, paths]);
+
+  // Close SSE cleanly on page unload/refresh to avoid browser interruption warnings
+  useEffect(() => {
+    const markUnloading = () => {
+      unloadingRef.current = true;
+      try { esRef.current?.close(); } catch {}
+      esRef.current = null;
+    };
+    window.addEventListener('beforeunload', markUnloading);
+    window.addEventListener('pagehide', markUnloading);
+    return () => {
+      window.removeEventListener('beforeunload', markUnloading);
+      window.removeEventListener('pagehide', markUnloading);
+    };
+  }, []);
 
   // SSE wire-up (guard against StrictMode double-mounts)
   useEffect(() => {
@@ -255,8 +271,11 @@ export function useSerialEvents(macFilter?: string) {
     };
 
     es.onerror = () => {
-      setSseConnected(false);
-      // EventSource will auto-retry; we keep the instance open.
+      // Ignore expected errors during navigation/unload
+      if (!unloadingRef.current) {
+        setSseConnected(false);
+      }
+      // EventSource will auto-retry; we keep the instance open until cleanup.
     };
 
     return () => {

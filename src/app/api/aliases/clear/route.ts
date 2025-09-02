@@ -77,6 +77,8 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({} as any));
     const mac = String((body as any)?.mac || '').toUpperCase();
+    const ksk = String((body as any)?.ksk || (body as any)?.kssk || '').trim();
+
     if (!MAC_RE.test(mac)) {
       const resp = NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
       resp.headers.set('X-Req-Id', id);
@@ -101,7 +103,42 @@ export async function POST(req: Request) {
       return resp;
     }
 
-    // Get all KSK IDs from index and from scanning keys
+    // If specific KSK provided → delete only that item + XML + lastpins and SREM index, then rebuild union
+    if (ksk) {
+      const baseK = keyForKssk(mac, ksk);
+      const kXml = `kfb:aliases:xml:${mac}:${ksk}`;
+      const kLP  = `kfb:lastpins:${mac}:${ksk}`;
+      let deleted = 0;
+      try { deleted += await r.del(baseK).catch(() => 0) || 0; } catch {}
+      try { deleted += await r.del(kXml).catch(() => 0) || 0; } catch {}
+      try { deleted += await r.del(kLP).catch(() => 0) || 0; } catch {}
+      try { await r.srem(indexKey(mac), ksk).catch(() => {}); } catch {}
+      // Rehydrate union similar to /api/aliases/rehydrate
+      try {
+        const pattern = `${keyForKssk(mac, '*')}`;
+        let cursor = '0'; const keys: string[] = [];
+        if (typeof r.scan === 'function') {
+          do { const res = await r.scan(cursor, 'MATCH', pattern, 'COUNT', 300); cursor = res[0]; keys.push(...(res[1] || [])); } while (cursor !== '0');
+        } else { keys.push(...(await r.keys(pattern).catch(() => []))); }
+        const unionNames: Record<string,string> = {}; const nSet = new Set<number>(); const lSet = new Set<number>(); const ids: string[] = [];
+        await Promise.all(keys.map(async (k) => { try { const id = String(k).split(':').pop()!; if (id) ids.push(id); const raw = await r.get(k); if (!raw) return; const d = JSON.parse(raw);
+          const names = d?.names || d?.aliases || {}; for (const [pin, nm] of Object.entries(names)) if (!unionNames[pin]) unionNames[pin] = String(nm);
+          if (Array.isArray(d?.normalPins)) for (const p of d.normalPins) { const x=Number(p); if (Number.isFinite(x)&&x>0) nSet.add(x); }
+          if (Array.isArray(d?.latchPins)) for (const p of d.latchPins) { const x=Number(p); if (Number.isFinite(x)&&x>0) lSet.add(x); }
+        } catch {} }));
+        const out = { names: unionNames, normalPins: Array.from(nSet).sort((a,b)=>a-b), latchPins: Array.from(lSet).sort((a,b)=>a-b), ts: Date.now() };
+        await r.set(keyFor(mac), JSON.stringify(out)).catch(() => {});
+        if (ids.length) await r.sadd(indexKey(mac), ...ids).catch(() => {});
+      } catch {}
+      log.info('cleared aliases (ksk)', { mac, ksk, deleted, rid: id });
+      const resp = NextResponse.json({ ok: true, mac, ksk, deleted });
+      resp.headers.set('X-Req-Id', id);
+      resp.headers.set('X-KSK-Mode', 'redis');
+      return resp;
+    }
+
+    // Bulk MAC clear path: Get all KSK IDs from index and from scanning keys
+
     let members: string[] = await r.smembers(indexKey(mac)).catch(() => []);
     try {
       const pattern = `${keyForKssk(mac, '*')}`;
@@ -126,7 +163,7 @@ export async function POST(req: Request) {
     } catch {}
 
     // Delete union and each KSK entry; clear the index
-    const delKeys: string[] = [keyFor(mac), ...members.map(id => keyForKssk(mac, id))];
+    const delKeys: string[] = [keyFor(mac), ...members.map(id => keyForKssk(mac, id)), ...members.map(id => `kfb:aliases:xml:${mac}:${id}`), ...members.map(id => `kfb:lastpins:${mac}:${id}`)];
     let deleted = 0;
     try { if (delKeys.length) deleted = await r.del(...delKeys).catch(() => 0); } catch {}
     try { await r.del(indexKey(mac)).catch(() => {}); } catch {}

@@ -49,10 +49,17 @@ export function getRedis() {
   attachEventLogging(client, shown);
 
   // Also log unhandled error events at process level (useful in prod)
-  process.on('unhandledRejection', (err: any) => {
-    const msg = err?.message || String(err);
-    log.error(`unhandledRejection: ${msg}`);
-  });
+  // Install once to avoid MaxListenersExceededWarning under hot-reload
+  try {
+    const g: any = globalThis as any;
+    if (!g.__redis_unhandled_attached) {
+      process.on('unhandledRejection', (err: any) => {
+        const msg = err?.message || String(err);
+        log.error(`unhandledRejection: ${msg}`);
+      });
+      g.__redis_unhandled_attached = true;
+    }
+  } catch {}
 
   return client;
 }

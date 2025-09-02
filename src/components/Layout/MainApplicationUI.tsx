@@ -300,44 +300,12 @@ useEffect(() => {
   const matches = !evMac || evMac === ZERO || evMac === current;
 
   if ((kind === 'RESULT' || kind === 'DONE') && ok && matches) {
+    // Mark all branches OK, stop scanning/checking, flash OK, and only close the overlay.
     setBranchesData(prev => prev.map(b => ({ ...b, testStatus: 'ok' as const })));
-    setCheckFailures([]); setIsChecking(false); setIsScanning(false);
+    setCheckFailures([]);
+    setIsChecking(false);
+    setIsScanning(false);
     setOkFlashTick(t => t + 1);   // triggers child OK animation
-    // Send checkpoint when live event indicates success and live mode is on
-    try {
-      const mac = (macAddress || '').toUpperCase();
-      if (mac) {
-        (async () => {
-          try {
-            const hasSetup = await hasSetupDataForMac(mac);
-            if (hasSetup && krosyLive && !checkpointMacSentRef.current.has(mac) && !checkpointMacPendingRef.current.has(mac)) {
-              await sendCheckpointForMac(mac);
-              try { setOkSystemNote('Checkpoint sent; cache cleared'); } catch {}
-            } else {
-              try { setOkSystemNote('Cache cleared'); } catch {}
-            }
-          } catch {}
-          // Clear Redis aliases for this MAC regardless
-          try {
-            await fetch('/api/aliases/clear', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac })
-            });
-          } catch {}
-          // Also clear any KSK locks for this MAC across stations (force), include stationId if known
-          try {
-            const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
-            await fetch('/api/ksk-lock', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(sid ? { mac, stationId: sid, force: 1 } : { mac, force: 1 })
-            });
-          } catch {}
-        })();
-      }
-    } catch {}
-    scheduleOkReset();            // auto-return to scan
     setOverlay(o => ({ ...o, open: false })); // close SCANNING overlay
   }
 }, [serial.lastEvTick, macAddress]);
@@ -575,11 +543,15 @@ useEffect(() => {
           ? { requestID: '1', workingDataXml }
           : { requestID: '1', intksk: id, sourceHostname: KROSY_SOURCE, targetHostName: KROSY_TARGET };
         try {
-          await fetch(CHECKPOINT_URL, {
+          const resp = await fetch(CHECKPOINT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
             body: JSON.stringify(payload),
           });
+          // If checkpoint fails (e.g., 5xx), do not leave any SCANNING overlay lingering
+          if (!resp.ok) {
+            setOverlay(o => ({ ...o, open: false }));
+          }
           checkpointSentRef.current.add(id);
           sentAny = true;
         } catch {}
@@ -596,6 +568,8 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
   if (finalizeOkGuardRef.current.has(mac)) return;
   finalizeOkGuardRef.current.add(mac);
   try {
+    // Always flash OK when we are about to clear Redis, per requirement
+    setOverlay({ open: true, kind: 'success', code: '' });
     const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
     if (hasSetup && krosyLive) {
       await sendCheckpointForMac(mac).catch(() => {});
@@ -603,10 +577,31 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
     } else {
       try { setOkSystemNote('Cache cleared'); } catch {}
     }
-    await fetch('/api/aliases/clear', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mac })
-    }).catch(() => {});
+    // Clear aliases with small retries and verify emptiness
+    const tryClear = async () => {
+      await fetch('/api/aliases/clear', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mac })
+      }).catch(() => {});
+    };
+    const verifyEmpty = async (): Promise<boolean> => {
+      try {
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}&all=1`, { cache: 'no-store' });
+        if (!r.ok) return false;
+        const j = await r.json();
+        const items = Array.isArray(j?.items) ? j.items : [];
+        return items.length === 0;
+      } catch { return false; }
+    };
+    await tryClear();
+    let ok = await verifyEmpty();
+    let attempts = 0;
+    while (!ok && attempts < 2) {
+      attempts++;
+      await new Promise(res => setTimeout(res, 250));
+      await tryClear();
+      ok = await verifyEmpty();
+    }
     const sid = (process.env.NEXT_PUBLIC_STATION_ID || process.env.STATION_ID || '').trim();
     await fetch('/api/ksk-lock', {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
@@ -1128,7 +1123,8 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
         clearScanOverlayTimeout();
         // Show a prominent message, then return to scan view
         showOverlay('error', 'NOTHING TO CHECK HERE');
-        hideOverlaySoon();
+        // Make this highlight brief to avoid blocking the flow
+        hideOverlaySoon(600);
         setGroupedBranches([]);
         setActiveKssks([]);
         setIsScanning(false);
@@ -1196,10 +1192,14 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
   useEffect(() => { handleScanRef.current = handleScan; }, [handleScan]);
 
   // SSE → handle scans (gate by view and settings sidebar). If CHECK is running, queue it.
+  // Skip the very first SSE tick after mount to avoid showing content from a stale lastScan;
+  // only react to new scans after the app is ready.
+  const skippedFirstSseRef = useRef(false);
   useEffect(() => {
     if (mainView !== 'dashboard') return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return;              // no event yet
+    if (!skippedFirstSseRef.current) { skippedFirstSseRef.current = true; return; }
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
@@ -1464,9 +1464,9 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
                 latchPins={latchPins}
                 
                 onResetKfb={handleResetKfb}
+                onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
-                onOkShown={(m) => finalizeOkForMac(m || (macAddress || '').toUpperCase())}
 
             />
 
@@ -1561,24 +1561,40 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
           </>
         ) : (
           <>
-            <m.div
-              variants={heading}
-              style={{
-                fontSize: 128,
-                fontWeight: 900,
-                letterSpacing: '0.02em',
-                color: KIND_STYLES[overlay.kind],
-                textShadow: '0 8px 24px rgba(0,0,0,0.45)',
-                fontFamily:
-                  overlay.kind === 'scanning'
-                    ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                    : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-              }}
-            >
-              {overlay.kind === 'scanning' && overlay.code
-                ? overlay.code // show MAC big
-                : overlay.kind.toUpperCase()}
-            </m.div>
+            {(() => {
+              const isScanningWithCode = overlay.kind === 'scanning' && !!overlay.code;
+              const isErrorWithCode = overlay.kind === 'error' && !!overlay.code;
+              const sanitizeErrorText = (t: string) => {
+                const keep = new Set([ 'NOTHING TO CHECK HERE' ]);
+                if (keep.has(t)) return t;
+                const tooLong = t.length > 48;
+                if (/RESULT|\u2190|reply\s+from|FAIL|MISSING/i.test(t) || tooLong) return 'ERROR';
+                return t;
+              };
+              const bigText = isScanningWithCode
+                ? (overlay.code as string)
+                : (isErrorWithCode ? sanitizeErrorText(String(overlay.code)) : overlay.kind.toUpperCase());
+              return (
+                <m.div
+                  variants={heading}
+                  style={{
+                    // Make error text much smaller (about 3x smaller)
+                    fontSize: overlay.kind === 'error' ? 46 : 136,
+                    fontWeight: 900,
+                    letterSpacing: '0.02em',
+                    color: KIND_STYLES[overlay.kind],
+                    textShadow: '0 8px 24px rgba(0,0,0,0.45)',
+                    textAlign: 'center',
+                    fontFamily:
+                      (overlay.kind === 'scanning')
+                        ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                        : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+                  }}
+                >
+                  {bigText}
+                </m.div>
+              );
+            })()}
 
             {overlay.kind === 'scanning' && overlay.code ? (
               <m.div
@@ -1588,6 +1604,20 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
                 style={{ fontSize: 18, color: '#f1f5f9', opacity: 0.95 }}
               >
                 SCANNING…
+              </m.div>
+            ) : overlay.kind === 'error' && overlay.code ? (
+              <m.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: reduce ? 0 : 0.05 }}
+                style={{
+                  fontSize: 18,
+                  color: '#f1f5f9',
+                  opacity: 0.95,
+                  textAlign: 'center',
+                }}
+              >
+                ERROR
               </m.div>
             ) : overlay.code ? (
               <m.div

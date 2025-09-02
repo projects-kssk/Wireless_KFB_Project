@@ -139,6 +139,18 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try {
+    await fs.stat(tryPath(stem));
+  } catch { return tryPath(stem); }
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
 
 /* ===== net id ===== */
 function pickIpAndMac() {
@@ -233,10 +245,17 @@ export async function POST(req: NextRequest) {
     intksk,
   });
 
-  const stamp = nowStamp();
   const cur = new Date();
-  const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-  const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
+  const yyyy = cur.getUTCFullYear();
+  const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(cur.getUTCDate()).padStart(2, '0');
+  const hh = String(cur.getUTCHours()).padStart(2, '0');
+  const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+  const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+  const month = `${yyyy}-${mm}`;
+  const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+  const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+  const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${requestID}`);
   const lines: string[] = [];
   const push = (s: string) => {
     const l = line(s);
@@ -317,12 +336,16 @@ export async function POST(req: NextRequest) {
   });
 
   await Promise.allSettled([
-    // Request logs: raw + pretty (match naming used elsewhere)
+    // Request logs: raw + pretty (normalized across online/offline)
     writeLog(base, "request.raw.xml", xml),
     writeLog(base, "request.pretty.xml", prettyXml(xml)),
+    // Backward-compat duplicates (for tools/scripts expecting old names)
+    writeLog(base, "request.xml", xml),
     // Response logs: raw + pretty when available
     writeLog(base, "response.raw.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
     writeLog(base, "response.pretty.xml", upstreamJson ? "" : responsePretty),
+    // Backward-compat duplicate
+    writeLog(base, "response.xml", upstreamJson ? JSON.stringify(upstreamJson, null, 2) : (text || "")),
     writeLog(base, "report.log", report),
     writeLog(
       base,
@@ -374,6 +397,7 @@ export async function POST(req: NextRequest) {
     ...cors(req),
     "X-Krosy-Used-Url": targetUrl,
     "X-Krosy-Duration": String(ms),
+    ...(base ? { "X-Krosy-Log-Path": base } : {}),
   };
 
   // XML passthrough for Accept: xml

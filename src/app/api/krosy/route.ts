@@ -52,6 +52,21 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try {
+    await fs.stat(tryPath(stem));
+  } catch { return tryPath(stem); }
+  // If exists, append numeric suffix
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
+const msFmt = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} s`);
+const yesNo = (b: boolean) => (b ? "yes" : "no");
 async function pruneOldLogs(root: string, maxAgeDays = 31) {
   try {
     const now = Date.now();
@@ -229,17 +244,53 @@ export async function POST(req: NextRequest) {
   const hasWorkingData = hasWorkingDataTag(responseXmlRaw);
   const isComplete = isCompleteKrosy(responseXmlRaw);
 
+  // Build human-friendly report similar to offline route
+  const report = (() => {
+    const ts = isoNoMs();
+    const header = [
+      "=== KROSY ONLINE REPORT ===============================================",
+      `timestamp:     ${ts}`,
+      `requestID:     ${requestID}`,
+      `device:        ${sourceHostname}`,
+      `intksk:        ${intksk}`,
+      `targetHost:    ${xmlTargetHost}`,
+      `tcpUsed:       ${out.used}`,
+      `status:        ${out.status} ${out.ok ? "OK" : "ERROR"}`,
+      `duration:      ${msFmt(durationMs)}`,
+      `workingData:   ${yesNo(hasWorkingData)}`,
+      `completeXml:   ${yesNo(isComplete)}`,
+      `error:         ${out.error ?? "none"}`,
+      "-------------------------------------------------------------------------",
+    ].join("\n");
+    const preview = `Response XML (pretty, truncated):\n${(prettyResp || responseXmlRaw).slice(0, 4000)}\n=========================================================================`;
+    return `${header}\n${preview}`;
+  })();
+
   // Logs
+  let logBase: string | null = null;
   try {
-    const stamp = nowStamp();
     const cur = new Date();
-    const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-    const base = path.join(LOG_DIR, month, `${stamp}_${requestID}`);
+    const yyyy = cur.getUTCFullYear();
+    const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cur.getUTCDate()).padStart(2, '0');
+    const hh = String(cur.getUTCHours()).padStart(2, '0');
+    const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+    const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+    const month = `${yyyy}-${mm}`;
+    const idSan = (intksk || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || 'no-intksk';
+    const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+    const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${requestID}`);
+    logBase = base;
     await Promise.all([
-      writeLog(base, "request.xml", xml),
+      // Normalized file names
+      writeLog(base, "request.raw.xml", xml),
       writeLog(base, "request.pretty.xml", prettyReq),
-      writeLog(base, "response.xml", responseXmlRaw),
+      writeLog(base, "response.raw.xml", responseXmlRaw),
       writeLog(base, "response.pretty.xml", prettyResp || responseXmlRaw),
+      writeLog(base, "report.log", report),
+      // Backward-compat duplicates
+      writeLog(base, "request.xml", xml),
+      writeLog(base, "response.xml", responseXmlRaw),
       writeLog(base, "meta.json", JSON.stringify({
         mode: "visualControl.working",
         requestID,
@@ -263,6 +314,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/xml; charset=utf-8",
         "Cache-Control": "no-store",
         "X-Krosy-Used-Url": out.used,
+        ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
         ...cors(req),
       },
     });
@@ -287,6 +339,7 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "X-Krosy-Used-Url": out.used,
+      ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
       ...cors(req),
     },
   });

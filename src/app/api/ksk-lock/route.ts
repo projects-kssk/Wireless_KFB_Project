@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
 
     const key = K(String(ksk));
     const ttlMs = Math.max(5, Number(ttlSec)) * 1000;
-    const val: LockVal = { kssk: String(ksk), mac: String(mac ?? "").toUpperCase(), stationId: String(stationId), ts: nowMs() };
+    const val: any = { kssk: String(ksk), ksk: String(ksk), mac: String(mac ?? "").toUpperCase(), stationId: String(stationId), ts: nowMs() };
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
@@ -328,6 +328,45 @@ export async function GET(req: NextRequest) {
     if (includeAliases && haveRedis && rows.length) {
       try {
         const r: any = getRedis();
+        // Minimal XML extractor to recover pins/names when arrays are missing
+        const parsePos = (pos: string) => {
+          try {
+            const parts = String(pos || '').split(',').map(s => s.trim());
+            // Policy: do not derive pins if no comma present
+            if (parts.length < 2) return { pin: NaN, label: parts[0] || '', isLatch: false, labelPrefix: (parts[0] || '').split('_')[0] || '' };
+            let isLatch = false;
+            if (parts.at(-1)?.toUpperCase() === 'C') { isLatch = true; parts.pop(); }
+            if (parts.length < 2) return { pin: NaN, label: parts[0] || '', isLatch, labelPrefix: (parts[0] || '').split('_')[0] || '' };
+            const label = String(parts[0] || '').trim();
+            const labelPrefix = label.split('_')[0] || '';
+            const last = parts.at(-1) || '';
+            const pinNum = Number(String(last).replace(/\D+/g, ''));
+            return { pin: Number.isFinite(pinNum) ? pinNum : NaN, label, isLatch, labelPrefix };
+          } catch { return { pin: NaN, label: '', isLatch: false, labelPrefix: '' }; }
+        };
+        const extractFromXml = (xml: string) => {
+          const names: Record<string,string> = {};
+          const normal: number[] = [];
+          const latch: number[] = [];
+          try {
+            const re = /<sequence\b([^>]*)>([\s\S]*?)<\/sequence>/gi;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(xml))) {
+              const attrs = m[1] || '';
+              const body = m[2] || '';
+              const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || '').toLowerCase();
+              if (mt !== 'default') continue; // strict: only default
+              const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || '';
+              if (!pos) continue;
+              const { pin, label, isLatch } = parsePos(pos);
+              if (!Number.isFinite(pin)) continue;
+              if (label) names[String(pin)] = label;
+              (isLatch ? latch : normal).push(pin);
+            }
+          } catch {}
+          const uniq = (xs: number[]) => Array.from(new Set(xs));
+          return { names, normalPins: uniq(normal), latchPins: uniq(latch) };
+        };
         await Promise.all(rows.map(async (row: any) => {
           try {
             const macUp = String(row.mac || '').toUpperCase();
@@ -361,7 +400,23 @@ export async function GET(req: NextRequest) {
                 }
               }
             } catch {}
-            // 3) If names missing but we have pins, select names from MAC union
+            // 3) If still missing, try XML snapshot and extract strictly default measType
+            try {
+              const emptyN = !Array.isArray(nPins) || nPins.length === 0;
+              const emptyL = !Array.isArray(lPins) || lPins.length === 0;
+              if (emptyN && emptyL) {
+                const xml = await r.get(`kfb:aliases:xml:${macUp}:${row.kssk}`).catch(() => null);
+                if (xml) {
+                  const ex = extractFromXml(xml);
+                  if (ex.normalPins.length || ex.latchPins.length) {
+                    nPins = ex.normalPins;
+                    lPins = ex.latchPins;
+                    if (!names || Object.keys(names).length === 0) names = ex.names;
+                  }
+                }
+              }
+            } catch {}
+            // 4) If names missing but we have pins, select names from MAC union
             try {
               const havePins = (Array.isArray(nPins) && nPins.length) || (Array.isArray(lPins) && lPins.length);
               const noNames = !names || Object.keys(names).length === 0;
@@ -445,7 +500,11 @@ export async function PATCH(req: NextRequest) {
 
     if (haveRedis) {
       const existing = await rGet(key);
-      if (!existing) { log.info('PATCH not_locked', { rid: id, ksk, durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ error: "not_locked" }, { status: 404 }), mode); }
+      if (!existing) {
+        // Idempotent: if lock missing (already cleared), treat as OK no-op
+        log.info('PATCH not_locked (idempotent_ok)', { rid: id, ksk, durationMs: Date.now()-t0 });
+        return withMode(NextResponse.json({ ok: true, note: 'not_locked' }), mode);
+      }
       if (existing.stationId !== String(stationId)) {
         log.info('PATCH not_owner', { rid: id, ksk, stationId, owner: existing.stationId, durationMs: Date.now()-t0 });
         return withMode(NextResponse.json({ error: "not_owner", existing }, { status: 403 }), mode);
@@ -458,7 +517,7 @@ export async function PATCH(req: NextRequest) {
 
     const ok = memTouchIfOwner(key, String(stationId), ttlMs);
     log.info('PATCH mem', { rid: id, ksk, stationId, ok, durationMs: Date.now()-t0 });
-    return withMode(ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "not_locked_or_not_owner" }, { status: 403 }), mode);
+    return withMode(ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: true, note: 'not_locked_or_not_owner' }), mode);
   } catch (e: unknown) {
     log.info('PATCH error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });

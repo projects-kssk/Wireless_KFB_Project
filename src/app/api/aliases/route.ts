@@ -20,9 +20,11 @@ export async function GET(req: Request) {
     const macRaw = String(url.searchParams.get('mac') || '').toUpperCase();
     if (!MAC_RE.test(macRaw)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const all = url.searchParams.get('all') === '1';
-    const r = getRedis();
+    const r: any = getRedis();
     log.info('GET aliases', { mac: macRaw, all });
     if (all) {
+      // Graceful guard: if Redis is temporarily unavailable, don't throw 500 — return empty list
+      try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
       // Return all KSK-specific alias bundles we know for this MAC
       let members: string[] = await r.smembers(indexKey(macRaw)).catch(() => []);
       // Fallback/augment: scan keys if index is empty or incomplete
@@ -68,7 +70,9 @@ export async function GET(req: Request) {
       log.info('GET aliases items', { mac: macRaw, count: items.length });
       return NextResponse.json({ items });
     }
-    const raw = await r.get(keyFor(macRaw));
+    // Guard non-ready redis for single get as well
+    try { if (typeof r.status === 'string' && r.status !== 'ready') await (r.connect?.().catch(()=>{})); } catch {}
+    const raw = await r.get(keyFor(macRaw)).catch(() => null as any);
     if (!raw) return NextResponse.json({ aliases: {}, normalPins: [], latchPins: [] });
     let data: any = {};
     try { data = JSON.parse(raw); } catch { data = {}; }
@@ -88,12 +92,58 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const mac = String(body?.mac || '').toUpperCase();
     if (!MAC_RE.test(mac)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
-    const aliases = body?.aliases && typeof body.aliases === 'object' ? body.aliases : {};
-    const normalPins = Array.isArray(body?.normalPins) ? body.normalPins : [];
-    const latchPins = Array.isArray(body?.latchPins) ? body.latchPins : [];
+    let aliases: Record<string,string> = body?.aliases && typeof body.aliases === 'object' ? body.aliases : {};
+    let normalPins = Array.isArray(body?.normalPins) ? body.normalPins as number[] : [];
+    let latchPins = Array.isArray(body?.latchPins) ? body.latchPins as number[] : [];
     const ksk = ((body as any)?.ksk ? String((body as any).ksk) : ((body as any)?.kssk ? String((body as any).kssk) : '')).trim();
     const xml = typeof body?.xml === 'string' && body.xml.trim() ? String(body.xml) : null;
     const hints = body?.hints && typeof body.hints === 'object' ? body.hints : undefined;
+    // Server-side guardrail: if XML is provided, re-derive pins from XML (default-only) to avoid client-side drift
+    if (xml) {
+      try {
+        const parsePos = (pos: string) => {
+          const parts = String(pos || '').split(',').map(s => s.trim());
+          if (parts.length < 2) return { pin: NaN, isLatch: false };
+          let isLatch = false;
+          if (parts.at(-1)?.toUpperCase() === 'C') { isLatch = true; parts.pop(); }
+          if (parts.length < 2) return { pin: NaN, isLatch };
+          const last = parts.at(-1) || '';
+          const pinNum = Number(String(last).replace(/\D+/g, ''));
+          return { pin: Number.isFinite(pinNum) ? pinNum : NaN, isLatch };
+        };
+        const ex = (() => {
+          const names: Record<string,string> = {};
+          const normal: number[] = [];
+          const latch: number[] = [];
+          try {
+            const re = /<sequence\b([^>]*)>([\s\S]*?)<\/sequence>/gi;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(xml))) {
+              const attrs = m[1] || '';
+              const bodyS = m[2] || '';
+              // Strict: only measType="default" or <measType>default</measType>
+              const mt = (attrs.match(/\bmeasType=\"([^\"]*)\"/i)?.[1] || bodyS.match(/<measType>([^<]*)<\/measType>/i)?.[1] || '').toLowerCase();
+              if (mt !== 'default') continue;
+              const pos = bodyS.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || '';
+              if (!pos) continue;
+              const { pin, isLatch } = parsePos(pos);
+              if (!Number.isFinite(pin)) continue;
+              (isLatch ? latch : normal).push(pin);
+              const label = String(pos.split(',')[0] || '').trim();
+              if (label) names[String(pin)] = label;
+            }
+          } catch {}
+          const uniq = (xs: number[]) => Array.from(new Set(xs));
+          return { names, normalPins: uniq(normal), latchPins: uniq(latch) };
+        })();
+        if (ex.normalPins.length || ex.latchPins.length) {
+          normalPins = ex.normalPins;
+          latchPins = ex.latchPins;
+          // Also prefer names derived from XML when available
+          if (ex.names && Object.keys(ex.names).length) aliases = ex.names;
+        }
+      } catch {}
+    }
     const value = JSON.stringify({ names: aliases, normalPins, latchPins, ...(hints?{hints}:{}) , ts: Date.now() });
     const r = getRedis();
     try { await r.set(keyFor(mac), value); }
@@ -106,6 +156,13 @@ export async function POST(req: Request) {
       if (xml) {
         try { await r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml); }
         catch (e: any) { log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) }); }
+      }
+      // Also persist a lightweight last-pins snapshot for tooling/watchers
+      try {
+        const ts = Date.now();
+        await r.set(`kfb:lastpins:${mac}:${ksk}`, JSON.stringify({ normalPins, latchPins, ts }));
+      } catch (e: any) {
+        log.error('POST aliases lastpins set failed', { mac, ksk, error: String(e?.message ?? e) });
       }
     }
     log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });

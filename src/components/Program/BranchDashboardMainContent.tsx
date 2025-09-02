@@ -122,6 +122,8 @@ export interface BranchDashboardMainContentProps {
   /** @deprecated remove-cable overlay removed intentionally */
   showRemoveCable?: boolean;
   onResetKfb?: () => void;
+  // Ask parent to finalize OK (checkpoint + clear + OK overlay)
+  onFinalizeOk?: (mac: string) => Promise<void> | void;
   macAddress?: string;
   groupedBranches?: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
@@ -154,6 +156,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   allowManualInput = true,
   // showRemoveCable intentionally ignored
   onResetKfb,
+  onFinalizeOk,
   macAddress,
   groupedBranches = [],
   checkFailures = null,
@@ -453,16 +456,19 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
     return flatAllOk || groupedAllOk;
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
-  // When in live mode and everything turns OK, clear Redis values for this MAC once
+  // When everything turns OK, trigger finalize (checkpoint + clear) once
   const clearedMacsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const mac = (macAddress || '').toUpperCase();
-    // Consider presence of live events as indicator of live mode
-    const liveMode = !!lastEv && !!lastEvTick;
-    if (!settled || !allOk || !liveMode || !mac) return;
+    if (!settled || !allOk || !mac) return;
     if (clearedMacsRef.current.has(mac)) return;
     clearedMacsRef.current.add(mac);
     (async () => {
+      // If parent provided a finalize hook, prefer that (handles OK overlay + checkpoint + clear)
+      if (typeof onFinalizeOk === 'function') {
+        try { await onFinalizeOk(mac); } catch {}
+        return;
+      }
       try {
         // Clear aliases in Redis for this MAC
         await fetch('/api/aliases/clear', {
@@ -485,8 +491,12 @@ const SHOW_ACTIVE_KSKS = (process.env.NEXT_PUBLIC_SHOW_ACTIVE_KSKS ?? '0') === '
           body: JSON.stringify(body),
         }).catch(() => {});
       } catch {}
+      try {
+        // After clearing, reset parent MAC so the Live badge shows off
+        if (typeof onResetKfb === 'function') onResetKfb();
+      } catch {}
     })();
-  }, [allOk, settled, lastEv, lastEvTick, macAddress]);
+  }, [allOk, settled, macAddress, onFinalizeOk]);
 
   // Reset pipeline
   const returnToScan = useCallback(() => {

@@ -69,6 +69,17 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+async function uniqueBase(root: string, stem: string): Promise<string> {
+  const tryPath = (s: string) => path.join(root, s);
+  try { await fs.stat(tryPath(stem)); }
+  catch { return tryPath(stem); }
+  for (let i = 1; i < 1000; i++) {
+    const alt = `${stem}__${String(i).padStart(2, '0')}`;
+    try { await fs.stat(tryPath(alt)); }
+    catch { return tryPath(alt); }
+  }
+  return tryPath(`${stem}__dup`);
+}
 async function pruneOldLogs(root: string, maxAgeDays = 31) {
   try {
     const now = Date.now();
@@ -421,8 +432,25 @@ export async function POST(req: NextRequest) {
   const stamp = nowStamp();
   const reqId = String(body.requestID || Date.now());
   const cur = new Date();
-  const month = `${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`;
-  const base = path.join(LOG_DIR, month, `${stamp}_${reqId}`);
+  const yyyy = cur.getUTCFullYear();
+  const mm = String(cur.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(cur.getUTCDate()).padStart(2, '0');
+  const hh = String(cur.getUTCHours()).padStart(2, '0');
+  const mi = String(cur.getUTCMinutes()).padStart(2, '0');
+  const ss = String(cur.getUTCSeconds()).padStart(2, '0');
+  const month = `${yyyy}-${mm}`;
+  let idSan = (String((body as any)?.intksk || '')).replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || '';
+  if (!idSan && typeof (body as any)?.workingDataXml === 'string') {
+    const xml = String((body as any).workingDataXml);
+    try {
+      const m1 = xml.match(/<workingData\b[^>]*\bintksk=\"([^\"]+)\"/i);
+      const m2 = xml.match(/\bksknr=\"(\d{6,})\"/i);
+      idSan = (m1?.[1] || m2?.[1] || '').replace(/[^0-9A-Za-z_-]/g, '').slice(-12) || '';
+    } catch {}
+  }
+  if (!idSan) idSan = 'no-intksk';
+  const nice = `${yyyy}-${mm}-${dd}_${hh}-${mi}-${ss}`;
+  const base = await uniqueBase(path.join(LOG_DIR, month), `${nice}__KSK_${idSan}__RID_${reqId}`);
 
   let workingDataXml: string | null = body.workingDataXml || null;
   const startedAll = Date.now();
@@ -597,6 +625,7 @@ try {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
         "X-Krosy-Used-Url": resOut.used,
+        "X-Krosy-Log-Path": base,
         ...cors(req),
       },
     });
@@ -623,6 +652,7 @@ try {
       headers: {
         "Content-Type": "application/json",
         "X-Krosy-Used-Url": resOut.used,
+        "X-Krosy-Log-Path": base,
         ...cors(req),
       },
     }

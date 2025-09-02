@@ -1543,9 +1543,16 @@ const finalizeOkForMac = useCallback(async (rawMac: string) => {
             {(() => {
               const isScanningWithCode = overlay.kind === 'scanning' && !!overlay.code;
               const isErrorWithCode = overlay.kind === 'error' && !!overlay.code;
-              const bigText = (isScanningWithCode || isErrorWithCode)
-                ? overlay.code
-                : overlay.kind.toUpperCase();
+              const sanitizeErrorText = (t: string) => {
+                const keep = new Set([ 'NOTHING TO CHECK HERE' ]);
+                if (keep.has(t)) return t;
+                const tooLong = t.length > 48;
+                if (/RESULT|\u2190|reply\s+from|FAIL|MISSING/i.test(t) || tooLong) return 'ERROR';
+                return t;
+              };
+              const bigText = isScanningWithCode
+                ? (overlay.code as string)
+                : (isErrorWithCode ? sanitizeErrorText(String(overlay.code)) : overlay.kind.toUpperCase());
               return (
                 <m.div
                   variants={heading}

@@ -29,6 +29,7 @@ const REQUIRE_REDIS_ONLY = (process.env.NEXT_PUBLIC_KSK_REQUIRE_REDIS ?? "0") ==
 // Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
 const PREFER_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_PREFER_REDIS ?? "1") === "1";
 const REQUIRE_ALIAS_REDIS = (process.env.NEXT_PUBLIC_ALIAS_REQUIRE_REDIS ?? "0") === "1";
+const INCLUDE_NOCHECK = String(process.env.NEXT_PUBLIC_KROSY_INCLUDE_NOCHECK || '').trim() === '1';
 
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
@@ -626,7 +627,8 @@ export default function SetupPage() {
           signal,
           body: JSON.stringify({
             intksk: ksskDigits,
-            requestID: "1",
+            // unique per scan to ensure distinct .krosy-logs folder
+            requestID: String(Date.now()),
             // Use configured source hostname for device + <sourceHost><hostname>
             sourceHostname:
               process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME ||
@@ -850,7 +852,7 @@ const acceptKsskToIndex = useCallback(
           includeLatch: true,               // include contactless pins (",C")
           // Filters are optional now; provide only when needed
           includeLabelPrefixes: ["CN", "CL"],     // contacts only (first pass)
-          allowedMeasTypes: ["default"],          // only default pins are persisted
+          allowedMeasTypes: INCLUDE_NOCHECK ? ["default", "no_check"] : ["default"], // control including no_check via env
           allowedCompTypes: ["clip", "contact"],  // component types (first pass)
         };
         // Primary extraction with strict label prefixes (CN/CL)
@@ -871,7 +873,7 @@ const acceptKsskToIndex = useCallback(
               includeLatch: true,
               // accept both clip/contact but do not filter by label prefix this time
               // Keep measType strict to 'default' only per requirement; relax others
-              allowedMeasTypes: ["default"],
+              allowedMeasTypes: INCLUDE_NOCHECK ? ["default", "no_check"] : ["default"],
             };
             tmp = resp.data?.__xml
               ? extractPinsFromKrosyXML(resp.data.__xml, loose)

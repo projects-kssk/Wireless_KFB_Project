@@ -52,6 +52,8 @@ async function writeLog(base: string, name: string, content: string) {
   await ensureDir(base);
   await fs.writeFile(path.join(base, name), content ?? "", "utf8");
 }
+const msFmt = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} s`);
+const yesNo = (b: boolean) => (b ? "yes" : "no");
 async function pruneOldLogs(root: string, maxAgeDays = 31) {
   try {
     const now = Date.now();
@@ -229,6 +231,28 @@ export async function POST(req: NextRequest) {
   const hasWorkingData = hasWorkingDataTag(responseXmlRaw);
   const isComplete = isCompleteKrosy(responseXmlRaw);
 
+  // Build human-friendly report similar to offline route
+  const report = (() => {
+    const ts = isoNoMs();
+    const header = [
+      "=== KROSY ONLINE REPORT ===============================================",
+      `timestamp:     ${ts}`,
+      `requestID:     ${requestID}`,
+      `device:        ${sourceHostname}`,
+      `intksk:        ${intksk}`,
+      `targetHost:    ${xmlTargetHost}`,
+      `tcpUsed:       ${out.used}`,
+      `status:        ${out.status} ${out.ok ? "OK" : "ERROR"}`,
+      `duration:      ${msFmt(durationMs)}`,
+      `workingData:   ${yesNo(hasWorkingData)}`,
+      `completeXml:   ${yesNo(isComplete)}`,
+      `error:         ${out.error ?? "none"}`,
+      "-------------------------------------------------------------------------",
+    ].join("\n");
+    const preview = `Response XML (pretty, truncated):\n${(prettyResp || responseXmlRaw).slice(0, 4000)}\n=========================================================================`;
+    return `${header}\n${preview}`;
+  })();
+
   // Logs
   try {
     const stamp = nowStamp();
@@ -242,6 +266,7 @@ export async function POST(req: NextRequest) {
       writeLog(base, "request.pretty.xml", prettyReq),
       writeLog(base, "response.raw.xml", responseXmlRaw),
       writeLog(base, "response.pretty.xml", prettyResp || responseXmlRaw),
+      writeLog(base, "report.log", report),
       // Backward-compat duplicates
       writeLog(base, "request.xml", xml),
       writeLog(base, "response.xml", responseXmlRaw),

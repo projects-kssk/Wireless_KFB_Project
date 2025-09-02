@@ -238,7 +238,8 @@ async function main() {
           if (raw) {
             const d = JSON.parse(raw);
             r.__aliases = d?.names || d?.aliases || {};
-            r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : Object.keys(r.__aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
+            // Policy: do NOT derive pins from alias keys. Only trust explicit arrays.
+            r.__pinsN = Array.isArray(d?.normalPins) ? d.normalPins : [];
             r.__pinsC = Array.isArray(d?.latchPins) ? d.latchPins : [];
           }
         } catch {}

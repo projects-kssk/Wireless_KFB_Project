@@ -15,6 +15,9 @@ const REQUIRE_REDIS =
 function keyForKssk(mac: string, kssk: string) {
   return `kfb:aliases:${mac.toUpperCase()}:${kssk}`;
 }
+function keyForXml(mac: string, kssk: string) {
+  return `kfb:aliases:xml:${mac.toUpperCase()}:${kssk}`;
+}
 
 async function connectIfNeeded(r: any, timeoutMs = 400): Promise<boolean> {
   if (!r) return false;
@@ -78,13 +81,16 @@ export async function GET(req: Request) {
   const base = keyForKssk(mac, kssk);
   let xml: string | null = null;
 
-  // 1) hash field
-  try { xml = await r.hget?.(base, "xml"); } catch {}
+  // 1) dedicated XML key (current writer)
+  if (!xml) { try { xml = await r.get?.(keyForXml(mac, kssk)); } catch {} }
 
-  // 2) separate key suffix
+  // 2) hash field (legacy)
+  if (!xml) { try { xml = await r.hget?.(base, "xml"); } catch {} }
+
+  // 3) separate key suffix (legacy)
   if (!xml) { try { xml = await r.get?.(`${base}:xml`); } catch {} }
 
-  // 3) whole-key JSON with embedded xml
+  // 4) whole-key JSON with embedded xml (defensive)
   if (!xml) {
     try {
       const raw = await r.get?.(base);

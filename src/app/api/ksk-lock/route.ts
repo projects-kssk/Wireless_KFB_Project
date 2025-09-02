@@ -328,6 +328,41 @@ export async function GET(req: NextRequest) {
     if (includeAliases && haveRedis && rows.length) {
       try {
         const r: any = getRedis();
+        // Minimal XML extractor to recover pins/names when arrays are missing
+        const parsePos = (pos: string) => {
+          try {
+            const parts = String(pos || '').split(',');
+            let isLatch = false;
+            if (parts.at(-1)?.trim().toUpperCase() === 'C') { isLatch = true; parts.pop(); }
+            const label = String(parts[0] || '').trim();
+            const pin = Number((parts.at(-1) || '').replace(/\D+/g, ''));
+            const labelPrefix = label.split('_')[0] || '';
+            return { pin, label, isLatch, labelPrefix };
+          } catch { return { pin: NaN, label: '', isLatch: false, labelPrefix: '' }; }
+        };
+        const extractFromXml = (xml: string) => {
+          const names: Record<string,string> = {};
+          const normal: number[] = [];
+          const latch: number[] = [];
+          try {
+            const re = /<sequence\b([^>]*)>([\s\S]*?)<\/sequence>/gi;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(xml))) {
+              const attrs = m[1] || '';
+              const body = m[2] || '';
+              const mt = (attrs.match(/\bmeasType="([^"]*)"/i)?.[1] || '').toLowerCase();
+              if (mt !== 'default') continue; // strict: only default
+              const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || '';
+              if (!pos) continue;
+              const { pin, label, isLatch } = parsePos(pos);
+              if (!Number.isFinite(pin)) continue;
+              if (label) names[String(pin)] = label;
+              (isLatch ? latch : normal).push(pin);
+            }
+          } catch {}
+          const uniq = (xs: number[]) => Array.from(new Set(xs));
+          return { names, normalPins: uniq(normal), latchPins: uniq(latch) };
+        };
         await Promise.all(rows.map(async (row: any) => {
           try {
             const macUp = String(row.mac || '').toUpperCase();
@@ -361,7 +396,23 @@ export async function GET(req: NextRequest) {
                 }
               }
             } catch {}
-            // 3) If names missing but we have pins, select names from MAC union
+            // 3) If still missing, try XML snapshot and extract strictly default measType
+            try {
+              const emptyN = !Array.isArray(nPins) || nPins.length === 0;
+              const emptyL = !Array.isArray(lPins) || lPins.length === 0;
+              if (emptyN && emptyL) {
+                const xml = await r.get(`kfb:aliases:xml:${macUp}:${row.kssk}`).catch(() => null);
+                if (xml) {
+                  const ex = extractFromXml(xml);
+                  if (ex.normalPins.length || ex.latchPins.length) {
+                    nPins = ex.normalPins;
+                    lPins = ex.latchPins;
+                    if (!names || Object.keys(names).length === 0) names = ex.names;
+                  }
+                }
+              }
+            } catch {}
+            // 4) If names missing but we have pins, select names from MAC union
             try {
               const havePins = (Array.isArray(nPins) && nPins.length) || (Array.isArray(lPins) && lPins.length);
               const noNames = !names || Object.keys(names).length === 0;

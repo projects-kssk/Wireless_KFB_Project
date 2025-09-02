@@ -132,7 +132,9 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
       const macM = og.match(OBJGROUP_MAC);
-      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+      const ogMac = (macM?.[1] || '').toUpperCase();
+      const ZERO = '00:00:00:00:00:00';
+      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
 
       const pos = String(el.getElementsByTagName("objPos")[0]?.textContent || "");
       if (pos) pushFromObjPos(pos);
@@ -160,7 +162,9 @@ function extractNameHintsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | strin
 
       const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
       const macM = og.match(OBJGROUP_MAC);
-      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+      const ogMac = (macM?.[1] || '').toUpperCase();
+      const ZERO = '00:00:00:00:00:00';
+      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushFromObjPos(pos);
@@ -217,7 +221,9 @@ function extractPinsFromKrosy(
 
       const og = String(s?.objGroup ?? "");
       const mm = og.match(OBJGROUP_MAC);
-      if (mm && wantMac && mm[1].toUpperCase() !== wantMac) continue;
+      const ogMac = (mm?.[1] || '').toUpperCase();
+      const ZERO = '00:00:00:00:00:00';
+      if (mm && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
 
       const pos = String(s?.objPos ?? "");
       if (!pos) continue;
@@ -279,7 +285,9 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
 
       const og = String(el.getElementsByTagName("objGroup")[0]?.textContent || "");
       const m = og.match(OBJGROUP_MAC);
-      if (m && wantMac && m[1].toUpperCase() !== wantMac) continue;
+      const ogMac = (m?.[1] || '').toUpperCase();
+      const ZERO = '00:00:00:00:00:00';
+      if (m && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
 
       const pos = String(el.getElementsByTagName("objPos")[0]?.textContent || "");
       if (pos) pushPin(pos);
@@ -305,7 +313,9 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
 
       const og = body.match(/<objGroup>([^<]+)<\/objGroup>/i)?.[1] || "";
       const macM = og.match(OBJGROUP_MAC);
-      if (macM && wantMac && macM[1].toUpperCase() !== wantMac) continue;
+      const ogMac = (macM?.[1] || '').toUpperCase();
+      const ZERO = '00:00:00:00:00:00';
+      if (macM && wantMac && ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushPin(pos);
@@ -796,9 +806,13 @@ const acceptKsskToIndex = useCallback(
             const items = Array.isArray(jAll?.items) ? jAll.items as Array<{ kssk: string; aliases?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }> : [];
             const hit = items.find(it => String(it.kssk || '').trim() === String(code));
             if (hit && hit.aliases && typeof hit.aliases === 'object') {
-              const normal = Array.isArray(hit.normalPins) ? hit.normalPins as number[] : Object.keys(hit.aliases).map(n=>Number(n)).filter(n=>Number.isFinite(n));
-              const latch = Array.isArray(hit.latchPins) ? hit.latchPins as number[] : [];
-              out = { names: hit.aliases, normalPins: normal, latchPins: latch };
+              const hasArrays = Array.isArray(hit.normalPins) && (hit.normalPins as number[]).length > 0;
+              // Only trust Redis when explicit pin arrays are present; do NOT derive from alias keys
+              if (hasArrays) {
+                const normal = (hit.normalPins as number[]);
+                const latch = Array.isArray(hit.latchPins) ? hit.latchPins as number[] : [];
+                out = { names: hit.aliases, normalPins: normal, latchPins: latch };
+              }
               try {
                 const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(macUp)}&kssk=${encodeURIComponent(code)}`, { cache: 'no-store' });
                 if (rXml.ok) {
@@ -849,7 +863,8 @@ const acceptKsskToIndex = useCallback(
               macHint: macUp,
               includeLatch: true,
               // accept both clip/contact but do not filter by label prefix this time
-              // optional filters omitted → accept any compType/measType
+              // Keep measType strict to 'default' only per requirement; relax others
+              allowedMeasTypes: ["default"],
             };
             tmp = resp.data?.__xml
               ? extractPinsFromKrosyXML(resp.data.__xml, loose)

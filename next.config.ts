@@ -45,6 +45,17 @@ const nextConfig: NextConfig = {
       }
     }
 
+    // Allow importing ".js" from TypeScript by resolving to .ts/.tsx first.
+    // This keeps server (NodeNext) happy while letting the app build resolve TS sources.
+    config.resolve = config.resolve || {}
+    // @ts-ignore - extensionAlias is available on webpack 5
+    config.resolve.extensionAlias = {
+      ...(config.resolve as any).extensionAlias || {},
+      '.js': ['.ts', '.tsx', '.js'],
+      '.mjs': ['.mts', '.mjs'],
+      '.cjs': ['.cts', '.cjs'],
+    }
+
     return config
   },
 }

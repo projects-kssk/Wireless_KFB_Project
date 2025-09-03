@@ -148,3 +148,5 @@ See `docs/PROCESS-FLOW.md` for the end-to-end Setup → Check → OK + Cleanup f
 More detailed checks are in `docs/ERRORS.md` (Krosy connectivity, local server, scanners, ESP, Redis).
 
 bash scripts/update-appimage.sh --from-dist
+
+      - `sudo bash scripts/install-systemd.sh --workdir /opt/wireless-kfb --envfile /etc/wireless-kfb.env --port 3000 --service wireless-kfb`

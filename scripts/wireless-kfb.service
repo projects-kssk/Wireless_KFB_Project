@@ -1,0 +1,30 @@
+[Unit]
+Description=Wireless KFB Next.js server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# CHANGE THIS to your repo path on 172.26.202.248
+WorkingDirectory=/opt/wireless-kfb
+
+# Ensure this path matches your Node binary (check with: which node)
+ExecStart=/usr/bin/node dist-server/server.js
+
+# Core env for remote-only serving
+Environment=PORT=3000
+Environment=NODE_ENV=production
+
+# Load app-specific variables (copied from your .env.production)
+EnvironmentFile=-/etc/wireless-kfb.env
+
+# Optional: drop privileges (uncomment and set a real user/group)
+#User=wirelesskfb
+#Group=wirelesskfb
+
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+

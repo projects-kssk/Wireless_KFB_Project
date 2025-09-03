@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wireless KFB — Loading…</title>
+    <style>
+      html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; background: #0b0f16; color: #eef2f7; }
+      .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+      .card { text-align: center; padding: 28px 36px; border-radius: 12px; background: #111827; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
+      .logo { width: 96px; height: 96px; margin: 0 auto 14px; background: url('./tinder.png') center/contain no-repeat; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.35)); }
+      .title { font-size: 18px; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.2px; }
+      .sub { font-size: 13px; opacity: 0.8; }
+      .spinner { margin: 14px auto 0; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.15); border-top-color: #60a5fa; border-radius: 50%; animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="logo"></div>
+        <div class="title">Wireless KFB</div>
+        <div class="sub">Starting services…</div>
+        <div class="spinner" aria-hidden="true"></div>
+      </div>
+    </div>
+  </body>
+  </html>
+

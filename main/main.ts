@@ -1,4 +1,4 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, nativeImage } from 'electron'
 import path from 'node:path'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
@@ -31,11 +31,39 @@ async function ensureServerInProd() {
   await waitForPort(PORT)
 }
 
-async function createWindows() {
-  await ensureServerInProd()
-  await waitForPort(PORT)
+function appIconPath() {
+  const packaged = path.join(process.resourcesPath, 'app.asar', 'public', 'tinder.png')
+  const devIcon = path.join(process.cwd(), 'public', 'tinder.png')
+  return isDev ? devIcon : packaged
+}
 
-  // Main layout
+function makeIcon() {
+  try { return nativeImage.createFromPath(appIconPath()) } catch { return undefined as any }
+}
+
+async function createWindows() {
+  // Splash immediately
+  const splash = new BrowserWindow({
+    width: 560,
+    height: 360,
+    resizable: false,
+    movable: true,
+    frame: false,
+    show: true,
+    transparent: false,
+    icon: appIconPath(),
+    title: 'Wireless KFB - Loading',
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  })
+  const splashUrl = isDev
+    ? `file://${path.join(process.cwd(), 'public', 'splash.html')}`
+    : `file://${path.join(process.resourcesPath, 'app.asar', 'public', 'splash.html')}`
+  try { await splash.loadURL(splashUrl) } catch {}
+
+  // Start server in background (prod)
+  const startServer = (async () => { try { await ensureServerInProd() } catch (e) { console.error('[main] ensureServerInProd error', e) } })()
+
+  // Prepare main windows hidden
   const mainWin = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -45,11 +73,8 @@ async function createWindows() {
     fullscreenable: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
     title: 'Dashboard',
+    icon: appIconPath(),
   })
-  await mainWin.loadURL(`http://127.0.0.1:${PORT}/`)
-  if (isDev) mainWin.webContents.openDevTools({ mode: 'detach' })
-
-  // Setup page
   const setupWin = new BrowserWindow({
     width: 1100,
     height: 820,
@@ -59,9 +84,18 @@ async function createWindows() {
     fullscreenable: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
     title: 'Setup',
+    icon: appIconPath(),
   })
+
+  // Wait for server then load targets
+  await waitForPort(PORT)
+  await Promise.resolve(startServer).catch(() => {})
+  await mainWin.loadURL(`http://127.0.0.1:${PORT}/`)
   await setupWin.loadURL(`http://127.0.0.1:${PORT}/setup`)
-  if (isDev) setupWin.webContents.openDevTools({ mode: 'detach' })
+  if (isDev) {
+    mainWin.webContents.openDevTools({ mode: 'detach' })
+    setupWin.webContents.openDevTools({ mode: 'detach' })
+  }
 
   // Auto fullscreen/maximize across displays
   try {
@@ -84,6 +118,7 @@ async function createWindows() {
 
   mainWin.show();
   setupWin.show();
+  try { splash.destroy() } catch {}
 }
 
 app.whenReady().then(createWindows)

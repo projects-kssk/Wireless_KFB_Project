@@ -146,3 +146,5 @@ See `docs/PROCESS-FLOW.md` for the end-to-end Setup → Check → OK + Cleanup f
   - Ensure `REDIS_URL` is the same for the app and script; use `npm run locks:station -- --id=...`.
 
 More detailed checks are in `docs/ERRORS.md` (Krosy connectivity, local server, scanners, ESP, Redis).
+
+bash scripts/update-appimage.sh --from-dist

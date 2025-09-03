@@ -41,6 +41,32 @@ const ANY_DATA_ACK = (process.env.KROSY_ANY_DATA_ACK ?? "0") === "1";
 const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080").trim();
 /** Fallback TCP port if host has no :port */
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
+// Optional: forward checkpoint result to an HTTP endpoint (central collector)
+const REPORT_URL = (process.env.KROSY_RESULT_URL || "").trim();
+const REPORT_IP = (process.env.KROSY_RESULT_IP || "").trim(); // if set, build URL with this IP and incoming port
+const REPORT_PATH = (process.env.KROSY_RESULT_PATH || "/api/checkpoint").trim();
+const REPORT_SCHEME = (process.env.KROSY_RESULT_SCHEME || "").trim(); // http|https (optional)
+const REPORT_PORT = (process.env.KROSY_RESULT_PORT || "").trim(); // optional
+const REPORT_TIMEOUT_MS = Number(process.env.KROSY_REPORT_TIMEOUT_MS || 4000);
+
+function pickReportUrl(req: NextRequest): string | null {
+  if (REPORT_URL) return REPORT_URL;
+  const ip = REPORT_IP;
+  if (!ip) return null;
+  // Infer scheme from header or env
+  const inferredProto = (req.headers.get('x-forwarded-proto') || req.nextUrl.protocol || 'http:').replace(':','');
+  const scheme = (REPORT_SCHEME || inferredProto || 'http').toLowerCase();
+  // Prefer explicit port; else copy from incoming Host header
+  let port = REPORT_PORT;
+  if (!port) {
+    const hostHdr = req.headers.get('host') || '';
+    const m = hostHdr.match(/:(\d+)$/);
+    if (m) port = m[1];
+  }
+  const path = REPORT_PATH.startsWith('/') ? REPORT_PATH : ('/' + REPORT_PATH);
+  const origin = port ? `${scheme}://${ip}:${port}` : `${scheme}://${ip}`;
+  return `${origin}${path}`;
+}
 
 /* ===== Namespaces ===== */
 const VC_NS_V01 =
@@ -614,6 +640,40 @@ try {
   ]);
   try { await pruneOldLogs(LOG_DIR, 31); } catch {}
     await pruneOldLogs(LOG_DIR, 31);
+
+  // Optionally forward the built result to a central HTTP endpoint
+  {
+    try {
+      const target = pickReportUrl(req);
+      if (target) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), Math.max(500, REPORT_TIMEOUT_MS));
+        const payload = {
+          mode: 'krosy.checkpoint',
+          requestID: meta?.requestID,
+          toHost: meta?.toHost,
+          device: meta?.device,
+          intksk: meta?.intksk,
+          scanned: meta?.scanned,
+          resultTime: meta?.resultTime,
+          connect: { host: connectHost, tcpPort, used: resOut.used },
+          ok: resOut.ok,
+          status: resOut.status,
+          error: resOut.error || null,
+          durations: { buildAndSendMs: dur2, totalMs: Date.now() - startedAll },
+          // Include the exact XML that was sent to Krosy
+          workingResultXml: prettyResultReq,
+        } as const;
+        await fetch(target, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: ctrl.signal,
+        }).catch(() => {});
+        clearTimeout(t);
+      }
+    } catch {}
+  }
 
   if (
     (accept.includes("xml") || accept === "*/*") &&

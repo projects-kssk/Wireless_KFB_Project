@@ -2003,6 +2003,10 @@ const MainApplicationUI: React.FC = () => {
           setIsScanning(false);
           setShowScanUi(false);
           setDisableOkAnimation(true);
+          // Also reset MAC and live state shortly so badge goes off
+          setTimeout(() => {
+            handleResetKfb();
+          }, 900);
           return;
         }
 
@@ -2024,6 +2028,10 @@ const MainApplicationUI: React.FC = () => {
           showOverlay("error", "Load failed");
           hideOverlaySoon();
         }
+        // Reset to scan state and clear MAC/live shortly after error is shown
+        setTimeout(() => {
+          handleResetKfb();
+        }, 900);
       } finally {
         setIsScanning(false);
         setShowScanUi(false);

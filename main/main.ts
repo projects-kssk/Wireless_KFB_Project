@@ -6,8 +6,9 @@ import { pathToFileURL } from 'node:url'
 const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
 const OPEN_DEVTOOLS = (process.env.WFKB_DEVTOOLS || '0') === '1'
-// Candidate remote base (non-local) used when reachable; always start local server regardless
+// Candidate remote base; when WFKB_FORCE_REMOTE=1 we must use this and not start local
 const PROD_BASE_URL = process.env.WFKB_BASE_URL || 'http://172.26.202.248:3000'
+const FORCE_REMOTE = (process.env.WFKB_FORCE_REMOTE || '0') === '1'
 
 // Keep references to windows so we can focus them on second-instance
 let mainWinRef: BrowserWindow | null = null
@@ -56,7 +57,7 @@ async function createWindows() {
   // In production: start bundled local server. In dev: do not start; use dev server.
   const localBase = `http://127.0.0.1:${PORT}`
   let serverReadyErr: any = null
-  if (!isDev) {
+  if (!isDev && !FORCE_REMOTE) {
     try {
       await ensureServerInProd()
     } catch (e) {
@@ -122,7 +123,22 @@ async function createWindows() {
 
   // Decide target base URL
   let chosenBase = localBase
-  if (isDev) {
+  // Hard-force remote origin if requested
+  if (FORCE_REMOTE) {
+    try {
+      const forced = (process.env.WFKB_BASE_URL || '').trim() || PROD_BASE_URL
+      const u = new URL(forced)
+      const remotePort = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80)
+      await splashInfo(`Forcing remote ${u.hostname}:${remotePort} …`)
+      await waitForPort(remotePort, u.hostname, 6000)
+      chosenBase = `${u.protocol}//${u.host}`
+      await splashStep(`Using remote ${u.hostname}:${remotePort}`)
+    } catch (e) {
+      await splashError('Error: forced remote base not reachable')
+      console.error('[main] Forced remote requested but not reachable:', e)
+      return
+    }
+  } else if (isDev) {
     // Dev mode: prefer remote if set and reachable; else use Next dev server (3000)
     let devBase = 'http://127.0.0.1:3000'
     const forced = (process.env.WFKB_BASE_URL || '').trim()

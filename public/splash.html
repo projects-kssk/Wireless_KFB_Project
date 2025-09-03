@@ -7,11 +7,16 @@
     <style>
       html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif; background: #0b0f16; color: #eef2f7; }
       .wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
-      .card { text-align: center; padding: 28px 36px; border-radius: 12px; background: #111827; box-shadow: 0 8px 30px rgba(0,0,0,0.35); }
+      .card { text-align: center; padding: 28px 36px; border-radius: 12px; background: #111827; box-shadow: 0 8px 30px rgba(0,0,0,0.35); width: 560px; max-width: calc(100vw - 32px); }
       .logo { width: 96px; height: 96px; margin: 0 auto 14px; background: url('./tinder.png') center/contain no-repeat; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.35)); }
       .title { font-size: 18px; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.2px; }
-      .sub { font-size: 13px; opacity: 0.8; }
+      .sub { font-size: 13px; opacity: 0.9; min-height: 1.2em; }
       .spinner { margin: 14px auto 0; width: 36px; height: 36px; border: 3px solid rgba(255,255,255,0.15); border-top-color: #60a5fa; border-radius: 50%; animation: spin 1s linear infinite; }
+      .pwrap { margin-top: 10px; height: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden; }
+      .bar { height: 100%; width: 0%; background: linear-gradient(90deg, #60a5fa, #22c55e); transition: width 200ms ease; }
+      .err { color: #fecaca; }
+      .log { margin-top: 14px; background: rgba(17,24,39,0.6); border: 1px solid rgba(255,255,255,0.08); text-align: left; padding: 10px; border-radius: 8px; max-height: 180px; overflow: auto; font: 12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: #cbd5e1; }
+      .log b { color: #f8fafc; }
       @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
@@ -22,8 +27,52 @@
         <div class="title">Wireless KFB</div>
         <div class="sub">Starting services…</div>
         <div class="spinner" aria-hidden="true"></div>
+        <div class="pwrap" aria-hidden="true"><div class="bar" id="bar"></div></div>
+        <div class="log" id="log" aria-live="polite" aria-atomic="false"></div>
       </div>
     </div>
+    <script>
+      (function(){
+        const logEl = document.getElementById('log');
+        const sub = document.querySelector('.sub');
+        const bar = document.getElementById('bar');
+        let total = 6;
+        let current = 0;
+        let stepTimer = null;
+        let lastMsg = '';
+
+        function ts(){
+          const d = new Date();
+          return [d.getHours(), d.getMinutes(), d.getSeconds()].map(v=>String(v).padStart(2,'0')).join(':');
+        }
+        function append(msg, css){
+          const line = document.createElement('div');
+          if (css) line.className = css;
+          line.textContent = `[${ts()}] ${msg}`;
+          logEl.appendChild(line);
+          logEl.scrollTop = logEl.scrollHeight;
+          if (sub) sub.textContent = msg;
+        }
+        function setBar(){
+          const pct = Math.max(0, Math.min(100, Math.round((current/Math.max(1,total))*100)));
+          if (bar) bar.style.width = pct + '%';
+        }
+        function startWatchdog(){
+          if (stepTimer) clearTimeout(stepTimer);
+          stepTimer = setTimeout(() => {
+            append(`Timeout: ${lastMsg} (took more than 10s)`, 'err');
+          }, 10000);
+        }
+        window.__splash = {
+          setTotal(n){ total = Math.max(1, Number(n)||6); current = 0; setBar(); },
+          step(msg){ lastMsg = String(msg||''); current = Math.min(total, current+1); append(lastMsg); setBar(); startWatchdog(); },
+          info(msg){ append(String(msg||'')); },
+          error(msg){ append(String(msg||'Error'), 'err'); try{ document.querySelector('.spinner').style.display='none' }catch(e){} },
+          done(){ current = total; setBar(); append('Ready'); try{ document.querySelector('.spinner').style.display='none' }catch(e){} if (stepTimer) clearTimeout(stepTimer); }
+        };
+        // Back-compat
+        window.__log = function(msg){ window.__splash.info(msg) };
+      })();
+    </script>
   </body>
   </html>
-

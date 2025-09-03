@@ -18,6 +18,7 @@ import { SettingsBranchesPageContent } from "@/components/Settings/SettingsBranc
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 import SettingsRightSidebar from "@/components/Settings/SettingsRightSidebar";
+const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === '1'
 
 async function hasSetupDataForMac(mac: string): Promise<boolean> {
   try {
@@ -300,13 +301,6 @@ const MainApplicationUI: React.FC = () => {
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
   const [suppressLive, setSuppressLive] = useState(false);
-  const zeroFeedLoggedRef = useRef(false);
-  useEffect(() => {
-    // Reset zero-feed log guard whenever a MAC becomes active again
-    if (macAddress && macAddress.trim()) {
-      zeroFeedLoggedRef.current = false;
-    }
-  }, [macAddress]);
   const retryTimerRef = useRef<number | null>(null);
   const clearRetryTimer = () => {
     if (retryTimerRef.current != null) {
@@ -356,9 +350,9 @@ const MainApplicationUI: React.FC = () => {
       try {
         if (on) {
           lastLiveMacRef.current = (macAddress || '').toUpperCase();
-          console.log('[LIVE] START', { mac: lastLiveMacRef.current });
+          if (DEBUG_LIVE) console.log('[LIVE] START', { mac: lastLiveMacRef.current });
         } else {
-          console.log('[LIVE] STOP');
+          if (DEBUG_LIVE) console.log('[LIVE] STOP');
           // On STOP, best-effort clear for the last live MAC if we didn't finalise
           const target = lastLiveMacRef.current;
           if (target && !(macAddress && macAddress.trim())) {
@@ -979,7 +973,7 @@ const MainApplicationUI: React.FC = () => {
         // Show the OK overlay and disable live updates
         setOverlay({ open: true, kind: "success", code: "" });
         setSuppressLive(true);
-        try { console.log('[LIVE] OFF → OK latched; suppressing live updates'); } catch {}
+        try { if (DEBUG_LIVE) console.log('[LIVE] OFF → OK latched; suppressing live updates'); } catch {}
 
         // Drop any displayed identifiers to avoid stale "Live: on" badges
         setMacAddress("");
@@ -2297,7 +2291,7 @@ const MainApplicationUI: React.FC = () => {
   };
 
   return (
-    <div className="relative flex min-h-screen bg-slate-100 dark:bg-slate-900">
+    <div className="relative flex min-h-screen bg-white">
       {mainView === "dashboard" && (
         <BranchControlSidebar
           isOpen={isLeftSidebarOpen}
@@ -2326,7 +2320,7 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-slate-900">
+        <main className="flex-1 overflow-auto bg-white">
           {mainView === "dashboard" ? (
             <>
               {desiredTail && (
@@ -2409,17 +2403,7 @@ const MainApplicationUI: React.FC = () => {
                 const effActiveKssks = hasMac ? activeKssks : [];
                 const effNormalPins = hasMac ? normalPins : undefined;
                 const effLatchPins = hasMac ? latchPins : undefined;
-                if (!hasMac && !zeroFeedLoggedRef.current) {
-                  try {
-                    console.log("[LIVE][FEED] zeroed props for scan view", {
-                      branches: 0,
-                      grouped: 0,
-                      failures: 0,
-                      activeKssks: 0,
-                    });
-                  } catch {}
-                  zeroFeedLoggedRef.current = true;
-                }
+                // Avoid noisy console logs when no MAC is active
                 return (
               <BranchDashboardMainContent
                 key={session}

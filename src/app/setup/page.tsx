@@ -7,6 +7,7 @@ import {
   useCallback,
   useRef,
   memo,
+  useMemo,
   type CSSProperties,
 } from "react";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -515,6 +516,8 @@ type FlashEvent = {
 };
 
 /* ===== Page ===== */
+import ZoomControls from "@/components/Controls/ZoomControls";
+
 export default function SetupPage() {
   const allowManual = true;
   const prefersReduced = useReducedMotion();
@@ -736,6 +739,28 @@ export default function SetupPage() {
   }, []);
 
   const [lastError, setLastError] = useState<string | null>(null);
+  // Per-window UI zoom (React-only; not Electron)
+  const [setupZoom, setSetupZoom] = useState(1)
+  const setupZoomStyle = useMemo(() => ({
+    transform: `scale(${setupZoom})`,
+    transformOrigin: "0 0",
+    width: `${100 / setupZoom}%`,
+    height: `${100 / setupZoom}%`,
+  }), [setupZoom])
+
+
+  // Ctrl/Cmd + wheel zoom like browser, React-only
+  useEffect(() => {
+    const clamp = (v: number) => Math.min(2, Math.max(0.5, v))
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || (e as any).metaKey)) return
+      try { e.preventDefault() } catch {}
+      const step = 0.1
+      setSetupZoom((z) => clamp(z + (e.deltaY > 0 ? -step : step)))
+    }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    return () => window.removeEventListener('wheel', onWheel)
+  }, [])
 
   const showOk = (
     code: string,
@@ -1946,6 +1971,7 @@ export default function SetupPage() {
 
   return (
     <main style={page}>
+      <ZoomControls label="Setup" position="br" value={setupZoom} onChange={setSetupZoom} applyToBody />
       {/* HERO */}
       <m.section layout style={hero} aria-live="polite">
         {!kfb ? (

@@ -17,19 +17,9 @@
 }
 
 body {
-  color: rgb(var(--foreground-rgb)); /* Will be white if prefers-color-scheme: dark, else black */
-  /* This sets a very dark blue (slate-950) as the main background,
-     effectively making the site dark by default. */
-  background-color: rgb(2 6 23 / var(--tw-bg-opacity, 1)); /* slate-950 with default opacity 1 */
-
-  /* The linear-gradient below is commented out, if you prefer it, you can uncomment it
-     and adjust it. Ensure it works well with the fixed background-color above or replaces it. */
-  /* background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb)); */
+  color: rgb(var(--foreground-rgb));
+  /* Make the application background pure white to match UI panels. */
+  background-color: #ffffff;
 }
 
 /* Ensure your main content area also respects the dark theme */

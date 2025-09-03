@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { m, AnimatePresence } from "framer-motion";
+const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === '1'
 
 // --- SVG ICONS ---
 const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -306,9 +307,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const snap = JSON.stringify(snapObj);
     if (snap === lastPropsSnapRef.current) return;
     lastPropsSnapRef.current = snap;
-    try {
-      console.log("[LIVE][PROPS] update", snapObj);
-    } catch {}
+    try { if (DEBUG_LIVE) console.log("[LIVE][PROPS] update", snapObj); } catch {}
   }, [
     branchesData,
     groupedBranches,
@@ -342,7 +341,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         },
         {} as Record<string, number>
       );
-      console.log("[LIVE][SNAP] localBranches", counts);
+      if (DEBUG_LIVE) console.log("[LIVE][SNAP] localBranches", counts);
     } catch {}
   }, [localBranches]);
   useEffect(() => {
@@ -390,14 +389,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   // Log scanning/checking transitions
   useEffect(() => {
-    try {
-      console.log("[LIVE][STATE] scanning", { isScanning });
-    } catch {}
+    try { if (DEBUG_LIVE) console.log("[LIVE][STATE] scanning", { isScanning }); } catch {}
   }, [isScanning]);
   useEffect(() => {
-    try {
-      console.log("[LIVE][STATE] checking", { isChecking });
-    } catch {}
+    try { if (DEBUG_LIVE) console.log("[LIVE][STATE] checking", { isChecking }); } catch {}
   }, [isChecking]);
 
   // -------------------- LIVE EV UPDATES --------------------
@@ -634,9 +629,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [localBranches]
   );
   useEffect(() => {
-    try {
-      console.log("[LIVE][SNAP] pending failures", { count: pending.length });
-    } catch {}
+    try { if (DEBUG_LIVE) console.log("[LIVE][SNAP] pending failures", { count: pending.length }); } catch {}
   }, [pending.length]);
 
   // Failures from server or derived from pending
@@ -1448,6 +1441,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   ]);
   useEffect(() => {
     try {
+      if (!DEBUG_LIVE) return;
+      if (!DEBUG_LIVE) return;
       if (viewKey === "scan") console.log("[LIVE] OFF → scan view");
       else console.log("[LIVE][VIEW]", { viewKey });
     } catch {}

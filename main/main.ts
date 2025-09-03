@@ -5,8 +5,17 @@ import { pathToFileURL } from 'node:url'
 
 const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
+const OPEN_DEVTOOLS = (process.env.WFKB_DEVTOOLS || '0') === '1'
 // Candidate remote base (non-local) used when reachable; always start local server regardless
 const PROD_BASE_URL = process.env.WFKB_BASE_URL || 'http://172.26.202.248:3000'
+
+// Keep references to windows so we can focus them on second-instance
+let mainWinRef: BrowserWindow | null = null
+let setupWinRef: BrowserWindow | null = null
+
+// Zoom/scale policy: disable auto zoom in dev by default; allow override via env
+const DISABLE_AUTO_ZOOM = (process.env.WFKB_DISABLE_AUTO_ZOOM ?? (process.env.NODE_ENV !== 'production' ? '1' : '0')) === '1'
+const DISABLE_WHEEL_ZOOM = (process.env.WFKB_DISABLE_WHEEL_ZOOM ?? (process.env.NODE_ENV !== 'production' ? '1' : '0')) === '1'
 
 function waitForPort(port: number, host = '127.0.0.1', timeoutMs = 15000) {
   const start = Date.now()
@@ -44,13 +53,15 @@ function makeIcon() {
 }
 
 async function createWindows() {
-  // Always start local server in production; in dev it's already separate
+  // In production: start bundled local server. In dev: do not start; use dev server.
   const localBase = `http://127.0.0.1:${PORT}`
   let serverReadyErr: any = null
-  try {
-    await ensureServerInProd()
-  } catch (e) {
-    serverReadyErr = e
+  if (!isDev) {
+    try {
+      await ensureServerInProd()
+    } catch (e) {
+      serverReadyErr = e
+    }
   }
 
   // Splash immediately
@@ -62,6 +73,7 @@ async function createWindows() {
     frame: false,
     show: true,
     transparent: false,
+    alwaysOnTop: true,
     icon: appIconPath(),
     title: 'Wireless KFB - Loading',
     webPreferences: { contextIsolation: true, nodeIntegration: false },
@@ -70,6 +82,15 @@ async function createWindows() {
     ? `file://${path.join(process.cwd(), 'public', 'splash.html')}`
     : `file://${path.join(process.resourcesPath, 'app.asar', 'public', 'splash.html')}`
   try { await splash.loadURL(splashUrl) } catch {}
+  // Helpers to stream progress to splash screen
+  const splashExec = (code: string) => splash.webContents.executeJavaScript(code).catch(() => {})
+  const splashSetTotal = async (n: number) => splashExec(`window.__splash && __splash.setTotal(${Number(n)||1})`)
+  const splashStep = async (msg: string) => splashExec(`window.__splash && __splash.step(${JSON.stringify(msg)})`)
+  const splashInfo = async (msg: string) => splashExec(`window.__splash ? __splash.info(${JSON.stringify(msg)}) : (window.__log && __log(${JSON.stringify(msg)}))`)
+  const splashError = async (msg: string) => splashExec(`window.__splash && __splash.error(${JSON.stringify(msg)})`)
+  const splashDone = async () => splashExec(`window.__splash && __splash.done()`)
+  await splashSetTotal(6)
+  await splashStep('Initializing…')
 
   // Prepare main windows hidden
   const mainWin = new BrowserWindow({
@@ -78,95 +99,148 @@ async function createWindows() {
     x: 0,
     y: 0,
     show: false,
+    autoHideMenuBar: true,
     fullscreenable: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
     title: 'Dashboard',
     icon: appIconPath(),
   })
+  mainWinRef = mainWin
   const setupWin = new BrowserWindow({
     width: 1100,
     height: 820,
     x: 80,
     y: 60,
     show: false,
+    autoHideMenuBar: true,
     fullscreenable: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
     title: 'Setup',
     icon: appIconPath(),
   })
+  setupWinRef = setupWin
 
-  // Decide target: prefer reachable remote; otherwise fallback to local
+  // Decide target base URL
   let chosenBase = localBase
-  // If local server didn't start, show fatal error and stop
-  try {
-    await waitForPort(PORT, '127.0.0.1', 12000)
-  } catch (e) {
+  if (isDev) {
+    // Dev mode: prefer remote if set and reachable; else use Next dev server (3000)
+    let devBase = 'http://127.0.0.1:3000'
+    const forced = (process.env.WFKB_BASE_URL || '').trim()
+    let remoteCandidate: URL | null = null
     try {
-      await splash.webContents.executeJavaScript(`(function(){
-        var sub = document.querySelector('.sub');
-        if (sub) sub.textContent = 'Error: local server failed to start';
-        var sp = document.querySelector('.spinner');
-        if (sp) sp.style.display = 'none';
-      })();`)
+      if (forced) {
+        const u = new URL(forced)
+        if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+        else devBase = `${u.protocol}//${u.host}`
+      }
     } catch {}
-    console.error('[main] Local server not available:', serverReadyErr || e)
-    return
-  }
-
-  // Probe remote candidate (non-local URL)
-  let remoteCandidate: URL | null = null
-  const forced = (process.env.WFKB_BASE_URL || '').trim()
-  try {
-    const u = new URL(forced || PROD_BASE_URL)
-    if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
-  } catch {}
-
-  if (remoteCandidate) {
-    const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
+    if (remoteCandidate) {
+      const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
+      try {
+        await splashInfo(`Checking network server ${remoteCandidate.hostname}:${remotePort}…`)
+        await waitForPort(remotePort, remoteCandidate.hostname, 3000)
+        chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
+        await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
+      } catch {
+        chosenBase = devBase
+        await splashStep('Network server not reachable, using Next dev server')
+      }
+    } else {
+      // Try common dev ports in case 3000 is occupied and Next switched to 3001+.
+      const host = '127.0.0.1'
+      const preferred = parseInt(new URL(devBase).port || '3000', 10)
+      const candidates = [preferred, 3001, 3002]
+      let found: number | null = null
+      await splashInfo('Waiting for Next dev server (3000/3001)…')
+      for (const p of candidates) {
+        try { await waitForPort(p, host, 2500); found = p; break } catch {}
+      }
+      if (!found) {
+        // Last attempt: keep waiting on the preferred one
+        await waitForPort(preferred, host, 15000)
+        found = preferred
+      }
+      chosenBase = `http://${host}:${found}`
+      await splashStep(`Using Next dev server on ${host}:${found}`)
+    }
+  } else {
+    // Production: require local server, then optionally switch to remote if reachable
     try {
-      await waitForPort(remotePort, remoteCandidate.hostname, 3000)
-      chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
-      try {
-        await splash.webContents.executeJavaScript(`(function(){ var sub = document.querySelector('.sub'); if (sub) sub.textContent = 'Connected to network server: ${remoteCandidate.hostname}:${remotePort}'; })();`)
-      } catch {}
+      await splashStep('Starting local server…')
+      await waitForPort(PORT, '127.0.0.1', 12000)
     } catch (e) {
-      // Stay on local and inform user briefly
+      await splashError('Error: local server failed to start')
+      console.error('[main] Local server not available:', serverReadyErr || e)
+      return
+    }
+    // Probe remote
+    let remoteCandidate: URL | null = null
+    const forced = (process.env.WFKB_BASE_URL || '').trim()
+    try {
+      const u = new URL(forced || PROD_BASE_URL)
+      if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+    } catch {}
+    if (remoteCandidate) {
+      const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
       try {
-        await splash.webContents.executeJavaScript(`(function(){ var sub = document.querySelector('.sub'); if (sub) sub.textContent = 'Network server not reachable, using local'; })();`)
-      } catch {}
-      console.warn('[main] Remote not reachable, falling back to local:', remoteCandidate?.href)
+        await splashInfo(`Checking network server ${remoteCandidate.hostname}:${remotePort}…`)
+        await waitForPort(remotePort, remoteCandidate.hostname, 3000)
+        chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
+        await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
+      } catch {
+        await splashStep('Network server not reachable, using local')
+        console.warn('[main] Remote not reachable, falling back to local:', remoteCandidate?.href)
+      }
     }
   }
 
+  await splashInfo(`Loading UI from ${chosenBase} …`)
   await mainWin.loadURL(`${chosenBase}/`)
   await setupWin.loadURL(`${chosenBase}/setup`)
+  await splashStep('Renderer loaded')
+  await splashDone()
+
+  // In dev, relax max-width containers and force full-bleed layout so content
+  // fills the fullscreen BrowserWindows regardless of Tailwind max-w classes.
+  if (isDev) {
+    const css = `
+      html, body, #__next { width: 100vw; height: 100vh; margin: 0; padding: 0; overflow: hidden; }
+      main { width: 100%; height: 100%; }
+      .container, [class*="max-w-"] { max-width: 100% !important; }
+      /* Ensure root flex layouts can expand */
+      body > div:first-child, body > div#__next { width: 100%; height: 100%; }
+    `
+    try { mainWin.webContents.insertCSS(css) } catch {}
+    try { setupWin.webContents.insertCSS(css) } catch {}
+  }
 
   // Enable Ctrl/Cmd + Mouse Wheel zoom on both windows
   const enableZoom = (win: BrowserWindow) => {
     const wc = win.webContents
-    try { wc.setVisualZoomLevelLimits(0.5, 3) } catch {}
-    let zoomFactor = 1
-    const clamp = (v: number) => Math.min(3, Math.max(0.5, v))
-    wc.on('before-input-event', (event, input) => {
-      const isMouseWheel = (input as any).type === 'mouseWheel'
-      const ctrlOrMeta = (input as any).control || (input as any).meta
-      if (isMouseWheel && ctrlOrMeta) {
-        try { event.preventDefault() } catch {}
-        const dy = (input as any).deltaY ?? 0
-        const step = 0.08
-        zoomFactor = clamp(zoomFactor * (dy > 0 ? (1 - step) : (1 + step)))
-        try { wc.setZoomFactor(zoomFactor) } catch {}
-      }
-    })
+    // Default to 100% zoom; disable wheel zoom in dev unless explicitly enabled
+    try { wc.setZoomFactor(1) } catch {}
+    if (!DISABLE_WHEEL_ZOOM) {
+      try { wc.setVisualZoomLevelLimits(0.5, 3) } catch {}
+      let zoomFactor = 1
+      const clamp = (v: number) => Math.min(3, Math.max(0.5, v))
+      wc.on('before-input-event', (event, input) => {
+        const isMouseWheel = (input as any).type === 'mouseWheel'
+        const ctrlOrMeta = (input as any).control || (input as any).meta
+        if (isMouseWheel && ctrlOrMeta) {
+          try { event.preventDefault() } catch {}
+          const dy = (input as any).deltaY ?? 0
+          const step = 0.08
+          zoomFactor = clamp(zoomFactor * (dy > 0 ? (1 - step) : (1 + step)))
+          try { wc.setZoomFactor(zoomFactor) } catch {}
+        }
+      })
+    }
   }
   enableZoom(mainWin)
   enableZoom(setupWin)
-  if (isDev) {
-    mainWin.webContents.openDevTools({ mode: 'detach' })
-    setupWin.webContents.openDevTools({ mode: 'detach' })
-  }
+  // (Devtools are optional to avoid stealing focus before splash hides)
 
-  // Auto fullscreen/maximize across displays
+  // Auto fullscreen/kiosk and scale across displays
   try {
     const displays = screen.getAllDisplays();
     const primary = screen.getPrimaryDisplay();
@@ -176,20 +250,53 @@ async function createWindows() {
     mainWin.setBounds(primary.workArea);
     setupWin.setBounds(secondary.workArea);
 
-    if (displays.length >= 2) {
-      mainWin.setFullScreen(true);
-      setupWin.setFullScreen(true);
-    } else {
-      mainWin.maximize();
-      setupWin.maximize();
+    // Force fullscreen on both; optional kiosk via env
+    const kiosk = (process.env.WFKB_KIOSK || '0') === '1'
+    mainWin.setFullScreen(true)
+    setupWin.setFullScreen(true)
+    if (kiosk) { try { mainWin.setKiosk(true); setupWin.setKiosk(true) } catch {} }
+
+    if (!DISABLE_AUTO_ZOOM) {
+      // Auto-scale content to fit each display's work area based on design sizes
+      const applyAutoZoom = (win: BrowserWindow, baseW: number, baseH: number, area: Electron.Rectangle) => {
+        const factor = Math.max(0.35, Math.min(2.0, Math.min(area.width / baseW, area.height / baseH)))
+        try { win.webContents.setZoomFactor(factor) } catch {}
+      }
+      // Design bases: main 1280x820, setup 1100x820
+      const applyAfterLoad = (win: BrowserWindow, baseW: number, baseH: number, area: Electron.Rectangle) => {
+        const doApply = () => applyAutoZoom(win, baseW, baseH, area)
+        doApply()
+        win.webContents.once('did-finish-load', () => doApply())
+      }
+      applyAfterLoad(mainWin, 1280, 820, primary.workArea)
+      applyAfterLoad(setupWin, 1100, 820, secondary.workArea)
     }
   } catch {}
 
   mainWin.show();
   setupWin.show();
+  if (isDev && OPEN_DEVTOOLS) {
+    try { mainWin.webContents.openDevTools({ mode: 'detach' }) } catch {}
+    try { setupWin.webContents.openDevTools({ mode: 'detach' }) } catch {}
+  }
   try { splash.destroy() } catch {}
 }
-
-app.whenReady().then(createWindows)
+// Enforce single instance; focus existing windows if user tries to start again
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  try { app.quit() } catch {}
+} else {
+  app.on('second-instance', () => {
+    const wins = [mainWinRef, setupWinRef].filter(Boolean) as BrowserWindow[]
+    for (const w of wins) {
+      try {
+        if (w.isMinimized()) w.restore()
+        w.show()
+        w.focus()
+      } catch {}
+    }
+  })
+  app.whenReady().then(createWindows)
+}
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindows() })

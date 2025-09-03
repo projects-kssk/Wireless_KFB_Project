@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -25,10 +26,10 @@ type SerialEvent =
   | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
 
 type ScannerPortState = {
-  present: boolean;          // from SerialPort.list()
-  open: boolean;             // runtime opened
-  lastError: string | null;  // last error for this path
-  lastScanTs: number | null; // last scan ts
+  present: boolean;
+  open: boolean;
+  lastError: string | null;
+  lastScanTs: number | null;
 };
 
 const SSE_PATH = "/api/serial/events";
@@ -43,7 +44,7 @@ export function useSerialEvents(macFilter?: string) {
 
   const [lastScan, setLastScan] = useState<string | null>(null);
   const [lastScanPath, setLastScanPath] = useState<string | null>(null);
-  const [lastScanTick, setLastScanTick] = useState(0);     // ← increments every scan (even same code)
+  const [lastScanTick, setLastScanTick] = useState(0);
   const [lastScanAt, setLastScanAt] = useState<number | null>(null);
 
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -58,16 +59,15 @@ export function useSerialEvents(macFilter?: string) {
 
   const [sseConnected, setSseConnected] = useState<boolean>(false);
 
-  // internal refs
   const tickRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const unloadingRef = useRef<boolean>(false);
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
   const redisOkRef = useRef(false);
-  // rAF coalescing for high-frequency events
   const pendingRef = useRef<{ scan?: { code: string; path?: string }; ev?: any } | null>(null);
   const rafRef = useRef<number | null>(null);
+
   const flush = () => {
     const p = pendingRef.current;
     pendingRef.current = null;
@@ -84,10 +84,7 @@ export function useSerialEvents(macFilter?: string) {
     }
     if (p.ev) {
       try {
-        if ((process.env.NEXT_PUBLIC_EV_LOG || '') === '1') {
-          // eslint-disable-next-line no-console
-          console.log('[GUI] EV', p.ev);
-        }
+        if ((process.env.NEXT_PUBLIC_EV_LOG || '') === '1') console.log('[GUI] EV', p.ev);
       } catch {}
       setLastEv(p.ev);
       tickRef.current += 1;
@@ -102,12 +99,10 @@ export function useSerialEvents(macFilter?: string) {
     rafRef.current = requestAnimationFrame(flush);
   };
 
-  // derive server status from esp+redis (both must be OK)
   useEffect(() => {
     setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
-  }, []); // initial
+  }, []);
 
-  // helper: upsert a port record
   const up = (p: string, patch: Partial<ScannerPortState>) =>
     setPorts((prev) => {
       const cur: ScannerPortState =
@@ -115,7 +110,6 @@ export function useSerialEvents(macFilter?: string) {
       return { ...prev, [p]: { ...cur, ...patch } };
     });
 
-  // sync presence for configured paths when device list changes
   useEffect(() => {
     if (!paths.length) return;
     const present = new Set(devices.map((d) => d.path));
@@ -130,7 +124,6 @@ export function useSerialEvents(macFilter?: string) {
     });
   }, [devices, paths]);
 
-  // Close SSE cleanly on page unload/refresh to avoid browser interruption warnings
   useEffect(() => {
     const markUnloading = () => {
       unloadingRef.current = true;
@@ -145,9 +138,7 @@ export function useSerialEvents(macFilter?: string) {
     };
   }, []);
 
-  // SSE wire-up (guard against StrictMode double-mounts)
   useEffect(() => {
-    // close any existing (should be null normally)
     if (esRef.current) {
       try { esRef.current.close(); } catch {}
       esRef.current = null;
@@ -164,36 +155,28 @@ export function useSerialEvents(macFilter?: string) {
 
     es.onmessage = (ev) => {
       let msg: SerialEvent | null = null;
-      try {
-        msg = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(ev.data); } catch { return; }
       if (!msg || typeof msg !== "object" || !("type" in msg)) return;
 
       switch (msg.type) {
         case "devices":
           setDevices(Array.isArray(msg.devices) ? msg.devices : []);
           break;
-
         case "esp": {
           const ok = Boolean((msg as any).ok) || Boolean((msg as any).present);
           espOkRef.current = ok;
           setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           break;
         }
-
         case "net": {
-          const upNow = Boolean(msg.up);
+          const upNow = Boolean((msg as any).up);
           netUpRef.current = upNow;
-          // update last-known net snapshot
           setNetIface((msg as any).iface ?? null);
           setNetIp((msg as any).ip ?? null);
           setNetPresent(Boolean((msg as any).present));
-          setNetUp(Boolean((msg as any).up));
+          setNetUp(upNow);
           break;
         }
-
         case "redis": {
           const ready = Boolean((msg as any).ready);
           redisOkRef.current = ready;
@@ -202,23 +185,18 @@ export function useSerialEvents(macFilter?: string) {
           try { setRedisDetail((msg as any).detail ?? { status: (msg as any).status }); } catch {}
           break;
         }
-
         case "scanner/paths": {
           const list = Array.isArray(msg.paths) ? msg.paths.filter(Boolean) : [];
           setPaths((prev) => {
             const uniq = Array.from(new Set([...prev, ...list]));
-            // ensure we have entries for each
             for (const p of uniq) up(p, {});
             return uniq;
           });
           break;
         }
-
         case "scanner/open": {
-          if (msg.path) {
-            up(msg.path, { open: true, lastError: null });
-          } else {
-            // mark first present-but-closed as open if path omitted
+          if ((msg as any).path) up((msg as any).path!, { open: true, lastError: null });
+          else {
             setPorts((prev) => {
               const next = { ...prev };
               const key = Object.keys(next).find((k) => next[k].present && !next[k].open);
@@ -228,12 +206,9 @@ export function useSerialEvents(macFilter?: string) {
           }
           break;
         }
-
         case "scanner/close": {
-          if (msg.path) {
-            up(msg.path, { open: false });
-          } else {
-            // mark all closed if path omitted
+          if ((msg as any).path) up((msg as any).path!, { open: false });
+          else {
             setPorts((prev) => {
               const next = { ...prev };
               for (const k of Object.keys(next)) next[k] = { ...next[k], open: false };
@@ -242,42 +217,32 @@ export function useSerialEvents(macFilter?: string) {
           }
           break;
         }
-
         case "scanner/error": {
-          const err = String(msg.error || "Scanner error");
+          const err = String((msg as any).error || "Scanner error");
           setScannerError(err);
           if ((msg as any).path) up((msg as any).path!, { lastError: err });
           break;
         }
-
         case "ev": {
           schedule((p) => { (p as any).ev = msg; });
           break;
         }
-
         case "aliases/union": {
           const m = msg as any;
           setLastUnion({ mac: String(m.mac||'').toUpperCase(), normalPins: Array.isArray(m.normalPins)?m.normalPins:undefined, latchPins: Array.isArray(m.latchPins)?m.latchPins:undefined, names: (m.names&&typeof m.names==='object')?m.names:undefined });
           break;
         }
-
         case "scan": {
           schedule((p) => { (p as any).scan = { code: String((msg as any).code), path: (msg as any).path ?? null }; });
           break;
         }
-
         default:
-          // ignore
           break;
       }
     };
 
     es.onerror = () => {
-      // Ignore expected errors during navigation/unload
-      if (!unloadingRef.current) {
-        setSseConnected(false);
-      }
-      // EventSource will auto-retry; we keep the instance open until cleanup.
+      if (!unloadingRef.current) setSseConnected(false);
     };
 
     return () => {
@@ -287,7 +252,6 @@ export function useSerialEvents(macFilter?: string) {
     };
   }, [macFilter]);
 
-  // roll-ups
   const scannersDetected = useMemo(
     () => paths.filter((p) => ports[p]?.present).length,
     [paths, ports]
@@ -297,7 +261,6 @@ export function useSerialEvents(macFilter?: string) {
     [paths, ports]
   );
 
-  // small helper if caller wants to clear the last scan manually
   const clearLastScan = () => {
     setLastScan(null);
     setLastScanPath(null);
@@ -315,23 +278,21 @@ export function useSerialEvents(macFilter?: string) {
 
     lastScan,
     lastScanPath,
-    lastScanTick,  // ← use this in effects to react to every scan
+    lastScanTick,
     lastScanAt,
 
     scannerError,
 
     scannerPaths: paths,
-    scannerPorts: ports, // map[path] -> ScannerPortState
+    scannerPorts: ports,
     scannersDetected,
     scannersOpen,
 
     clearLastScan,
 
-    // connection indicators
     redisReady,
     redisDetail,
 
-    // hub events
     lastEv,
     lastEvTick,
 
@@ -340,3 +301,4 @@ export function useSerialEvents(macFilter?: string) {
     lastUnion,
   };
 }
+

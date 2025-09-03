@@ -1,3 +1,4 @@
+// src/app/api/serial/events/route.ts
 import os from 'os';
 import { promises as fs } from 'fs';
 import { onSerialEvent } from '@/lib/bus';
@@ -9,8 +10,16 @@ import {
 } from '@/lib/serial';
 import { getRedis, redisDetail } from '@/lib/redis';
 import serial from '@/lib/serial';
+import '@/lib/scanSink';
 
-// Lightweight log de-dupe to avoid spamming identical RESULT/EV lines
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;                 // ← remove `as const`
+export const fetchCache = 'force-no-store';  // segment-level opt-out is valid
+
+const encoder = new TextEncoder();
+
+// dedupe RESULT/EV logs
 const __LAST_LOG = {
   map: new Map<string, number>(),
   shouldLog(key: string, windowMs = 1500) {
@@ -22,14 +31,12 @@ const __LAST_LOG = {
   }
 };
 
-// Ensure bus → memory is wired once per process
-import '@/lib/scanSink';
+const isLikelySerialPath = (p: string) =>
+  /\/dev\/(tty(ACM|USB)\d+|tty\.usb|cu\.usb)/i.test(p);
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
-export const revalidate = 0 as const;
-// Prevent caching at the framework layer
-export const fetchCache = 'force-no-store';
+function netIfaceName() {
+  return (process.env.NET_IFACE || 'eth0').trim();
+}
 
 function envScannerPaths(): string[] {
   const base =
@@ -43,13 +50,6 @@ function envScannerPaths(): string[] {
       '').trim();
   if (s2 && !list.includes(s2)) list.push(s2);
   return Array.from(new Set(list));
-}
-
-const isLikelySerialPath = (p: string) =>
-  /\/dev\/(tty(ACM|USB)\d+|tty\.usb|cu\.usb)/i.test(p);
-
-function netIfaceName() {
-  return (process.env.NET_IFACE || 'eth0').trim();
 }
 
 async function ethStatus() {
@@ -72,7 +72,7 @@ async function ethStatus() {
 }
 
 export async function GET(req: Request) {
-  const encoder = new TextEncoder();
+  // parse MAC filter up front
   const urlObj = new URL(req.url);
   const macParam = (urlObj.searchParams.get('mac') || '').trim();
   const macFilter = macParam.toUpperCase();
@@ -80,47 +80,52 @@ export async function GET(req: Request) {
     ? new Set(macFilter.split(',').map(s => s.trim()).filter(Boolean))
     : null;
   const macAllowed = (m?: string | null) => {
-    if (!macSet) return true; // no filter → allow all
+    if (!macSet) return true;
     const up = String(m || '').toUpperCase();
     return up && macSet.has(up);
   };
   const EV_STRICT = (process.env.EV_STRICT ?? '0') === '1';
+
   let closed = false;
-  let heartbeat: NodeJS.Timeout | null = null;
-  let pollTimer: NodeJS.Timeout | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
   let unsubscribe: (() => void) | null = null;
+
+  // single cleanup path
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    try { heartbeat?.unref?.(); } catch {}
+    try { pollTimer?.unref?.(); } catch {}
+    if (heartbeat) clearInterval(heartbeat);
+    if (pollTimer) clearInterval(pollTimer);
+    try { unsubscribe?.(); } catch {}
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      const cleanup = () => {
-        if (closed) return;
-        closed = true;
-        if (heartbeat) clearInterval(heartbeat);
-        if (pollTimer) clearInterval(pollTimer);
-        if (unsubscribe) try { unsubscribe(); } catch {}
-        try { controller.close(); } catch {}
-      };
-
-      try { (req as any).signal?.addEventListener('abort', cleanup); } catch {}
-
+      // close helper
       const push = (s: string) => {
         if (closed) return;
-        try { controller.enqueue(encoder.encode(s)); } catch { cleanup(); }
+        try { controller.enqueue(encoder.encode(s)); } catch { cleanup(); try { controller.close(); } catch {} }
       };
       const send = (obj: unknown) => push(`data: ${JSON.stringify(obj)}\n\n`);
       const comment = (txt: string) => push(`: ${txt}\n\n`);
 
-      // Make EventSource happy immediately
-      push('retry: 2000\n\n');      // reconnection advice
-      comment('open');               // first byte flush
+      try { (req as any).signal?.addEventListener('abort', () => { cleanup(); try { controller.close(); } catch {} }); } catch {}
 
-      // Heartbeat to keep proxies from buffering
+      // SSE preamble
+      push('retry: 2000\n\n');
+      comment('open');
+
+      // heartbeats
       heartbeat = setInterval(() => comment('ping'), 15_000);
+      heartbeat.unref?.();
 
-      // Relay bus events
+      // bus → SSE
       unsubscribe = onSerialEvent(e => send(e));
 
-      // Initial payloads
+      // initial payloads
       try { send({ type: 'net', ...(await ethStatus()) }); } catch {}
       try { const r: any = getRedis(); const d = redisDetail(); send({ type: 'redis', ready: !!(r && (r.status === 'ready')), status: r?.status, detail: d }); } catch {}
 
@@ -146,7 +151,7 @@ export async function GET(req: Request) {
         });
       } catch {}
 
-      // One-time ESP snapshot
+      // ESP snapshot
       try {
         const { present, ok, raw } = await espHealth();
         send({ type: 'esp', ok, raw, present });
@@ -154,40 +159,35 @@ export async function GET(req: Request) {
         send({ type: 'esp', ok: false, error: String(err?.message ?? err) });
       }
 
-      // Wire ESP line stream → parse EV lines and forward as SSE
+      // ESP line stream wiring
       try {
         const s: any = (serial as any).getEspLineStream?.();
         const onLine = (buf: Buffer | string) => {
           try {
             const line = String(buf).trim();
             if (!line) return;
-            // EV protocol parsing
-            // EV P <ch> <0|1> <mac>
-            // EV L <ch> <0|1> <mac>
-            // EV DONE <SUCCESS|FAILURE> <mac>
-            // Legacy: RESULT SUCCESS|FAILURE ... <mac>
+
             let m: RegExpMatchArray | null = null;
-            // Relaxed: allow timestamps/prefix before EV
+
             if ((m = line.match(/\bEV\s+([PL])\s+(\d{1,3})\s+([01])\s+([0-9A-F:]{17})/i))) {
               const kind = m[1].toUpperCase();
               const ch = Number(m[2]);
               const val = Number(m[3]);
               let mac = m[4].toUpperCase();
-              // If EV embeds zero MAC, prefer the first MAC token in the line (e.g., "reply from <MAC> ...")
               if (!mac || mac === '00:00:00:00:00:00') {
                 const firstMac = line.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
                 if (firstMac && firstMac[1]) mac = firstMac[1];
               }
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
-                // Permissive mode: remap P/L to the first requested MAC
                 const first = macSet.values().next();
-                if (first && !first.done) mac = first.value as string;
+                if (!first.done) mac = first.value as string;
               }
               try { console.log('[events] EV', { kind, ch, val, mac, line }); } catch {}
               send({ type: 'ev', kind, ch, val, mac, raw: line, ts: Date.now() });
               return;
             }
+
             if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
               const ok = /^SUCCESS$/i.test(m[1]);
               const mac = m[2].toUpperCase();
@@ -200,7 +200,7 @@ export async function GET(req: Request) {
               }
               return;
             }
-            // Legacy RESULT — pick the LAST MAC token on the line (target), else null
+
             if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
               const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
               const mac = matches.length ? matches[matches.length - 1]![1] : null;
@@ -216,16 +216,16 @@ export async function GET(req: Request) {
             }
           } catch {}
         };
+
         s?.parser?.on?.('data', onLine);
-        // ensure we remove listener on cleanup
-        const oldCleanup = (controller as any).__cleanup;
-        (controller as any).__cleanup = () => {
+
+        // ensure listener removal on close
+        req.signal?.addEventListener('abort', () => {
           try { s?.parser?.off?.('data', onLine); } catch {}
-          if (typeof oldCleanup === 'function') oldCleanup();
-        };
+        });
       } catch {}
 
-      // Periodic rollups
+      // periodic rollups
       pollTimer = setInterval(async () => {
         try {
           const { present, ok, raw } = await espHealth();
@@ -245,7 +245,9 @@ export async function GET(req: Request) {
             .map(d => d.path)
             .filter(Boolean)
             .filter(isLikelySerialPath) as string[];
-          const nextAll = Array.from(new Set([...allPaths, ...discoveredNow]));
+
+          const nextAll = Array.from(new Set([...(envScannerPaths()), ...discoveredNow]));
+          // update once to prevent drift
           if (nextAll.length !== allPaths.length) {
             allPaths = nextAll;
             send({ type: 'scanner/paths', paths: allPaths });
@@ -256,14 +258,11 @@ export async function GET(req: Request) {
           }
         } catch {}
       }, 5_000);
-
-      // Keep a reference for cleanup
-      (controller as any).__cleanup = cleanup;
+      pollTimer.unref?.();
     },
 
     cancel() {
-      const cleanup = (this as any).__cleanup as undefined | (() => void);
-      if (cleanup) cleanup();
+      cleanup();
     },
   });
 
@@ -271,7 +270,7 @@ export async function GET(req: Request) {
     status: 200,
     headers: {
       'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
+      'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
       'Transfer-Encoding': 'chunked',

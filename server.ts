@@ -1,8 +1,11 @@
 // server.ts
 import next from 'next'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
+import type { Socket } from 'net'
 import { WebSocketServer, RawData } from 'ws'
-// ⬇️ use the real file and add .js extension for ESM
+import type { WebSocket } from 'ws'
+
+// ⬇️ keep real file imports with .js for NodeNext ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
 import { LOG } from './src/lib/logger.js'
 
@@ -16,9 +19,9 @@ app.prepare().then(() => {
   const wss = new WebSocketServer({ noServer: true })
   const log = LOG.tag('ws-server')
 
-  server.on('upgrade', (req, socket, head) => {
+  server.on('upgrade', (req: IncomingMessage, socket: Socket, head: Buffer) => {
     if (req.url === '/api/thread-ws') {
-      wss.handleUpgrade(req, socket, head, ws => {
+      wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
         wss.emit('connection', ws, req)
       })
     } else {
@@ -29,7 +32,7 @@ app.prepare().then(() => {
   // single shared serial stream for all clients
   const { parser } = getEspLineStream()
 
-  wss.on('connection', ws => {
+  wss.on('connection', (ws: WebSocket) => {
     log.info('WS client connected')
 
     const onData = (raw: unknown) => {

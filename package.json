@@ -22,7 +22,6 @@
     "predev": "if [ \"$SKIP_REDIS_BOOTSTRAP\" = \"1\" ]; then echo skip; else npm run redis:up && npm run redis:wait; fi",
     "dev": "concurrently -k -n \"SERVER,NEXT,ELECTRON\" -c \"magenta,yellow,blue\" \"ts-node-dev --esm --respawn --transpile-only server.ts\" \"next dev\" \"npx wait-on http://localhost:3003 && electron .\"",
     "redis:logs": "journalctl -u redis-server -f --no-pager || redis-cli MONITOR",
-
     "locks:redis": "node scripts/print-locks-redis.mjs",
     "build:renderer": "next build",
     "build:electron": "tsc -p tsconfig.electron.json",
@@ -42,7 +41,6 @@
     "locks:station:watch": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs --watch --clear"
   },
   "dependencies": {
-    
     "@heroicons/react": "^2.1.3",
     "@serialport/parser-readline": "^13.0.0",
     "@xmldom/xmldom": "^0.8.11",
@@ -53,23 +51,27 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "serialport": "^13.0.0",
+    "ws": "^8.18.3",
     "zod": "3.25.42"
   },
   "devDependencies": {
+    "@types/node": "^24.3.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
+    "@types/ws": "^8.18.1",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
     "electron": "^37.2.5",
     "electron-builder": "^26.0.12",
     "eslint": "9.27.0",
+    "eslint-config-next": "^15.5.2",
     "husky": "9.1.7",
     "postcss": "^8.4.38",
     "prettier": "3.5.3",
     "tailwindcss": "^3.4.3",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
-    "typescript": "5.8.3",
+    "typescript": "^5.8.3",
     "wait-on": "^8.0.3"
   },
   "build": {

@@ -120,4 +120,3 @@ export async function GET(req) {
         return NextResponse.json({ code: null, path: null, error: message, retryInMs: CLIENT_RETRY_MS }, { status: busy ? 503 : 200, headers: { 'Cache-Control': 'no-store' } });
     }
 }
-//# sourceMappingURL=route.js.map

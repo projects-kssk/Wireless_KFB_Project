@@ -381,4 +381,3 @@ export async function POST(req) {
         return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
     }
 }
-//# sourceMappingURL=route.js.map

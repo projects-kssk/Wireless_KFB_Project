@@ -1,3 +1,5 @@
+// src/app/api/krosy-offline/route.ts
+import { NextRequest } from "next/server";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -384,4 +386,3 @@ export async function POST(req) {
         logs: lines,
     }, null, 2), { status: resOk ? 200 : 502, headers: { "Content-Type": "application/json", ...headers } });
 }
-//# sourceMappingURL=route.js.map

@@ -264,4 +264,3 @@ export function useSerialEvents(macFilter) {
         lastUnion,
     };
 }
-//# sourceMappingURL=useSerialEvents.js.map

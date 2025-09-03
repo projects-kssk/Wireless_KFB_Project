@@ -1,5 +1,5 @@
 // src/app/api/krosy-logs/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import path from "node:path";
 export const runtime = "nodejs";
@@ -153,4 +153,3 @@ export async function GET(req) {
     }
 }
 export async function OPTIONS() { return NextResponse.json({}, { status: 204 }); }
-//# sourceMappingURL=route.js.map

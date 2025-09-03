@@ -13,4 +13,3 @@ export function wireScanSink() {
 }
 // auto-wire on import
 wireScanSink();
-//# sourceMappingURL=scanSink.js.map

@@ -1,7 +1,7 @@
 // server.ts
 import next from 'next';
-import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { WebSocketServer, RawData } from 'ws';
 // ⬇️ keep real file imports with .js for NodeNext ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js';
 import { LOG } from './src/lib/logger.js';
@@ -58,4 +58,3 @@ app.prepare().then(() => {
     });
     server.listen(PORT, () => log.info(`Ready on http://localhost:${PORT}`));
 });
-//# sourceMappingURL=server.js.map

@@ -111,4 +111,3 @@ export const LOG = {
     warn: (m, e) => write("warn", undefined, m, e),
     error: (m, e) => write("error", undefined, m, e),
 };
-//# sourceMappingURL=logger.js.map

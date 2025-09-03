@@ -302,4 +302,3 @@ export async function GET(req) {
         },
     });
 }
-//# sourceMappingURL=route.js.map

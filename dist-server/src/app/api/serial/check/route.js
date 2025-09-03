@@ -4,6 +4,7 @@ import { z } from 'zod';
 import serial from '@/lib/serial';
 import { broadcast } from '@/lib/bus';
 import { LOG } from '@/lib/logger';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import { ridFrom } from '@/lib/rid';
 export const runtime = 'nodejs';
@@ -728,4 +729,3 @@ function escapeXml(s) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
 }
-//# sourceMappingURL=route.js.map

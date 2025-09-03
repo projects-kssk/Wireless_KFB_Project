@@ -1,7 +1,7 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
 import { LOG } from '@/lib/logger';
-import { broadcast } from "@/lib/bus";
+import { broadcast, DeviceInfo } from "@/lib/bus";
 import { Transform } from "stream";
 import { ReadlineParser } from "@serialport/parser-readline";
 const GBL = globalThis;
@@ -451,4 +451,3 @@ export default {
     getScannerStatus,
     considerDevicesForScanner,
 };
-//# sourceMappingURL=serial.js.map

@@ -1,5 +1,5 @@
 // src/app/api/aliases/rehydrate/route.ts
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getRedis } from '@/lib/redis';
 import { LOG } from '@/lib/logger';
 import { broadcast } from '@/lib/bus';
@@ -100,4 +100,3 @@ export async function POST(req) {
         return NextResponse.json({ error: msg }, { status });
     }
 }
-//# sourceMappingURL=route.js.map

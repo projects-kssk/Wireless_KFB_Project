@@ -75,4 +75,3 @@ export function redisDetail() {
         lastAt: lastInfo.lastAt,
     };
 }
-//# sourceMappingURL=redis.js.map

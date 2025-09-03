@@ -14,4 +14,3 @@ export function broadcast(e) {
         catch { }
     }
 }
-//# sourceMappingURL=bus.js.map

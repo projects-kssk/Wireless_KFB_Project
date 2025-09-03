@@ -14,4 +14,3 @@ export async function GET() {
         return Response.json({ error: message }, { status: 500 });
     }
 }
-//# sourceMappingURL=route.js.map

@@ -19,4 +19,3 @@ export function ridFrom(req) {
         return newRid();
     }
 }
-//# sourceMappingURL=rid.js.map

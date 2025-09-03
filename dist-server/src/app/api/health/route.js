@@ -118,4 +118,3 @@ export async function GET() {
     const body = { ts, redis, krosy, serial, sse, stationLocks };
     return NextResponse.json(body, { status: 200, headers: { 'Cache-Control': 'no-store' } });
 }
-//# sourceMappingURL=route.js.map

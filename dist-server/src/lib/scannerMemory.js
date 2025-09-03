@@ -40,4 +40,3 @@ export function peekLastScanFor(path) {
     const s = GG.__lastScanByPath.get(p) ?? null;
     return s ?? null;
 }
-//# sourceMappingURL=scannerMemory.js.map

@@ -81,4 +81,3 @@ export async function GET(request) {
         return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
     }
 }
-//# sourceMappingURL=route.js.map

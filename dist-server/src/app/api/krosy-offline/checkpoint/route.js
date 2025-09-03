@@ -1,3 +1,5 @@
+// src/app/api/krosy-offile/checkpoint/route.ts
+import { NextRequest } from "next/server";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -420,4 +422,3 @@ export async function POST(req) {
         responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
     }, null, 2), { status: resOut.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } });
 }
-//# sourceMappingURL=route.js.map

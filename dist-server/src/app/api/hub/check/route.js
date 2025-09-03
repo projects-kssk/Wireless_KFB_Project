@@ -108,4 +108,3 @@ export async function POST(req) {
         return new NextResponse(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
     }
 }
-//# sourceMappingURL=route.js.map

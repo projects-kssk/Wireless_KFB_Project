@@ -35,4 +35,3 @@ export async function GET() {
         return NextResponse.json({ code: null, error: message, retryInMs: CLIENT_RETRY_MS }, { status: 200 });
     }
 }
-//# sourceMappingURL=route.js.map

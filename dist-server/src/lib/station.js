@@ -88,4 +88,3 @@ export function waitForEchoOrResult(opts) {
         timer = setTimeout(onTimeout, timeoutMs);
     });
 }
-//# sourceMappingURL=station.js.map

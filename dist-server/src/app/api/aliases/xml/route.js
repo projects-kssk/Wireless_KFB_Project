@@ -122,4 +122,3 @@ export async function GET(req) {
         headers: { "content-type": "text/xml; charset=utf-8", "X-KSK-Mode": "redis" },
     });
 }
-//# sourceMappingURL=route.js.map

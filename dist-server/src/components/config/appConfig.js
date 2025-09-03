@@ -37,4 +37,3 @@ export const appConfig = {
     },
 };
 export default appConfig;
-//# sourceMappingURL=appConfig.js.map

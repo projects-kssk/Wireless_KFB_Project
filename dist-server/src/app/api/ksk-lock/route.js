@@ -1,5 +1,5 @@
 // src/app/api/ksk-lock/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getRedis } from "@/lib/redis";
 import { LOG } from "@/lib/logger";
 const log = LOG.tag("ksk-lock");
@@ -720,4 +720,3 @@ export async function DELETE(req) {
         return NextResponse.json({ error: "internal" }, { status: 500 });
     }
 }
-//# sourceMappingURL=route.js.map

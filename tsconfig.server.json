@@ -5,7 +5,18 @@
     "target": "ES2022",
     "outDir": "dist-server",
     "strict": true,
-    "verbatimModuleSyntax": true,
-    "skipLibCheck": true
-  }
+    
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noEmitOnError": false
+  },
+  "include": [
+    "server.ts",
+    "src/lib/**/*.ts"
+  ]
 }

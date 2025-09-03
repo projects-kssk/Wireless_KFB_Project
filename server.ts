@@ -2,7 +2,8 @@
 import next from 'next'
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import type { Socket } from 'net'
-import { WebSocketServer, RawData } from 'ws'
+import { WebSocketServer } from 'ws'
+import type { RawData } from 'ws'
 import type { WebSocket } from 'ws'
 
 // ⬇️ keep real file imports with .js for NodeNext ESM
@@ -10,7 +11,8 @@ import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
 import { LOG } from './src/lib/logger.js'
 
 const dev = process.env.NODE_ENV !== 'production'
-const app = next({ dev })
+// TypeScript NodeNext typing workaround: cast to callable
+const app = (next as unknown as (opts: any) => any)({ dev })
 const handle = app.getRequestHandler()
 const PORT = parseInt(process.env.PORT || '3003', 10)
 

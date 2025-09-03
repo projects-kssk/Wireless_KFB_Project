@@ -1,5 +1,5 @@
 // Centralized station I/O helpers
-import { getEspLineStream, isEspPresent } from "@/lib/serial";
+import { getEspLineStream, isEspPresent } from "./serial.js";
 
 export const MAC_RE = /^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$/;
 

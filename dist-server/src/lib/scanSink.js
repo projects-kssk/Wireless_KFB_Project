@@ -1,5 +1,5 @@
-import { onSerialEvent } from '@/lib/bus';
-import { setLastScan } from '@/lib/scannerMemory';
+import { onSerialEvent } from './bus.js';
+import { setLastScan } from './scannerMemory.js';
 let wired = false;
 export function wireScanSink() {
     if (wired)

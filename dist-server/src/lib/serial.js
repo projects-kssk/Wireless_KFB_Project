@@ -1,7 +1,7 @@
 // src/lib/serial.ts
 import { SerialPort } from "serialport";
-import { LOG } from '@/lib/logger';
-import { broadcast, DeviceInfo } from "@/lib/bus";
+import { LOG } from './logger.js';
+import { broadcast } from "./bus.js";
 import { Transform } from "stream";
 import { ReadlineParser } from "@serialport/parser-readline";
 const GBL = globalThis;

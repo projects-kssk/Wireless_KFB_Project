@@ -1,6 +1,7 @@
 // src/lib/redis.ts
-import Redis from 'ioredis';
-import { LOG } from '@/lib/logger';
+import RedisPkg from 'ioredis';
+const Redis: any = (RedisPkg as any)?.default ?? (RedisPkg as any);
+import { LOG } from './logger.js';
 
 const log = LOG.tag('redis');
 

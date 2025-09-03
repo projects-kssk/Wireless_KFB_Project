@@ -1,13 +1,20 @@
 // server.ts
 import next from 'next';
+import path from 'node:path';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 // ⬇️ keep real file imports with .js for NodeNext ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js';
 import { LOG } from './src/lib/logger.js';
-const dev = process.env.NODE_ENV !== 'production';
+// Determine runtime context: packaged Electron vs local dev
+const isElectronPackaged = Boolean(process.resourcesPath) && process.env.NODE_ENV !== 'development';
+const dev = !isElectronPackaged && process.env.NODE_ENV !== 'production';
+// In packaged mode, point Next to the asar mount (resources/app.asar)
+const dir = isElectronPackaged
+    ? path.join(process.resourcesPath, 'app.asar')
+    : process.cwd();
 // TypeScript NodeNext typing workaround: cast to callable
-const app = next({ dev });
+const app = next({ dev, dir });
 const handle = app.getRequestHandler();
 const PORT = parseInt(process.env.PORT || '3003', 10);
 app.prepare().then(() => {

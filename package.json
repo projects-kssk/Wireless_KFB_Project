@@ -7,8 +7,7 @@
   "main": "dist/main/main.js",
   "author": {
     "name": "Nagy Viktor",
-    "email": "vnagy.kssk@kroschu.com",
-    "url": "https://github.com/nagyv"
+    "email": "vnagy.kssk@kroschu.com"
   },
   "license": "MIT",
   "keywords": [
@@ -24,10 +23,10 @@
     "redis:logs": "journalctl -u redis-server -f --no-pager || redis-cli MONITOR",
     "locks:redis": "node scripts/print-locks-redis.mjs",
     "build:renderer": "next build",
+    "build:server": "tsc -p tsconfig.server.json",
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run build:renderer && npm run build:server && npm run build:electron && npx electron-builder --linux AppImage",
-    "build:arm64": "npm run build:renderer && npm run build:electron && npx electron-builder --linux AppImage --arm64",
-    "build:server": "tsc -p tsconfig.server.json",
+    "build:arm64": "npm run build:renderer && npm run build:server && npm run build:electron && npx electron-builder --linux AppImage --arm64",
     "start": "npx electron .",
     "type-check": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx,.js --fix",
@@ -82,9 +81,10 @@
     },
     "files": [
       ".next/**/*",
-      ".env.production",
       "dist/main/**/*",
       "dist-server/**/*",
+      "node_modules/**/*",
+      ".env.production",
       "package.json"
     ],
     "asarUnpack": [
@@ -104,7 +104,8 @@
       "icon": "assets",
       "target": [
         "AppImage"
-      ]
+      ],
+      "category": "Utility"
     }
   }
 }

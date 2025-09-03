@@ -2,8 +2,9 @@
 import next from 'next';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-// ⬇️ use the real file and add .js extension for ESM
+// ⬇️ keep real file imports with .js for NodeNext ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js';
+import { LOG } from './src/lib/logger.js';
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
 const handle = app.getRequestHandler();
@@ -11,9 +12,10 @@ const PORT = parseInt(process.env.PORT || '3003', 10);
 app.prepare().then(() => {
     const server = createServer((req, res) => handle(req, res));
     const wss = new WebSocketServer({ noServer: true });
+    const log = LOG.tag('ws-server');
     server.on('upgrade', (req, socket, head) => {
         if (req.url === '/api/thread-ws') {
-            wss.handleUpgrade(req, socket, head, ws => {
+            wss.handleUpgrade(req, socket, head, (ws) => {
                 wss.emit('connection', ws, req);
             });
         }
@@ -22,9 +24,9 @@ app.prepare().then(() => {
         }
     });
     // single shared serial stream for all clients
-    const { parser } = getEspLineStream('/dev/ttyUSB1', 115200);
-    wss.on('connection', ws => {
-        console.log('WS client connected');
+    const { parser } = getEspLineStream();
+    wss.on('connection', (ws) => {
+        log.info('WS client connected');
         const onData = (raw) => {
             const line = String(raw).trim();
             ws.send(JSON.stringify({ type: 'event', data: line }));
@@ -51,9 +53,9 @@ app.prepare().then(() => {
         });
         ws.on('close', () => {
             parser.off('data', onData);
-            console.log('WS client disconnected');
+            log.info('WS client disconnected');
         });
     });
-    server.listen(PORT, () => console.log(`> Ready on http://localhost:${PORT}`));
+    server.listen(PORT, () => log.info(`Ready on http://localhost:${PORT}`));
 });
 //# sourceMappingURL=server.js.map

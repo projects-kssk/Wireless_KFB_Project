@@ -1,25 +1,11 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
-    "outDir": "dist-server",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "outDir": "dist-server",
     "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "noEmit": false,
-    "sourceMap": true,
-
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    },
-
-    "types": ["node", "ws"]
-  },
-  "include": ["server.ts", "src/**/*.ts"],
-  "exclude": ["node_modules", ".next", "dist", "dist-server"]
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  }
 }

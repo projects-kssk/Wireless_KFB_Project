@@ -112,7 +112,7 @@
       }
     ],
     "linux": {
-      "icon": "assets",
+      "icon": "public/tinder.png",
       "target": [
         "AppImage"
       ],

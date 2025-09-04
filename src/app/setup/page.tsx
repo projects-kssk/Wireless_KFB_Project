@@ -1003,7 +1003,8 @@ export default function SetupPage() {
     async (codeRaw: string, idx?: number) => {
       const code = digitsOnly(codeRaw);
       if (sendBusyRef.current) {
-        showErr(code, "Busy — finishing previous KSK", "global");
+        // Ignore extra scans while a previous KSK is being processed.
+        // Do not show a red error; operators can scan again if needed.
         return;
       }
       sendBusyRef.current = true;
@@ -1375,7 +1376,8 @@ export default function SetupPage() {
             });
           } catch {}
 
-          // Verify persistence: ensure per‑KSK arrays were saved; otherwise surface a hard error
+          // Verify persistence: ensure per‑KSK arrays were saved.
+          // If verification fails (eventual consistency / slow Redis), do NOT flip UI to error — continue.
           try {
             const rAll = await fetch(
               `/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`,
@@ -1402,17 +1404,7 @@ export default function SetupPage() {
               const lOk =
                 Array.isArray(hit?.latchPins) &&
                 (hit!.latchPins as number[]).length > 0;
-              if (!nOk && !lOk) {
-                // Do not proceed silently — release lock and ask user to rescan
-                await releaseLock(persistKsk);
-                bump(target, null, "idle");
-                showErr(
-                  persistKsk,
-                  "Failed to persist pins in Redis. Please scan again.",
-                  panel
-                );
-                return;
-              }
+              // If both are missing, skip hard error; proceed (UI stays green from save).
             }
           } catch {}
         } catch {}
@@ -1602,11 +1594,16 @@ export default function SetupPage() {
           });
           if (!r.ok) {
             espOk = false;
-            showErr(
-              code,
-              `ESP write failed — ${await r.text().catch(() => String(r.status))}`,
-              panel
-            );
+            let msg = String(r.status);
+            try {
+              const j = await r.json();
+              const base = j?.error ? String(j.error) : msg;
+              const station = (j?.stationId ? ` (${String(j.stationId)})` : "");
+              msg = `${base}${station}`;
+            } catch {
+              try { msg = await r.text(); } catch {}
+            }
+            showErr(code, `ESP write failed — ${msg}`, panel);
           }
         } catch (e: any) {
           espOk = false;

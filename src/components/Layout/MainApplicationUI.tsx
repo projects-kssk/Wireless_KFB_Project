@@ -210,6 +210,19 @@ const MainApplicationUI: React.FC = () => {
     [scheduleSoftIdle]
   );
 
+  // Strong idle fallback: if we have no data and are not scanning/checking, clear MAC/title
+  useEffect(() => {
+    const noData = (!Array.isArray(groupedBranches) || groupedBranches.length === 0) && branchesData.length === 0;
+    if (!macAddress) return;
+    if (isScanning || isCheckingRef.current) return;
+    if (!noData) return;
+    const t = window.setTimeout(() => {
+      setKfbNumber("");
+      setMacAddress("");
+    }, 1500);
+    return () => { try { clearTimeout(t); } catch {} };
+  }, [macAddress, groupedBranches.length, branchesData.length, isScanning]);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<Record<string, string> | undefined>(undefined);
   const [normalPins, setNormalPins] = useState<number[] | undefined>(undefined);
@@ -1697,7 +1710,11 @@ const MainApplicationUI: React.FC = () => {
             console.log("[FLOW][LOAD] nothing to check", { noAliases, noPins, noGroups });
           } catch {}
           clearScanOverlayTimeout();
-          showHeadlineResult("NOTHING TO CHECK HERE", "info", 2000);
+          // Show a brief hint then immediately clear stale MAC + input to avoid stuck UI
+          showHeadlineResult("NOTHING TO CHECK HERE", "info", 1200);
+          try { setKfbInput(""); } catch {}
+          try { setKfbNumber(""); } catch {}
+          try { setMacAddress(""); } catch {}
           setIsScanning(false);
           setShowScanUi(false);
           setDisableOkAnimation(true);
@@ -1716,9 +1733,13 @@ const MainApplicationUI: React.FC = () => {
         setKfbInfo(null);
         setDisableOkAnimation(true);
         if (source === "scan") {
-          showHeadlineResult("ERROR", "error", 2000);
+          showHeadlineResult("ERROR", "error", 1500);
+          try { setKfbInput(""); } catch {}
+          try { setMacAddress(""); } catch {}
         } else {
-          showHeadlineResult("ERROR", "error", 2000);
+          showHeadlineResult("ERROR", "error", 1500);
+          try { setKfbInput(""); } catch {}
+          try { setMacAddress(""); } catch {}
         }
       } finally {
         setIsScanning(false);

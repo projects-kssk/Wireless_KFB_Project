@@ -208,11 +208,11 @@ async function createWindows() {
       let found: number | null = null
       await splashInfo('Waiting for Next dev server (3000/3001)…')
       for (const p of candidates) {
-        try { await waitForPort(p, host, 2500); found = p; break } catch {}
+        try { await waitForPort(p, host, 4000); found = p; break } catch {}
       }
       if (!found) {
         // Last attempt: keep waiting on the preferred one
-        await waitForPort(preferred, host, 15000)
+        await waitForPort(preferred, host, 25000)
         found = preferred
       }
       chosenBase = `http://${host}:${found}`

@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
         'http://localhost:3001',
         // Common network IP used in this project
         'http://172.26.202.248:3000',
+        // Common local LAN host seen in logs
+        'http://192.168.1.168:3000',
       ]
       const envCandidates = [
         process.env.NEXT_PUBLIC_REMOTE_BASE,

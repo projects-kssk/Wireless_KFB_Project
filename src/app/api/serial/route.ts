@@ -401,11 +401,15 @@ export async function POST(request: Request) {
     return resp;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown";
+    const stationId = (process.env.STATION_ID || process.env.NEXT_PUBLIC_STATION_ID || '').trim() || undefined;
+    const tty = (process.env.ESP_TTY || process.env.ESP_TTY_PATH || '').trim() || undefined;
+    const isPerm = /EACCES|Permission denied/i.test(message);
+    const code = isPerm ? 'esp_permission_denied' : 'esp_error';
     log.error("POST /api/serial error", err);
     health = { ts: now(), ok: false, raw: `WRITE_ERR:${message}` };
     const tried = combinedFallback ? fallbackCmd : (cmds.length ? cmds[0].cmd : fallbackCmd);
     await appendLog({ event: "monitor.error", mac, kssk, cmd: tried, counts, diffs, error: message });
-    const resp = NextResponse.json({ error: message, cmdTried: tried }, { status: 500 });
+    const resp = NextResponse.json({ error: message, cmdTried: tried, code, stationId, tty }, { status: 500 });
     resp.headers.set('X-Req-Id', rid);
     return resp;
   }

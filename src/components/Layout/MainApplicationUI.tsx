@@ -348,6 +348,8 @@ const MainApplicationUI: React.FC = () => {
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
   const [suppressLive, setSuppressLive] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
+  // Prevent infinite re-trigger loops after exhausting CHECK retries
+  const blockedMacRef = useRef<Set<string>>(new Set());
   const clearRetryTimer = () => {
     if (retryTimerRef.current != null) {
       try {
@@ -1394,6 +1396,7 @@ const MainApplicationUI: React.FC = () => {
             setSuppressLive(true);
             setOkFlashTick((t) => t + 1);
             await finalizeOkForMac(mac);
+            try { blockedMacRef.current.delete((mac || '').toUpperCase()); } catch {}
             return;
           } else {
             // Headline-only error for 2s
@@ -1405,7 +1408,7 @@ const MainApplicationUI: React.FC = () => {
           try {
             console.warn("[FLOW][CHECK] non-OK status", { status: res.status });
           } catch {}
-          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "1"));
+          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "3"));
           if (res.status === 429) {
             if (attempt < maxRetries + 2) {
               clearRetryTimer();
@@ -1433,6 +1436,7 @@ const MainApplicationUI: React.FC = () => {
               setDisableOkAnimation(true);
               clearScanOverlayTimeout();
               showHeadlineResult("ERROR", "error", 2000);
+              try { blockedMacRef.current.add((mac || '').toUpperCase()); } catch {}
             }
           } else {
             console.error("CHECK error:", result);
@@ -1444,7 +1448,7 @@ const MainApplicationUI: React.FC = () => {
         }
       } catch (err) {
         if ((err as any)?.name === "AbortError") {
-          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "1"));
+          const maxRetries = Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "3"));
           if (attempt < 1 || attempt < maxRetries) {
             clearRetryTimer();
             retryTimerRef.current = window.setTimeout(() => {
@@ -1455,6 +1459,7 @@ const MainApplicationUI: React.FC = () => {
             setScanningError(true);
             clearScanOverlayTimeout();
             showHeadlineResult("ERROR", "error", 2000);
+            try { blockedMacRef.current.add((mac || '').toUpperCase()); } catch {}
           }
         } else {
           console.error("CHECK error", err);
@@ -1529,6 +1534,7 @@ const MainApplicationUI: React.FC = () => {
             try {
               lastActiveIdsRef.current = [];
             } catch {}
+            try { blockedMacRef.current.delete(prevMac); } catch {}
           }
         } catch {}
         try {
@@ -1753,6 +1759,12 @@ const MainApplicationUI: React.FC = () => {
     async (raw: string) => {
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
+      // If this MAC exhausted retries previously, ignore repeated triggers until user resets or a different MAC is scanned
+      const maybeMac = canonicalMac(normalized) || normalized;
+      if (blockedMacRef.current.has(maybeMac)) {
+        try { console.warn('[FLOW][SCAN] blocked (no-result exhausted)', { mac: maybeMac }); } catch {}
+        return;
+      }
       try {
         console.log("[FLOW][SCAN] received", { raw, normalized });
       } catch {}
@@ -1805,6 +1817,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (scanningError) return; // suppress SSE-triggered scans after failure until user acts
     if (!serial.lastScanTick) return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
@@ -1821,6 +1834,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (scanningError) return; // suppress polling-triggered scans after failure until user acts
     const STALE_MS = Number(process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000");
     const lastAt = (serial as any).lastScanAt as number | null | undefined;
     const sseOk = !!(serial as any).sseConnected;
@@ -2088,6 +2102,36 @@ const MainApplicationUI: React.FC = () => {
                   />
                 );
               })()}
+
+              {/* Operator-friendly failure banner after final CHECK attempt */}
+              {scanningError && macAddress && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 flex items-center justify-center"
+                >
+                  <div className="flex items-center gap-3 px-4 py-3 rounded-xl border-2 border-amber-300 bg-amber-50 text-amber-900 shadow-sm">
+                    <span className="font-extrabold tracking-wide uppercase">CHECK failed</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try { setScanningError(false); } catch {}
+                        try { void loadBranchesData(undefined, 'manual'); } catch {}
+                      }}
+                      className="px-3 py-1 rounded-lg font-extrabold border border-amber-400 bg-white text-amber-900 hover:bg-amber-100"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetKfb}
+                      className="px-3 py-1 rounded-lg font-extrabold border border-slate-400 bg-white text-slate-800 hover:bg-slate-100"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={handleKfbSubmit} className="hidden" />
             </>

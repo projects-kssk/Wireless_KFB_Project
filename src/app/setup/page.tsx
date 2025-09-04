@@ -72,14 +72,20 @@ const OBJGROUP_MAC = /\(([0-9A-F:]{17})\)/i;
 function parsePos(pos: string) {
   const raw = String(pos || "");
   const parts = raw.split(",").map((s) => s.trim());
-  // Policy: do NOT derive a pin if there is no comma
-  if (parts.length < 2)
+  // If there's no comma, some Krosy variants return just a label like "CL_2455".
+  // Derive the pin from trailing digits in the label to avoid empty results in production.
+  if (parts.length < 2) {
+    const labelOnly = (parts[0] || "").trim();
+    const labelPrefix = (labelOnly || "").split("_")[0] || "";
+    const m = labelOnly.match(/(\d{1,4})$/); // take trailing number if present
+    const pinNum = m ? Number(m[1]) : NaN;
     return {
-      pin: NaN,
-      label: parts[0] || "",
-      labelPrefix: (parts[0] || "").split("_")[0] || "",
+      pin: Number.isFinite(pinNum) ? pinNum : NaN,
+      label: labelOnly,
+      labelPrefix,
       isLatch: false,
     };
+  }
   let isLatch = false;
   if (parts.at(-1)?.toUpperCase() === "C") {
     isLatch = true;
@@ -191,9 +197,10 @@ function extractNameHintsFromKrosyXML(
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
       // Policy: require a concrete MAC match when macHint is provided
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    // If XML doesn't include a concrete MAC (or shows ZERO), do not block extraction in production
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = String(
         el.getElementsByTagName("objPos")[0]?.textContent || ""
@@ -238,9 +245,9 @@ function extractNameHintsFromKrosyXML(
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushFromObjPos(pos);
@@ -317,9 +324,9 @@ function extractPinsFromKrosy(
       const mm = og.match(OBJGROUP_MAC);
       const ogMac = (mm?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = String(s?.objPos ?? "");
       if (!pos) continue;

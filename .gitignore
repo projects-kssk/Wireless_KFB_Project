@@ -44,3 +44,5 @@ db-socket/
 logs/*
 .krosy-backend-logs/*
 .env.production
+
+monitor-logs/*

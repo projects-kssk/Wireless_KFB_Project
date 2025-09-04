@@ -763,20 +763,7 @@ export default function SetupPage() {
     msg?: string,
     panel: PanelTarget = "global"
   ) => {
-    const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
     setLastError(null);
-    fireFlash("success", code, panel, msg);
-    setOverlay((o) => ({ ...o, open: false }));
-    setTimeout(() => {
-      setOverlay((o) => ({
-        open: true,
-        kind: "success",
-        code,
-        msg,
-        seq: o.seq + 1,
-        anchor,
-      }));
-    }, 0);
   };
 
   const showErr = (
@@ -784,16 +771,8 @@ export default function SetupPage() {
     msg?: string,
     panel: PanelTarget = "global"
   ) => {
-    const anchor: Ov["anchor"] = panel === "kfb" ? "viewport" : "table";
+    setLastError(msg || code || "Error")
     fireFlash("error", code, panel, msg);
-    setOverlay((o) => ({
-      open: true,
-      kind: "error",
-      code,
-      msg,
-      seq: o.seq + 1,
-      anchor,
-    }));
   };
 
   // RESET ALL
@@ -2096,7 +2075,7 @@ export default function SetupPage() {
             }}
           >
             <m.section layout style={card}>
-              {allowManual && (
+              {/* {allowManual && (
                 <button
                   type="button"
                   style={{
@@ -2111,7 +2090,7 @@ export default function SetupPage() {
                 >
                   Enter manually
                 </button>
-              )}
+              )} */}
 
               <AnimatePresence initial={false}>
                 {showManualFor.kfb && allowManual && (
@@ -2196,8 +2175,8 @@ export default function SetupPage() {
                         "Cleared"
                       );
                     }}
-                    flashKind={hit ? flash!.kind : null}
-                    flashId={hit ? flash!.id : undefined}
+                    flashKind={undefined}
+                    flashId={undefined}
                   />
                 );
               })}
@@ -2217,8 +2196,7 @@ export default function SetupPage() {
           boardMap={{}}
           okAppearDelayMs={350}
           swapDelayMs={1400}
-          flashKind={overlay.kind}
-          flashSeq={overlay.seq}
+          flashSeq={0}
         />
       </div>
 
@@ -2541,7 +2519,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         />
       </div>
 
-      <button
+      {/* <button
         type="button"
         onClick={onManualToggle}
         style={{
@@ -2556,9 +2534,9 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         }}
       >
         Enter manually
-      </button>
+      </button> */}
 
-      {code && (
+      {/* {code && (
         <button
           type="button"
           onClick={onForceClear}
@@ -2577,7 +2555,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         >
           Force clear
         </button>
-      )}
+      )} */}
 
       <AnimatePresence initial={false}>
         {manualOpen && (

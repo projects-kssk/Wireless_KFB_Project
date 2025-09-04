@@ -238,8 +238,11 @@ const MainApplicationUI: React.FC = () => {
     kind: "success",
     code: "",
   });
-  const showOverlay = (kind: OverlayKind, code: string) =>
+  const showOverlay = (kind: OverlayKind, code: string) => {
+    if (kind === "error") { setErrorMsg(code || "Error"); return; }
+    if (kind === "scanning") { return; }
     setOverlay({ open: true, kind, code });
+  };
   const hideOverlaySoon = (ms = 700) => {
     const t = setTimeout(() => setOverlay((o) => ({ ...o, open: false })), ms);
     return () => clearTimeout(t);
@@ -2421,7 +2424,7 @@ const MainApplicationUI: React.FC = () => {
                 nameHints={nameHints}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
-                isScanning={isScanning && showScanUi}
+                isScanning={false}
                 macAddress={macAddress}
                 activeKssks={effActiveKssks}
                 lastEv={suppressLive ? null : (serial as any).lastEv}
@@ -2466,9 +2469,9 @@ const MainApplicationUI: React.FC = () => {
         @keyframes wiggle { 0%,100% { transform: translateX(0) } 50% { transform: translateX(8px) } }
       `}</style>
 
-      {/* SCANNING / OK / ERROR overlay */}
+      {/* Only OK overlay; suppress scanning/error overlays */}
       <AnimatePresence>
-        {overlay.open && (
+        {overlay.open && overlay.kind === "success" && (
           <m.div
             variants={bg}
             initial="hidden"
@@ -2485,9 +2488,7 @@ const MainApplicationUI: React.FC = () => {
             }}
             aria-live="assertive"
             aria-label={
-              overlay.kind === "scanning" && overlay.code
-                ? overlay.code
-                : overlay.kind.toUpperCase()
+              overlay.kind.toUpperCase()
             }
           >
             <m.div

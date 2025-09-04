@@ -1028,9 +1028,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
             {label}...
           </h2>
-          <p className="mt-3 text-slate-500 text-2xl">
+          {/* <p className="mt-3 text-slate-500 text-2xl">
             Hold device steady. Auto-advance on success.
-          </p>
+          </p> */}
         </div>
       );
     }
@@ -1229,14 +1229,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               </div>
             )}
           </div>
-          {allowManualInput && !isScanning && (
+          {/* {allowManualInput && !isScanning && (
             <button
               onClick={() => setIsManualEntry(true)}
               className="mt-10 text-xl md:text-2xl text-slate-500 hover:text-blue-600 transition-colors underline"
             >
               Or enter MAC manually
             </button>
-          )}
+          )} */}
         </div>
       );
     }

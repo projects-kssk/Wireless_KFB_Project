@@ -563,10 +563,14 @@ export default function SetupPage() {
       panel: PanelTarget,
       msg?: string
     ) => {
-      if (kind !== "error") return;
       const id = ++flashSeq.current;
       const f: FlashEvent = { id, kind, panel, code, msg, ts: Date.now() };
       pushToast(f);
+      if (kind === "success") {
+        window.setTimeout(() => {
+          try { setToasts((prev) => prev.filter((t) => t.id !== id)); } catch {}
+        }, 5000);
+      }
     },
     [pushToast]
   );
@@ -766,6 +770,7 @@ export default function SetupPage() {
     panel: PanelTarget = "global"
   ) => {
     setLastError(null);
+    fireFlash("success", code, panel, msg);
   };
 
   const showErr = (
@@ -966,8 +971,8 @@ export default function SetupPage() {
   const acceptKfb = useCallback((code: string) => {
     setKfb((prev) => {
       if (prev !== code) {
-        setKsskSlots([null, null, null]);
-        setKsskStatus(["idle", "idle", "idle"]);
+        setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
+        setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
         setShowManualFor({});
       }
       return code;
@@ -1938,8 +1943,8 @@ export default function SetupPage() {
       const t = setTimeout(() => {
         setLastError(null);
         setKfb(null);
-        setKsskSlots([null, null, null]);
-        setKsskStatus(["idle", "idle", "idle"]);
+        setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
+        setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
         setShowManualFor({});
         setTableCycle((n) => n + 1);
         setSetupName("");
@@ -2124,7 +2129,14 @@ export default function SetupPage() {
               <h2 style={heading}>KSK</h2>
             </div>
 
-            <div style={slotsGrid}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: `repeat(${KSK_SLOT_TARGET}, minmax(0, 1fr))`,
+                gap: 12,
+                alignItems: "stretch",
+              }}
+            >
               {Array.from({ length: KSK_SLOT_TARGET }, (_, idx) => idx).map((idx) => {
                 const code = ksskSlots[idx];
                 const status = ksskStatus[idx];

@@ -727,6 +727,8 @@ const MainApplicationUI: React.FC = () => {
 
   const lastHandledScanRef = useRef<string>("");
   const scanDebounceRef = useRef<number>(0);
+  // Cooldown after showing "Nothing to check here" to avoid immediate re-triggers
+  const idleCooldownUntilRef = useRef<number>(0);
   const lastErrorStampRef = useRef<number>(0);
   const scanInFlightRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
@@ -1721,6 +1723,10 @@ const MainApplicationUI: React.FC = () => {
           try { setKfbInput(""); } catch {}
           try { setKfbNumber(""); } catch {}
           try { setMacAddress(""); } catch {}
+          // Set a short cooldown to ignore scanner/SSE noise while returning to idle
+          idleCooldownUntilRef.current = Date.now() + 1500;
+          // Extra safety: fully reset after the hint window
+          window.setTimeout(() => { try { handleResetKfb(); } catch {} }, 1400);
           setIsScanning(false);
           setShowScanUi(false);
           setDisableOkAnimation(true);
@@ -1759,6 +1765,7 @@ const MainApplicationUI: React.FC = () => {
     async (raw: string) => {
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
+      if (Date.now() < idleCooldownUntilRef.current) return;
       // If this MAC exhausted retries previously, ignore repeated triggers until user resets or a different MAC is scanned
       const maybeMac = canonicalMac(normalized) || normalized;
       if (blockedMacRef.current.has(maybeMac)) {
@@ -1817,6 +1824,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (Date.now() < idleCooldownUntilRef.current) return;
     if (scanningError) return; // suppress SSE-triggered scans after failure until user acts
     if (!serial.lastScanTick) return;
     const want = resolveDesiredPath();
@@ -1834,6 +1842,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (Date.now() < idleCooldownUntilRef.current) return;
     if (scanningError) return; // suppress polling-triggered scans after failure until user acts
     const STALE_MS = Number(process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000");
     const lastAt = (serial as any).lastScanAt as number | null | undefined;

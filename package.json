@@ -15,7 +15,6 @@
     "electron",
     "typescript"
   ],
-  
   "scripts": {
     "redis:up": "bash ./scripts/redis-up-local.sh",
     "redis:wait": "npx wait-on tcp:127.0.0.1:6379",

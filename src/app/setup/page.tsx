@@ -561,14 +561,10 @@ export default function SetupPage() {
       panel: PanelTarget,
       msg?: string
     ) => {
+      if (kind !== "error") return;
       const id = ++flashSeq.current;
       const f: FlashEvent = { id, kind, panel, code, msg, ts: Date.now() };
-      setFlash(f);
       pushToast(f);
-      window.setTimeout(
-        () => setFlash((cur) => (cur && cur.id === id ? null : cur)),
-        900
-      );
     },
     [pushToast]
   );
@@ -1707,13 +1703,21 @@ export default function SetupPage() {
     if (a === b) return true;
     const ta = a.split("/").pop() || a;
     const tb = b.split("/").pop() || b;
-    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+    if (ta === tb || a.endsWith(tb) || b.endsWith(ta)) return true;
+    // Heuristic: match ACM/USB numeric suffix equivalence
+    const num = (s: string) => {
+      const m = s.match(/(ACM|USB)(\d+)/i);
+      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
+    };
+    const na = num(a) || num(ta);
+    const nb = num(b) || num(tb);
+    return !!(na && nb && na === nb);
   };
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
     if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
-    // fallback to common pattern if not discovered yet
-    return `/dev/ttyACM${SETUP_SCANNER_INDEX}`;
+    // Do not guess a device path; wait until scanner paths are discovered
+    return null;
   };
   const desiredPath = resolveDesiredPath();
   const desiredTail = (desiredPath || "").split("/").pop() || desiredPath || "";
@@ -1732,13 +1736,7 @@ export default function SetupPage() {
     const want = resolveDesiredPath();
     const seen = serial.lastScanPath;
     if (want && seen && !pathsEqual(seen, want)) return; // ignore other scanner paths
-    // Avoid typing conflicts: ignore if user is focused in an input/textarea/contentEditable
-    const t = document.activeElement as HTMLElement | null;
-    if (
-      t &&
-      (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)
-    )
-      return;
+    // Accept scanner input regardless of current focus
     handleScanned(raw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serial.lastScanTick]);

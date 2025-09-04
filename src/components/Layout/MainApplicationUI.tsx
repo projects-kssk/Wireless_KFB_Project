@@ -65,9 +65,10 @@ type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type OverlayKind = "success" | "error" | "scanning";
 const isAcmPath = (p?: string | null) =>
   !p ||
-  /(^|\/)ttyACM\d+$/.test(p) ||
-  /(^|\/)ACM\d+($|[^0-9])/.test(p) ||
-  /\/by-id\/.*ACM\d+/i.test(p);
+  // Accept both ACM and USB-style serial paths
+  /(^|\/)tty(ACM|USB)\d+$/.test(p) ||
+  /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
+  /\/by-id\/.*(ACM|USB)\d+/i.test(p);
 
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -404,7 +405,15 @@ const MainApplicationUI: React.FC = () => {
     if (a === b) return true;
     const ta = a.split("/").pop() || a;
     const tb = b.split("/").pop() || b;
-    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+    if (ta === tb || a.endsWith(tb) || b.endsWith(ta)) return true;
+    // Heuristic: match ACM/USB numeric suffixes (e.g., ttyACM1 vs by-id/...ACM1)
+    const num = (s: string) => {
+      const m = s.match(/(ACM|USB)(\d+)/i);
+      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
+    };
+    const na = num(a) || num(ta);
+    const nb = num(b) || num(tb);
+    return !!(na && nb && na === nb);
   };
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
@@ -1740,26 +1749,18 @@ const MainApplicationUI: React.FC = () => {
       const macCanon = canonicalMac(normalized);
       const isMac = !!macCanon;
       if (!isMac && !KFB_REGEX.test(normalized)) {
-        if (source === "manual") {
-          setErrorMsg("Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF");
-        } else {
-          showOverlay("error", `Invalid code: ${normalized}`);
-          hideOverlaySoon();
-        }
+        // For scans, avoid intrusive overlays; surface as inline error
+        setErrorMsg(
+          source === "manual"
+            ? "Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF"
+            : `Invalid code: ${normalized}`
+        );
         console.warn("[FLOW][SCAN] rejected by patterns", { normalized });
         return;
       }
       lastScanRef.current = normalized;
       if (source === "scan") {
-        if (branchesData.length === 0 && groupedBranches.length === 0) {
-          showOverlay("scanning", normalized);
-          startScanOverlayTimeout(5000);
-          try {
-            console.log("[FLOW][LOAD] showing SCANNING overlay for scan", {
-              normalized,
-            });
-          } catch {}
-        }
+        // No intrusive scanning overlay; keep UI minimal
         setShowScanUi(true);
       }
       setIsScanning(true);
@@ -2067,8 +2068,8 @@ const MainApplicationUI: React.FC = () => {
       }
 
       if (!(canonicalMac(normalized) || KFB_REGEX.test(normalized))) {
-        showOverlay("error", normalized);
-        hideOverlaySoon();
+        // Avoid overlay highlight for invalid scans; surface inline
+        setErrorMsg(`Invalid code: ${normalized}`);
         try {
           console.warn("[FLOW][SCAN] invalid format", { normalized });
         } catch {}
@@ -2101,10 +2102,6 @@ const MainApplicationUI: React.FC = () => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return; // no event yet
-    if (!skippedFirstSseRef.current) {
-      skippedFirstSseRef.current = true;
-      return;
-    }
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths

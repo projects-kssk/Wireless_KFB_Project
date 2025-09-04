@@ -782,6 +782,84 @@ export default function SetupPage() {
     fireFlash("error", code, panel, msg);
   };
 
+  // Clear Redis aliases and locks for current MAC (manual, on-demand)
+  const handleClearRedis = useCallback(async () => {
+    const macUp = (kfb || "").toUpperCase();
+    if (!macUp) {
+      pushToast({
+        id: ++flashSeq.current,
+        kind: "error",
+        panel: "global",
+        code: "NO MAC",
+        msg: "Scan a board first to clear Redis",
+        ts: Date.now(),
+      });
+      return;
+    }
+    try {
+      const r = await fetch("/api/aliases/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac: macUp }),
+      });
+      let aliasOk = r.ok;
+      if (!aliasOk) {
+        const txt = await r.text().catch(() => String(r.status));
+        pushToast({
+          id: ++flashSeq.current,
+          kind: "error",
+          panel: "global",
+          code: macUp,
+          msg: `Clear failed — ${txt}`,
+          ts: Date.now(),
+        });
+      }
+
+      // Attempt to clear all locks tied to this MAC across stations
+      let locksMsg = "";
+      try {
+        const rl = await fetch("/api/ksk-lock", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac: macUp, force: 1 }),
+        });
+        if (rl.ok) {
+          try {
+            const j = await rl.json();
+            const n = typeof j?.count === "number" ? j.count : undefined;
+            locksMsg = ` + locks${typeof n === 'number' ? ` (${n})` : ''}`;
+          } catch {
+            locksMsg = " + locks";
+          }
+        } else {
+          locksMsg = " (locks not fully cleared)";
+        }
+      } catch {
+        locksMsg = " (locks not fully cleared)";
+      }
+
+      if (aliasOk) {
+        pushToast({
+          id: ++flashSeq.current,
+          kind: "success",
+          panel: "global",
+          code: macUp,
+          msg: `Redis cleared${locksMsg}`,
+          ts: Date.now(),
+        });
+      }
+    } catch (e: any) {
+      pushToast({
+        id: ++flashSeq.current,
+        kind: "error",
+        panel: "global",
+        code: macUp,
+        msg: `Clear failed — ${e?.message ?? "error"}`,
+        ts: Date.now(),
+      });
+    }
+  }, [kfb, pushToast]);
+
   // RESET ALL
   const resetAll = useCallback(() => {
     setKfb(null);
@@ -2052,14 +2130,29 @@ export default function SetupPage() {
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
 
-            {ksskOkCount >= 1 && (
-              <m.div layout>
+            <m.div layout style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {ksskOkCount >= 1 && (
                 <StepBadge
                   label="SCAN NEW BOARD TO START OVER"
                   onClick={resetAll}
                 />
-              </m.div>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={handleClearRedis}
+                style={{
+                  border: "2px solid #fca5a5",
+                  background: "rgba(239,68,68,0.08)",
+                  color: "#7f1d1d",
+                  fontWeight: 900,
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                }}
+                title={kfb ? `Clear Redis for ${kfb}` : "Scan a board first"}
+              >
+                CLEAR REDIS + LOCKS
+              </button>
+            </m.div>
           </m.div>
         )}
       </m.section>

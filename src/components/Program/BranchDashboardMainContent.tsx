@@ -1317,7 +1317,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
           >
             <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center gap-3 w-full">
                 <span
                   className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive ? "bg-blue-600" : "bg-blue-500"} text-white font-extrabold shadow`}
                 >
@@ -1454,10 +1454,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         {kfbInfo?.board ||
         kfbNumber ||
         (macAddress && localBranches.length > 0) ? (
-          <div className="flex items-center justify-between gap-1">
+          <div className="flex flex-col items-center gap-2">
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">
-                <h1 className="font-mono text-4xl md:text-5xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full">
+                <h1 className="font-mono text-4xl md:text-5xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full text-center">
                   {macAddress
                     ? macAddress.toUpperCase()
                     : (kfbInfo?.board ?? kfbNumber)}
@@ -1469,13 +1469,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             )}
 
             {macAddress && localBranches.length > 0 && (
-              <div className="flex items-center justify-end gap-4 w-full">
+              <div className="flex items-center justify-center gap-4 w-full">
                 {!showingGrouped && (
-                  <div className="flex flex-col items-end leading-tight mt-2 pt-2 border-t border-slate-200/70">
-                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600">
+                  <div className="flex flex-col items-center leading-tight mt-2 pt-2 border-t border-slate-200/70 w-full max-w-4xl">
+                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600 text-center w-full">
                       Active KSKs
                     </div>
-                    <div className="flex flex-wrap gap-2 mt-1 justify-end">
+                    <div className="flex flex-wrap gap-2 mt-1 justify-center">
                       {activeKssks && activeKssks.length > 0 ? (
                         activeKssks.map((id) => (
                           <span

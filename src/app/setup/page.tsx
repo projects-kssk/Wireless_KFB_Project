@@ -493,8 +493,8 @@ function classify(raw: string): { type: "kfb" | "kssk" | null; code: string } {
 
 /* ===== Types ===== */
 type ScanState = "idle" | "valid" | "invalid";
-type KskIndex = 0 | 1 | 2;
-type KskPanel = `ksk${KskIndex}`;
+type KskIndex = number;
+type KskPanel = `ksk${number}`;
 type PanelKey = "kfb" | KskPanel;
 type OfflineResp = { ok: boolean; status: number; data: any | null };
 type Ov = {
@@ -519,19 +519,21 @@ type FlashEvent = {
 import ZoomControls from "@/components/Controls/ZoomControls";
 
 export default function SetupPage() {
+  const KSK_SLOT_TARGET = Math.max(
+    1,
+    Number(process.env.NEXT_PUBLIC_SETUP_KSK_SLOTS || process.env.NEXT_PUBLIC_KSK_SLOTS || "4")
+  )
   const allowManual = true;
   const prefersReduced = useReducedMotion();
   const tableRef = useRef<HTMLDivElement>(null);
 
   const [kfb, setKfb] = useState<string | null>(null);
-  const [ksskSlots, setKsskSlots] = useState<Array<string | null>>([
-    null,
-    null,
-    null,
-  ]);
+  const [ksskSlots, setKsskSlots] = useState<Array<string | null>>((() =>
+    Array.from({ length: KSK_SLOT_TARGET }, () => null)
+  ));
   const [ksskStatus, setKsskStatus] = useState<
     Array<"idle" | "pending" | "ok" | "error">
-  >(["idle", "idle", "idle"]);
+  >(() => Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
 
   const [showManualFor, setShowManualFor] = useState<Record<string, boolean>>(
     {}
@@ -778,8 +780,8 @@ export default function SetupPage() {
   // RESET ALL
   const resetAll = useCallback(() => {
     setKfb(null);
-    setKsskSlots([null, null, null]);
-    setKsskStatus(["idle", "idle", "idle"]);
+    setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
+    setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
     setShowManualFor({});
     setLastError(null);
     setSetupName("");
@@ -1932,7 +1934,7 @@ export default function SetupPage() {
   // auto-reset after 3 OK (wait a bit so highlight is visible)
   useEffect(() => {
     if (!kfb) return;
-    if (ksskOkCount === 3) {
+    if (ksskOkCount === KSK_SLOT_TARGET) {
       const t = setTimeout(() => {
         setLastError(null);
         setKfb(null);
@@ -1944,7 +1946,7 @@ export default function SetupPage() {
       }, 2000);
       return () => clearTimeout(t);
     }
-  }, [ksskOkCount, kfb]);
+  }, [ksskOkCount, kfb, KSK_SLOT_TARGET]);
 
   return (
     <main style={page}>
@@ -2043,7 +2045,7 @@ export default function SetupPage() {
 
               <m.div layout style={heroProgressPill}>
                 <SignalDot />
-                {ksskOkCount}/3 KSK
+                {ksskOkCount}/{KSK_SLOT_TARGET} KSK
               </m.div>
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
@@ -2075,7 +2077,7 @@ export default function SetupPage() {
             }}
           >
             <m.section layout style={card}>
-              {/* {allowManual && (
+              {allowManual && (
                 <button
                   type="button"
                   style={{
@@ -2090,7 +2092,7 @@ export default function SetupPage() {
                 >
                   Enter manually
                 </button>
-              )} */}
+              )}
 
               <AnimatePresence initial={false}>
                 {showManualFor.kfb && allowManual && (
@@ -2124,7 +2126,7 @@ export default function SetupPage() {
             </div>
 
             <div style={slotsGrid}>
-              {([0, 1, 2] as const).map((idx) => {
+              {Array.from({ length: KSK_SLOT_TARGET }, (_, idx) => idx).map((idx) => {
                 const code = ksskSlots[idx];
                 const status = ksskStatus[idx];
                 // only light the slot that matches, not "global"
@@ -2191,11 +2193,12 @@ export default function SetupPage() {
           cycleKey={tableCycle}
           hasBoard={!!kfb}
           ksskCount={ksskOkCount}
-          ksskTarget={3}
+          ksskTarget={KSK_SLOT_TARGET}
           boardName={kfb}
           boardMap={{}}
           okAppearDelayMs={350}
           swapDelayMs={1400}
+          flashKind={undefined}
           flashSeq={0}
         />
       </div>
@@ -2403,7 +2406,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   flashKind,
   flashId,
 }: {
-  index: 0 | 1 | 2;
+  index: number;
   code: string | null;
   status: "idle" | "pending" | "ok" | "error";
   manualOpen: boolean;
@@ -2536,7 +2539,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         Enter manually
       </button> */}
 
-      {/* {code && (
+      {code && (
         <button
           type="button"
           onClick={onForceClear}
@@ -2555,7 +2558,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         >
           Force clear
         </button>
-      )} */}
+      )}
 
       <AnimatePresence initial={false}>
         {manualOpen && (

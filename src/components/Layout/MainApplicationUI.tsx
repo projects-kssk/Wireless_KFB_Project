@@ -2400,9 +2400,7 @@ const MainApplicationUI: React.FC = () => {
                   })()}
                 </div>
               )}
-              {errorMsg && (
-                <div className="px-8 pt-2 text-sm text-red-600">{errorMsg}</div>
-              )}
+   
               {(() => {
                 const hasMac = !!(macAddress && macAddress.trim());
                 const effBranches = hasMac ? branchesData : [];
@@ -2424,7 +2422,7 @@ const MainApplicationUI: React.FC = () => {
                 nameHints={nameHints}
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
-                isScanning={false}
+                isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
                 activeKssks={effActiveKssks}
                 lastEv={suppressLive ? null : (serial as any).lastEv}
@@ -2536,93 +2534,7 @@ const MainApplicationUI: React.FC = () => {
                     OK
                   </m.div>
                 </>
-              ) : (
-                <>
-                  {(() => {
-                    const isScanningWithCode =
-                      overlay.kind === "scanning" && !!overlay.code;
-                    const isErrorWithCode =
-                      overlay.kind === "error" && !!overlay.code;
-                    const sanitizeErrorText = (t: string) => {
-                      const keep = new Set(["NOTHING TO CHECK HERE"]);
-                      if (keep.has(t)) return t;
-                      const tooLong = t.length > 48;
-                      if (
-                        /RESULT|\u2190|reply\s+from|FAIL|MISSING/i.test(t) ||
-                        tooLong
-                      )
-                        return "ERROR";
-                      return t;
-                    };
-                    const bigText = isScanningWithCode
-                      ? (overlay.code as string)
-                      : isErrorWithCode
-                        ? sanitizeErrorText(String(overlay.code))
-                        : overlay.kind.toUpperCase();
-                    return (
-                      <m.div
-                        variants={heading}
-                        style={{
-                          // Make error text much smaller (about 3x smaller)
-                          fontSize: overlay.kind === "error" ? 46 : 136,
-                          fontWeight: 900,
-                          letterSpacing: "0.02em",
-                          color: KIND_STYLES[overlay.kind],
-                          textShadow: "0 8px 24px rgba(0,0,0,0.45)",
-                          textAlign: "center",
-                          fontFamily:
-                            overlay.kind === "scanning"
-                              ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                              : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-                        }}
-                      >
-                        {bigText}
-                      </m.div>
-                    );
-                  })()}
-
-                  {overlay.kind === "scanning" && overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{ fontSize: 18, color: "#f1f5f9", opacity: 0.95 }}
-                    >
-                      SCANNING…
-                    </m.div>
-                  ) : overlay.kind === "error" && overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{
-                        fontSize: 18,
-                        color: "#f1f5f9",
-                        opacity: 0.95,
-                        textAlign: "center",
-                      }}
-                    >
-                      ERROR
-                    </m.div>
-                  ) : overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{
-                        fontSize: 16,
-                        color: "#f1f5f9",
-                        opacity: 0.95,
-                        wordBreak: "break-all",
-                        textAlign: "center",
-                        maxWidth: 640,
-                      }}
-                    >
-                      {overlay.code}
-                    </m.div>
-                  ) : null}
-                </>
-              )}
+              ) : null}
             </m.div>
           </m.div>
         )}

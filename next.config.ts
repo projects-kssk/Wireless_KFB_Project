@@ -15,13 +15,29 @@ const nextConfig: NextConfig = {
   typescript: { ignoreBuildErrors: true },
 
   experimental: {
-    // Allow Electron to load dev assets from 127.0.0.1 or localhost
-    allowedDevOrigins: [
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:3001',
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ],
+    // Allow Electron to load dev assets from common origins and optional remote
+    allowedDevOrigins: (() => {
+      const base: string[] = [
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:3001',
+        'http://localhost:3000',
+        'http://localhost:3001',
+        // Common network IP used in this project
+        'http://172.26.202.248:3000',
+      ]
+      const envCandidates = [
+        process.env.NEXT_PUBLIC_REMOTE_BASE,
+        process.env.WFKB_BASE_URL,
+      ].filter(Boolean) as string[]
+      for (const uri of envCandidates) {
+        try {
+          const u = new URL(uri)
+          const origin = `${u.protocol}//${u.host}`
+          if (!base.includes(origin)) base.push(origin)
+        } catch {}
+      }
+      return base
+    })(),
   },
 
   // 3) Precise control via webpack hook

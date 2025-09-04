@@ -40,7 +40,8 @@ async function ensureServerInProd() {
   const serverEntry = path.join(process.resourcesPath, 'dist-server', 'server.js')
   console.log('[main] loading server:', serverEntry)
   await import(pathToFileURL(serverEntry).href)  // starts Next server
-  await waitForPort(PORT)
+  // Allow extra time here since app.prepare() can be slow on some hosts
+  await waitForPort(PORT, '127.0.0.1', 45000)
 }
 
 function appIconPath() {
@@ -182,10 +183,13 @@ async function createWindows() {
   } else {
     // Production: require local server, then optionally switch to remote if reachable
     try {
+      const t0 = Date.now()
       await splashStep('Starting local server…')
-      await waitForPort(PORT, '127.0.0.1', 12000)
-    } catch (e) {
-      await splashError('Error: local server failed to start')
+      // Give more room; some systems need >12s to get ready
+      await waitForPort(PORT, '127.0.0.1', 30000)
+    } catch (e: any) {
+      const reason = (e && e.message) ? String(e.message) : 'unknown error'
+      await splashError(`Error: local server failed to start (${reason})`)
       console.error('[main] Local server not available:', serverReadyErr || e)
       return
     }

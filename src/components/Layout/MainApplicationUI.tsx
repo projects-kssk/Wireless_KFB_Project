@@ -146,6 +146,13 @@ const MainApplicationUI: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [showScanUi, setShowScanUi] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [scanResult, setScanResult] = useState<{ text: string; kind: 'info'|'error' } | null>(null);
+  const scanResultTimerRef = useRef<number | null>(null);
+  const showScanResult = (text: string, kind: 'info'|'error' = 'info', ms: number = 3000) => {
+    try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
+    setScanResult({ text, kind });
+    scanResultTimerRef.current = window.setTimeout(() => { setScanResult(null); scanResultTimerRef.current = null; }, Math.max(0, ms));
+  };
   const [nameHints, setNameHints] = useState<
     Record<string, string> | undefined
   >(undefined);
@@ -1659,7 +1666,7 @@ const MainApplicationUI: React.FC = () => {
               console.warn("CHECK pending/no-result");
               setScanningError(true);
               setDisableOkAnimation(true);
-              showOverlay("error", "SCANNING ERROR");
+              showScanResult("ERROR", "error", 3000);
               clearScanOverlayTimeout();
               // Reset view back to default scan state shortly after showing error (preserve MAC)
               setTimeout(() => {
@@ -1673,7 +1680,7 @@ const MainApplicationUI: React.FC = () => {
             console.error("CHECK error:", result);
             setScanningError(true);
             setDisableOkAnimation(true);
-            showOverlay("error", "CHECK ERROR");
+            showScanResult("ERROR", "error", 3000);
             clearScanOverlayTimeout();
             // Reset view back to default scan state shortly after showing error (preserve MAC)
             setTimeout(() => {
@@ -1700,7 +1707,7 @@ const MainApplicationUI: React.FC = () => {
             }, 300);
           } else {
             setScanningError(true);
-            showOverlay("error", "SCANNING ERROR");
+            showScanResult("ERROR", "error", 3000);
             clearScanOverlayTimeout();
             hideOverlaySoon();
             setTimeout(() => {
@@ -1712,7 +1719,7 @@ const MainApplicationUI: React.FC = () => {
           }
         } else {
           console.error("CHECK error", err);
-          showOverlay("error", "CHECK exception");
+          showScanResult("ERROR", "error", 3000);
           setDisableOkAnimation(true);
           setAwaitingRelease(false);
           clearScanOverlayTimeout();
@@ -2000,8 +2007,7 @@ const MainApplicationUI: React.FC = () => {
           } catch {}
           clearScanOverlayTimeout();
           const reason = activeIds.length === 0 ? " (no active KSK lock for this MAC)" : "";
-          showOverlay("error", `NOTHING TO CHECK HERE${reason}`);
-          hideOverlaySoon(600);
+          showScanResult("NOTHING TO CHECK HERE", "info", 3000);
           setGroupedBranches([]);
           setActiveKssks([]);
           setIsScanning(false);
@@ -2029,8 +2035,7 @@ const MainApplicationUI: React.FC = () => {
         setErrorMsg(msg);
         setDisableOkAnimation(true);
         if (source === "scan") {
-          showOverlay("error", "Load failed");
-          hideOverlaySoon();
+          showScanResult("ERROR", "error", 3000);
         }
         // Reset to scan state and clear MAC/live shortly after error is shown
         setTimeout(() => {
@@ -2434,6 +2439,7 @@ const MainApplicationUI: React.FC = () => {
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
                 disableOkAnimation={disableOkAnimation}
+                scanResult={scanResult}
               />
                 );
               })()}

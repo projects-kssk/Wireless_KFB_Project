@@ -205,6 +205,7 @@ export interface BranchDashboardMainContentProps {
   flashOkTick?: number;
   // Optional system note to display under OK (e.g., checkpoint/clear)
   okSystemNote?: string | null;
+  scanResult?: { text: string; kind: "info"|"error" } | null;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -233,6 +234,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   forceOkTick,
   flashOkTick,
   okSystemNote,
+  scanResult,
 }) => {
   // Lifecycle logs for live-session enter/exit based on MAC binding
   const prevMacRef = useRef<string>("");
@@ -1202,10 +1204,16 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
           <div className="w-full flex flex-col items-center gap-8">
-            <p className="text-6xl md:text-7xl text-slate-700 font-extrabold uppercase tracking-widest text-center select-none">
-              Please Scan Barcode
-            </p>
-            {isScanning && (
+            {(() => {
+              const txt = scanResult ? scanResult.text : (isScanning ? "SCANNING…" : "Please Scan Barcode");
+              const cls = scanResult && scanResult.kind === "error" ? "text-red-600" : "text-slate-700";
+              return (
+                <p className={`text-6xl md:text-7xl ${cls} font-extrabold uppercase tracking-widest text-center select-none`}>
+                  {txt}
+                </p>
+              );
+            })()}
+            {isScanning && !scanResult && (
               <div className="flex flex-col items-center gap-3">
                 <p className="text-slate-600 text-3xl md:text-4xl font-bold tracking-wide">
                   SCANNING…
@@ -1457,12 +1465,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           <div className="flex flex-col items-center gap-2">
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">
-                <h1 className="font-mono text-4xl md:text-5xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full text-center">
+                <h1 className="font-mono text-6xl md:text-7xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full text-center">
                   {macAddress
                     ? macAddress.toUpperCase()
                     : (kfbInfo?.board ?? kfbNumber)}
                 </h1>
-                <StatusPill />
+                
               </div>
             ) : (
               <div />

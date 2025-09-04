@@ -738,7 +738,7 @@ export default function SetupPage() {
 
   const [lastError, setLastError] = useState<string | null>(null);
   // Per-window UI zoom (React-only; not Electron)
-  const [setupZoom, setSetupZoom] = useState(1)
+  const [setupZoom, setSetupZoom] = useState(0.45)
   const setupZoomStyle = useMemo(() => ({
     transform: `scale(${setupZoom})`,
     transformOrigin: "0 0",
@@ -749,7 +749,7 @@ export default function SetupPage() {
 
   // Ctrl/Cmd + wheel zoom like browser, React-only
   useEffect(() => {
-    const clamp = (v: number) => Math.min(2, Math.max(0.5, v))
+    const clamp = (v: number) => Math.min(2, Math.max(0.25, v))
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || (e as any).metaKey)) return
       try { e.preventDefault() } catch {}
@@ -1950,7 +1950,7 @@ export default function SetupPage() {
 
   return (
     <main style={page}>
-      <ZoomControls label="Setup" position="br" value={setupZoom} onChange={setSetupZoom} applyToBody />
+      <ZoomControls label="Setup" position="br" value={setupZoom} onChange={setSetupZoom} applyToBody initial={0.45} min={0.25} />
       {/* HERO */}
       <m.section layout style={hero} aria-live="polite">
         {!kfb ? (
@@ -2121,7 +2121,6 @@ export default function SetupPage() {
         <section style={section}>
           <section style={card}>
             <div style={{ display: "grid", gap: 4 }}>
-              <span style={eyebrow}>Step 2</span>
               <h2 style={heading}>KSK</h2>
             </div>
 

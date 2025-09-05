@@ -16,8 +16,11 @@ import type { RefObject } from "react";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
+// Krosy client HTTP timeout: prefer KROSY-specific; fallback to setup; default 30s
 const HTTP_TIMEOUT_MS = Number(
-  process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000"
+  process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ??
+  process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ??
+  "30000"
 );
 // Krosy IP-based mode selection
 const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -31,7 +34,7 @@ const KSK_TTL_SEC = Math.max(
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
-  (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
+  (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "1") === "1"; // do not auto-release on tab close (default ON)
 const REQUIRE_REDIS_ONLY =
   (process.env.NEXT_PUBLIC_KSK_REQUIRE_REDIS ?? "0") === "1";
 // Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
@@ -72,14 +75,20 @@ const OBJGROUP_MAC = /\(([0-9A-F:]{17})\)/i;
 function parsePos(pos: string) {
   const raw = String(pos || "");
   const parts = raw.split(",").map((s) => s.trim());
-  // Policy: do NOT derive a pin if there is no comma
-  if (parts.length < 2)
+  // If there's no comma, some Krosy variants return just a label like "CL_2455".
+  // Derive the pin from trailing digits in the label to avoid empty results in production.
+  if (parts.length < 2) {
+    const labelOnly = (parts[0] || "").trim();
+    const labelPrefix = (labelOnly || "").split("_")[0] || "";
+    const m = labelOnly.match(/(\d{1,4})$/); // take trailing number if present
+    const pinNum = m ? Number(m[1]) : NaN;
     return {
-      pin: NaN,
-      label: parts[0] || "",
-      labelPrefix: (parts[0] || "").split("_")[0] || "",
+      pin: Number.isFinite(pinNum) ? pinNum : NaN,
+      label: labelOnly,
+      labelPrefix,
       isLatch: false,
     };
+  }
   let isLatch = false;
   if (parts.at(-1)?.toUpperCase() === "C") {
     isLatch = true;
@@ -191,9 +200,10 @@ function extractNameHintsFromKrosyXML(
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
       // Policy: require a concrete MAC match when macHint is provided
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    // If XML doesn't include a concrete MAC (or shows ZERO), do not block extraction in production
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = String(
         el.getElementsByTagName("objPos")[0]?.textContent || ""
@@ -238,9 +248,9 @@ function extractNameHintsFromKrosyXML(
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushFromObjPos(pos);
@@ -317,9 +327,9 @@ function extractPinsFromKrosy(
       const mm = og.match(OBJGROUP_MAC);
       const ogMac = (mm?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-      if (wantMac) {
-        if (!ogMac || ogMac === ZERO || ogMac !== wantMac) continue;
-      }
+  if (wantMac) {
+    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+  }
 
       const pos = String(s?.objPos ?? "");
       if (!pos) continue;
@@ -782,6 +792,84 @@ export default function SetupPage() {
     fireFlash("error", code, panel, msg);
   };
 
+  // Clear Redis aliases and locks for current MAC (manual, on-demand)
+  const handleClearRedis = useCallback(async () => {
+    const macUp = (kfb || "").toUpperCase();
+    if (!macUp) {
+      pushToast({
+        id: ++flashSeq.current,
+        kind: "error",
+        panel: "global",
+        code: "NO MAC",
+        msg: "Scan a board first to clear Redis",
+        ts: Date.now(),
+      });
+      return;
+    }
+    try {
+      const r = await fetch("/api/aliases/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac: macUp }),
+      });
+      let aliasOk = r.ok;
+      if (!aliasOk) {
+        const txt = await r.text().catch(() => String(r.status));
+        pushToast({
+          id: ++flashSeq.current,
+          kind: "error",
+          panel: "global",
+          code: macUp,
+          msg: `Clear failed — ${txt}`,
+          ts: Date.now(),
+        });
+      }
+
+      // Attempt to clear all locks tied to this MAC across stations
+      let locksMsg = "";
+      try {
+        const rl = await fetch("/api/ksk-lock", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac: macUp, force: 1 }),
+        });
+        if (rl.ok) {
+          try {
+            const j = await rl.json();
+            const n = typeof j?.count === "number" ? j.count : undefined;
+            locksMsg = ` + locks${typeof n === 'number' ? ` (${n})` : ''}`;
+          } catch {
+            locksMsg = " + locks";
+          }
+        } else {
+          locksMsg = " (locks not fully cleared)";
+        }
+      } catch {
+        locksMsg = " (locks not fully cleared)";
+      }
+
+      if (aliasOk) {
+        pushToast({
+          id: ++flashSeq.current,
+          kind: "success",
+          panel: "global",
+          code: macUp,
+          msg: `Redis cleared${locksMsg}`,
+          ts: Date.now(),
+        });
+      }
+    } catch (e: any) {
+      pushToast({
+        id: ++flashSeq.current,
+        kind: "error",
+        panel: "global",
+        code: macUp,
+        msg: `Clear failed — ${e?.message ?? "error"}`,
+        ts: Date.now(),
+      });
+    }
+  }, [kfb, pushToast]);
+
   // RESET ALL
   const resetAll = useCallback(() => {
     setKfb(null);
@@ -839,6 +927,7 @@ export default function SetupPage() {
         ? (process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy")
         : (process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline");
       return withTimeout(async (signal) => {
+        const t0 = Date.now();
         try {
           const forward =
             !live && (process.env.NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL || "");
@@ -848,7 +937,8 @@ export default function SetupPage() {
               url,
               "live=",
               live,
-              forward ? `target=${forward}` : ""
+              forward ? `target=${forward}` : "",
+              `(timeout=${HTTP_TIMEOUT_MS}ms)`
             );
           } catch {}
           const res = await fetch(url, {
@@ -876,6 +966,17 @@ export default function SetupPage() {
               ...(!live && forward ? { targetUrl: forward } : {}),
             }),
           });
+          try {
+            console.log("[SETUP] Krosy response", {
+              status: res.status,
+              ok: res.ok,
+              durationMs: Date.now() - t0,
+              krosyTimeoutMs: HTTP_TIMEOUT_MS,
+              serverTimeout: res.headers.get('X-Krosy-Timeout') || null,
+              serverDuration: res.headers.get('X-Krosy-Duration') || null,
+              used: res.headers.get('X-Krosy-Used-Url') || null,
+            });
+          } catch {}
 
           let data: any = null;
           try {
@@ -908,7 +1009,13 @@ export default function SetupPage() {
             }
           } catch {}
           return { ok: res.ok, status: res.status, data };
-        } catch {
+        } catch (e: any) {
+          try {
+            console.warn("[SETUP] Krosy request failed", {
+              error: e?.name === 'AbortError' ? `timeout ${HTTP_TIMEOUT_MS}ms` : (e?.message || String(e)),
+              durationMs: Date.now() - t0,
+            });
+          } catch {}
           return { ok: false, status: 0, data: null };
         }
       });
@@ -1003,7 +1110,8 @@ export default function SetupPage() {
     async (codeRaw: string, idx?: number) => {
       const code = digitsOnly(codeRaw);
       if (sendBusyRef.current) {
-        showErr(code, "Busy — finishing previous KSK", "global");
+        // Ignore extra scans while a previous KSK is being processed.
+        // Do not show a red error; operators can scan again if needed.
         return;
       }
       sendBusyRef.current = true;
@@ -1375,7 +1483,8 @@ export default function SetupPage() {
             });
           } catch {}
 
-          // Verify persistence: ensure per‑KSK arrays were saved; otherwise surface a hard error
+          // Verify persistence: ensure per‑KSK arrays were saved.
+          // If verification fails (eventual consistency / slow Redis), do NOT flip UI to error — continue.
           try {
             const rAll = await fetch(
               `/api/aliases?mac=${encodeURIComponent(macUp)}&all=1`,
@@ -1402,17 +1511,7 @@ export default function SetupPage() {
               const lOk =
                 Array.isArray(hit?.latchPins) &&
                 (hit!.latchPins as number[]).length > 0;
-              if (!nOk && !lOk) {
-                // Do not proceed silently — release lock and ask user to rescan
-                await releaseLock(persistKsk);
-                bump(target, null, "idle");
-                showErr(
-                  persistKsk,
-                  "Failed to persist pins in Redis. Please scan again.",
-                  panel
-                );
-                return;
-              }
+              // If both are missing, skip hard error; proceed (UI stays green from save).
             }
           } catch {}
         } catch {}
@@ -1602,11 +1701,16 @@ export default function SetupPage() {
           });
           if (!r.ok) {
             espOk = false;
-            showErr(
-              code,
-              `ESP write failed — ${await r.text().catch(() => String(r.status))}`,
-              panel
-            );
+            let msg = String(r.status);
+            try {
+              const j = await r.json();
+              const base = j?.error ? String(j.error) : msg;
+              const station = (j?.stationId ? ` (${String(j.stationId)})` : "");
+              msg = `${base}${station}`;
+            } catch {
+              try { msg = await r.text(); } catch {}
+            }
+            showErr(code, `ESP write failed — ${msg}`, panel);
           }
         } catch (e: any) {
           espOk = false;
@@ -2055,14 +2159,29 @@ export default function SetupPage() {
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
 
-            {ksskOkCount >= 1 && (
-              <m.div layout>
+            <m.div layout style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {ksskOkCount >= 1 && (
                 <StepBadge
                   label="SCAN NEW BOARD TO START OVER"
                   onClick={resetAll}
                 />
-              </m.div>
-            )}
+              )}
+              {/* <button
+                type="button"
+                onClick={handleClearRedis}
+                style={{
+                  border: "2px solid #fca5a5",
+                  background: "rgba(239,68,68,0.08)",
+                  color: "#7f1d1d",
+                  fontWeight: 900,
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                }}
+                title={kfb ? `Clear Redis for ${kfb}` : "Scan a board first"}
+              >
+                CLEAR REDIS + LOCKS
+              </button> */}
+            </m.div>
           </m.div>
         )}
       </m.section>

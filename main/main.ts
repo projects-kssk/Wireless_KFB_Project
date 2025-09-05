@@ -10,6 +10,9 @@ const OPEN_DEVTOOLS = (process.env.WFKB_DEVTOOLS || '0') === '1'
 const PROD_BASE_URL = process.env.WFKB_BASE_URL || 'http://172.26.202.248:3000'
 const FORCE_REMOTE = (process.env.WFKB_FORCE_REMOTE || '0') === '1'
 
+// Track currently chosen base to allow reloads on errors/second launch
+let chosenBaseRef: string = ''
+
 // Keep references to windows so we can focus them on second-instance
 let mainWinRef: BrowserWindow | null = null
 let setupWinRef: BrowserWindow | null = null
@@ -40,7 +43,8 @@ async function ensureServerInProd() {
   const serverEntry = path.join(process.resourcesPath, 'dist-server', 'server.js')
   console.log('[main] loading server:', serverEntry)
   await import(pathToFileURL(serverEntry).href)  // starts Next server
-  await waitForPort(PORT)
+  // Allow extra time here since app.prepare() can be slow on some hosts
+  await waitForPort(PORT, '127.0.0.1', 45000)
 }
 
 function appIconPath() {
@@ -51,6 +55,31 @@ function appIconPath() {
 
 function makeIcon() {
   try { return nativeImage.createFromPath(appIconPath()) } catch { return undefined as any }
+}
+
+function isWindowBlank(win: BrowserWindow | null): boolean {
+  if (!win) return true
+  try {
+    const url = win.webContents.getURL() || ''
+    const crashed = (win.webContents as any).isCrashed?.() || false
+    return crashed || url === '' || url === 'about:blank'
+  } catch { return true }
+}
+
+function destroyWindows() {
+  const wins = [mainWinRef, setupWinRef].filter(Boolean) as BrowserWindow[]
+  for (const w of wins) {
+    try { w.removeAllListeners() } catch {}
+    try { w.destroy() } catch {}
+  }
+  mainWinRef = null
+  setupWinRef = null
+}
+
+async function resetApp(reason = 'reset') {
+  try { console.warn('[main] Resetting app windows:', reason) } catch {}
+  destroyWindows()
+  await createWindows()
 }
 
 async function createWindows() {
@@ -150,6 +179,16 @@ async function createWindows() {
         else devBase = `${u.protocol}//${u.host}`
       }
     } catch {}
+    // If no explicit forced remote, probe configured remote base vars as a convenience
+    if (!remoteCandidate) {
+      const fallbackRemote = (process.env.NEXT_PUBLIC_REMOTE_BASE || PROD_BASE_URL || '').trim()
+      try {
+        if (fallbackRemote) {
+          const u = new URL(fallbackRemote)
+          if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+        }
+      } catch {}
+    }
     if (remoteCandidate) {
       const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
       try {
@@ -159,7 +198,7 @@ async function createWindows() {
         await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
       } catch {
         chosenBase = devBase
-        await splashStep('Network server not reachable, using Next dev server')
+        await splashStep('Krosy offline: network server not reachable; using Next dev server')
       }
     } else {
       // Try common dev ports in case 3000 is occupied and Next switched to 3001+.
@@ -169,11 +208,11 @@ async function createWindows() {
       let found: number | null = null
       await splashInfo('Waiting for Next dev server (3000/3001)…')
       for (const p of candidates) {
-        try { await waitForPort(p, host, 2500); found = p; break } catch {}
+        try { await waitForPort(p, host, 4000); found = p; break } catch {}
       }
       if (!found) {
         // Last attempt: keep waiting on the preferred one
-        await waitForPort(preferred, host, 15000)
+        await waitForPort(preferred, host, 25000)
         found = preferred
       }
       chosenBase = `http://${host}:${found}`
@@ -182,10 +221,13 @@ async function createWindows() {
   } else {
     // Production: require local server, then optionally switch to remote if reachable
     try {
+      const t0 = Date.now()
       await splashStep('Starting local server…')
-      await waitForPort(PORT, '127.0.0.1', 12000)
-    } catch (e) {
-      await splashError('Error: local server failed to start')
+      // Give more room; some systems need >12s to get ready
+      await waitForPort(PORT, '127.0.0.1', 30000)
+    } catch (e: any) {
+      const reason = (e && e.message) ? String(e.message) : 'unknown error'
+      await splashError(`Error: local server failed to start (${reason})`)
       console.error('[main] Local server not available:', serverReadyErr || e)
       return
     }
@@ -204,7 +246,7 @@ async function createWindows() {
         chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
         await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
       } catch {
-        await splashStep('Network server not reachable, using local')
+        await splashStep('Krosy offline: network server not reachable; using local')
         console.warn('[main] Remote not reachable, falling back to local:', remoteCandidate?.href)
       }
     }
@@ -213,6 +255,7 @@ async function createWindows() {
   await splashInfo(`Loading UI from ${chosenBase} …`)
   await mainWin.loadURL(`${chosenBase}/`)
   await setupWin.loadURL(`${chosenBase}/setup`)
+  chosenBaseRef = chosenBase
   await splashStep('Renderer loaded')
   await splashDone()
 
@@ -255,6 +298,29 @@ async function createWindows() {
   enableZoom(mainWin)
   enableZoom(setupWin)
   // (Devtools are optional to avoid stealing focus before splash hides)
+
+  // Auto-recover on renderer problems
+  const attachRecovery = (win: BrowserWindow) => {
+    try {
+      const wc = win.webContents
+      wc.on('render-process-gone', (_e, details) => {
+        console.warn('[main] Renderer gone:', details?.reason)
+        try { win.loadURL(`${chosenBaseRef || 'http://127.0.0.1:'+PORT}/`) } catch {}
+      })
+      win.on('unresponsive', () => {
+        console.warn('[main] Window unresponsive; reloading')
+        try { win.webContents.reloadIgnoringCache() } catch {}
+      })
+      wc.on('did-fail-load', (_ev, errorCode, errorDesc) => {
+        console.warn('[main] did-fail-load:', errorCode, errorDesc)
+        if (chosenBaseRef) {
+          try { win.loadURL(`${chosenBaseRef}/`) } catch {}
+        }
+      })
+    } catch {}
+  }
+  attachRecovery(mainWin)
+  attachRecovery(setupWin)
 
   // Auto fullscreen/kiosk and scale across displays
   try {
@@ -303,6 +369,13 @@ if (!gotLock) {
   try { app.quit() } catch {}
 } else {
   app.on('second-instance', () => {
+    // If current windows look blank or crashed, reset the app to show the loader again
+    const needReset = isWindowBlank(mainWinRef) && isWindowBlank(setupWinRef)
+    if (needReset) {
+      resetApp('second-instance: blank windows')
+      return
+    }
+    // Otherwise, focus existing windows
     const wins = [mainWinRef, setupWinRef].filter(Boolean) as BrowserWindow[]
     for (const w of wins) {
       try {

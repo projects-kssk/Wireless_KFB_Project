@@ -62,6 +62,7 @@ export function useSerialEvents(macFilter?: string) {
   const tickRef = useRef(0);
   const esRef = useRef<EventSource | null>(null);
   const unloadingRef = useRef<boolean>(false);
+  const [isUnloading, setIsUnloading] = useState<boolean>(false);
   const espOkRef = useRef(false);
   const netUpRef = useRef(false);
   const redisOkRef = useRef(false);
@@ -127,6 +128,7 @@ export function useSerialEvents(macFilter?: string) {
   useEffect(() => {
     const markUnloading = () => {
       unloadingRef.current = true;
+      try { setIsUnloading(true); } catch {}
       try { esRef.current?.close(); } catch {}
       esRef.current = null;
     };
@@ -299,6 +301,8 @@ export function useSerialEvents(macFilter?: string) {
     evCount,
 
     lastUnion,
+
+    // Indicates the browser/tab is unloading (closing/reloading)
+    isUnloading,
   };
 }
-

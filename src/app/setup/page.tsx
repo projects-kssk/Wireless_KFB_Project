@@ -2166,7 +2166,7 @@ export default function SetupPage() {
                   onClick={resetAll}
                 />
               )}
-              <button
+              {/* <button
                 type="button"
                 onClick={handleClearRedis}
                 style={{
@@ -2180,7 +2180,7 @@ export default function SetupPage() {
                 title={kfb ? `Clear Redis for ${kfb}` : "Scan a board first"}
               >
                 CLEAR REDIS + LOCKS
-              </button>
+              </button> */}
             </m.div>
           </m.div>
         )}

@@ -677,7 +677,19 @@ async function sendCheckpointFromAliases(macUp: string, requestId: string) {
       `</visualControl></body>`+
       `</krosy>`;
 
-    await fetch('http://localhost:3000/api/krosy-offline/checkpoint', {
+    // Post checkpoint to the online Krosy route by default; allow override via envs
+    const toAbs = (u?: string | null): string | null => {
+      const s = String(u || '').trim();
+      if (!s) return null;
+      if (/^https?:\/\//i.test(s)) return s;
+      if (s.startsWith('/')) return `http://127.0.0.1:${String(process.env.PORT || '3003')}${s}`;
+      return null;
+    };
+    const cpUrl =
+      toAbs(process.env.KROSY_CHECKPOINT_URL) ||
+      toAbs(process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE) ||
+      `http://127.0.0.1:${String(process.env.PORT || '3003')}/api/krosy/checkpoint`;
+    await fetch(cpUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ workingDataXml, requestID: requestId, sourceHostname: srcHost }),

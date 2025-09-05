@@ -160,12 +160,10 @@ const MainApplicationUI: React.FC = () => {
     }
   }, []);
   const scheduleSoftIdle = useCallback((ms = 1000) => {
+    // Do not clear MAC or leave live mode on soft idle; only clear transient UI
     clearSoftIdleTimer();
     softIdleTimerRef.current = window.setTimeout(() => {
       softIdleTimerRef.current = null;
-      // Soft idle: hide MAC, return to idle headline, keep rest stable
-      setKfbNumber("");
-      setMacAddress("");
       setIsScanning(false);
       setShowScanUi(false);
       // scanResult auto-clears via its own timer
@@ -210,8 +208,13 @@ const MainApplicationUI: React.FC = () => {
     [scheduleSoftIdle]
   );
 
-  // Strong idle fallback: if we have no data and are not scanning/checking, clear MAC/title
+  // Live mode suppression flag (controls when we allow idle fallback)
+  const [suppressLive, setSuppressLive] = useState(false);
+
+  // Strong idle fallback disabled for live mode: keep MAC until explicit OK/reset
   useEffect(() => {
+    // Only apply fallback when live is explicitly suppressed/reset
+    if (!suppressLive) return;
     const noData = (!Array.isArray(groupedBranches) || groupedBranches.length === 0) && branchesData.length === 0;
     if (!macAddress) return;
     if (isScanning || isCheckingRef.current) return;
@@ -221,7 +224,7 @@ const MainApplicationUI: React.FC = () => {
       setMacAddress("");
     }, 1500);
     return () => { try { clearTimeout(t); } catch {} };
-  }, [macAddress, groupedBranches.length, branchesData.length, isScanning]);
+  }, [macAddress, groupedBranches.length, branchesData.length, isScanning, suppressLive]);
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<Record<string, string> | undefined>(undefined);
@@ -346,7 +349,6 @@ const MainApplicationUI: React.FC = () => {
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
-  const [suppressLive, setSuppressLive] = useState(false);
   const retryTimerRef = useRef<number | null>(null);
   // Prevent infinite re-trigger loops after exhausting CHECK retries
   const blockedMacRef = useRef<Set<string>>(new Set());
@@ -1403,10 +1405,10 @@ const MainApplicationUI: React.FC = () => {
             try { blockedMacRef.current.delete((mac || '').toUpperCase()); } catch {}
             return;
           } else {
-            // Headline-only error for 2s
+            // Live mode: do not flash headline error or hide names; keep current view
             setAwaitingRelease(false);
             setDisableOkAnimation(true);
-            showHeadlineResult("ERROR", "error", 2000);
+            if (suppressLive) showHeadlineResult("ERROR", "error", 2000);
           }
         } else {
           try {
@@ -1439,7 +1441,7 @@ const MainApplicationUI: React.FC = () => {
               setScanningError(true);
               setDisableOkAnimation(true);
               clearScanOverlayTimeout();
-              showHeadlineResult("ERROR", "error", 2000);
+              if (suppressLive) showHeadlineResult("ERROR", "error", 2000);
               try { blockedMacRef.current.add((mac || '').toUpperCase()); } catch {}
             }
           } else {
@@ -1447,7 +1449,7 @@ const MainApplicationUI: React.FC = () => {
             setScanningError(true);
             setDisableOkAnimation(true);
             clearScanOverlayTimeout();
-            showHeadlineResult("ERROR", "error", 2000);
+            if (suppressLive) showHeadlineResult("ERROR", "error", 2000);
           }
         }
       } catch (err) {
@@ -1470,7 +1472,7 @@ const MainApplicationUI: React.FC = () => {
           setDisableOkAnimation(true);
           setAwaitingRelease(false);
           clearScanOverlayTimeout();
-          showHeadlineResult("ERROR", "error", 2000);
+          if (suppressLive) showHeadlineResult("ERROR", "error", 2000);
         }
       } finally {
         console.log("[FLOW][CHECK] end");
@@ -1720,22 +1722,18 @@ const MainApplicationUI: React.FC = () => {
             console.log("[FLOW][LOAD] nothing to check", { noAliases, noPins, noGroups });
           } catch {}
           clearScanOverlayTimeout();
-          // Show a brief hint then immediately clear stale MAC + input to avoid stuck UI
-          showHeadlineResult("NOTHING TO CHECK HERE", "info", 1200);
+          // Show a brief hint, then finalize back to idle after 1.5s
+          showHeadlineResult("NOTHING TO CHECK HERE", "info", 1500);
           try { setKfbInput(""); } catch {}
-          try { setKfbNumber(""); } catch {}
-          try { setMacAddress(""); } catch {}
           // Set a short cooldown to ignore scanner/SSE noise while returning to idle
           idleCooldownUntilRef.current = Date.now() + 1500;
-          // Extra safety: fully reset after the hint window
-          window.setTimeout(() => { try { handleResetKfb(); } catch {} }, 1400);
+          // Finalize/reset after the hint window
+          window.setTimeout(() => { try { handleResetKfb(); } catch {} }, 1500);
           setIsScanning(false);
           setShowScanUi(false);
           setDisableOkAnimation(true);
           return;
         }
-
-        setBranchesData([]);
 
         try {
           console.log("[FLOW][LOAD] final pins for CHECK", pins);

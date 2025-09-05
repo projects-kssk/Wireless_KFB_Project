@@ -881,6 +881,7 @@ export default function SetupPage() {
     setShowManualFor({});
     setLastError(null);
     setSetupName("");
+    setSetupCountdown(null);
   }, []);
 
   /* ===== Network ===== */
@@ -1087,6 +1088,8 @@ export default function SetupPage() {
       }
       return code;
     });
+    // Start fresh 60s setup window for each newly scanned MAC
+    setSetupCountdown(60);
     setTableCycle((n) => n + 1);
     showOk(code, "BOARD SET", "kfb");
   }, []);
@@ -2369,10 +2372,10 @@ export default function SetupPage() {
 
       {/* Setup countdown (below TableSwap) */}
       {kfb && typeof setupCountdown === "number" && ksskOkCount < KSK_SLOT_TARGET && (
-        <div className="mt-3 flex items-center justify-center">
+        <div className="mt-4 flex items-center justify-center">
           <div
             className={
-              "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-extrabold " +
+              "inline-flex items-center gap-3 rounded-lg px-6 py-4 text-2xl font-extrabold " +
               (setupCountdown > 30
                 ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
                 : setupCountdown > 15
@@ -2383,7 +2386,7 @@ export default function SetupPage() {
           >
             <span>
               {setupCountdown > 0
-                ? `Setup time remaining: ${setupCountdown}s`
+                ? `You have ${setupCountdown}s to set up the board`
                 : "Time expired — resetting"}
             </span>
           </div>

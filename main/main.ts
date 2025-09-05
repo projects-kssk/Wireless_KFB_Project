@@ -83,16 +83,9 @@ async function resetApp(reason = 'reset') {
 }
 
 async function createWindows() {
-  // In production: start bundled local server. In dev: do not start; use dev server.
+  // Always create splash immediately so users see instant feedback
   const localBase = `http://127.0.0.1:${PORT}`
   let serverReadyErr: any = null
-  if (!isDev && !FORCE_REMOTE) {
-    try {
-      await ensureServerInProd()
-    } catch (e) {
-      serverReadyErr = e
-    }
-  }
 
   // Splash immediately
   const splash = new BrowserWindow({
@@ -121,6 +114,16 @@ async function createWindows() {
   const splashDone = async () => splashExec(`window.__splash && __splash.done()`)
   await splashSetTotal(6)
   await splashStep('Initializing…')
+
+  // In production (not FORCE_REMOTE): start bundled local server while splash is visible
+  if (!isDev && !FORCE_REMOTE) {
+    try {
+      await splashStep('Starting local server…')
+      await ensureServerInProd()
+    } catch (e) {
+      serverReadyErr = e
+    }
+  }
 
   // Prepare main windows hidden
   const mainWin = new BrowserWindow({

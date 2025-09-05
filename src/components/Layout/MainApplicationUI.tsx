@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  useReducer,
   FormEvent,
   startTransition,
 } from "react";
@@ -128,6 +129,24 @@ const MainApplicationUI: React.FC = () => {
     scanning: "#60a5fa",
     success: "#22c55e",
   };
+
+  // Centralized config constants
+  const CFG = {
+    OVERLAY_MS: Math.max(1000, Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? 3000)),
+    STUCK_MS: Math.max(4000, Number(process.env.NEXT_PUBLIC_SCAN_STUCK_MS ?? 7000)),
+    OK_MS: Math.max(400, Number(process.env.NEXT_PUBLIC_OK_OVERLAY_MS ?? 1200)),
+    CHECK_CLIENT_MS: Math.max(1000, Number(process.env.NEXT_PUBLIC_CHECK_CLIENT_TIMEOUT_MS ?? 5000)),
+    RETRIES: Math.max(0, Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? 1)),
+  } as const;
+  // Lightweight observability hook (optional)
+  type UiEvent =
+    | { ev: 'scan_start'; code: string }
+    | { ev: 'scan_stuck' }
+    | { ev: 'check_ok'; mac: string }
+    | { ev: 'check_fail'; mac: string; failures?: number[] }
+    | { ev: 'finalize_done'; mac: string };
+  const track = (e: UiEvent) => { try { (window as any).dataLayer?.push({ app: 'kfb', ...e }); } catch {} };
+
   // UI state
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
@@ -144,6 +163,7 @@ const MainApplicationUI: React.FC = () => {
   const [macAddress, setMacAddress] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [showScanUi, setShowScanUi] = useState(false);
+  const [scanResult, setScanResult] = useState<{ text: string; kind: 'info' | 'error' } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [nameHints, setNameHints] = useState<
     Record<string, string> | undefined
@@ -175,6 +195,79 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     isCheckingRef.current = isChecking;
   }, [isChecking]);
+
+  // UI state machine (incremental adoption)
+  type UIState =
+    | { tag: 'idle' }
+    | { tag: 'scanning'; code: string; deadline: number }
+    | { tag: 'checking'; mac: string; pins: number[]; attempt: number }
+    | { tag: 'ok_finalizing'; mac: string }
+    | { tag: 'error'; msg: string; soft: boolean };
+  type UIAction =
+    | { type: 'SCAN_START'; code: string; ttlMs: number }
+    | { type: 'SCAN_STUCK' }
+    | { type: 'CHECK_START'; mac: string; pins: number[] }
+    | { type: 'CHECK_DONE_OK' }
+    | { type: 'CHECK_DONE_FAIL'; msg: string }
+    | { type: 'FINALIZE_START'; mac: string }
+    | { type: 'FINALIZE_DONE' }
+    | { type: 'RESET' };
+  function uiReducer(s: UIState, a: UIAction): UIState {
+    switch (a.type) {
+      case 'SCAN_START':
+        return { tag: 'scanning', code: a.code, deadline: Date.now() + a.ttlMs };
+      case 'SCAN_STUCK':
+        return { tag: 'error', msg: 'NOTHING TO CHECK HERE', soft: true };
+      case 'CHECK_START':
+        return { tag: 'checking', mac: a.mac, pins: a.pins, attempt: 0 };
+      case 'CHECK_DONE_OK':
+        return { tag: 'ok_finalizing', mac: (s as any).mac };
+      case 'CHECK_DONE_FAIL':
+        return { tag: 'error', msg: a.msg, soft: false };
+      case 'FINALIZE_START':
+        return { tag: 'ok_finalizing', mac: a.mac };
+      case 'FINALIZE_DONE':
+      case 'RESET':
+        return { tag: 'idle' };
+    }
+  }
+  const [ui, dispatch] = useReducer(uiReducer, { tag: 'idle' } as UIState);
+
+  // Central timer scheduler
+  const timers = useRef<Map<string, number>>(new Map());
+  const schedule = useCallback((key: string, fn: ()
+  => void, ms: number) => {
+    const prev = timers.current.get(key);
+    if (prev) {
+      try { clearTimeout(prev); } catch {}
+      timers.current.delete(key);
+    }
+    const id = window.setTimeout(() => {
+      try { timers.current.delete(key); } catch {}
+      try { fn(); } catch {}
+    }, Math.max(0, ms));
+    timers.current.set(key, id as unknown as number);
+  }, []);
+  const cancel = useCallback((key: string) => {
+    const prev = timers.current.get(key);
+    if (prev) {
+      try { clearTimeout(prev); } catch {}
+      timers.current.delete(key);
+    }
+  }, []);
+  useEffect(() => () => {
+    try {
+      for (const id of timers.current.values()) clearTimeout(id as any);
+      timers.current.clear();
+    } catch {}
+  }, []);
+
+  // Cooldown to ignore rapid re-triggers after reset
+  const idleCooldownUntilRef = useRef<number>(0);
+  // Track temporarily blocked MACs (e.g., after nothing-to-check)
+  const blockedMacRef = useRef<Set<string>>(new Set());
+  // Timer for transient scan result hint text
+  const scanResultTimerRef = useRef<number | null>(null);
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(
@@ -298,7 +391,43 @@ const MainApplicationUI: React.FC = () => {
       okResetTimerRef.current = null;
     }
   };
+  // Fallback: if scanning gets stuck, show "Nothing to check here" and reset to idle (clear MAC)
+  useEffect(() => {
+    if (!isScanning) return;
+    let cancelled = false;
+    const STUCK_MS = Math.max(4000, Number(process.env.NEXT_PUBLIC_SCAN_STUCK_MS ?? '7000'));
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      try {
+        setIsScanning(false);
+        setShowScanUi(false);
+        // Show hint non-intrusively (no fullscreen overlays)
+        try {
+          setScanResult({ text: 'NOTHING TO CHECK HERE', kind: 'info' });
+          
+          try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
+          scanResultTimerRef.current = window.setTimeout(() => {
+            setScanResult(null);
+            scanResultTimerRef.current = null;
+          }, 1500);
 
+        } catch {}
+        idleCooldownUntilRef.current = Date.now() + 1500;
+        // Block this MAC briefly to avoid immediate re-triggers
+        try {
+          const macUp = ((macAddress || kfbInputRef.current || '') as string).toUpperCase();
+          if (macUp) {
+            blockedMacRef.current.add(macUp);
+            window.setTimeout(() => { try { blockedMacRef.current.delete(macUp); } catch {} }, 10000);
+          }
+        } catch {}
+        skipStopCleanupNextRef.current = true
+        setSuppressLive(true);
+        window.setTimeout(() => { try { handleResetKfb(); } catch {} }, 1500);
+      } catch {}
+    }, STUCK_MS);
+    return () => { cancelled = true; try { clearTimeout(t); } catch {} };
+  }, [isScanning, macAddress]);
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
@@ -2228,6 +2357,9 @@ const MainApplicationUI: React.FC = () => {
     }
   }, [isChecking]);
 
+  // UI state machine (incremental adoption)
+  ;
+
   // Removed UI polling; success overlay auto-hides after 3s.
 
   // Manual submit from a form/input
@@ -2421,6 +2553,7 @@ const MainApplicationUI: React.FC = () => {
                 flashOkTick={okFlashTick}
                 okSystemNote={okSystemNote}
                 disableOkAnimation={disableOkAnimation}
+                scanResult={scanResult}
               />
                 );
               })()}

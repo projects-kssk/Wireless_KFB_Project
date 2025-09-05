@@ -589,6 +589,9 @@ export default function SetupPage() {
   const [kbdBuffer, setKbdBuffer] = useState("");
   const [setupName, setSetupName] = useState<string>("");
   const sendBusyRef = useRef(false);
+  
+  // Setup countdown (60s) — resets layout to initial scan when it expires
+  const [setupCountdown, setSetupCountdown] = useState<number | null>(null);
 
   const hb = useRef<Map<string, number>>(new Map());
 
@@ -2040,6 +2043,37 @@ export default function SetupPage() {
   // ✅ progress counts only OK slots
   const ksskOkCount = ksskStatus.filter((s) => s === "ok").length;
 
+  // Countdown lifecycle: start at 60s once a board is scanned; stop when finished or cleared
+  useEffect(() => {
+    if (!kfb) {
+      setSetupCountdown(null);
+      return;
+    }
+    if (ksskOkCount === KSK_SLOT_TARGET) {
+      setSetupCountdown(null);
+      return;
+    }
+    // initialize if not set
+    setSetupCountdown((v) => (typeof v === "number" ? v : 60));
+    const id = window.setInterval(() => {
+      setSetupCountdown((s) => {
+        if (typeof s !== "number") return s;
+        const next = s - 1;
+        return next >= 0 ? next : 0;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [kfb, ksskOkCount, KSK_SLOT_TARGET]);
+
+  // When countdown expires, reset to initial layout ("Please scan barcode")
+  useEffect(() => {
+    if (!kfb) return;
+    if (typeof setupCountdown === "number" && setupCountdown <= 0) {
+      resetAll();
+      setSetupCountdown(null);
+    }
+  }, [setupCountdown, kfb, resetAll]);
+
   // auto-reset after 3 OK (wait a bit so highlight is visible)
   useEffect(() => {
     if (!kfb) return;
@@ -2332,6 +2366,29 @@ export default function SetupPage() {
           flashSeq={0}
         />
       </div>
+
+      {/* Setup countdown (below TableSwap) */}
+      {kfb && typeof setupCountdown === "number" && ksskOkCount < KSK_SLOT_TARGET && (
+        <div className="mt-3 flex items-center justify-center">
+          <div
+            className={
+              "inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-extrabold " +
+              (setupCountdown > 30
+                ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
+                : setupCountdown > 15
+                ? "border border-amber-300 bg-amber-50 text-amber-900"
+                : "border border-red-300 bg-red-50 text-red-900")
+            }
+            aria-live="polite"
+          >
+            <span>
+              {setupCountdown > 0
+                ? `Setup time remaining: ${setupCountdown}s`
+                : "Time expired — resetting"}
+            </span>
+          </div>
+        </div>
+      )}
 
       <ToastStack
         items={toasts}

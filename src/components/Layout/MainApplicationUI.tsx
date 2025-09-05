@@ -268,6 +268,8 @@ const MainApplicationUI: React.FC = () => {
   const blockedMacRef = useRef<Set<string>>(new Set());
   // Timer for transient scan result hint text
   const scanResultTimerRef = useRef<number | null>(null);
+  // One-shot guard to skip STOP-path cleanup when we intentionally soft-reset
+  const skipStopCleanupNextRef = useRef<boolean>(false);
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(

@@ -2225,7 +2225,10 @@ const MainApplicationUI: React.FC = () => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return; // no event yet
-    // Always accept latest scan event; do not skip first and do not filter by port path
+    // Restrict to the configured scanner path for the dashboard (e.g., ACM0)
+    const want = resolveDesiredPath();
+    const seen = lastScanPath;
+    if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
     const code = serial.lastScan; // the latest payload
     if (!code) return;
     if (isCheckingRef.current) {

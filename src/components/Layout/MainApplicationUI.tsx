@@ -784,8 +784,8 @@ const MainApplicationUI: React.FC = () => {
     lastHandledScanRef.current = "";
     scanDebounceRef.current = 0;
     lastScanRef.current = "";
-    finalizeOkGuardRef.current.clear?.();
-    skippedFirstSseRef.current = false;
+    try { finalizeOkGuardRef.current.clear(); } catch {}
+    
 
     // Bump session to force re-render; this puts us back in the "Please scan barcode" state.
     bumpSession();
@@ -2090,18 +2090,11 @@ const MainApplicationUI: React.FC = () => {
     handleScanRef.current = handleScan;
   }, [handleScan]);
 
-  const skippedFirstSseRef = useRef(false);
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return; // no event yet
-    if (!skippedFirstSseRef.current) {
-      skippedFirstSseRef.current = true;
-      return;
-    }
-    const want = resolveDesiredPath();
-    const seen = lastScanPath;
-    if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
+    // Always accept latest scan event; do not skip first and do not filter by port path
     const code = serial.lastScan; // the latest payload
     if (!code) return;
     if (isCheckingRef.current) {

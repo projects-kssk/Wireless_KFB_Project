@@ -337,8 +337,8 @@ const MainApplicationUI: React.FC = () => {
     setOverlay({ open: true, kind, code });
   };
   const hideOverlaySoon = (ms = 700) => {
-    const t = setTimeout(() => setOverlay((o) => ({ ...o, open: false })), ms);
-    return () => clearTimeout(t);
+    schedule('overlayClose', () => setOverlay((o) => ({ ...o, open: false })), ms);
+    return () => cancel('overlayClose');
   };
   const OK_OVERLAY_MS = Math.max(
     400,
@@ -348,13 +348,8 @@ const MainApplicationUI: React.FC = () => {
   const [okOverlayActive, setOkOverlayActive] = useState(false);
   const [okAnimationTick, setOkAnimationTick] = useState(0);
 
-  const okResetTimerRef = useRef<number | null>(null);
   const scheduleOkReset = (ms = 1500) => {
-    if (okResetTimerRef.current) clearTimeout(okResetTimerRef.current);
-    okResetTimerRef.current = window.setTimeout(() => {
-      handleResetKfb();
-      okResetTimerRef.current = null;
-    }, ms + 100);
+    schedule('okReset', () => handleResetKfb(), ms + 100);
   };
   // Forced reset path that cannot be canceled by cancelOkReset()
   const forceResetDoneRef = useRef(false);
@@ -387,12 +382,7 @@ const MainApplicationUI: React.FC = () => {
         Math.max(primaryMs + 500, fallbackMs)
       );
   };
-  const cancelOkReset = () => {
-    if (okResetTimerRef.current) {
-      clearTimeout(okResetTimerRef.current);
-      okResetTimerRef.current = null;
-    }
-  };
+  const cancelOkReset = () => { cancel('okReset'); };
   // Fallback: if scanning gets stuck, show "Nothing to check here" and reset to idle (clear MAC)
   useEffect(() => {
     if (!isScanning) return;
@@ -434,15 +424,7 @@ const MainApplicationUI: React.FC = () => {
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
   const [suppressLive, setSuppressLive] = useState(false);
-  const retryTimerRef = useRef<number | null>(null);
-  const clearRetryTimer = () => {
-    if (retryTimerRef.current != null) {
-      try {
-        clearTimeout(retryTimerRef.current);
-      } catch {}
-      retryTimerRef.current = null;
-    }
-  };
+  const clearRetryTimer = () => { cancel('checkRetry'); };
   const scanOverlayTimerRef = useRef<number | null>(null);
   const startScanOverlayTimeout = (ms = Math.max(1000, Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? '3000'))) => {
     if (scanOverlayTimerRef.current != null) {
@@ -1238,49 +1220,7 @@ const MainApplicationUI: React.FC = () => {
   }, []);
 
 
-  // Add this useEffect inside MainApplicationUI, near other useEffects
-  useEffect(() => {
-    // Ignore events while suppressLive is true, which happens during finalisation.
-    if (suppressLive) return;
-    const ev = (serial as any).lastEv as {
-      kind?: string;
-      mac?: string | null;
-      line?: string;
-      raw?: string;
-      ok?: any;
-    } | null;
-    if (!ev) return;
-
-    const raw = String(ev.line ?? ev.raw ?? "");
-    const kind = String(ev.kind || "").toUpperCase();
-    const ok =
-      (/\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw)) ||
-      String(ev.ok).toLowerCase() === "true";
-    const ZERO = "00:00:00:00:00:00";
-    const current = (macAddress || "").toUpperCase();
-    let evMac = String(ev.mac || "").toUpperCase();
-    if (!evMac || evMac === ZERO) {
-      // Parse MAC from the raw line if not provided
-      const macs =
-        raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
-      evMac = macs.find((m) => m !== ZERO) || "";
-    }
-    const matches = !evMac || evMac === ZERO || evMac === current;
-
-    if ((kind === "RESULT" || kind === "DONE") && ok && matches) {
-      // Mark all branches OK and stop scanning/checking
-      setBranchesData((prev) =>
-        prev.map((b) => ({ ...b, testStatus: "ok" as const }))
-      );
-      setCheckFailures([]);
-      setIsChecking(false);
-      setIsScanning(false);
-      setOkFlashTick((t) => t + 1);
-      setOverlay((o) => ({ ...o, open: false }));
-      // Immediately finalise and reset the UI
-      finalizeOkForMac(evMac || current);
-    }
-  }, [serial.lastEvTick, macAddress, suppressLive, finalizeOkForMac]);
+  // Unified SSE handler handled below
 
   // Trigger finalisation immediately on a successful RESULT or DONE event.
   useEffect(() => {
@@ -1756,10 +1696,7 @@ const MainApplicationUI: React.FC = () => {
             // Server busy (per-MAC lock). Retry shortly without showing an error.
             if (attempt < maxRetries + 2) {
               clearRetryTimer();
-              retryTimerRef.current = window.setTimeout(() => {
-                retryTimerRef.current = null;
-                void runCheck(mac, attempt + 1, pins);
-              }, 350);
+              schedule('checkRetry', () => { void runCheck(mac, attempt + 1, pins); }, 350);
             } else {
               console.warn("CHECK busy (429) too many retries");
             }
@@ -1772,10 +1709,7 @@ const MainApplicationUI: React.FC = () => {
             // Quick retry a couple of times to shave latency without long waits
             if (attempt < maxRetries) {
               clearRetryTimer();
-              retryTimerRef.current = window.setTimeout(() => {
-                retryTimerRef.current = null;
-                void runCheck(mac, attempt + 1, pins);
-              }, 250);
+              schedule('checkRetry', () => { void runCheck(mac, attempt + 1, pins); }, 250);
             } else {
               console.warn("CHECK pending/no-result");
               setScanningError(true);
@@ -1815,10 +1749,7 @@ const MainApplicationUI: React.FC = () => {
           );
           if (attempt < 1 || attempt < maxRetries) {
             clearRetryTimer();
-            retryTimerRef.current = window.setTimeout(() => {
-              retryTimerRef.current = null;
-              void runCheck(mac, attempt + 1, pins);
-            }, 300);
+            schedule('checkRetry', () => { void runCheck(mac, attempt + 1, pins); }, 300);
           } else {
             setScanningError(true);
             showOverlay("error", "SCANNING ERROR");

@@ -1456,8 +1456,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     } catch {}
   }, [viewKey]);
 
+  const hasContent = (Array.isArray(groupedBranches) && groupedBranches.length > 0) || (localBranches && localBranches.length > 0);
   return (
-    <div className="flex-grow flex flex-col items-center justify-start p-2">
+    <div className={`flex-grow flex flex-col items-center ${hasContent ? 'justify-start' : 'justify-center'} p-2`}>
       <header className="w-full mb-1 min-h-[56px]">
         {kfbInfo?.board ||
         kfbNumber ||

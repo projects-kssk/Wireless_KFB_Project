@@ -425,9 +425,9 @@ function StatusBanner({ status, mac, error }: { status: DiscoverState; mac: stri
 }
 
 function DiscoverEspModal({
-  open, onClose, onRetry, onTest, status, mac, error, testStatus, testMsg,
+  open, onClose, onRetry, onTest, onPinTest, status, mac, error, testStatus, testMsg,
 }: {
-  open: boolean; onClose: () => void; onRetry: () => void; onTest: () => void;
+  open: boolean; onClose: () => void; onRetry: () => void; onTest: () => void; onPinTest: () => void;
   status: DiscoverState; mac: string | null; error: string | null;
   testStatus: TestState; testMsg: string | null;
 }) {
@@ -493,16 +493,25 @@ function DiscoverEspModal({
                 <SimpleLinkAnimation searching={status === 'searching'} success={status === 'success'} />
 
                 {status === 'success' && (
-                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
-                    <button
-                      onClick={onTest}
-                      disabled={testStatus === 'calling'}
-                      className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.25)] bg-gradient-to-b from-emerald-400 to-emerald-600 disabled:opacity-70"
-                      aria-label="Run TEST"
-                    >
-                      {testStatus === 'calling' ? 'Testing…' : testStatus === 'ok' ? 'AGAIN' : 'TEST'}
-                    </button>
-
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4">
+                    <div className="flex items-center justify-center gap-6">
+                      <button
+                        onClick={onTest}
+                        disabled={testStatus === 'calling'}
+                        className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.25)] bg-gradient-to-b from-emerald-400 to-emerald-600 disabled:opacity-70"
+                        aria-label="Run TEST"
+                      >
+                        {testStatus === 'calling' ? 'Testing…' : testStatus === 'ok' ? 'AGAIN' : 'TEST'}
+                      </button>
+                      <button
+                        onClick={onPinTest}
+                        className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.25)] bg-gradient-to-b from-emerald-400 to-emerald-600"
+                        aria-label="PIN TEST"
+                        title="Send MONITOR for pins 1–40 to this ESP"
+                      >
+                        PIN TEST
+                      </button>
+                    </div>
                     {!!testMsg && (
                       <div
                         className={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ${
@@ -681,6 +690,18 @@ export const Header: React.FC<HeaderProps> = ({
   setTestMsg(null);
   };
 
+  const runPinTest = async () => {
+    try {
+      const body = foundMac ? { mac: foundMac } : {};
+      await fetch('/api/serial/pin-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+    } catch {}
+  };
+
 const runTest = async () => {
   if (!foundMac) return;
   try {
@@ -833,6 +854,7 @@ const runTest = async () => {
         onClose={closeDiscover}
         onRetry={retryDiscover}
         onTest={runTest}
+        onPinTest={runPinTest}
         testStatus={testStatus}
         testMsg={testMsg}
       />

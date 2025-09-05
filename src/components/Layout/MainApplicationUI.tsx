@@ -402,7 +402,9 @@ const MainApplicationUI: React.FC = () => {
         } else {
           if (DEBUG_LIVE) console.log("[LIVE] STOP");
           const target = lastLiveMacRef.current;
-          if (target && !(macAddress && macAddress.trim())) {
+          // Do NOT clear Redis on app/tab unload; only clear after OK or explicit actions
+          const isUnloading = Boolean((serial as any).isUnloading);
+          if (target && !(macAddress && macAddress.trim()) && !isUnloading) {
             (async () => {
               try {
                 try {

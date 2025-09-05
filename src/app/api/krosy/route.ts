@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { LOG } from "@/lib/logger";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -14,7 +15,9 @@ const ALLOW_ANY = RAW_ORIGINS.trim() === "*";
 
 const LOG_DIR = process.env.KROSY_LOG_DIR || path.join(process.cwd(), ".krosy-logs");
 const XML_TARGET = (process.env.KROSY_XML_TARGET || "ksskkfb01").trim();
-const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
+// Increase default timeout to accommodate slower Krosy responses in production
+const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 30000);
+const log = LOG.tag('api:krosy');
 /** newline | fin | null | none */
 const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
 
@@ -232,8 +235,21 @@ export async function POST(req: NextRequest) {
   const prettyReq = prettyXml(xml);
 
   const started = Date.now();
+  try {
+    log.info('POST begin', {
+      intksk,
+      requestID,
+      sourceHostname,
+      xmlTargetHost,
+      connectHost,
+      tcpPort,
+      timeoutMs: TCP_TIMEOUT_MS,
+      terminator: TCP_TERMINATOR,
+    });
+  } catch {}
   const out = await sendTcp(connectHost, tcpPort, xml);
   const durationMs = Date.now() - started;
+  try { log.info('POST end', { ok: out.ok, status: out.status, error: out.error, durationMs }); } catch {}
 
   // Pretty-print XML response when present
   let prettyResp: string | null = null;
@@ -314,6 +330,8 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/xml; charset=utf-8",
         "Cache-Control": "no-store",
         "X-Krosy-Used-Url": out.used,
+        "X-Krosy-Timeout": String(TCP_TIMEOUT_MS),
+        "X-Krosy-Duration": String(durationMs),
         ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
         ...cors(req),
       },
@@ -339,6 +357,8 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "X-Krosy-Used-Url": out.used,
+      "X-Krosy-Timeout": String(TCP_TIMEOUT_MS),
+      "X-Krosy-Duration": String(durationMs),
       ...(logBase ? { "X-Krosy-Log-Path": logBase } : {}),
       ...cors(req),
     },

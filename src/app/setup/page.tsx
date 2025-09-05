@@ -16,8 +16,11 @@ import type { RefObject } from "react";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 /* ===== Config ===== */
+// Krosy client HTTP timeout: prefer KROSY-specific; fallback to setup; default 30s
 const HTTP_TIMEOUT_MS = Number(
-  process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ?? "8000"
+  process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ??
+  process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ??
+  "30000"
 );
 // Krosy IP-based mode selection
 const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -31,7 +34,7 @@ const KSK_TTL_SEC = Math.max(
 const ALLOW_NO_ESP =
   (process.env.NEXT_PUBLIC_SETUP_ALLOW_NO_ESP ?? "0") === "1"; // keep lock even if ESP fails
 const KEEP_LOCKS_ON_UNLOAD =
-  (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "0") === "1"; // do not auto-release on tab close
+  (process.env.NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD ?? "1") === "1"; // do not auto-release on tab close (default ON)
 const REQUIRE_REDIS_ONLY =
   (process.env.NEXT_PUBLIC_KSK_REQUIRE_REDIS ?? "0") === "1";
 // Prefer loading pin aliases/groups from Redis first; allow requiring Redis-only
@@ -924,6 +927,7 @@ export default function SetupPage() {
         ? (process.env.NEXT_PUBLIC_KROSY_URL_ONLINE ?? "/api/krosy")
         : (process.env.NEXT_PUBLIC_KROSY_URL_OFFLINE ?? "/api/krosy-offline");
       return withTimeout(async (signal) => {
+        const t0 = Date.now();
         try {
           const forward =
             !live && (process.env.NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL || "");
@@ -933,7 +937,8 @@ export default function SetupPage() {
               url,
               "live=",
               live,
-              forward ? `target=${forward}` : ""
+              forward ? `target=${forward}` : "",
+              `(timeout=${HTTP_TIMEOUT_MS}ms)`
             );
           } catch {}
           const res = await fetch(url, {
@@ -961,6 +966,17 @@ export default function SetupPage() {
               ...(!live && forward ? { targetUrl: forward } : {}),
             }),
           });
+          try {
+            console.log("[SETUP] Krosy response", {
+              status: res.status,
+              ok: res.ok,
+              durationMs: Date.now() - t0,
+              krosyTimeoutMs: HTTP_TIMEOUT_MS,
+              serverTimeout: res.headers.get('X-Krosy-Timeout') || null,
+              serverDuration: res.headers.get('X-Krosy-Duration') || null,
+              used: res.headers.get('X-Krosy-Used-Url') || null,
+            });
+          } catch {}
 
           let data: any = null;
           try {
@@ -993,7 +1009,13 @@ export default function SetupPage() {
             }
           } catch {}
           return { ok: res.ok, status: res.status, data };
-        } catch {
+        } catch (e: any) {
+          try {
+            console.warn("[SETUP] Krosy request failed", {
+              error: e?.name === 'AbortError' ? `timeout ${HTTP_TIMEOUT_MS}ms` : (e?.message || String(e)),
+              durationMs: Date.now() - t0,
+            });
+          } catch {}
           return { ok: false, status: 0, data: null };
         }
       });

@@ -1237,6 +1237,14 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
+    // Mark checking state when a live session starts
+    if (kind === 'START') {
+      const current = (macAddress || '').toUpperCase();
+      const evMac = String(ev.mac || '').toUpperCase();
+      if (!current || (evMac && current === evMac)) {
+        setIsChecking(true);
+      }
+    }
     // An event is considered OK if the "ok" field is truthy or the line contains "SUCCESS" or "OK".
     const ok =
       (/\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw)) ||
@@ -2688,4 +2696,3 @@ const MainApplicationUI: React.FC = () => {
 };
 
 export default MainApplicationUI;
-

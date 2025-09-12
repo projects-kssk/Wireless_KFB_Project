@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;                 // ← remove `as const`
 export const fetchCache = 'force-no-store';  // segment-level opt-out is valid
 
-const encoder = new TextEncoder();
+      const encoder = new TextEncoder();
 
 // dedupe RESULT/EV logs
 const __LAST_LOG = {
@@ -185,6 +185,24 @@ export async function GET(req: Request) {
               }
               try { console.log('[events] EV', { kind, ch, val, mac, line }); } catch {}
               send({ type: 'ev', kind, ch, val, mac, raw: line, ts: Date.now() });
+              return;
+            }
+
+            // Monitor session start signal from hub
+            if (/\bMONITOR-START\b/i.test(line)) {
+              let mac: string | null = null;
+              const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
+              mac = matches.length ? matches[matches.length - 1]![1] : null;
+              if (!macAllowed(mac || undefined)) {
+                if (macSet && !EV_STRICT) {
+                  const first = macSet.values().next();
+                  if (!first.done) mac = first.value as string;
+                } else {
+                  return;
+                }
+              }
+              try { console.log('[events] EV START', { mac, line }); } catch {}
+              send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: line, ts: Date.now() });
               return;
             }
 

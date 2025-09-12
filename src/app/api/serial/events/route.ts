@@ -203,15 +203,23 @@ export async function GET(req: Request) {
 
             if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
               const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
-              const mac = matches.length ? matches[matches.length - 1]![1] : null;
+              let mac = matches.length ? matches[matches.length - 1]![1] : null;
               const ok = /\bSUCCESS\b/i.test(line);
-              if (macAllowed(mac || undefined)) {
-                try {
-                  const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
-                  if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
-                } catch {}
-                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
+              // If a MAC filter is provided and the line's MAC doesn't match (e.g., hub MAC),
+              // remap to the requested MAC unless EV_STRICT is enabled.
+              if (!macAllowed(mac || undefined)) {
+                if (macSet && !EV_STRICT) {
+                  const first = macSet.values().next();
+                  if (!first.done) mac = first.value as string;
+                } else {
+                  return; // drop when strict or no filter is set
+                }
               }
+              try {
+                const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
+                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
+              } catch {}
+              send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
               return;
             }
           } catch {}

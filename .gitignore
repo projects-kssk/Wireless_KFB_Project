@@ -43,3 +43,4 @@ monitor.logs/**
 logs/**
 .krosy-backend-logs/**
 .env.production
+cpp codes/*

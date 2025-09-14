@@ -820,6 +820,7 @@ const MainApplicationUI: React.FC = () => {
   const scanDebounceRef = useRef<number>(0);
   const scanInFlightRef = useRef<boolean>(false);
   const okForcedRef = useRef<boolean>(false);
+  const lastRunHadFailuresRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
   const enqueueScan = useCallback((raw: string) => {
     const code = String(raw || "")
@@ -1295,11 +1296,74 @@ const MainApplicationUI: React.FC = () => {
     }
   }, [(serial as any).lastEvTick, macAddress, suppressLive, finalizeOkForMac]);
 
+  // Enter live mode on RESULT/DONE failures as a fallback (e.g., missed START)
+  useEffect(() => {
+    if (suppressLive) return;
+    const ev = (serial as any).lastEv as {
+      kind?: string;
+      mac?: string | null;
+      line?: string;
+      raw?: string;
+      ok?: any;
+    } | null;
+    if (!ev) return;
+
+    const raw = String(ev.line ?? ev.raw ?? "");
+    const kind = String(ev.kind || "").toUpperCase();
+    const ZERO = "00:00:00:00:00:00";
+    const current = (macAddress || "").toUpperCase();
+    if (!current) return;
+
+    let evMac = String(ev.mac || "").toUpperCase();
+    if (!evMac || evMac === ZERO) {
+      const macs = raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
+      evMac = macs.find((m) => m !== ZERO) || current;
+    }
+    const matches = evMac === current;
+
+    const isResultish = kind === "DONE" || kind === "RESULT" || /\bRESULT\b/i.test(raw);
+    const isFailure =
+      String(ev.ok).toLowerCase() === "false" || /\bFAIL(?:URE)?\b/i.test(raw);
+
+    // If we got a failure event for the current MAC, but we're not in checking state,
+    // switch into live/checking mode so the UI shows live updates and failures.
+    if (matches && isResultish && isFailure && !isCheckingRef.current) {
+      try {
+        if (DEBUG_LIVE) console.log("[LIVE] Fallback enter on failure event", { raw });
+      } catch {}
+      setIsChecking(true);
+      okFlashAllowedRef.current = true;
+
+      // Best-effort parse of missing pins like: "MISSING 1,10,14,15"
+      try {
+        const m = raw.match(/MISSING\s+([0-9 ,]+)/i);
+        if (m && m[1]) {
+          const pins = m[1]
+            .split(/[, ]+/)
+            .map((s) => Number(s))
+            .filter((n) => Number.isFinite(n));
+          if (pins.length) {
+            setCheckFailures(pins);
+            // Mark known branches as failed where possible
+            setBranchesData((prev) =>
+              prev.map((b) =>
+                pins.includes(Number(b.pinNumber))
+                  ? { ...b, testStatus: "nok" as const }
+                  : b
+              )
+            );
+          }
+        }
+      } catch {}
+    }
+  }, [(serial as any).lastEvTick, macAddress, suppressLive]);
+
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
 
       setIsChecking(true);
+      try { lastRunHadFailuresRef.current = false; } catch {}
       setCheckFailures(null);
       setShowRemoveCable(false);
       setAwaitingRelease(false);
@@ -1362,6 +1426,7 @@ const MainApplicationUI: React.FC = () => {
           clearRetryTimer();
           const failures: number[] = result.failures || [];
           const unknown = result?.unknownFailure === true;
+          try { lastRunHadFailuresRef.current = unknown || failures.length > 0; } catch {}
           const hints =
             result?.nameHints && typeof result.nameHints === "object"
               ? (result.nameHints as Record<string, string>)
@@ -1775,7 +1840,12 @@ const MainApplicationUI: React.FC = () => {
         if (!mountedRef.current) return;
           if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
         clearRetryTimer();
-        setIsChecking(false);
+        // Keep live/checking state if failures occurred, so EV stream remains visible.
+        try {
+          if (!lastRunHadFailuresRef.current) setIsChecking(false);
+        } catch {
+          setIsChecking(false);
+        }
         // Short cooldown so stray duplicate scans don’t retrigger immediately
         try { idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS; } catch {}
         // Block re-triggers for the same MAC for a short window unless user explicitly scans again
@@ -2089,37 +2159,8 @@ const MainApplicationUI: React.FC = () => {
           return;
         }
 
-        // Explicit scans (SSE/manual) with no data in Redis: show friendly toast and allow quick retry
-        if (!hasRealData && (trigger === "sse" || trigger === "manual")) {
-          try {
-            setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
-            if (scanResultTimerRef.current)
-              clearTimeout(scanResultTimerRef.current);
-            const HINT_MS = 1800;
-            scanResultTimerRef.current = window.setTimeout(() => {
-              setScanResult(null);
-              scanResultTimerRef.current = null;
-              try { handleResetKfb(); } catch {}
-              // Clear cooldown fully after reset so next scan binds immediately
-              try { idleCooldownUntilRef.current = 0; } catch {}
-            }, HINT_MS);
-            // Briefly block this MAC to avoid immediate re-trigger loops
-            const macUp = (mac || "").toUpperCase();
-            if (macUp) {
-              blockedMacRef.current.add(macUp);
-              window.setTimeout(() => {
-                try { blockedMacRef.current.delete(macUp); } catch {}
-              }, 1200);
-            }
-            // Arm the next scan to be accepted even with no bound MAC
-            try { (window as any).__armScanOnce__ = true; } catch {}
-            // Keep cooldown very short so operator can rescan quickly
-            try { idleCooldownUntilRef.current = Date.now() + 600; } catch {}
-          } catch {}
-          setIsScanning(false);
-          setShowScanUi(false);
-          return;
-        }
+        // For explicit scans, proceed to CHECK even if Redis is empty; server can merge pins.
+        // We keep the MAC bound and let /api/serial/check drive failures/union.
 
         await runCheck(mac, 0, pins);
       } catch (e) {

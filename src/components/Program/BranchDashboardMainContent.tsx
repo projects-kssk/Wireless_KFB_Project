@@ -145,7 +145,7 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
             </div>
           )}
         </div>
-        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 group-hover:text-blue-600 transition-colors duration-300 mt-3 text-center whitespace-normal break-words leading-tight">
+        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 mt-3 text-center whitespace-normal break-words leading-tight">
           {branch.branchName}
         </h3>
       </div>
@@ -850,15 +850,27 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     // Proactively clear Redis/locks once when reaching grouped-all-OK.
     // This mirrors the allOk-based finalization but ensures cleanup even if that path is skipped.
     try {
-      const mac = (macAddress || '').toUpperCase();
-      if (mac && typeof onFinalizeOk === 'function' && !clearedMacsRef.current.has(mac)) {
+      const mac = (macAddress || "").toUpperCase();
+      if (
+        mac &&
+        typeof onFinalizeOk === "function" &&
+        !clearedMacsRef.current.has(mac)
+      ) {
         clearedMacsRef.current.add(mac);
         void onFinalizeOk(mac);
       }
     } catch {}
     if (flashInProgressRef.current || showOkAnimation) return;
     triggerOkFlash(Date.now()); // this already calls returnToScan() after OK_FLASH_MS
-  }, [settled, showingGrouped, groupedAllOk, showOkAnimation, triggerOkFlash, onFinalizeOk, macAddress]);
+  }, [
+    settled,
+    showingGrouped,
+    groupedAllOk,
+    showOkAnimation,
+    triggerOkFlash,
+    onFinalizeOk,
+    macAddress,
+  ]);
   // Watchdog: if the flash didn’t render for any reason, force a reset shortly after
   useEffect(() => {
     if (!allOk) return;
@@ -1032,7 +1044,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/70 to-transparent" />
               <div className="p-10">
                 <div className="text-center mb-8">
-                  <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-blue-200 bg-blue-50 text-blue-700 font-extrabold tracking-wider">
+                  <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-slate-200 bg-slate-50 text-slate-700 font-extrabold tracking-wider">
                     <svg
                       className="w-6 h-6"
                       fill="none"
@@ -1069,7 +1081,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                     <div
                       className={[
                         "relative rounded-2xl border-2 bg-gradient-to-b from-white to-slate-50 shadow-inner backdrop-blur",
-                        macValid ? "border-emerald-400" : "border-blue-400",
+                        macValid ? "border-emerald-400" : "border-slate-400",
                       ].join(" ")}
                     >
                       <input
@@ -1131,10 +1143,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                     <button
                       type="submit"
                       disabled={!macValid || busy}
-                      className={[
-                        "w-full py-4 rounded-2xl font-extrabold uppercase tracking-wider transition",
-                        "bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed",
-                      ].join(" ")}
+                    className={[
+                      "w-full py-4 rounded-2xl font-extrabold uppercase tracking-wider transition",
+                      "bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed",
+                    ].join(" ")}
                     >
                       {busy ? "Submitting" : "Submit MAC"}
                     </button>
@@ -1168,72 +1180,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 </p>
               );
             })()}
-            {isScanning && !scanResult && (
-              <div className="flex flex-col items-center gap-5">
-                <p className="text-slate-800 text-4xl md:text-5xl font-extrabold tracking-wider">
-                  Scanning…
-                </p>
-                <div className="relative w-80 md:w-[480px] h-20 md:h-24 rounded-3xl border border-slate-300 bg-gradient-to-br from-white to-slate-50 shadow-xl overflow-hidden">
-                  <m.div
-                    aria-hidden
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      backgroundImage:
-                        "repeating-linear-gradient(90deg, rgba(148,163,184,.16) 0 1px, transparent 1px 12px)",
-                      opacity: 0.6,
-                    }}
-                  />
-                  <m.div
-                    className="absolute top-1/2 -translate-y-1/2 h-14 md:h-16 w-1/2 bg-blue-500/15 blur-xl"
-                    animate={{ x: ["-25%", "115%"] }}
-                    transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }}
-                  />
-                  <m.div
-                    className="absolute top-1/2 -translate-y-1/2 h-2.5 w-1/2 bg-gradient-to-r from-transparent via-blue-500/80 to-transparent"
-                    animate={{ x: ["-25%", "115%"] }}
-                    transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }}
-                  />
-                  {(["tl","tr","bl","br"] as const).map((pos) => (
-                    <span
-                      key={pos}
-                      className="absolute"
-                      style={{
-                        width: 18,
-                        height: 18,
-                        ...(pos === "tl" && { left: 12, top: 12, borderLeft: "2px solid #cbd5e1", borderTop: "2px solid #cbd5e1" }),
-                        ...(pos === "tr" && { right: 12, top: 12, borderRight: "2px solid #cbd5e1", borderTop: "2px solid #cbd5e1" }),
-                        ...(pos === "bl" && { left: 12, bottom: 12, borderLeft: "2px solid #cbd5e1", borderBottom: "2px solid #cbd5e1" }),
-                        ...(pos === "br" && { right: 12, bottom: 12, borderRight: "2px solid #cbd5e1", borderBottom: "2px solid #cbd5e1" }),
-                        borderRadius: 3,
-                        opacity: 0.8,
-                      }}
-                    />
-                  ))}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-slate-600 font-semibold">Please wait — scanning barcode</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-slate-500">
-                  <m.span
-                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.25, 1, 0.25] }}
-                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
-                  />
-                  <m.span
-                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.25, 1, 0.25] }}
-                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
-                  />
-                  <m.span
-                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.25, 1, 0.25] }}
-                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
-                  />
-                  <span className="ml-1 text-sm font-semibold">Listening on scanner</span>
-                </div>
-              </div>
-            )}
           </div>
           {/* {allowManualInput && !isScanning && (
             <button

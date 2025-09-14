@@ -106,17 +106,26 @@ export default function SimulateCheckBar() {
           desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }
         ] }),
       });
-      // Additionally, kick off a direct CHECK to ensure progress even if scan filtering blocks it.
-      // Server dedupes by per-MAC lock, so double-trigger is safe.
+      // Nudge the main app to handle the scan by sending a follow-up dev-cue that updates scanner memory periodically for a short window.
+      // This helps when the first scan gets swallowed due to path timing.
       try {
-        const res = await fetch('/api/serial/check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mac: mac.toUpperCase() }),
-        });
-        const j = await res.json().catch(() => null);
-        if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
-        else setLast({ ok: false, msg: j?.error || String(res.status) });
+        const pulses = Array.from({ length: 3 }).map((_, i) => ({ code: mac.toUpperCase(), path: desiredPath }));
+        await fetch('/api/simulate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scan: pulses })
+        }).catch(() => {});
+        // Fallback: kick CHECK directly so the main flow has events even if the scan is dropped
+        setTimeout(async () => {
+          try {
+            const res = await fetch('/api/serial/check', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac: mac.toUpperCase() })
+            });
+            const j = await res.json().catch(() => null);
+            if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
+            else setLast({ ok: false, msg: j?.error || String(res.status) });
+          } catch {}
+        }, 120);
       } catch {}
     } catch (e: any) {
       setLast({ ok: false, msg: String(e?.message || e) });

@@ -9,8 +9,6 @@ import React, {
   FormEvent,
   startTransition,
 } from "react";
-import { m, AnimatePresence, useReducedMotion } from "framer-motion";
-import type { Transition, Variants } from "framer-motion";
 import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
 import { Header } from "@/components/Header/Header";
 import { BranchControlSidebar } from "@/components/Program/BranchControlSidebar";
@@ -98,36 +96,7 @@ const canonicalMac = (raw: string): string | null => {
 };
 
 const MainApplicationUI: React.FC = () => {
-  const reduce = useReducedMotion();
-  const fadeTransition: Transition = { duration: reduce ? 0 : 0.18 };
-  const cardTransition: Transition = reduce
-    ? { duration: 0 }
-    : { type: "spring", stiffness: 260, damping: 20 };
-
-  const bg: Variants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: fadeTransition },
-    exit: { opacity: 0, transition: fadeTransition },
-  };
-  const card: Variants = {
-    hidden: { scale: reduce ? 1 : 0.98, opacity: 0 },
-    visible: {
-      scale: 1,
-      opacity: 1,
-      transition: cardTransition,
-    },
-    exit: { scale: reduce ? 1 : 0.98, opacity: 0 },
-  };
-  const heading: Variants = {
-    hidden: { y: reduce ? 0 : 6, opacity: 0 },
-    visible: { y: 0, opacity: 1, transition: { duration: reduce ? 0 : 0.22 } },
-  };
-
-  const KIND_STYLES: Record<OverlayKind, string> = {
-    error: "#ef4444",
-    scanning: "#60a5fa",
-    success: "#22c55e",
-  };
+  // reduced-motion not needed (overlays removed)
 
   // Centralized config constants
   const CFG = {
@@ -368,73 +337,10 @@ const MainApplicationUI: React.FC = () => {
     isScanningRef.current = isScanning;
   }, [isScanning]);
 
-  // Overlay
-  const [overlay, setOverlay] = useState<{
-    open: boolean;
-    kind: OverlayKind;
-    code: string;
-  }>({
-    open: false,
-    kind: "success",
-    code: "",
-  });
-  const showOverlay = (kind: OverlayKind, code: string) => {
-    if (kind !== "success") return;
-    setOverlay({ open: true, kind, code });
-  };
-  const hideOverlaySoon = (ms = 700) => {
-    schedule(
-      "overlayClose",
-      () => setOverlay((o) => ({ ...o, open: false })),
-      ms
-    );
-    return () => cancel("overlayClose");
-  };
-  const OK_OVERLAY_MS = Math.max(
-    400,
-    Number(process.env.NEXT_PUBLIC_OK_OVERLAY_MS ?? "1200")
-  );
-  const lastScanRef = useRef("");
-  const [okOverlayActive, setOkOverlayActive] = useState(false);
-  const [okAnimationTick, setOkAnimationTick] = useState(0);
+  // Overlays disabled: stub helpers for compatibility
 
-  const scheduleOkReset = (ms = 1500) => {
-    schedule("okReset", () => handleResetKfb(), ms + 100);
-  };
-  // Forced reset path that cannot be canceled by cancelOkReset()
-  const forceResetDoneRef = useRef(false);
-  const forceResetTimer1Ref = useRef<number | null>(null);
-  const forceResetTimer2Ref = useRef<number | null>(null);
-  const forceResetOnce = (primaryMs = 700, fallbackMs = 2200) => {
-    if (forceResetDoneRef.current) return;
-    const fire = () => {
-      if (forceResetDoneRef.current) return;
-      forceResetDoneRef.current = true;
-      try {
-        setOverlay((o) => ({ ...o, open: false }));
-      } catch {}
-      handleResetKfb();
-      if (forceResetTimer1Ref.current)
-        clearTimeout(forceResetTimer1Ref.current);
-      if (forceResetTimer2Ref.current)
-        clearTimeout(forceResetTimer2Ref.current);
-      forceResetTimer1Ref.current = null;
-      forceResetTimer2Ref.current = null;
-    };
-    if (forceResetTimer1Ref.current == null)
-      forceResetTimer1Ref.current = window.setTimeout(
-        fire,
-        Math.max(0, primaryMs)
-      );
-    if (forceResetTimer2Ref.current == null)
-      forceResetTimer2Ref.current = window.setTimeout(
-        fire,
-        Math.max(primaryMs + 500, fallbackMs)
-      );
-  };
-  const cancelOkReset = () => {
-    cancel("okReset");
-  };
+  const cancelOkReset = () => {};
+  const lastScanRef = useRef("");
   // Fallback: if scanning gets stuck, show "Nothing to check here" and reset to idle (clear MAC)
   useEffect(() => {
     if (!isScanning) return;
@@ -504,7 +410,10 @@ const MainApplicationUI: React.FC = () => {
   const scanOverlayTimerRef = useRef<number | null>(null);
   // Track when scan UI was shown to enforce a minimum visible duration
   const scanStartedAtRef = useRef<number | null>(null);
-  const MIN_SCAN_UI_MS = Math.max(500, Number(process.env.NEXT_PUBLIC_MIN_SCAN_UI_MS ?? '1000'));
+  const MIN_SCAN_UI_MS = Math.max(
+    500,
+    Number(process.env.NEXT_PUBLIC_MIN_SCAN_UI_MS ?? "1000")
+  );
   const startScanOverlayTimeout = (
     ms = Math.max(
       1000,
@@ -519,7 +428,6 @@ const MainApplicationUI: React.FC = () => {
     }
     scanOverlayTimerRef.current = window.setTimeout(() => {
       scanOverlayTimerRef.current = null;
-      setOverlay((o) => ({ ...o, open: false }));
     }, ms);
   };
   const clearScanOverlayTimeout = () => {
@@ -794,65 +702,7 @@ const MainApplicationUI: React.FC = () => {
     })();
   }, [redisDegraded, macAddress, suppressLive]);
 
-  useEffect(() => {
-    if (suppressLive) return; // hard gate: ignore SSE after OK is latched
-    const ev = (serial as any).lastEv as {
-      kind?: string;
-      mac?: string | null;
-      line?: string;
-      raw?: string;
-      ok?: any;
-    } | null;
-    if (!ev) return;
-
-    const raw = String(ev.line ?? ev.raw ?? "");
-    const kind = String(ev.kind || "").toUpperCase();
-    const ok =
-      (/\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw)) ||
-      String(ev.ok).toLowerCase() === "true";
-    const ZERO = "00:00:00:00:00:00";
-    const current = (macAddress || "").toUpperCase();
-    let evMac = String(ev.mac || "").toUpperCase();
-    if (!evMac || evMac === ZERO) {
-      const macs =
-        raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
-      evMac = macs.find((m) => m !== ZERO) || "";
-    }
-    const matches = !evMac || evMac === ZERO || evMac === current;
-    try {
-      if (matches || kind === "DONE") {
-        console.log("[SSE] event", {
-          kind,
-          ok,
-          evMac,
-          matches,
-          line: raw?.slice(0, 120),
-        });
-      }
-    } catch {}
-
-    if ((kind === "RESULT" || kind === "DONE") && ok && matches) {
-      try {
-        console.log("[FLOW][SUCCESS] SSE RESULT/DONE ok for current MAC", {
-          evMac,
-          kind,
-        });
-      } catch {}
-      setSuppressLive(true);
-      setBranchesData((prev) =>
-        prev.map((b) => ({ ...b, testStatus: "ok" as const }))
-      );
-      setCheckFailures([]);
-      setIsChecking(false);
-      setIsScanning(false);
-      setOkFlashTick((t) => t + 1);
-      setOverlay((o) => ({ ...o, open: false }));
-      const mac = (macAddress || "").toUpperCase();
-      if (mac) {
-        void finalizeOkForMac(mac);
-      }
-    }
-  }, [serial.lastEvTick, macAddress, suppressLive]);
+  // Removed earlier permissive SSE handler to avoid stray OKs without a live session.
 
   useEffect(() => {
     if (isScanning || isChecking) {
@@ -900,7 +750,6 @@ const MainApplicationUI: React.FC = () => {
         console.log("[FLOW][SUCCESS] derived success path (no failures)");
       } catch {}
       clearScanOverlayTimeout();
-      setOverlay((o) => ({ ...o, open: false }));
       okForcedRef.current = true;
       setSuppressLive(true);
       setOkFlashTick((t) => t + 1);
@@ -974,25 +823,11 @@ const MainApplicationUI: React.FC = () => {
 
   // Clears all timers and resets state after OK finalisation.
   const handleResetKfb = useCallback(() => {
-    // Cancel forced reset timers
-    forceResetDoneRef.current = false;
-    if (forceResetTimer1Ref.current) {
-      clearTimeout(forceResetTimer1Ref.current);
-      forceResetTimer1Ref.current = null;
-    }
-    if (forceResetTimer2Ref.current) {
-      clearTimeout(forceResetTimer2Ref.current);
-      forceResetTimer2Ref.current = null;
-    }
-    // Cancel OK overlay auto-reset
-    cancelOkReset?.();
-    // Cancel any retry or scan overlay timers
+    // Cancel any retry or scan timers
     clearRetryTimer();
     clearScanOverlayTimeout();
 
-    // Close overlay
-    setOverlay((o) => ({ ...o, open: false }));
-    // Reset flashing OK and system note
+    // Reset system note and flags
     setOkFlashTick(0);
     setOkSystemNote(null);
     setDisableOkAnimation(false);
@@ -1232,14 +1067,16 @@ const MainApplicationUI: React.FC = () => {
       if (finalizeOkGuardRef.current.has(mac)) return;
       // Skip if this MAC was just cleaned up very recently (within 5s)
       try {
-        const last = (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(mac) || 0;
+        const last =
+          (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(
+            mac
+          ) || 0;
         if (Date.now() - last < 5000) return;
       } catch {}
       finalizeOkGuardRef.current.add(mac);
 
       try {
         // Suppress live updates and proceed to finalize without showing an extra OK flash
-        setOverlay((o) => ({ ...o, open: false }));
         setSuppressLive(true);
         try {
           if (DEBUG_LIVE)
@@ -1347,7 +1184,12 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
       } finally {
         // Always reset UI at the end
-        try { (recentCleanupRef.current as Map<string, number>).set(mac, Date.now()); } catch {}
+        try {
+          (recentCleanupRef.current as Map<string, number>).set(
+            mac,
+            Date.now()
+          );
+        } catch {}
         finalizeOkGuardRef.current.delete(mac);
         handleResetKfb();
       }
@@ -1371,7 +1213,10 @@ const MainApplicationUI: React.FC = () => {
     if (isScanning || isChecking) return;
     // Throttle: if cleanup just happened recently, skip this pass
     try {
-      const last = (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(mac) || 0;
+      const last =
+        (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(
+          mac
+        ) || 0;
       if (Date.now() - last < 5000) {
         lastFinalizedMacRef.current = null;
         return;
@@ -1437,14 +1282,21 @@ const MainApplicationUI: React.FC = () => {
     if (!evMac || evMac === ZERO) {
       const macs =
         raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
-      evMac = macs.find((m) => m !== ZERO) || "";
+      evMac = macs.find((m) => m !== ZERO) || current;
     }
 
-    // Only act if the MAC matches the current device or is empty/zero.
-    const matches = !evMac || evMac === ZERO || evMac === current;
+    // Strict: only act for the current MAC, with an active live session gate
+    const matches = !!current && evMac === current;
+    const liveAllowed =
+      okFlashAllowedRef.current === true && isCheckingRef.current === true;
 
-    // Allow OK flash only when we had a live session (EV START/edges)
-    if ((kind === "RESULT" || kind === "DONE") && ok && matches) {
+    // Allow OK handling only when we had a live session (EV START) for this MAC
+    if (
+      (kind === "RESULT" || kind === "DONE") &&
+      ok &&
+      matches &&
+      liveAllowed
+    ) {
       // Mark all displayed branches as OK and stop scanning/checking.
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
@@ -1452,15 +1304,11 @@ const MainApplicationUI: React.FC = () => {
       setCheckFailures([]);
       setIsChecking(false);
       setIsScanning(false);
-      // Only flash OK if a live session actually started
-      const hasLive = okFlashAllowedRef.current === true;
-      if (hasLive) {
-        if (!okShownOnceRef.current) {
-          okShownOnceRef.current = true;
-          setOkFlashTick((t) => t + 1);
-        }
+      // Only update OK tick internally (overlay disabled)
+      if (okFlashAllowedRef.current === true && !okShownOnceRef.current) {
+        okShownOnceRef.current = true;
+        setOkFlashTick((t) => t + 1);
       }
-      setOverlay((o) => ({ ...o, open: false }));
 
       // Immediately finalise the MAC (clears Redis, sends checkpoint, resets the UI).
       finalizeOkForMac(evMac || current);
@@ -1865,7 +1713,6 @@ const MainApplicationUI: React.FC = () => {
           if (!unknown && failures.length === 0) {
             // Success: close overlay and show unified OK once
             clearScanOverlayTimeout();
-            setOverlay((o) => ({ ...o, open: false }));
             setSuppressLive(true);
             if (okFlashAllowedRef.current && !okShownOnceRef.current) {
               okShownOnceRef.current = true;
@@ -1886,12 +1733,10 @@ const MainApplicationUI: React.FC = () => {
                 : `Failures: ${failures.join(", ")}`);
             const nowErr = Date.now();
             if (nowErr - lastErrorStampRef.current > 800) {
-              showOverlay("error", msg);
               lastErrorStampRef.current = nowErr;
             }
             setAwaitingRelease(false);
           }
-          if (!(failures.length === 0 && !unknown)) hideOverlaySoon();
         } else {
           try {
             console.warn("[FLOW][CHECK] non-OK status", { status: res.status });
@@ -1935,7 +1780,6 @@ const MainApplicationUI: React.FC = () => {
               console.warn("CHECK pending/no-result");
               setScanningError(true);
               setDisableOkAnimation(true);
-              showOverlay("error", "SCANNING ERROR");
               clearScanOverlayTimeout();
               // Reset view back to default scan state shortly after showing error (preserve MAC)
               setTimeout(() => {
@@ -1949,7 +1793,6 @@ const MainApplicationUI: React.FC = () => {
             console.error("CHECK error:", result);
             setScanningError(true);
             setDisableOkAnimation(true);
-            showOverlay("error", "CHECK ERROR");
             clearScanOverlayTimeout();
             // Reset view back to default scan state shortly after showing error (preserve MAC)
             setTimeout(() => {
@@ -1960,7 +1803,6 @@ const MainApplicationUI: React.FC = () => {
             }, 1300);
           }
           setAwaitingRelease(false);
-          if (!(res.status === 504 && attempt < 2)) hideOverlaySoon();
         }
       } catch (err) {
         if ((err as any)?.name === "AbortError") {
@@ -1979,9 +1821,7 @@ const MainApplicationUI: React.FC = () => {
             );
           } else {
             setScanningError(true);
-            showOverlay("error", "SCANNING ERROR");
             clearScanOverlayTimeout();
-            hideOverlaySoon();
             setTimeout(() => {
               handleResetKfb();
               setGroupedBranches([]);
@@ -1991,11 +1831,9 @@ const MainApplicationUI: React.FC = () => {
           }
         } else {
           console.error("CHECK error", err);
-          showOverlay("error", "CHECK exception");
           setDisableOkAnimation(true);
           setAwaitingRelease(false);
           clearScanOverlayTimeout();
-          hideOverlaySoon();
           setTimeout(() => {
             handleResetKfb();
             setGroupedBranches([]);
@@ -2009,7 +1847,15 @@ const MainApplicationUI: React.FC = () => {
         setIsChecking(false);
       }
     },
-    []
+    [
+      clearRetryTimer,
+      schedule,
+
+      finalizeOkForMac,
+      latchPins,
+      activeKssks,
+      handleResetKfb,
+    ]
   );
 
   // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
@@ -2035,33 +1881,17 @@ const MainApplicationUI: React.FC = () => {
       if (!isMac && !KFB_REGEX.test(normalized)) {
         if (source === "manual") {
           setErrorMsg("Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF");
-        } else {
-          showOverlay("error", `Invalid code: ${normalized}`);
-          hideOverlaySoon();
         }
         console.warn("[FLOW][SCAN] rejected by patterns", { normalized });
         return;
       }
       lastScanRef.current = normalized;
       if (source === "scan") {
-        if (branchesData.length === 0 && groupedBranches.length === 0) {
-          // Debounce the scanning overlay to avoid flicker when load resolves to nothing-to-check quickly.
-          schedule(
-            "scanOverlayDebounce",
-            () => {
-              showOverlay("scanning", normalized);
-              startScanOverlayTimeout(5000);
-              try {
-                console.log("[FLOW][LOAD] showing SCANNING overlay for scan", {
-                  normalized,
-                });
-              } catch {}
-            },
-            250
-          );
-        }
+        // overlay disabled
         setShowScanUi(true);
-        try { scanStartedAtRef.current = Date.now(); } catch {}
+        try {
+          scanStartedAtRef.current = Date.now();
+        } catch {}
       }
       setIsScanning(true);
       try {
@@ -2314,7 +2144,6 @@ const MainApplicationUI: React.FC = () => {
           // Redis empty: show inline "NOTHING TO CHECK HERE" only (no OK), then revert to idle.
           clearScanOverlayTimeout();
           cancel("scanOverlayDebounce");
-          setOverlay((o) => ({ ...o, open: false }));
           setGroupedBranches([]);
           setBranchesData([]);
           setActiveKssks([]);
@@ -2324,7 +2153,8 @@ const MainApplicationUI: React.FC = () => {
           okFlashAllowedRef.current = false; // do not allow OK flash for this path
           const started = scanStartedAtRef.current || Date.now();
           const elapsed = Date.now() - started;
-          const waitMs = elapsed < MIN_SCAN_UI_MS ? MIN_SCAN_UI_MS - elapsed : 0;
+          const waitMs =
+            elapsed < MIN_SCAN_UI_MS ? MIN_SCAN_UI_MS - elapsed : 0;
           window.setTimeout(() => {
             setIsScanning(false);
             setShowScanUi(false);
@@ -2332,14 +2162,18 @@ const MainApplicationUI: React.FC = () => {
             try {
               setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
               if (scanResultTimerRef.current) {
-                try { clearTimeout(scanResultTimerRef.current); } catch {}
+                try {
+                  clearTimeout(scanResultTimerRef.current);
+                } catch {}
                 scanResultTimerRef.current = null;
               }
               const HINT_MS = 1500;
               scanResultTimerRef.current = window.setTimeout(() => {
                 setScanResult(null);
                 scanResultTimerRef.current = null;
-                try { handleResetKfb(); } catch {}
+                try {
+                  handleResetKfb();
+                } catch {}
                 setSuppressLive(false);
               }, HINT_MS);
               idleCooldownUntilRef.current = Date.now() + HINT_MS;
@@ -2348,7 +2182,11 @@ const MainApplicationUI: React.FC = () => {
               const macUp = (mac || "").toUpperCase();
               if (macUp) {
                 blockedMacRef.current.add(macUp);
-                window.setTimeout(() => { try { blockedMacRef.current.delete(macUp); } catch {} }, 6000);
+                window.setTimeout(() => {
+                  try {
+                    blockedMacRef.current.delete(macUp);
+                  } catch {}
+                }, 6000);
               }
               skipStopCleanupNextRef.current = true;
             } catch {}
@@ -2370,10 +2208,6 @@ const MainApplicationUI: React.FC = () => {
           "Failed to load setup data. Please run Setup or scan MAC again.";
         setErrorMsg(msg);
         setDisableOkAnimation(true);
-        if (source === "scan") {
-          showOverlay("error", "Load failed");
-          hideOverlaySoon();
-        }
       } finally {
         setIsScanning(false);
         setShowScanUi(false);
@@ -2409,8 +2243,6 @@ const MainApplicationUI: React.FC = () => {
       }
 
       if (!(canonicalMac(normalized) || KFB_REGEX.test(normalized))) {
-        showOverlay("error", normalized);
-        hideOverlaySoon();
         try {
           console.warn("[FLOW][SCAN] invalid format", { normalized });
         } catch {}
@@ -2802,167 +2634,6 @@ const MainApplicationUI: React.FC = () => {
         .plug-wiggle { animation: wiggle 1s ease-in-out infinite; }
         @keyframes wiggle { 0%,100% { transform: translateX(0) } 50% { transform: translateX(8px) } }
       `}</style>
-
-      {/* SCANNING / OK / ERROR overlay */}
-      <AnimatePresence>
-        {overlay.open && (
-          <m.div
-            variants={bg}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(2,6,23,0.64)",
-              backdropFilter: "blur(4px)",
-              display: "grid",
-              placeItems: "center",
-              zIndex: 9999,
-            }}
-            aria-live="assertive"
-            aria-label={
-              overlay.kind === "scanning" && overlay.code
-                ? overlay.code
-                : overlay.kind.toUpperCase()
-            }
-          >
-            <m.div
-              variants={card}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
-              style={{ display: "grid", justifyItems: "center", gap: 8 }}
-            >
-              {overlay.kind === "success" ? (
-                <>
-                  <m.div
-                    initial={{ scale: reduce ? 1 : 0.95, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: "spring", stiffness: 260, damping: 20 }}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{
-                        width: 160,
-                        height: 160,
-                        color: KIND_STYLES.success,
-                      }}
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M9 12l2 2 4-4" />
-                    </svg>
-                  </m.div>
-                  <m.div
-                    variants={heading}
-                    style={{
-                      fontSize: 56,
-                      fontWeight: 900,
-                      letterSpacing: "0.02em",
-                      color: KIND_STYLES.success,
-                      textShadow: "0 6px 18px rgba(0,0,0,0.45)",
-                    }}
-                  >
-                    OK
-                  </m.div>
-                </>
-              ) : (
-                <>
-                  {(() => {
-                    const isScanningWithCode =
-                      overlay.kind === "scanning" && !!overlay.code;
-                    const isErrorWithCode =
-                      overlay.kind === "error" && !!overlay.code;
-                    const sanitizeErrorText = (t: string) => {
-                      const keep = new Set(["NOTHING TO CHECK HERE"]);
-                      if (keep.has(t)) return t;
-                      const tooLong = t.length > 48;
-                      if (
-                        /RESULT|\u2190|reply\s+from|FAIL|MISSING/i.test(t) ||
-                        tooLong
-                      )
-                        return "ERROR";
-                      return t;
-                    };
-                    const bigText = isScanningWithCode
-                      ? (overlay.code as string)
-                      : isErrorWithCode
-                        ? sanitizeErrorText(String(overlay.code))
-                        : overlay.kind.toUpperCase();
-                    return (
-                      <m.div
-                        variants={heading}
-                        style={{
-                          // Make error text much smaller (about 3x smaller)
-                          fontSize: overlay.kind === "error" ? 46 : 136,
-                          fontWeight: 900,
-                          letterSpacing: "0.02em",
-                          color: KIND_STYLES[overlay.kind],
-                          textShadow: "0 8px 24px rgba(0,0,0,0.45)",
-                          textAlign: "center",
-                          fontFamily:
-                            overlay.kind === "scanning"
-                              ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
-                              : 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-                        }}
-                      >
-                        {bigText}
-                      </m.div>
-                    );
-                  })()}
-
-                  {overlay.kind === "scanning" && overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{ fontSize: 18, color: "#f1f5f9", opacity: 0.95 }}
-                    >
-                      SCANNING…
-                    </m.div>
-                  ) : overlay.kind === "error" && overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{
-                        fontSize: 18,
-                        color: "#f1f5f9",
-                        opacity: 0.95,
-                        textAlign: "center",
-                      }}
-                    >
-                      ERROR
-                    </m.div>
-                  ) : overlay.code ? (
-                    <m.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: reduce ? 0 : 0.05 }}
-                      style={{
-                        fontSize: 16,
-                        color: "#f1f5f9",
-                        opacity: 0.95,
-                        wordBreak: "break-all",
-                        textAlign: "center",
-                        maxWidth: 640,
-                      }}
-                    >
-                      {overlay.code}
-                    </m.div>
-                  ) : null}
-                </>
-              )}
-            </m.div>
-          </m.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

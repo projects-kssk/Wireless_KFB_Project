@@ -846,9 +846,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => {
     if (!settled || !showingGrouped) return;
     if (!groupedAllOk) return;
+    // Proactively clear Redis/locks once when reaching grouped-all-OK.
+    // This mirrors the allOk-based finalization but ensures cleanup even if that path is skipped.
+    try {
+      const mac = (macAddress || '').toUpperCase();
+      if (mac && typeof onFinalizeOk === 'function' && !clearedMacsRef.current.has(mac)) {
+        clearedMacsRef.current.add(mac);
+        void onFinalizeOk(mac);
+      }
+    } catch {}
     if (flashInProgressRef.current || showOkAnimation) return;
     triggerOkFlash(Date.now()); // this already calls returnToScan() after OK_FLASH_MS
-  }, [settled, showingGrouped, groupedAllOk, showOkAnimation, triggerOkFlash]);
+  }, [settled, showingGrouped, groupedAllOk, showOkAnimation, triggerOkFlash, onFinalizeOk, macAddress]);
   // Watchdog: if the flash didn’t render for any reason, force a reset shortly after
   useEffect(() => {
     if (!allOk) return;
@@ -871,63 +880,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       if (clearBusyTimer.current) clearTimeout(clearBusyTimer.current);
     };
   }, []);
-
-  const handleScan = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setShowOkAnimation(false);
-    onScanAgainRequest();
-  }, [onScanAgainRequest]);
-
-  const runCheck = useCallback(async () => {
-    if (!macAddress) {
-      setCheckError("Missing MAC address for CHECK");
-      return;
-    }
-    setIsChecking(true);
-    setCheckError(null);
-    try {
-      const res = await fetch("/api/serial/check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mac: macAddress.toUpperCase() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || String(res.status));
-      const failures: number[] = Array.isArray(data?.failures)
-        ? data.failures
-        : [];
-
-      // No localStorage of recent MACs; keep in-memory if needed
-      try {
-        const mac = macAddress.toUpperCase();
-        const now = [mac, ...recentMacs.filter((m) => m !== mac)].slice(0, 5);
-        setRecentMacs(now);
-      } catch {}
-
-      const contactless = new Set<number>(
-        (latchPins || []).filter((n) => Number.isFinite(n)) as number[]
-      );
-      startTransition(() =>
-        setLocalBranches((prev) =>
-          prev.map((b) => {
-            if (typeof b.pinNumber !== "number" || (b as any).notTested)
-              return b;
-            const pin = b.pinNumber as number;
-            if (failures.includes(pin))
-              return { ...b, testStatus: "nok" } as any;
-            // For contactless pins, do not auto-mark OK; leave as not_tested unless explicitly failed
-            if (contactless.has(pin))
-              return { ...b, testStatus: "not_tested" } as any;
-            return { ...b, testStatus: "ok" } as any;
-          })
-        )
-      );
-    } catch (e: any) {
-      setCheckError(e?.message || "CHECK failed");
-    } finally {
-      setIsChecking(false);
-    }
-  }, [macAddress, recentMacs]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1216,51 +1168,68 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               );
             })()}
             {isScanning && !scanResult && (
-              <div className="flex flex-col items-center gap-4">
-                <p className="text-slate-700 text-3xl md:text-4xl font-extrabold tracking-wider">
+              <div className="flex flex-col items-center gap-5">
+                <p className="text-slate-800 text-4xl md:text-5xl font-extrabold tracking-wider">
                   Scanning…
                 </p>
-                <div className="relative w-72 md:w-96 h-16 rounded-2xl border border-slate-300 bg-white shadow-lg overflow-hidden">
+                <div className="relative w-80 md:w-[480px] h-20 md:h-24 rounded-3xl border border-slate-300 bg-gradient-to-br from-white to-slate-50 shadow-xl overflow-hidden">
                   <m.div
                     aria-hidden
                     style={{
                       position: "absolute",
                       inset: 0,
                       backgroundImage:
-                        "repeating-linear-gradient(90deg, rgba(148,163,184,.18) 0 1px, transparent 1px 12px)",
-                      opacity: 0.5,
+                        "repeating-linear-gradient(90deg, rgba(148,163,184,.16) 0 1px, transparent 1px 12px)",
+                      opacity: 0.6,
                     }}
                   />
                   <m.div
-                    className="absolute top-1/2 -translate-y-1/2 h-10 w-1/3 bg-blue-500/20 blur-xl"
-                    animate={{ x: ["-20%", "110%"] }}
-                    transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                    className="absolute top-1/2 -translate-y-1/2 h-14 md:h-16 w-1/2 bg-blue-500/15 blur-xl"
+                    animate={{ x: ["-25%", "115%"] }}
+                    transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }}
                   />
                   <m.div
-                    className="absolute top-1/2 -translate-y-1/2 h-2 w-1/3 bg-gradient-to-r from-transparent via-blue-500/70 to-transparent"
-                    animate={{ x: ["-20%", "110%"] }}
-                    transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                    className="absolute top-1/2 -translate-y-1/2 h-2.5 w-1/2 bg-gradient-to-r from-transparent via-blue-500/80 to-transparent"
+                    animate={{ x: ["-25%", "115%"] }}
+                    transition={{ repeat: Infinity, duration: 1.3, ease: "easeInOut" }}
                   />
+                  {(["tl","tr","bl","br"] as const).map((pos) => (
+                    <span
+                      key={pos}
+                      className="absolute"
+                      style={{
+                        width: 18,
+                        height: 18,
+                        ...(pos === "tl" && { left: 12, top: 12, borderLeft: "2px solid #cbd5e1", borderTop: "2px solid #cbd5e1" }),
+                        ...(pos === "tr" && { right: 12, top: 12, borderRight: "2px solid #cbd5e1", borderTop: "2px solid #cbd5e1" }),
+                        ...(pos === "bl" && { left: 12, bottom: 12, borderLeft: "2px solid #cbd5e1", borderBottom: "2px solid #cbd5e1" }),
+                        ...(pos === "br" && { right: 12, bottom: 12, borderRight: "2px solid #cbd5e1", borderBottom: "2px solid #cbd5e1" }),
+                        borderRadius: 3,
+                        opacity: 0.8,
+                      }}
+                    />
+                  ))}
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-slate-500 font-semibold">Please wait</span>
+                    <span className="text-slate-600 font-semibold">Please wait — scanning barcode</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-slate-500">
                   <m.span
-                    className="w-2 h-2 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.25, 1, 0.25] }}
                     transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
                   />
                   <m.span
-                    className="w-2 h-2 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.25, 1, 0.25] }}
                     transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
                   />
                   <m.span
-                    className="w-2 h-2 rounded-full bg-blue-500"
-                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    className="w-2.5 h-2.5 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.25, 1, 0.25] }}
                     transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
                   />
+                  <span className="ml-1 text-sm font-semibold">Listening on scanner</span>
                 </div>
               </div>
             )}
@@ -1379,15 +1348,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   {/* Render large chips that wrap, so multiple names fit per row */}
                   <div className="flex flex-wrap gap-3">
                     {failedItems.map((f) => (
-                      <span
+                      <div
                         key={`f-${(grp as any).ksk}-${f.pin}`}
-                        className="inline-flex items-center flex-wrap gap-2 rounded-full bg-red-50 text-red-700 border border-red-200 px-5 py-3 shadow-sm"
-                        title={`PIN ${f.pin}${f.isLatch ? ' (Contactless)' : ''}`}
+                        className="group relative inline-flex items-center flex-wrap gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 shadow-sm"
+                        title={`PIN ${f.pin}${f.isLatch ? " (Contactless)" : ""}`}
                       >
-                        <span className="text-2xl md:text-3xl font-black leading-none">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
+                          !
+                        </span>
+                        <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
                           {f.name}
                         </span>
-                        <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px] font-semibold">
+                        <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
                           PIN {f.pin}
                         </span>
                         {f.isLatch && (
@@ -1398,7 +1370,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                             Contactless
                           </span>
                         )}
-                      </span>
+                      </div>
                     ))}
                   </div>
                 </div>

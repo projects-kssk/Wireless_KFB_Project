@@ -106,7 +106,18 @@ export default function SimulateCheckBar() {
           desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }
         ] }),
       });
-      // The UI’s scan handler will run load + check; we just show RUNNING status, then DONE via SSE
+      // Additionally, kick off a direct CHECK to ensure progress even if scan filtering blocks it.
+      // Server dedupes by per-MAC lock, so double-trigger is safe.
+      try {
+        const res = await fetch('/api/serial/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac: mac.toUpperCase() }),
+        });
+        const j = await res.json().catch(() => null);
+        if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
+        else setLast({ ok: false, msg: j?.error || String(res.status) });
+      } catch {}
     } catch (e: any) {
       setLast({ ok: false, msg: String(e?.message || e) });
     } finally {

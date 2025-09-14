@@ -168,6 +168,10 @@ export interface BranchDashboardMainContentProps {
   onScanAgainRequest: () => void;
   onManualSubmit: (kfbNumber: string) => void;
   appHeaderHeight: string;
+  hudMode?: "idle" | "scanning" | "error" | "info" | null;
+  hudMessage?: string;
+  hudSubMessage?: string;
+  onHudDismiss?: () => void;
   branchesData: BranchDisplayData[];
   isScanning: boolean;
   kfbNumber: string;
@@ -212,6 +216,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   appHeaderHeight,
   onScanAgainRequest,
   onManualSubmit,
+  hudMode,
+  hudMessage,
+  hudSubMessage,
+  onHudDismiss,
   branchesData,
   isScanning,
   kfbNumber,
@@ -1143,10 +1151,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                     <button
                       type="submit"
                       disabled={!macValid || busy}
-                    className={[
-                      "w-full py-4 rounded-2xl font-extrabold uppercase tracking-wider transition",
-                      "bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed",
-                    ].join(" ")}
+                      className={[
+                        "w-full py-4 rounded-2xl font-extrabold uppercase tracking-wider transition",
+                        "bg-slate-800 text-white hover:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed",
+                      ].join(" ")}
                     >
                       {busy ? "Submitting" : "Submit MAC"}
                     </button>
@@ -1163,13 +1171,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
           <div className="w-full flex flex-col items-center gap-4 md:gap-6">
             {(() => {
-              const txt = scanResult
-                ? scanResult.text
-                : isScanning
-                  ? "SCANNING…"
-                  : "Please Scan Barcode";
+              const nothingToCheck =
+                !!scanResult &&
+                /^(nothing\s+to\s+check\s+here)$/i.test(scanResult.text || "");
+              const txt = isScanning
+                ? "SCANNING…"
+                : nothingToCheck
+                  ? "Please Scan Barcode"
+                  : scanResult
+                    ? scanResult.text
+                    : "Please Scan Barcode";
               const cls =
-                scanResult && scanResult.kind === "error"
+                scanResult && scanResult.kind === "error" && !nothingToCheck
                   ? "text-red-600"
                   : "text-slate-700";
               return (
@@ -1178,6 +1191,71 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 >
                   {txt}
                 </p>
+              );
+            })()}
+            {(() => {
+              const showNtch =
+                !!scanResult &&
+                /^(nothing\s+to\s+check\s+here)$/i.test(scanResult.text || "");
+              if (!showNtch) return null;
+              return (
+                <p className="mt-2 text-slate-400 text-xl md:text-2xl font-semibold uppercase tracking-widest select-none"></p>
+              );
+            })()}
+
+            {/* Inline HUD under the scan prompt */}
+            {(() => {
+              if (!hudMode) return null;
+              const isScanningHud = hudMode === "scanning";
+              const isErrorHud = hudMode === "error";
+              const isInfoHud = hudMode === "info";
+              const isIdleHud = hudMode === "idle";
+              const base =
+                "w-[min(680px,92vw)] rounded-xl border shadow-sm backdrop-blur-md px-4 py-3";
+              const tone = isErrorHud
+                ? "border-red-200 bg-red-50/90 text-red-900"
+                : isScanningHud
+                  ? "border-blue-200 bg-blue-50/90 text-blue-900"
+                  : isIdleHud
+                    ? "border-slate-200 bg-white/90 text-slate-900"
+                    : "border-emerald-200 bg-emerald-50/90 text-emerald-900";
+              return (
+                <div className="mt-3 flex flex-col items-center">
+                  <div
+                    className={`${base} ${tone}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="min-w-0 flex-1 text-center">
+                        {hudMessage && (
+                          <div className="font-semibold leading-6 truncate">
+                            {hudMessage}
+                          </div>
+                        )}
+                        {hudSubMessage && (
+                          <div className="text-sm/5 opacity-80 truncate">
+                            {hudSubMessage}
+                          </div>
+                        )}
+                        {isScanningHud && (
+                          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                            <div className="animate-[shimmer_1.6s_infinite_linear] h-full w-1/2 bg-blue-400/60" />
+                          </div>
+                        )}
+                      </div>
+                      {onHudDismiss && !isScanningHud && (
+                        <button
+                          type="button"
+                          onClick={onHudDismiss}
+                          className="ml-2 inline-flex select-none items-center rounded-md px-2.5 py-1.5 text-sm font-medium ring-1 ring-inset bg-slate-900 text-white hover:bg-black ring-slate-900"
+                        >
+                          Dismiss
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
               );
             })()}
           </div>
@@ -1405,9 +1483,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
     >
       <header className="w-full mb-1 min-h-[56px]">
-        {kfbInfo?.board ||
-        kfbNumber ||
-        (macAddress && localBranches.length > 0) ? (
+        {!scanResult &&
+        (kfbInfo?.board ||
+          kfbNumber ||
+          (macAddress && localBranches.length > 0)) ? (
           <div className="flex flex-col items-center gap-2">
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">

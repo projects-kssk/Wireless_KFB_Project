@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SimpleStatus } from "@/components/Header/StatusIndicatorCard";
 
-type DeviceInfo = {
+export type DeviceInfo = {
   path: string;
   vendorId: string | null;
   productId: string | null;
@@ -25,7 +25,7 @@ type SerialEvent =
   | { type: "ev"; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number }
   | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
 
-type ScannerPortState = {
+export type ScannerPortState = {
   present: boolean;
   open: boolean;
   lastError: string | null;
@@ -34,7 +34,43 @@ type ScannerPortState = {
 
 const SSE_PATH = "/api/serial/events";
 
-export function useSerialEvents(macFilter?: string) {
+export type SerialState = {
+  devices: DeviceInfo[];
+  server: SimpleStatus;
+  netIface: string | null;
+  netIp: string | null;
+  netPresent: boolean;
+  netUp: boolean;
+  sseConnected: boolean;
+
+  lastScan: string | null;
+  lastScanPath: string | null;
+  lastScanTick: number;
+  lastScanAt: number | null;
+
+  scannerError: string | null;
+
+  scannerPaths: string[];
+  scannerPorts: Record<string, ScannerPortState>;
+  scannersDetected: number;
+  scannersOpen: number;
+
+  clearLastScan: () => void;
+
+  redisReady: boolean;
+  redisDetail: { status?: string; lastEvent?: string; lastError?: string | null; lastAt?: number } | null;
+
+  lastEv: any;
+  lastEvTick: number;
+
+  evCount: number;
+
+  lastUnion: { mac: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null;
+
+  isUnloading: boolean;
+};
+
+export function useSerialEvents(macFilter?: string, opts?: { disabled?: boolean }): SerialState {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [netIface, setNetIface] = useState<string | null>(null);
@@ -68,6 +104,43 @@ export function useSerialEvents(macFilter?: string) {
   const redisOkRef = useRef(false);
   const pendingRef = useRef<{ scan?: { code: string; path?: string }; ev?: any } | null>(null);
   const rafRef = useRef<number | null>(null);
+
+  // When disabled, return a stable, no-op state so consumers can safely destructure.
+  const emptyStateRef = useRef<SerialState>({
+    devices: [],
+    server: "offline",
+    netIface: null,
+    netIp: null,
+    netPresent: false,
+    netUp: false,
+    sseConnected: false,
+
+    lastScan: null,
+    lastScanPath: null,
+    lastScanTick: 0,
+    lastScanAt: null,
+
+    scannerError: null,
+
+    scannerPaths: [],
+    scannerPorts: {},
+    scannersDetected: 0,
+    scannersOpen: 0,
+
+    clearLastScan: () => {},
+
+    redisReady: false,
+    redisDetail: null,
+
+    lastEv: null,
+    lastEvTick: 0,
+
+    evCount: 0,
+
+    lastUnion: null,
+
+    isUnloading: false,
+  });
 
   const flush = () => {
     const p = pendingRef.current;
@@ -148,10 +221,28 @@ export function useSerialEvents(macFilter?: string) {
     };
   }, []);
 
+  const disabled = Boolean(opts?.disabled || !macFilter);
+
   useEffect(() => {
+    if (disabled) {
+      try { esRef.current?.close(); } catch {}
+      esRef.current = null;
+      setSseConnected(false);
+      return;
+    }
     if (esRef.current) {
       try { esRef.current.close(); } catch {}
       esRef.current = null;
+    }
+    // If no MAC filter is provided and base SSE is not explicitly enabled, skip creating the EventSource.
+    const baseEnabled = String(process.env.NEXT_PUBLIC_BASE_SSE_ENABLED || '').trim() === '1';
+    if (!macFilter && !baseEnabled) {
+      setSseConnected(false);
+      return () => {
+        try { esRef.current?.close(); } catch {}
+        esRef.current = null;
+        setSseConnected(false);
+      };
     }
 
     const url = macFilter && macFilter.trim()
@@ -260,7 +351,7 @@ export function useSerialEvents(macFilter?: string) {
       esRef.current = null;
       setSseConnected(false);
     };
-  }, [macFilter]);
+  }, [macFilter, disabled]);
 
   const scannersDetected = useMemo(
     () => paths.filter((p) => ports[p]?.present).length,
@@ -277,7 +368,7 @@ export function useSerialEvents(macFilter?: string) {
     setLastScanAt(null);
   };
 
-  return {
+  const value: SerialState = {
     devices,
     server,
     netIface,
@@ -313,4 +404,6 @@ export function useSerialEvents(macFilter?: string) {
     // Indicates the browser/tab is unloading (closing/reloading)
     isUnloading,
   };
+
+  return disabled ? emptyStateRef.current : value;
 }

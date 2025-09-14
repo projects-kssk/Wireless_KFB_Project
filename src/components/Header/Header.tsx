@@ -4,7 +4,7 @@ import React, { memo, useEffect, useRef, useState } from 'react';
 import { m, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
 import type { Transition } from 'framer-motion';
 import { appConfig } from '@/components/config/appConfig';
-import { useSerialEvents } from './useSerialEvents';
+import { useSerialEvents, type SerialState } from './useSerialEvents';
 
 /* ────────────────────────────────────────────────────────────────────────────
    Config
@@ -571,6 +571,7 @@ interface HeaderProps {
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
   labelsHidden?: boolean;
+  serial?: SerialState;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -579,6 +580,7 @@ export const Header: React.FC<HeaderProps> = ({
   isSidebarOpen: _isSidebarOpen,
   onToggleSidebar: _onToggleSidebar,
   labelsHidden = false,
+  serial: injectedSerial,
 }) => {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [settingsSize, setSettingsSize] = useState<number>(150);
@@ -588,7 +590,8 @@ export const Header: React.FC<HeaderProps> = ({
   const rafId = useRef<number | null>(null);
   const resizeRafId = useRef<number | null>(null);
 
-  const { devices, server, scannerPorts: ports, netIface, netIp, netPresent, netUp } = useSerialEvents();
+  const serialUsed = injectedSerial ?? useSerialEvents(undefined);
+  const { devices, server, scannerPorts: ports, netIface, netIp, netPresent, netUp } = serialUsed;
 
   type SlotState = { present: boolean; open: boolean };
   const slotState = (idx: number): SlotState => {

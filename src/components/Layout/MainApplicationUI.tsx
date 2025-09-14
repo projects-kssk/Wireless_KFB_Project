@@ -141,6 +141,10 @@ const MainApplicationUI: React.FC = () => {
       0,
       Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? 1)
     ),
+    RETRY_COOLDOWN_MS: Math.max(
+      2000,
+      Number(process.env.NEXT_PUBLIC_RETRY_COOLDOWN_MS ?? 5000)
+    ),
   } as const;
 
   // Feature flags (default off unless explicitly enabled)
@@ -343,47 +347,38 @@ const MainApplicationUI: React.FC = () => {
   }, [isScanning]);
 
   const lastScanRef = useRef("");
-  // Fallback: if scanning gets stuck, show "Nothing to check" and reset
+  // Fallback: if scanning gets stuck with NO DATA, show a soft hint (no reset)
+  const hasLiveData = useMemo(() => {
+    const anyGroups = Array.isArray(groupedBranches) && groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    const anyFlat = Array.isArray(branchesData) && branchesData.length > 0;
+    return anyGroups || anyFlat;
+  }, [groupedBranches, branchesData]);
+
+  const hasUnion = useMemo(() => {
+    const names = nameHints ? Object.keys(nameHints).length : 0;
+    const np = Array.isArray(normalPins) ? normalPins.length : 0;
+    const lp = Array.isArray(latchPins) ? latchPins.length : 0;
+    return np > 0 || lp > 0 || names > 0;
+  }, [normalPins, latchPins, nameHints]);
+
   useEffect(() => {
     if (!isScanning) return;
+    // Do not trigger while a check is running or when live/union data is present
+    if (isChecking) return;
+    if (hasLiveData || hasUnion) return;
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) return;
     let cancelled = false;
     const STUCK_MS = CFG.STUCK_MS;
     const t = window.setTimeout(() => {
       if (cancelled) return;
+      // Gentle hint only; do NOT reset or disable live
       try {
-        setIsScanning(false);
-        setShowScanUi(false);
-        // Inline, polished toast instead of full overlay
-        try {
-          setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
-          if (scanResultTimerRef.current)
-            clearTimeout(scanResultTimerRef.current);
-          scanResultTimerRef.current = window.setTimeout(() => {
-            setScanResult(null);
-            scanResultTimerRef.current = null;
-          }, 1800);
-        } catch {}
-        idleCooldownUntilRef.current = Date.now() + 1800;
-        // Briefly block this MAC
-        try {
-          const macUp = (
-            (macAddress || kfbInputRef.current || "") as string
-          ).toUpperCase();
-          if (macUp) {
-            blockedMacRef.current.add(macUp);
-            window.setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(macUp);
-              } catch {}
-            }, 10000);
-          }
-        } catch {}
-        skipStopCleanupNextRef.current = true;
-        setSuppressLive(true);
-        window.setTimeout(() => {
-          try {
-            handleResetKfb();
-          } catch {}
+        setScanResult({ text: "Waiting for device/live data…", kind: "info" });
+        if (scanResultTimerRef.current)
+          clearTimeout(scanResultTimerRef.current);
+        scanResultTimerRef.current = window.setTimeout(() => {
+          setScanResult(null);
+          scanResultTimerRef.current = null;
         }, 1800);
       } catch {}
     }, STUCK_MS);
@@ -393,7 +388,7 @@ const MainApplicationUI: React.FC = () => {
         clearTimeout(t);
       } catch {}
     };
-  }, [isScanning, macAddress]);
+  }, [isScanning, isChecking, macAddress, hasLiveData, hasUnion, checkFailures]);
 
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
@@ -1759,6 +1754,18 @@ const MainApplicationUI: React.FC = () => {
           if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
         clearRetryTimer();
         setIsChecking(false);
+        // Short cooldown so stray duplicate scans don’t retrigger immediately
+        try { idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS; } catch {}
+        // Block re-triggers for the same MAC for a short window unless user explicitly scans again
+        try {
+          const macUp = String(mac).toUpperCase();
+          if (macUp) {
+            blockedMacRef.current.add(macUp);
+            window.setTimeout(() => {
+              try { blockedMacRef.current.delete(macUp); } catch {}
+            }, 8000);
+          }
+        } catch {}
       }
     },
     [
@@ -2037,69 +2044,8 @@ const MainApplicationUI: React.FC = () => {
             }
           } catch {}
         }
-        const noAliases = !aliases || Object.keys(aliases).length === 0;
-        const noPins = !Array.isArray(pins) || pins.length === 0;
-        const noGroups = !hadGroups;
-        if (noAliases && noPins && noGroups) {
-          try {
-            console.log("[FLOW][LOAD] nothing to check", {
-              noAliases,
-              noPins,
-              noGroups,
-            });
-          } catch {}
-          clearScanOverlayTimeout();
-          cancel("scanOverlayDebounce");
-          setGroupedBranches([]);
-          setBranchesData([]);
-          setActiveKssks([]);
-          setNormalPins(undefined);
-          setLatchPins(undefined);
-          setDisableOkAnimation(true);
-          okFlashAllowedRef.current = false;
-
-          const started = scanStartedAtRef.current || Date.now();
-          const elapsed = Date.now() - started;
-          const waitMs =
-            elapsed < MIN_SCAN_UI_MS ? MIN_SCAN_UI_MS - elapsed : 0;
-          window.setTimeout(() => {
-            setIsScanning(false);
-            setShowScanUi(false);
-            setSuppressLive(true);
-            try {
-              setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
-              if (scanResultTimerRef.current) {
-                try {
-                  clearTimeout(scanResultTimerRef.current);
-                } catch {}
-                scanResultTimerRef.current = null;
-              }
-              const HINT_MS = 1800;
-              scanResultTimerRef.current = window.setTimeout(() => {
-                setScanResult(null);
-                scanResultTimerRef.current = null;
-                try {
-                  handleResetKfb();
-                } catch {}
-                setSuppressLive(false);
-              }, HINT_MS);
-              idleCooldownUntilRef.current = Date.now() + HINT_MS;
-              lastHandledScanRef.current = "";
-              scanDebounceRef.current = 0;
-              const macUp = (mac || "").toUpperCase();
-              if (macUp) {
-                blockedMacRef.current.add(macUp);
-                window.setTimeout(() => {
-                  try {
-                    blockedMacRef.current.delete(macUp);
-                  } catch {}
-                }, 6000);
-              }
-              skipStopCleanupNextRef.current = true;
-            } catch {}
-          }, waitMs);
-          return;
-        }
+        // Even if there are no aliases/pins/groups yet, proceed to CHECK.
+        // The server can merge pins (union/client) and return failures/union pins we can render.
 
         setBranchesData([]);
 
@@ -2125,6 +2071,8 @@ const MainApplicationUI: React.FC = () => {
 
   const handleScan = useCallback(
     async (raw: string) => {
+      // Global cooldown after a check completes or stuck-scan path
+      if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
       if (
@@ -2200,11 +2148,14 @@ const MainApplicationUI: React.FC = () => {
     }
     const code = (serial as any).lastScan;
     if (!code) return;
-    if (isCheckingRef.current) {
-      enqueueScan(code);
-    } else {
-      void handleScan(code);
-    }
+    // Ignore incoming scans while a CHECK is active or while we're already scanning
+    if (isCheckingRef.current || isScanningRef.current) return;
+    const norm = String(code).trim().toUpperCase();
+    if (!norm) return;
+    // Sticky MAC: ignore repeats of the current MAC until reset
+    const curMac = (macRef.current || "").toUpperCase();
+    if (curMac && norm === curMac) return;
+    void handleScan(norm);
   }, [
     (serial as any).lastScanTick,
     lastScanPath,
@@ -2298,10 +2249,14 @@ const MainApplicationUI: React.FC = () => {
           } catch {}
           const raw = typeof code === "string" ? code.trim() : "";
           if (raw) {
+            const norm = raw.toUpperCase();
             if (path && !isAcmPath(path)) return;
             if (want && path && !pathsEqual(path, want)) return;
-            if (isCheckingRef.current) enqueueScan(raw);
-            else await handleScan(raw);
+            // Sticky MAC: ignore repeats of the current MAC
+            const curMac = (macRef.current || "").toUpperCase();
+            if (curMac && norm === curMac) return;
+            if (isCheckingRef.current) enqueueScan(norm);
+            else await handleScan(norm);
           } else if (error) {
             const str = String(error);
             const lower = str.toLowerCase();
@@ -2355,7 +2310,7 @@ const MainApplicationUI: React.FC = () => {
     (serial as any).sseConnected,
   ]);
 
-  // Process most recent queued scan after CHECK ends
+  // Process most recent queued scan after CHECK ends (guarded)
   useEffect(() => {
     if (!isChecking) {
       const t = setTimeout(() => {
@@ -2364,6 +2319,10 @@ const MainApplicationUI: React.FC = () => {
         const next = q[q.length - 1]!;
         pendingScansRef.current = [];
         try {
+          // Cooldown: avoid immediate re-run and ignore duplicates for current MAC
+          if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
+          const cur = (macAddress || "").toUpperCase();
+          if (cur && next.toUpperCase() === cur) return;
           void handleScanRef.current(next);
         } catch {}
       }, 50);

@@ -20,6 +20,7 @@ export default function SimulateCheckBar() {
   const [unionPins, setUnionPins] = React.useState<number[]>([]);
   const [names, setNames] = React.useState<Record<string,string>>({});
   const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
+  const [useFallbackCheck, setUseFallbackCheck] = React.useState(false);
 
   React.useEffect(() => {
     let stop = false;
@@ -71,20 +72,11 @@ export default function SimulateCheckBar() {
     return () => { stop = true; };
   }, [mac]);
 
-  // Keep simulator MAC override in sync so EV lines map to current device
-  React.useEffect(() => {
-    const mm = (mac || '').toUpperCase().trim();
-    (async () => {
-      try {
-        await fetch('/api/simulate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mac: mm || null }),
-        }).catch(() => {});
-      } catch {}
-    })();
-  }, [mac]);
+  // NOTE: Do not auto-post MAC changes — only update simulator MAC during Run Check.
 
+
+  const liveRef = React.useRef<{ started?: boolean; done?: boolean; ok?: boolean }>({});
+  React.useEffect(() => { liveRef.current = { started: live.started, done: live.done, ok: live.ok }; }, [live.started, live.done, live.ok]);
 
   const runCheck = async () => {
     if (!mac) return;
@@ -95,7 +87,7 @@ export default function SimulateCheckBar() {
       const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];
       const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
       const desiredPath = paths[idx] || paths[0] || (serial as any).lastScanPath || undefined;
-      // Also ensure simulator MAC override matches
+      // Also set simulator MAC override explicitly now (only on Run Check)
       await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -114,18 +106,21 @@ export default function SimulateCheckBar() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ scan: pulses })
         }).catch(() => {});
-        // Fallback: kick CHECK directly so the main flow has events even if the scan is dropped
-        setTimeout(async () => {
-          try {
-            const res = await fetch('/api/serial/check', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac: mac.toUpperCase() })
-            });
-            const j = await res.json().catch(() => null);
-            if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
-            else setLast({ ok: false, msg: j?.error || String(res.status) });
-          } catch {}
-        }, 120);
+        // Optional fallback: only if enabled and no START was seen soon after scans
+        if (useFallbackCheck) {
+          setTimeout(async () => {
+            try {
+              if (liveRef.current.started) return; // main app already reacting via SSE
+              const res = await fetch('/api/serial/check', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mac: mac.toUpperCase() })
+              });
+              const j = await res.json().catch(() => null);
+              if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
+              else setLast({ ok: false, msg: j?.error || String(res.status) });
+            } catch {}
+          }, 600);
+        }
       } catch {}
     } catch (e: any) {
       setLast({ ok: false, msg: String(e?.message || e) });
@@ -159,6 +154,10 @@ export default function SimulateCheckBar() {
           onChange={(e) => setMac(e.target.value.toUpperCase())}
           style={{ width: 195, textAlign: 'center', padding: '4px 8px', borderRadius: 8, background: '#111827', color: '#fff', border: '1px solid #374151' }}
         />
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.9 }}>
+          <input type="checkbox" checked={useFallbackCheck} onChange={(e) => setUseFallbackCheck(e.target.checked)} />
+          Fallback CHECK if no SSE
+        </label>
         <button onClick={runCheck} disabled={busy || !mac} style={{ padding: '6px 10px', borderRadius: 10, background: '#2563eb', color: '#fff' }}>Run Check</button>
         {last && (
           <span style={{ fontSize: 12, opacity: 0.9, paddingLeft: 6, color: last.ok ? '#10b981' : '#fca5a5' }}>

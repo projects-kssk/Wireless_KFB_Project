@@ -38,6 +38,7 @@
     "logs:monitor": "LOG_MONITOR_ONLY=1 LOG_MONITOR_START_ONLY=1 LOG_LEVEL=info next dev",
     "logs:full": "LOG_MONITOR_ONLY=0 LOG_LEVEL=debug next dev",
     "locks": "node scripts/print-locks-redis.mjs",
+    "locks:deleteall": "node scripts/clear-all-locks.mjs",
     "locks:station": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs",
     "locks:watch": "node scripts/print-locks-redis.mjs --watch --clear",
     "locks:station:watch": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs --watch --clear"

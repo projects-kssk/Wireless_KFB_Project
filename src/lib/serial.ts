@@ -13,16 +13,16 @@ import { ReadlineParser } from "@serialport/parser-readline";
 
 type SubFn = (s: string, id: number) => void;
 
+// In SIMULATE mode, we provide lightweight facsimiles instead of real SerialPort/Parser
 type EspLineStream = {
-  port: SerialPort;
-  parser: ReadlineParser;
+  port: any;    // SerialPort | FakePort
+  parser: any;  // ReadlineParser | FakeParser (EventEmitter-like)
   ring: string[];
   ringIds: number[];
   nextId: number;
   subs: Set<SubFn>;
-    lastSeenAt: number;          // NEW
-  lastLine?: string;           // NEW
-
+  lastSeenAt: number;
+  lastLine?: string;
 };
 
 type G = typeof globalThis & { __ESP_STREAM?: EspLineStream };
@@ -36,45 +36,206 @@ function espBaud(): number {
   return Number.isFinite(b) && b > 0 ? b : 115200;
 }
 
+// Simple env toggle. Accepts 1/true/TRUE. Also force-enable when Krosy is offline.
+const SIMULATE = (() => {
+  const sim = String(process.env.SIMULATE ?? process.env.NEXT_PUBLIC_SIMULATE ?? "0").trim().toLowerCase();
+  const krosyOnline = String(process.env.NEXT_PUBLIC_KROSY_ONLINE ?? '').trim().toLowerCase();
+  const forceFromOffline = (krosyOnline === 'false' || krosyOnline === '0');
+  return forceFromOffline || sim === "1" || sim === "true" || sim === "yes";
+})();
+
+// Simulation configuration (mutable at runtime via API)
+type SimScenario = 'success' | 'failure' | 'timeout' | 'mac_mismatch' | 'invalid_mac' | 'send_failed' | 'add_peer_failed' | 'ok_only';
+type SimConfig = {
+  scenario: SimScenario;
+  failurePins: number[];          // used in FAILURE payloads
+  resultDelayMs: number;          // delay before emitting terminal result
+  macOverride?: string | null;    // prefer this MAC when one isn't provided
+};
+
+type GSim = typeof globalThis & { __SIM_CONF?: SimConfig };
+const GS = globalThis as GSim;
+function envNum(name: string, def: number) { const v = Number(process.env[name] ?? NaN); return Number.isFinite(v) && v >= 0 ? v : def; }
+function envPins(name: string): number[] {
+  const raw = String(process.env[name] ?? '').trim();
+  if (!raw) return [];
+  return Array.from(new Set(raw.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0)));
+}
+function initSimConfig(): SimConfig {
+  const scenEnv = String(process.env.SIMULATE_SCENARIO ?? 'success').trim().toLowerCase() as SimScenario;
+  const mac = (process.env.SIMULATE_MAC || process.env.ESP_EXPECT_MAC || '').trim().toUpperCase();
+  return {
+    scenario: scenEnv || 'success',
+    failurePins: envPins('SIMULATE_FAILURE_PINS'),
+    resultDelayMs: envNum('SIMULATE_RESULT_DELAY_MS', 180),
+    macOverride: mac || null,
+  };
+}
+if (SIMULATE && !GS.__SIM_CONF) GS.__SIM_CONF = initSimConfig();
+export function getSimulateConfig(): SimConfig | null { return SIMULATE ? (GS.__SIM_CONF as SimConfig) : null; }
+export function setSimulateConfig(partial: Partial<SimConfig>): SimConfig | null {
+  if (!SIMULATE) return null;
+  GS.__SIM_CONF = { ...(GS.__SIM_CONF || initSimConfig()), ...partial } as SimConfig;
+  return GS.__SIM_CONF!;
+}
+
 function armEsp(): EspLineStream {
   if (GBL.__ESP_STREAM) return GBL.__ESP_STREAM;
-
   const path = espPath();
   const baudRate = espBaud();
   const log = LOG.tag('esp');
-  log.info(`opening ${path} @${baudRate}`);
 
-  const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
-  const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
   const ring: string[] = [];
   const ringIds: number[] = [];
   let nextId = 1;
   const subs = new Set<SubFn>();
-  let lastSeenAt = 0;            // NEW
+  let lastSeenAt = 0;
 
-// --- update the data handler
-parser.on("data", (buf: Buffer | string) => {
-  const s = String(buf).trim();
-  if (!s) return;
+  if (SIMULATE) {
+    // Lightweight EventEmitter (avoid importing 'events' types aggressively)
+    const listeners: Record<string, Set<Function>> = { data: new Set(), open: new Set(), error: new Set(), close: new Set() } as any;
+    const parser = {
+      on(event: string, fn: any) { (listeners as any)[event]?.add(fn); return this; },
+      off(event: string, fn: any) { (listeners as any)[event]?.delete(fn); return this; },
+      emit(event: string, ...args: any[]) { (listeners as any)[event]?.forEach((f: any) => { try { f(...args); } catch {} }); },
+    };
+    const port = {
+      path,
+      isOpen: true,
+      write(data: any, cb?: (err?: any) => void) {
+        const raw = String(data ?? "");
+        setTimeout(() => handleCommand(raw), 10);
+        if (typeof cb === 'function') setTimeout(() => cb(undefined), 0);
+      },
+      drain(cb?: (err?: any) => void) { if (typeof cb === 'function') setTimeout(() => cb(undefined), 0); },
+      on(event: string, fn: any) { (listeners as any)[event]?.add(fn); return this; },
+      off(event: string, fn: any) { (listeners as any)[event]?.delete(fn); return this; },
+      close(cb?: (err?: any) => void) { this.isOpen = false; parser.emit('close'); if (typeof cb === 'function') cb(undefined); },
+    } as any;
 
-  if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`[${path}] ${s}`);
+    function emitLine(s: string) {
+      const line = String(s).trim();
+      if (!line) return;
+      ring.push(line);
+      ringIds.push(nextId++);
+      if (ring.length > 400) { ring.shift(); ringIds.shift(); }
+      lastSeenAt = Date.now();
+      if (GBL.__ESP_STREAM) { GBL.__ESP_STREAM.lastSeenAt = lastSeenAt; GBL.__ESP_STREAM.lastLine = line; }
+      subs.forEach((fn) => { try { fn(line, ringIds[ringIds.length - 1]!); } catch {} });
+      try { parser.emit('data', line); } catch {}
+    }
 
-  ring.push(s);
-  ringIds.push(nextId++);
-  if (ring.length > 400) {
-    ring.shift();
-    ringIds.shift();
+    const MAC_RE = /([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i;
+    function handleCommand(raw: string) {
+      const s = raw.replace(/[\r\n]+/g, '').trim();
+      if (!s) return;
+      const up = s.toUpperCase();
+      const conf = getSimulateConfig()!;
+      const mac = ((s.match(MAC_RE)?.[1]) || conf.macOverride || process.env.ESP_EXPECT_MAC || '08:3A:8D:15:27:54').toUpperCase();
+
+      // Simulate the hub log style for CHECK and MONITOR
+      if (up.startsWith('CHECK')) {
+        emitLine(`Sent 'CHECK' to ${mac}`);
+        const scen = conf.scenario;
+        const delay = conf.resultDelayMs;
+        if (scen === 'timeout') {
+          // no terminal line
+          return;
+        } else if (scen === 'mac_mismatch') {
+          const other = 'AA:BB:CC:DD:EE:FF';
+          setTimeout(() => emitLine(`ignored: unexpected MAC. expected ${mac} got ${other}`), delay);
+          return;
+        } else if (scen === 'invalid_mac') {
+          setTimeout(() => emitLine(`ERROR: invalid MAC`), delay);
+          return;
+        } else if (scen === 'send_failed') {
+          setTimeout(() => emitLine(`ERROR: send failed`), delay);
+          return;
+        } else if (scen === 'add_peer_failed') {
+          setTimeout(() => emitLine(`ERROR: add_peer failed`), delay);
+          return;
+        } else if (scen === 'ok_only') {
+          setTimeout(() => emitLine(`OK`), delay);
+          return;
+        } else if (scen === 'failure') {
+          const pins = conf.failurePins.length ? conf.failurePins.join(',') : '1,2';
+          setTimeout(() => emitLine(`← reply from ${mac}: RESULT FAILURE MISSING ${pins}`), delay);
+          return;
+        } else {
+          setTimeout(() => emitLine(`← reply from ${mac}: RESULT SUCCESS`), delay);
+          return;
+        }
+      }
+      if (up.startsWith('MONITOR')) {
+        const scen = conf.scenario;
+        // Parse pins from command (numbers before the MAC)
+        const beforeMac = s.split(mac)[0] || s;
+        const pins = Array.from(new Set((beforeMac.match(/\b\d{1,4}\b/g) || []).map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0)));
+        emitLine(`MONITOR-START ${mac}`);
+        // Emit per-pin EV P updates according to configured failurePins
+        const failSet = new Set<number>(conf.failurePins || []);
+        if (pins.length) {
+          let t = 40;
+          for (const p of pins) {
+            const val = scen === 'failure' && failSet.has(p) ? 0 : 1;
+            setTimeout(() => emitLine(`EV P ${p} ${val} ${mac}`), t);
+            t += 20;
+          }
+        }
+        if (scen === 'failure') {
+          const pinsStr = (conf.failurePins.length ? conf.failurePins : (pins.slice(0, Math.min(2, pins.length)))).join(',') || '1,2';
+          setTimeout(() => emitLine(`EV DONE FAILURE ${mac}`), conf.resultDelayMs);
+          setTimeout(() => emitLine(`RESULT FAILURE MISSING ${pinsStr} ${mac}`), conf.resultDelayMs + 30);
+          return;
+        }
+        if (scen === 'timeout') {
+          // don't emit DONE/RESULT
+          return;
+        }
+        setTimeout(() => emitLine(`EV DONE SUCCESS ${mac}`), conf.resultDelayMs);
+        setTimeout(() => emitLine(`RESULT SUCCESS ${mac}`), conf.resultDelayMs + 30);
+        return;
+      }
+      if (up.startsWith('STATUS') || up.startsWith('PING')) {
+        emitLine('OK');
+        return;
+      }
+      // Fallback generic OK
+      emitLine('OK');
+    }
+
+    GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs, lastSeenAt, lastLine: undefined, emit: emitLine } as any;
+    log.warn(`SIMULATE=1 — using mock ESP at ${path}`);
+    return GBL.__ESP_STREAM as EspLineStream;
   }
 
-  // NEW: passive liveness
-  lastSeenAt = Date.now();
-  GBL.__ESP_STREAM!.lastSeenAt = lastSeenAt;
-  GBL.__ESP_STREAM!.lastLine = s;
+  // Real serial mode
+  log.info(`opening ${path} @${baudRate}`);
+  const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
+  const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
 
-  subs.forEach((fn) => {
-    try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
+  // --- update the data handler
+  parser.on("data", (buf: Buffer | string) => {
+    const s = String(buf).trim();
+    if (!s) return;
+
+    if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`[${path}] ${s}`);
+
+    ring.push(s);
+    ringIds.push(nextId++);
+    if (ring.length > 400) {
+      ring.shift();
+      ringIds.shift();
+    }
+
+    // passive liveness
+    lastSeenAt = Date.now();
+    if (GBL.__ESP_STREAM) { GBL.__ESP_STREAM.lastSeenAt = lastSeenAt; GBL.__ESP_STREAM.lastLine = s; }
+
+    subs.forEach((fn) => {
+      try { fn(s, ringIds[ringIds.length - 1]!); } catch {}
+    });
   });
-});
 
   port.on("error", (e) => {
     LOG.tag('esp').error(`error on ${path}`, e?.message ?? e);
@@ -85,7 +246,7 @@ parser.on("data", (buf: Buffer | string) => {
   });
 
   GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs, lastSeenAt, lastLine: undefined };
-return GBL.__ESP_STREAM;
+  return GBL.__ESP_STREAM as EspLineStream;
 }
 
 export function getEspLineStream(): EspLineStream { return armEsp(); }
@@ -104,7 +265,7 @@ export function getEspActivity(): { lastSeenAt: number | null; ageMs: number | n
 }
 
 
-async function waitUntilOpen(port: SerialPort): Promise<void> {
+async function waitUntilOpen(port: any): Promise<void> {
   if ((port as any).isOpen) return;
   await new Promise<void>((resolve, reject) => {
     const onOpen = () => { cleanup(); resolve(); };
@@ -120,9 +281,9 @@ async function writeLine(line: string): Promise<void> {
   await waitUntilOpen(port);
   const out = line.endsWith("\n") || line.endsWith("\r") ? line : `${line}\r\n`;
   await new Promise<void>((resolve, reject) =>
-    port.write(out, (err) => {
+    port.write(out, (err: any) => {
       if (err) return reject(err);
-      port.drain((derr) => (derr ? reject(derr) : resolve()));
+      port.drain((derr: any) => (derr ? reject(derr) : resolve()));
     })
   );
   if (process.env.ESP_DEBUG) LOG.tag('esp').debug(`⟶ [you] ${line}`);
@@ -193,6 +354,7 @@ export async function sendAndReceive(cmd: string, timeout = 10_000): Promise<str
 }
 
 export async function isEspPresent(path = espPath()): Promise<boolean> {
+  if (SIMULATE) return true;
   const list = await SerialPort.list();
   return list.some((d) => d.path === path);
 }
@@ -248,10 +410,15 @@ export async function espHealth(opts?: {
 }
 
 export async function listSerialDevicesRaw(): Promise<Awaited<ReturnType<typeof SerialPort.list>>> {
+  if (SIMULATE) {
+    return [
+      { path: espPath(), manufacturer: 'Mock', productId: '0000', vendorId: '0000', serialNumber: 'SIMULATED' } as any,
+    ];
+  }
   return SerialPort.list();
 }
 export async function listSerialDevices(): Promise<DeviceInfo[]> {
-  const list = await SerialPort.list();
+  const list = SIMULATE ? await listSerialDevicesRaw() : await SerialPort.list();
   return list.map((d) => ({
     path: d.path,
     vendorId: d.vendorId ?? null,
@@ -326,6 +493,11 @@ function attachScannerHandlers(
 
 
 export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
+  if (SIMULATE) {
+    // In simulation, do not claim scanners are open unless explicitly injected by tests.
+    // No-op.
+    return;
+  }
   const ALLOW_USB_SCANNER = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
   if (!ALLOW_USB_SCANNER && /\/ttyUSB\d+$/i.test(path)) {
     const espPath = process.env.ESP_TTY ?? process.env.ESP_TTY_PATH ?? "";
@@ -431,6 +603,7 @@ export async function ensureScanner(
 
 export function getScannerStatus() {
   const obj: Record<string, { open: boolean; inCooldown: boolean; nextAttemptAt: number; lastError: string | null }> = {};
+  if (SIMULATE) return obj; // empty status in simulation by default
   for (const [path, rt] of scanners.entries()) {
     obj[path] = {
       open: !!rt.state.port?.isOpen,
@@ -511,6 +684,9 @@ export default {
   isEspPresent,
   listSerialDevices,
   listSerialDevicesRaw,
+  // Simulation control
+  getSimulateConfig,
+  setSimulateConfig,
   // history fencing helpers
   mark,
   flushHistory,

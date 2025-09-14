@@ -77,11 +77,19 @@ export function useSerialEvents(macFilter?: string) {
     if (p.scan) {
       const { code, path } = p.scan;
       tickRef.current += 1;
+      const now = Date.now();
       setLastScan(String(code));
       setLastScanPath(path ?? null);
-      setLastScanAt(Date.now());
+      setLastScanAt(now);
       setLastScanTick(tickRef.current);
-      if (path) up(path, { lastScanTs: Date.now(), open: true, lastError: null });
+      if (path) {
+        // Mark activity timestamp, but only set open=true when we know the device is actually present.
+        setPorts((prev) => {
+          const cur: ScannerPortState = prev[path] ?? { present: false, open: false, lastError: null, lastScanTs: null };
+          const nextOpen = cur.present ? true : cur.open; // don't claim open when not present
+          return { ...prev, [path]: { ...cur, lastScanTs: now, open: nextOpen, lastError: null } };
+        });
+      }
     }
     if (p.ev) {
       try {

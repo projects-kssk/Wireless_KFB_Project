@@ -1,0 +1,16 @@
+{
+  // Silence C/C++ IntelliSense error underlines (squiggles) in this workspace
+  "C_Cpp.errorSquiggles": "Disabled",
+
+  // Ensure static analysis doesn’t surface header diagnostics either
+  "C_Cpp.codeAnalysis.runAutomatically": false,
+  "C_Cpp.codeAnalysis.clangTidy.enabled": false,
+  "C_Cpp.codeAnalysis.exclude": [
+    "**/*.h",
+    "**/*.hpp",
+    "**/third_party/**",
+    "**/external/**",
+    "**/node_modules/**"
+  ]
+}
+

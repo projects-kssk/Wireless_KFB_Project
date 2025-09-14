@@ -19,8 +19,8 @@ import { useSerialEvents } from "@/components/Header/useSerialEvents";
 // Krosy client HTTP timeout: prefer KROSY-specific; fallback to setup; default 30s
 const HTTP_TIMEOUT_MS = Number(
   process.env.NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS ??
-  process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ??
-  "30000"
+    process.env.NEXT_PUBLIC_SETUP_HTTP_TIMEOUT_MS ??
+    "30000"
 );
 // Krosy IP-based mode selection
 const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -42,6 +42,7 @@ const PREFER_ALIAS_REDIS =
   (process.env.NEXT_PUBLIC_ALIAS_PREFER_REDIS ?? "1") === "1";
 const REQUIRE_ALIAS_REDIS =
   (process.env.NEXT_PUBLIC_ALIAS_REQUIRE_REDIS ?? "0") === "1";
+// Simulation toggle is determined at runtime via /api/simulate (server knows SIMULATE)
 
 /* ===== Regex / small UI ===== */
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
@@ -174,9 +175,11 @@ function extractNameHintsFromKrosyXML(
         ""
       ).toLowerCase();
       // Policy: default-only unless explicitly overridden
-      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
-        ? allowedMeasTypes
-        : ["default"]) // enforce default by default
+      const wantedMeas = (
+        Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+          ? allowedMeasTypes
+          : ["default"]
+      ) // enforce default by default
         .map((x) => x.toLowerCase());
       if (!wantedMeas.includes(mt)) continue;
 
@@ -200,10 +203,10 @@ function extractNameHintsFromKrosyXML(
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
       // Policy: require a concrete MAC match when macHint is provided
-  if (wantMac) {
-    // If XML doesn't include a concrete MAC (or shows ZERO), do not block extraction in production
-    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
-  }
+      if (wantMac) {
+        // If XML doesn't include a concrete MAC (or shows ZERO), do not block extraction in production
+        if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+      }
 
       const pos = String(
         el.getElementsByTagName("objPos")[0]?.textContent || ""
@@ -227,9 +230,11 @@ function extractNameHintsFromKrosyXML(
         body.match(/<measType>([^<]*)<\/measType>/i)?.[1] ||
         ""
       ).toLowerCase();
-      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
-        ? allowedMeasTypes
-        : ["default"]).map((x) => x.toLowerCase());
+      const wantedMeas = (
+        Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+          ? allowedMeasTypes
+          : ["default"]
+      ).map((x) => x.toLowerCase());
       if (!wantedMeas.includes(mt)) continue;
 
       const ct = (
@@ -248,9 +253,9 @@ function extractNameHintsFromKrosyXML(
       const macM = og.match(OBJGROUP_MAC);
       const ogMac = (macM?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-  if (wantMac) {
-    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
-  }
+      if (wantMac) {
+        if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+      }
 
       const pos = body.match(/<objPos>([^<]+)<\/objPos>/i)?.[1] || "";
       if (pos) pushFromObjPos(pos);
@@ -308,9 +313,11 @@ function extractPinsFromKrosy(
         .trim()
         .toLowerCase();
       // Policy: default-only unless explicitly overridden
-      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
-        ? allowedMeasTypes
-        : ["default"]).map((x) => x.toLowerCase());
+      const wantedMeas = (
+        Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+          ? allowedMeasTypes
+          : ["default"]
+      ).map((x) => x.toLowerCase());
       if (!wantedMeas.includes(mt)) continue;
 
       const ct = String(s?.compType ?? "")
@@ -327,9 +334,9 @@ function extractPinsFromKrosy(
       const mm = og.match(OBJGROUP_MAC);
       const ogMac = (mm?.[1] || "").toUpperCase();
       const ZERO = "00:00:00:00:00:00";
-  if (wantMac) {
-    if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
-  }
+      if (wantMac) {
+        if (ogMac && ogMac !== ZERO && ogMac !== wantMac) continue;
+      }
 
       const pos = String(s?.objPos ?? "");
       if (!pos) continue;
@@ -393,9 +400,11 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
         el.getElementsByTagName("measType")[0]?.textContent ||
         ""
       ).toLowerCase();
-      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
-        ? allowedMeasTypes
-        : ["default"]).map((x) => x.toLowerCase());
+      const wantedMeas = (
+        Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+          ? allowedMeasTypes
+          : ["default"]
+      ).map((x) => x.toLowerCase());
       if (!wantedMeas.includes(mt)) continue;
 
       const ct = (
@@ -442,9 +451,11 @@ function extractPinsFromKrosyXML(xml: string, optsOrMac?: KrosyOpts | string) {
         body.match(/<measType>([^<]*)<\/measType>/i)?.[1] ||
         ""
       ).toLowerCase();
-      const wantedMeas = (Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
-        ? allowedMeasTypes
-        : ["default"]).map((x) => x.toLowerCase());
+      const wantedMeas = (
+        Array.isArray(allowedMeasTypes) && allowedMeasTypes.length > 0
+          ? allowedMeasTypes
+          : ["default"]
+      ).map((x) => x.toLowerCase());
       if (!wantedMeas.includes(mt)) continue;
       const ct = (
         body.match(/<compType>([^<]*)<\/compType>/i)?.[1] ||
@@ -531,16 +542,20 @@ import ZoomControls from "@/components/Controls/ZoomControls";
 export default function SetupPage() {
   const KSK_SLOT_TARGET = Math.max(
     1,
-    Number(process.env.NEXT_PUBLIC_SETUP_KSK_SLOTS || process.env.NEXT_PUBLIC_KSK_SLOTS || "4")
-  )
-  const allowManual = true;
+    Number(
+      process.env.NEXT_PUBLIC_SETUP_KSK_SLOTS ||
+        process.env.NEXT_PUBLIC_KSK_SLOTS ||
+        "4"
+    )
+  );
+  // allow manual entry only in simulation mode (derived)
   const prefersReduced = useReducedMotion();
   const tableRef = useRef<HTMLDivElement>(null);
 
   const [kfb, setKfb] = useState<string | null>(null);
-  const [ksskSlots, setKsskSlots] = useState<Array<string | null>>((() =>
+  const [ksskSlots, setKsskSlots] = useState<Array<string | null>>(() =>
     Array.from({ length: KSK_SLOT_TARGET }, () => null)
-  ));
+  );
   const [ksskStatus, setKsskStatus] = useState<
     Array<"idle" | "pending" | "ok" | "error">
   >(() => Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
@@ -578,7 +593,9 @@ export default function SetupPage() {
       pushToast(f);
       if (kind === "success") {
         window.setTimeout(() => {
-          try { setToasts((prev) => prev.filter((t) => t.id !== id)); } catch {}
+          try {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+          } catch {}
         }, 5000);
       }
     },
@@ -589,7 +606,27 @@ export default function SetupPage() {
   const [kbdBuffer, setKbdBuffer] = useState("");
   const [setupName, setSetupName] = useState<string>("");
   const sendBusyRef = useRef(false);
-  
+  const [simulateOn, setSimulateOn] = useState<boolean>(false);
+
+  useEffect(() => {
+    let stop = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/simulate", { cache: "no-store" });
+        const j = await r.json();
+        if (!stop) setSimulateOn(!!j?.enabled);
+      } catch {
+        setSimulateOn(false);
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+  }, []);
+
+  // compute manual flag from simulation state
+  const allowManual = simulateOn;
+
   // Setup countdown (60s) — resets layout to initial scan when it expires
   const [setupCountdown, setSetupCountdown] = useState<number | null>(null);
 
@@ -755,27 +792,31 @@ export default function SetupPage() {
 
   const [lastError, setLastError] = useState<string | null>(null);
   // Per-window UI zoom (React-only; not Electron)
-  const [setupZoom, setSetupZoom] = useState(0.45)
-  const setupZoomStyle = useMemo(() => ({
-    transform: `scale(${setupZoom})`,
-    transformOrigin: "0 0",
-    width: `${100 / setupZoom}%`,
-    height: `${100 / setupZoom}%`,
-  }), [setupZoom])
-
+  const [setupZoom, setSetupZoom] = useState(0.45);
+  const setupZoomStyle = useMemo(
+    () => ({
+      transform: `scale(${setupZoom})`,
+      transformOrigin: "0 0",
+      width: `${100 / setupZoom}%`,
+      height: `${100 / setupZoom}%`,
+    }),
+    [setupZoom]
+  );
 
   // Ctrl/Cmd + wheel zoom like browser, React-only
   useEffect(() => {
-    const clamp = (v: number) => Math.min(2, Math.max(0.25, v))
+    const clamp = (v: number) => Math.min(2, Math.max(0.25, v));
     const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || (e as any).metaKey)) return
-      try { e.preventDefault() } catch {}
-      const step = 0.1
-      setSetupZoom((z) => clamp(z + (e.deltaY > 0 ? -step : step)))
-    }
-    window.addEventListener('wheel', onWheel, { passive: false })
-    return () => window.removeEventListener('wheel', onWheel)
-  }, [])
+      if (!(e.ctrlKey || (e as any).metaKey)) return;
+      try {
+        e.preventDefault();
+      } catch {}
+      const step = 0.1;
+      setSetupZoom((z) => clamp(z + (e.deltaY > 0 ? -step : step)));
+    };
+    window.addEventListener("wheel", onWheel, { passive: false });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, []);
 
   const showOk = (
     code: string,
@@ -791,7 +832,7 @@ export default function SetupPage() {
     msg?: string,
     panel: PanelTarget = "global"
   ) => {
-    setLastError(msg || code || "Error")
+    setLastError(msg || code || "Error");
     fireFlash("error", code, panel, msg);
   };
 
@@ -840,7 +881,7 @@ export default function SetupPage() {
           try {
             const j = await rl.json();
             const n = typeof j?.count === "number" ? j.count : undefined;
-            locksMsg = ` + locks${typeof n === 'number' ? ` (${n})` : ''}`;
+            locksMsg = ` + locks${typeof n === "number" ? ` (${n})` : ""}`;
           } catch {
             locksMsg = " + locks";
           }
@@ -877,7 +918,9 @@ export default function SetupPage() {
   const resetAll = useCallback(() => {
     setKfb(null);
     setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
-    setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
+    setKsskStatus(
+      Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const)
+    );
     setShowManualFor({});
     setLastError(null);
     setSetupName("");
@@ -976,9 +1019,9 @@ export default function SetupPage() {
               ok: res.ok,
               durationMs: Date.now() - t0,
               krosyTimeoutMs: HTTP_TIMEOUT_MS,
-              serverTimeout: res.headers.get('X-Krosy-Timeout') || null,
-              serverDuration: res.headers.get('X-Krosy-Duration') || null,
-              used: res.headers.get('X-Krosy-Used-Url') || null,
+              serverTimeout: res.headers.get("X-Krosy-Timeout") || null,
+              serverDuration: res.headers.get("X-Krosy-Duration") || null,
+              used: res.headers.get("X-Krosy-Used-Url") || null,
             });
           } catch {}
 
@@ -1016,7 +1059,10 @@ export default function SetupPage() {
         } catch (e: any) {
           try {
             console.warn("[SETUP] Krosy request failed", {
-              error: e?.name === 'AbortError' ? `timeout ${HTTP_TIMEOUT_MS}ms` : (e?.message || String(e)),
+              error:
+                e?.name === "AbortError"
+                  ? `timeout ${HTTP_TIMEOUT_MS}ms`
+                  : e?.message || String(e),
               durationMs: Date.now() - t0,
             });
           } catch {}
@@ -1083,7 +1129,9 @@ export default function SetupPage() {
     setKfb((prev) => {
       if (prev !== code) {
         setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
-        setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
+        setKsskStatus(
+          Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const)
+        );
         setShowManualFor({});
       }
       return code;
@@ -1711,10 +1759,12 @@ export default function SetupPage() {
             try {
               const j = await r.json();
               const base = j?.error ? String(j.error) : msg;
-              const station = (j?.stationId ? ` (${String(j.stationId)})` : "");
+              const station = j?.stationId ? ` (${String(j.stationId)})` : "";
               msg = `${base}${station}`;
             } catch {
-              try { msg = await r.text(); } catch {}
+              try {
+                msg = await r.text();
+              } catch {}
             }
             showErr(code, `ESP write failed — ${msg}`, panel);
           }
@@ -1757,6 +1807,14 @@ export default function SetupPage() {
           return;
         }
         acceptKfb(code);
+        // When MAC is entered manually, auto-open manual KSK inputs (simulation only)
+        if (allowManual) {
+          setShowManualFor((s) => {
+            const next: any = { ...s };
+            for (let i = 0; i < KSK_SLOT_TARGET; i++) next[`ksk${i}`] = true;
+            return next;
+          });
+        }
       } else {
         if (type !== "kssk") {
           showErr(code, "Expected KSK (12 digits)", panel);
@@ -2085,7 +2143,9 @@ export default function SetupPage() {
         setLastError(null);
         setKfb(null);
         setKsskSlots(Array.from({ length: KSK_SLOT_TARGET }, () => null));
-        setKsskStatus(Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const));
+        setKsskStatus(
+          Array.from({ length: KSK_SLOT_TARGET }, () => "idle" as const)
+        );
         setShowManualFor({});
         setTableCycle((n) => n + 1);
         setSetupName("");
@@ -2096,7 +2156,15 @@ export default function SetupPage() {
 
   return (
     <main style={page}>
-      <ZoomControls label="Setup" position="br" value={setupZoom} onChange={setSetupZoom} applyToBody initial={0.45} min={0.25} />
+      <ZoomControls
+        label="Setup"
+        position="br"
+        value={setupZoom}
+        onChange={setSetupZoom}
+        applyToBody
+        initial={0.45}
+        min={0.25}
+      />
       {/* HERO */}
       <m.section layout style={hero} aria-live="polite">
         {!kfb ? (
@@ -2196,7 +2264,10 @@ export default function SetupPage() {
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
 
-            <m.div layout style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <m.div
+              layout
+              style={{ display: "flex", gap: 10, alignItems: "center" }}
+            >
               {ksskOkCount >= 1 && (
                 <StepBadge
                   label="SCAN NEW BOARD TO START OVER"
@@ -2293,62 +2364,66 @@ export default function SetupPage() {
                 alignItems: "stretch",
               }}
             >
-              {Array.from({ length: KSK_SLOT_TARGET }, (_, idx) => idx).map((idx) => {
-                const code = ksskSlots[idx];
-                const status = ksskStatus[idx];
-                // only light the slot that matches, not "global"
-                const hit = flash && flash.panel === (`ksk${idx}` as PanelKey);
-                return (
+              {Array.from({ length: KSK_SLOT_TARGET }, (_, idx) => idx).map(
+                (idx) => {
+                  const code = ksskSlots[idx];
+                  const status = ksskStatus[idx];
+                  // only light the slot that matches, not "global"
+                  const hit =
+                    flash && flash.panel === (`ksk${idx}` as PanelKey);
+                  return (
                   <KsskSlotCompact
                     key={idx}
                     index={idx}
                     code={code}
                     status={status}
+                    allowManual={allowManual}
                     onManualToggle={() =>
                       setShowManualFor((s) => ({
                         ...s,
                         [`ksk${idx}`]: !s[`ksk${idx}`],
                       }))
                     }
-                    manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
-                    onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
-                    onForceClear={async () => {
-                      const kssk = ksskSlots[idx];
-                      const macUp = (kfb || "").toUpperCase();
-                      if (!kssk || !macUp) return;
-                      try {
-                        await fetch("/api/aliases/clear", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ mac: macUp, ksk: kssk }),
-                        }).catch(() => {});
-                      } catch {}
-                      try {
-                        await releaseLock(kssk);
-                      } catch {}
-                      activeLocks.current.delete(kssk);
-                      setKsskSlots((prev) => {
-                        const n = [...prev];
-                        n[idx] = null;
-                        return n;
-                      });
-                      setKsskStatus((prev) => {
-                        const n = [...prev] as Array<(typeof prev)[number]>;
-                        n[idx] = "idle";
-                        return n;
-                      });
-                      fireFlash(
-                        "success",
-                        kssk,
-                        `ksk${idx}` as PanelKey,
-                        "Cleared"
-                      );
-                    }}
-                    flashKind={undefined}
-                    flashId={undefined}
-                  />
-                );
-              })}
+                      manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
+                      onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
+                      onForceClear={async () => {
+                        const kssk = ksskSlots[idx];
+                        const macUp = (kfb || "").toUpperCase();
+                        if (!kssk || !macUp) return;
+                        try {
+                          await fetch("/api/aliases/clear", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ mac: macUp, ksk: kssk }),
+                          }).catch(() => {});
+                        } catch {}
+                        try {
+                          await releaseLock(kssk);
+                        } catch {}
+                        activeLocks.current.delete(kssk);
+                        setKsskSlots((prev) => {
+                          const n = [...prev];
+                          n[idx] = null;
+                          return n;
+                        });
+                        setKsskStatus((prev) => {
+                          const n = [...prev] as Array<(typeof prev)[number]>;
+                          n[idx] = "idle";
+                          return n;
+                        });
+                        fireFlash(
+                          "success",
+                          kssk,
+                          `ksk${idx}` as PanelKey,
+                          "Cleared"
+                        );
+                      }}
+                      flashKind={undefined}
+                      flashId={undefined}
+                    />
+                  );
+                }
+              )}
             </div>
           </section>
         </section>
@@ -2371,27 +2446,29 @@ export default function SetupPage() {
       </div>
 
       {/* Setup countdown (below TableSwap) */}
-      {kfb && typeof setupCountdown === "number" && ksskOkCount < KSK_SLOT_TARGET && (
-        <div className="mt-4 flex items-center justify-center">
-          <div
-            className={
-              "inline-flex items-center gap-3 rounded-lg px-6 py-4 text-2xl font-extrabold " +
-              (setupCountdown > 30
-                ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
-                : setupCountdown > 15
-                ? "border border-amber-300 bg-amber-50 text-amber-900"
-                : "border border-red-300 bg-red-50 text-red-900")
-            }
-            aria-live="polite"
-          >
-            <span>
-              {setupCountdown > 0
-                ? `You have ${setupCountdown}s to set up the board`
-                : "Time expired — resetting"}
-            </span>
+      {kfb &&
+        typeof setupCountdown === "number" &&
+        ksskOkCount < KSK_SLOT_TARGET && (
+          <div className="mt-4 flex items-center justify-center">
+            <div
+              className={
+                "inline-flex items-center gap-3 rounded-lg px-6 py-4 text-2xl font-extrabold " +
+                (setupCountdown > 30
+                  ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
+                  : setupCountdown > 15
+                    ? "border border-amber-300 bg-amber-50 text-amber-900"
+                    : "border border-red-300 bg-red-50 text-red-900")
+              }
+              aria-live="polite"
+            >
+              <span>
+                {setupCountdown > 0
+                  ? `You have ${setupCountdown}s to set up the board`
+                  : "Time expired — resetting"}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       <ToastStack
         items={toasts}
@@ -2589,6 +2666,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
   status,
+  allowManual,
   manualOpen,
   onManualToggle,
   onSubmit,
@@ -2599,6 +2677,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   index: number;
   code: string | null;
   status: "idle" | "pending" | "ok" | "error";
+  allowManual: boolean;
   manualOpen: boolean;
   onManualToggle: () => void;
   onSubmit: (v: string) => void;
@@ -2686,6 +2765,26 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         </div>
       )}
 
+      {/* manual toggle (simulation only) */}
+      {allowManual && (
+        <button
+          type="button"
+          onClick={onManualToggle}
+          style={{
+            fontSize: 12,
+            color: "#2563eb",
+            textDecoration: "underline",
+            cursor: "pointer",
+            fontWeight: 700,
+            background: "transparent",
+            border: 0,
+            justifySelf: "start",
+          }}
+        >
+          Enter manually
+        </button>
+      )}
+
       {/* static scan stripes */}
       <div
         aria-label={`KSK scan zone ${index + 1}`}
@@ -2712,7 +2811,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         />
       </div>
 
-      {/* <button
+      <button
         type="button"
         onClick={onManualToggle}
         style={{
@@ -2727,7 +2826,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         }}
       >
         Enter manually
-      </button> */}
+      </button>
 
       {code && (
         <button

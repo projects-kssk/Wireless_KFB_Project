@@ -5,6 +5,7 @@ import MotionPage from './motion-page'
 import React, { useEffect, useMemo, useState } from "react";
 import MainApplicationUI from "@/components/Layout/MainApplicationUI";
 import ZoomControls from "@/components/Controls/ZoomControls";
+import SimulateCheckBar from "@/components/Dev/SimulateCheckBar";
 
 export default function Home() {
   const [zoom, setZoom] = useState(1)
@@ -28,6 +29,7 @@ export default function Home() {
   }), [zoom])
   return (
     <MotionPage>
+      <SimulateCheckBar />
       <ZoomControls label="Dashboard" position="br" value={zoom} onChange={setZoom} />
       <div style={zoomStyle}>
         <main>

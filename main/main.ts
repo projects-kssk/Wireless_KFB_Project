@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen, nativeImage } from 'electron'
 import path from 'node:path'
 import net from 'node:net'
 import { pathToFileURL } from 'node:url'
+import fs from 'node:fs'
 
 const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
@@ -9,6 +10,35 @@ const OPEN_DEVTOOLS = (process.env.WFKB_DEVTOOLS || '0') === '1'
 // Candidate remote base; when WFKB_FORCE_REMOTE=1 we must use this and not start local
 const PROD_BASE_URL = process.env.WFKB_BASE_URL || 'http://172.26.202.248:3000'
 const FORCE_REMOTE = (process.env.WFKB_FORCE_REMOTE || '0') === '1'
+
+// Best-effort load of .env for Electron dev (Next loads its own .env)
+function loadDotEnvForElectron() {
+  if (!isDev) return
+  try {
+    const p = path.join(process.cwd(), '.env')
+    if (!fs.existsSync(p)) return
+    const txt = fs.readFileSync(p, 'utf8')
+    for (const line of txt.split(/\r?\n/)) {
+      const s = line.trim()
+      if (!s || s.startsWith('#')) continue
+      const eq = s.indexOf('=')
+      if (eq <= 0) continue
+      const k = s.slice(0, eq).trim()
+      const v = s.slice(eq + 1).trim()
+      if (!(k in process.env)) process.env[k] = v
+    }
+  } catch {}
+}
+loadDotEnvForElectron()
+const SIMULATE = (() => {
+  const v = String(process.env.SIMULATE ?? process.env.NEXT_PUBLIC_SIMULATE ?? '0').trim().toLowerCase()
+  const offline = String(process.env.NEXT_PUBLIC_KROSY_ONLINE ?? '').trim().toLowerCase() === 'false'
+  return offline || v === '1' || v === 'true' || v === 'yes'
+})()
+const DISABLE_REMOTE_PROBE = (() => {
+  const v = String(process.env.WFKB_DISABLE_REMOTE_PROBE ?? '0').trim().toLowerCase()
+  return v === '1' || v === 'true' || v === 'yes'
+})()
 
 // Track currently chosen base to allow reloads on errors/second launch
 let chosenBaseRef: string = ''
@@ -175,24 +205,26 @@ async function createWindows() {
     let devBase = 'http://127.0.0.1:3000'
     const forced = (process.env.WFKB_BASE_URL || '').trim()
     let remoteCandidate: URL | null = null
-    try {
-      if (forced) {
-        const u = new URL(forced)
-        if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
-        else devBase = `${u.protocol}//${u.host}`
-      }
-    } catch {}
-    // If no explicit forced remote, probe configured remote base vars as a convenience
-    if (!remoteCandidate) {
-      const fallbackRemote = (process.env.NEXT_PUBLIC_REMOTE_BASE || PROD_BASE_URL || '').trim()
+    if (!SIMULATE && !DISABLE_REMOTE_PROBE) {
       try {
-        if (fallbackRemote) {
-          const u = new URL(fallbackRemote)
+        if (forced) {
+          const u = new URL(forced)
           if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+          else devBase = `${u.protocol}//${u.host}`
         }
       } catch {}
+      // If no explicit forced remote, probe configured remote base vars as a convenience
+      if (!remoteCandidate) {
+        const fallbackRemote = (process.env.NEXT_PUBLIC_REMOTE_BASE || PROD_BASE_URL || '').trim()
+        try {
+          if (fallbackRemote) {
+            const u = new URL(fallbackRemote)
+            if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+          }
+        } catch {}
+      }
     }
-    if (remoteCandidate) {
+    if (!SIMULATE && !DISABLE_REMOTE_PROBE && remoteCandidate) {
       const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
       try {
         await splashInfo(`Checking network server ${remoteCandidate.hostname}:${remotePort}…`)
@@ -204,6 +236,9 @@ async function createWindows() {
         await splashStep('Krosy offline: network server not reachable; using Next dev server')
       }
     } else {
+      if (SIMULATE || DISABLE_REMOTE_PROBE) {
+        await splashInfo('Simulation enabled: skipping remote probe and using Next dev server')
+      }
       // Try common dev ports in case 3000 is occupied and Next switched to 3001+.
       const host = '127.0.0.1'
       const preferred = parseInt(new URL(devBase).port || '3000', 10)
@@ -335,11 +370,19 @@ async function createWindows() {
     mainWin.setBounds(primary.workArea);
     setupWin.setBounds(secondary.workArea);
 
-    // Force fullscreen on both; optional kiosk via env
+    // Fullscreen policy: default ON in production, OFF in dev unless WFKB_FULLSCREEN=1
     const kiosk = (process.env.WFKB_KIOSK || '0') === '1'
-    mainWin.setFullScreen(true)
-    setupWin.setFullScreen(true)
-    if (kiosk) { try { mainWin.setKiosk(true); setupWin.setKiosk(true) } catch {} }
+    const forceFullscreen = (() => {
+      const env = String(process.env.WFKB_FULLSCREEN || '').trim().toLowerCase()
+      if (env === '1' || env === 'true' || env === 'yes') return true
+      if (env === '0' || env === 'false' || env === 'no') return false
+      return !isDev // default: prod on, dev off
+    })()
+    try { mainWin.setFullScreen(forceFullscreen) } catch {}
+    try { setupWin.setFullScreen(forceFullscreen) } catch {}
+    if (forceFullscreen && kiosk) {
+      try { mainWin.setKiosk(true); setupWin.setKiosk(true) } catch {}
+    }
 
     if (!DISABLE_AUTO_ZOOM) {
       // Auto-scale content to fit each display's work area based on design sizes

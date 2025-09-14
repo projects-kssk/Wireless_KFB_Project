@@ -12,20 +12,195 @@ function espBaud() {
     const b = Number(process.env.ESP_BAUD ?? 115200);
     return Number.isFinite(b) && b > 0 ? b : 115200;
 }
+// Simple env toggle. Accepts 1/true/TRUE. Also force-enable when Krosy is offline.
+const SIMULATE = (() => {
+    const sim = String(process.env.SIMULATE ?? process.env.NEXT_PUBLIC_SIMULATE ?? "0").trim().toLowerCase();
+    const krosyOnline = String(process.env.NEXT_PUBLIC_KROSY_ONLINE ?? '').trim().toLowerCase();
+    const forceFromOffline = (krosyOnline === 'false' || krosyOnline === '0');
+    return forceFromOffline || sim === "1" || sim === "true" || sim === "yes";
+})();
+const GS = globalThis;
+function envNum(name, def) { const v = Number(process.env[name] ?? NaN); return Number.isFinite(v) && v >= 0 ? v : def; }
+function envPins(name) {
+    const raw = String(process.env[name] ?? '').trim();
+    if (!raw)
+        return [];
+    return Array.from(new Set(raw.split(',').map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0)));
+}
+function initSimConfig() {
+    const scenEnv = String(process.env.SIMULATE_SCENARIO ?? 'success').trim().toLowerCase();
+    const mac = (process.env.SIMULATE_MAC || process.env.ESP_EXPECT_MAC || '').trim().toUpperCase();
+    return {
+        scenario: scenEnv || 'success',
+        failurePins: envPins('SIMULATE_FAILURE_PINS'),
+        resultDelayMs: envNum('SIMULATE_RESULT_DELAY_MS', 180),
+        macOverride: mac || null,
+    };
+}
+if (SIMULATE && !GS.__SIM_CONF)
+    GS.__SIM_CONF = initSimConfig();
+export function getSimulateConfig() { return SIMULATE ? GS.__SIM_CONF : null; }
+export function setSimulateConfig(partial) {
+    if (!SIMULATE)
+        return null;
+    GS.__SIM_CONF = { ...(GS.__SIM_CONF || initSimConfig()), ...partial };
+    return GS.__SIM_CONF;
+}
 function armEsp() {
     if (GBL.__ESP_STREAM)
         return GBL.__ESP_STREAM;
     const path = espPath();
     const baudRate = espBaud();
     const log = LOG.tag('esp');
-    log.info(`opening ${path} @${baudRate}`);
-    const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
-    const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
     const ring = [];
     const ringIds = [];
     let nextId = 1;
     const subs = new Set();
-    let lastSeenAt = 0; // NEW
+    let lastSeenAt = 0;
+    if (SIMULATE) {
+        // Lightweight EventEmitter (avoid importing 'events' types aggressively)
+        const listeners = { data: new Set(), open: new Set(), error: new Set(), close: new Set() };
+        const parser = {
+            on(event, fn) { listeners[event]?.add(fn); return this; },
+            off(event, fn) { listeners[event]?.delete(fn); return this; },
+            emit(event, ...args) { listeners[event]?.forEach((f) => { try {
+                f(...args);
+            }
+            catch { } }); },
+        };
+        const port = {
+            path,
+            isOpen: true,
+            write(data, cb) {
+                const raw = String(data ?? "");
+                setTimeout(() => handleCommand(raw), 10);
+                if (typeof cb === 'function')
+                    setTimeout(() => cb(undefined), 0);
+            },
+            drain(cb) { if (typeof cb === 'function')
+                setTimeout(() => cb(undefined), 0); },
+            on(event, fn) { listeners[event]?.add(fn); return this; },
+            off(event, fn) { listeners[event]?.delete(fn); return this; },
+            close(cb) { this.isOpen = false; parser.emit('close'); if (typeof cb === 'function')
+                cb(undefined); },
+        };
+        function emitLine(s) {
+            const line = String(s).trim();
+            if (!line)
+                return;
+            ring.push(line);
+            ringIds.push(nextId++);
+            if (ring.length > 400) {
+                ring.shift();
+                ringIds.shift();
+            }
+            lastSeenAt = Date.now();
+            if (GBL.__ESP_STREAM) {
+                GBL.__ESP_STREAM.lastSeenAt = lastSeenAt;
+                GBL.__ESP_STREAM.lastLine = line;
+            }
+            subs.forEach((fn) => { try {
+                fn(line, ringIds[ringIds.length - 1]);
+            }
+            catch { } });
+            try {
+                parser.emit('data', line);
+            }
+            catch { }
+        }
+        const MAC_RE = /([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i;
+        function handleCommand(raw) {
+            const s = raw.replace(/[\r\n]+/g, '').trim();
+            if (!s)
+                return;
+            const up = s.toUpperCase();
+            const conf = getSimulateConfig();
+            const mac = ((s.match(MAC_RE)?.[1]) || conf.macOverride || process.env.ESP_EXPECT_MAC || '08:3A:8D:15:27:54').toUpperCase();
+            // Simulate the hub log style for CHECK and MONITOR
+            if (up.startsWith('CHECK')) {
+                emitLine(`Sent 'CHECK' to ${mac}`);
+                const scen = conf.scenario;
+                const delay = conf.resultDelayMs;
+                if (scen === 'timeout') {
+                    // no terminal line
+                    return;
+                }
+                else if (scen === 'mac_mismatch') {
+                    const other = 'AA:BB:CC:DD:EE:FF';
+                    setTimeout(() => emitLine(`ignored: unexpected MAC. expected ${mac} got ${other}`), delay);
+                    return;
+                }
+                else if (scen === 'invalid_mac') {
+                    setTimeout(() => emitLine(`ERROR: invalid MAC`), delay);
+                    return;
+                }
+                else if (scen === 'send_failed') {
+                    setTimeout(() => emitLine(`ERROR: send failed`), delay);
+                    return;
+                }
+                else if (scen === 'add_peer_failed') {
+                    setTimeout(() => emitLine(`ERROR: add_peer failed`), delay);
+                    return;
+                }
+                else if (scen === 'ok_only') {
+                    setTimeout(() => emitLine(`OK`), delay);
+                    return;
+                }
+                else if (scen === 'failure') {
+                    const pins = conf.failurePins.length ? conf.failurePins.join(',') : '1,2';
+                    setTimeout(() => emitLine(`← reply from ${mac}: RESULT FAILURE MISSING ${pins}`), delay);
+                    return;
+                }
+                else {
+                    setTimeout(() => emitLine(`← reply from ${mac}: RESULT SUCCESS`), delay);
+                    return;
+                }
+            }
+            if (up.startsWith('MONITOR')) {
+                const scen = conf.scenario;
+                // Parse pins from command (numbers before the MAC)
+                const beforeMac = s.split(mac)[0] || s;
+                const pins = Array.from(new Set((beforeMac.match(/\b\d{1,4}\b/g) || []).map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0)));
+                emitLine(`MONITOR-START ${mac}`);
+                // Emit per-pin EV P updates according to configured failurePins
+                const failSet = new Set(conf.failurePins || []);
+                if (pins.length) {
+                    let t = 40;
+                    for (const p of pins) {
+                        const val = scen === 'failure' && failSet.has(p) ? 0 : 1;
+                        setTimeout(() => emitLine(`EV P ${p} ${val} ${mac}`), t);
+                        t += 20;
+                    }
+                }
+                if (scen === 'failure') {
+                    const pinsStr = (conf.failurePins.length ? conf.failurePins : (pins.slice(0, Math.min(2, pins.length)))).join(',') || '1,2';
+                    setTimeout(() => emitLine(`EV DONE FAILURE ${mac}`), conf.resultDelayMs);
+                    setTimeout(() => emitLine(`RESULT FAILURE MISSING ${pinsStr} ${mac}`), conf.resultDelayMs + 30);
+                    return;
+                }
+                if (scen === 'timeout') {
+                    // don't emit DONE/RESULT
+                    return;
+                }
+                setTimeout(() => emitLine(`EV DONE SUCCESS ${mac}`), conf.resultDelayMs);
+                setTimeout(() => emitLine(`RESULT SUCCESS ${mac}`), conf.resultDelayMs + 30);
+                return;
+            }
+            if (up.startsWith('STATUS') || up.startsWith('PING')) {
+                emitLine('OK');
+                return;
+            }
+            // Fallback generic OK
+            emitLine('OK');
+        }
+        GBL.__ESP_STREAM = { port, parser, ring, ringIds, nextId, subs, lastSeenAt, lastLine: undefined, emit: emitLine };
+        log.warn(`SIMULATE=1 — using mock ESP at ${path}`);
+        return GBL.__ESP_STREAM;
+    }
+    // Real serial mode
+    log.info(`opening ${path} @${baudRate}`);
+    const port = new SerialPort({ path, baudRate, autoOpen: true, lock: false });
+    const parser = port.pipe(new ReadlineParser({ delimiter: "\n" }));
     // --- update the data handler
     parser.on("data", (buf) => {
         const s = String(buf).trim();
@@ -39,10 +214,12 @@ function armEsp() {
             ring.shift();
             ringIds.shift();
         }
-        // NEW: passive liveness
+        // passive liveness
         lastSeenAt = Date.now();
-        GBL.__ESP_STREAM.lastSeenAt = lastSeenAt;
-        GBL.__ESP_STREAM.lastLine = s;
+        if (GBL.__ESP_STREAM) {
+            GBL.__ESP_STREAM.lastSeenAt = lastSeenAt;
+            GBL.__ESP_STREAM.lastLine = s;
+        }
         subs.forEach((fn) => {
             try {
                 fn(s, ringIds[ringIds.length - 1]);
@@ -158,6 +335,8 @@ export async function sendAndReceive(cmd, timeout = 10_000) {
     return p;
 }
 export async function isEspPresent(path = espPath()) {
+    if (SIMULATE)
+        return true;
     const list = await SerialPort.list();
     return list.some((d) => d.path === path);
 }
@@ -204,10 +383,15 @@ export async function espHealth(opts) {
     return { present, ok, raw };
 }
 export async function listSerialDevicesRaw() {
+    if (SIMULATE) {
+        return [
+            { path: espPath(), manufacturer: 'Mock', productId: '0000', vendorId: '0000', serialNumber: 'SIMULATED' },
+        ];
+    }
     return SerialPort.list();
 }
 export async function listSerialDevices() {
-    const list = await SerialPort.list();
+    const list = SIMULATE ? await listSerialDevicesRaw() : await SerialPort.list();
     return list.map((d) => ({
         path: d.path,
         vendorId: d.vendorId ?? null,
@@ -263,6 +447,11 @@ function attachScannerHandlers(path, state, retry, port, parser) {
     });
 }
 export async function ensureScannerForPath(path, baudRate = 115200) {
+    if (SIMULATE) {
+        // In simulation, do not claim scanners are open unless explicitly injected by tests.
+        // No-op.
+        return;
+    }
     const ALLOW_USB_SCANNER = (process.env.ALLOW_USB_SCANNER ?? "0") === "1";
     if (!ALLOW_USB_SCANNER && /\/ttyUSB\d+$/i.test(path)) {
         const espPath = process.env.ESP_TTY ?? process.env.ESP_TTY_PATH ?? "";
@@ -361,6 +550,8 @@ export async function ensureScanner(path = (process.env.SCANNER_TTY_PATHS ?? pro
 }
 export function getScannerStatus() {
     const obj = {};
+    if (SIMULATE)
+        return obj; // empty status in simulation by default
     for (const [path, rt] of scanners.entries()) {
         obj[path] = {
             open: !!rt.state.port?.isOpen,
@@ -441,6 +632,9 @@ export default {
     isEspPresent,
     listSerialDevices,
     listSerialDevicesRaw,
+    // Simulation control
+    getSimulateConfig,
+    setSimulateConfig,
     // history fencing helpers
     mark,
     flushHistory,

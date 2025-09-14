@@ -99,6 +99,11 @@ export default function SimulateCheckBar() {
           desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }
         ] }),
       });
+      // Also dispatch a local event to nudge the main UI immediately in case SSE scan events are delayed
+      try {
+        const ev = new CustomEvent('kfb:sim-scan', { detail: { code: mac.toUpperCase() } });
+        window.dispatchEvent(ev);
+      } catch {}
       // Nudge the main app to handle the scan by sending a follow-up dev-cue that updates scanner memory periodically for a short window.
       // This helps when the first scan gets swallowed due to path timing.
       try {

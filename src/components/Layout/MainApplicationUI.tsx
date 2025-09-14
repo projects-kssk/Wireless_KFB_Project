@@ -790,6 +790,8 @@ const MainApplicationUI: React.FC = () => {
   const okForcedRef = useRef<boolean>(false);
   const lastRunHadFailuresRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
+  // Coalesce scans that arrive from SSE & poll at nearly the same time
+  const lastScanTokenRef = useRef<string>("");
   const enqueueScan = useCallback((raw: string) => {
     const code = String(raw || "")
       .trim()
@@ -799,7 +801,7 @@ const MainApplicationUI: React.FC = () => {
     if (q.length === 0 || q[q.length - 1] !== code) q.push(code);
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
-  const handleScanRef = useRef<(code: string) => void | Promise<void>>(
+  const handleScanRef = useRef<(code: string, trig?: ScanTrigger) => void | Promise<void>>(
     () => {}
   );
 
@@ -1052,11 +1054,21 @@ const MainApplicationUI: React.FC = () => {
         // Block this MAC from re-triggering via residual scans for a short window
         try {
           if (mac) {
-            blockedMacRef.current.add(mac);
+            const macUp = mac.toUpperCase();
+            // Block this MAC from re-triggering via residual scans
+            blockedMacRef.current.add(macUp);
             idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
             window.setTimeout(() => {
-              try { blockedMacRef.current.delete(mac); } catch {}
+              try { blockedMacRef.current.delete(macUp); } catch {}
             }, CFG.RETRY_COOLDOWN_MS);
+            // Also block the *last scanned code* (may be a KFB rather than MAC)
+            const last = (lastScanRef.current || "").toUpperCase();
+            if (last && last !== macUp) {
+              blockedMacRef.current.add(last);
+              window.setTimeout(() => {
+                try { blockedMacRef.current.delete(last); } catch {}
+              }, CFG.RETRY_COOLDOWN_MS);
+            }
           }
         } catch {}
 
@@ -1837,6 +1849,14 @@ const MainApplicationUI: React.FC = () => {
               try { blockedMacRef.current.delete(macUp); } catch {}
             }, 8000);
           }
+          // Also block the *last scanned code* (e.g., KFB) to prevent post-check loops
+          const last = (lastScanRef.current || "").toUpperCase();
+          if (last && last !== macUp) {
+            blockedMacRef.current.add(last);
+            window.setTimeout(() => {
+              try { blockedMacRef.current.delete(last); } catch {}
+            }, 8000);
+          }
         } catch {}
       }
     },
@@ -1991,11 +2011,29 @@ const MainApplicationUI: React.FC = () => {
                 itemsAllFromAliasesRef.current = items as any;
               } catch {}
 
+              // Prefer activeIds selection; otherwise fall back to all items present
               const itemsFiltered = activeIds.length
                 ? items.filter((it: any) =>
                     activeIds.includes(String((it.ksk ?? it.kssk) || "").trim())
                   )
-                : [];
+                : items;
+
+              // If locks did not provide ids but items exist, derive ids from items (cap to 3)
+              if (!activeIds.length && items.length) {
+                const derived = Array.from(
+                  new Set(
+                    items
+                      .map((it: any) => String((it.ksk ?? it.kssk) || "").trim())
+                      .filter(Boolean)
+                  )
+                );
+                if (derived.length) {
+                  const chosen = derived.slice(0, 3);
+                  if (DEBUG_LIVE) console.log("[ACTIVE] derived ids from items", chosen);
+                  setActiveKssks(chosen);
+                  activeIds = chosen;
+                }
+              }
 
               if (itemsFiltered.length) {
                 try {
@@ -2076,45 +2114,50 @@ const MainApplicationUI: React.FC = () => {
               }
               if (pinSet.size && pins.length === 0)
                 pins = Array.from(pinSet).sort((x, y) => x - y);
-              if (activeIds.length) {
-                try {
-                  console.log("[FLOW][LOAD] GET union /api/aliases", { mac });
-                  const rUnion = await fetch(
-                    `/api/aliases?mac=${encodeURIComponent(mac)}`,
-                    { cache: "no-store" }
-                  );
-                  if (rUnion.ok) {
-                    const jU = await rUnion.json();
-                    const aU =
-                      jU?.aliases && typeof jU.aliases === "object"
-                        ? (jU.aliases as Record<string, string>)
-                        : {};
-                    if (Object.keys(aU).length) {
-                      aliases = aU;
-                    }
-                    // Fallback: derive aliases from items if union lacks them
-                    if (Object.keys(aliases).length === 0) {
-                      aliases = mergeAliasesFromItems(itemsFiltered as any);
-                    }
-                    try {
-                      const filtered = computeActivePins(
-                        itemsFiltered as any,
-                        activeIds
-                      );
-                      setNormalPins(filtered.normal);
-                      setLatchPins(filtered.latch);
-                      pins = Array.from(
-                        new Set([...filtered.normal, ...filtered.latch])
-                      ).sort((a, b) => a - b);
-                      console.log("[FLOW][LOAD] active pins (filtered)", {
-                        normalPins: filtered.normal.length,
-                        latchPins: filtered.latch.length,
-                        totalPins: pins.length,
-                      });
-                    } catch {}
+              // Always try to fetch union to collect aliases
+              try {
+                const rUnion = await fetch(
+                  `/api/aliases?mac=${encodeURIComponent(mac)}`,
+                  { cache: "no-store" }
+                );
+                if (rUnion.ok) {
+                  const jU = await rUnion.json();
+                  const aU =
+                    jU?.aliases && typeof jU.aliases === "object"
+                      ? (jU.aliases as Record<string, string>)
+                      : {};
+                  if (Object.keys(aU).length) {
+                    aliases = aU;
                   }
-                } catch {}
+                }
+              } catch {}
+
+              // Fallback: derive aliases from items if union lacks them
+              if (Object.keys(aliases).length === 0) {
+                aliases = mergeAliasesFromItems(itemsFiltered as any);
               }
+
+              // Compute active pins from selected items and ids
+              try {
+                const idsForPins = (activeIds && activeIds.length)
+                  ? activeIds
+                  : Array.from(new Set(
+                      itemsFiltered
+                        .map((it: any) => String((it.ksk ?? it.kssk) || "").trim())
+                        .filter(Boolean)
+                    ));
+                const filtered = computeActivePins(
+                  itemsFiltered as any,
+                  idsForPins
+                );
+                setNormalPins(filtered.normal);
+                setLatchPins(filtered.latch);
+                const mergedPins = Array.from(
+                  new Set([...(filtered.normal || []), ...(filtered.latch || [])])
+                ).sort((a, b) => a - b);
+                if (mergedPins.length) pins = mergedPins;
+                if (DEBUG_LIVE) console.log("[FLOW][LOAD] pins", { normal: filtered.normal.length, latch: filtered.latch.length, total: pins.length });
+              } catch {}
             }
           } catch {}
         }
@@ -2209,8 +2252,15 @@ const MainApplicationUI: React.FC = () => {
     async (raw: string, trig: ScanTrigger = "sse") => {
       // Global cooldown after a check completes or stuck-scan path (but allow manual/armed scans)
       if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0)) return;
+      const now = Date.now();
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
+      // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
+      try {
+        const token = `${normalized}:${Math.floor(now / 1500)}`;
+        if (lastScanTokenRef.current === token) return;
+        lastScanTokenRef.current = token;
+      } catch {}
       // Drop stale codes immediately after finalize to avoid phantom re-triggers
       const recentlyFinalized = (() => {
         try {
@@ -2285,6 +2335,22 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     handleScanRef.current = handleScan;
   }, [handleScan]);
+
+  // Bridge for local simulator: accept a one-shot manual scan event
+  useEffect(() => {
+    const onSimScan = (e: Event) => {
+      try {
+        const anyEv = e as any;
+        const code = String(anyEv?.detail?.code || '').trim();
+        if (!code) return;
+        void handleScanRef.current?.(code, 'manual');
+      } catch {}
+    };
+    try { window.addEventListener('kfb:sim-scan', onSimScan as any); } catch {}
+    return () => {
+      try { window.removeEventListener('kfb:sim-scan', onSimScan as any); } catch {}
+    };
+  }, []);
 
   // Consume SSE scanner events (gated by desired port); ignore background scans when no MAC unless armedOnce
   useEffect(() => {
@@ -2508,7 +2574,12 @@ const MainApplicationUI: React.FC = () => {
           // Cooldown: avoid immediate re-run and ignore duplicates for current MAC
           if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
           const cur = (macAddress || "").toUpperCase();
-          if (cur && next.toUpperCase() === cur) return;
+          const nextUp = next.toUpperCase();
+          if (cur && nextUp === cur) return;
+          // Also drop if this matches the recently finalized MAC (within 2 minutes)
+          const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
+          const lastAt = Number(lastFinalizedAtRef.current || 0);
+          if (lastMac && nextUp === lastMac && Date.now() - lastAt < 2 * 60_000) return;
           void handleScanRef.current(next);
         } catch {}
       }, 50);

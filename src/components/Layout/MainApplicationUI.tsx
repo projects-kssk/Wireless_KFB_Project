@@ -159,6 +159,10 @@ const MainApplicationUI: React.FC = () => {
     SCANNER_POLL:
       String(process.env.NEXT_PUBLIC_SCANNER_POLL_ENABLED || '').trim() ===
       '1',
+    HINT_ON_EMPTY:
+      String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || '').trim() === '1',
+    CHECK_ON_EMPTY:
+      String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || '').trim() === '1',
   } as const;
 
   // UI state
@@ -219,7 +223,8 @@ const MainApplicationUI: React.FC = () => {
   }, [isChecking]);
 
   // Central timer scheduler
-  const timers = useRef<Map<string, number>>(new Map());
+  // Timer registry; use window's timer types to avoid Node vs DOM mismatch
+  const timers = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(new Map());
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
@@ -229,9 +234,7 @@ const MainApplicationUI: React.FC = () => {
   const schedule = useCallback((key: string, fn: () => void, ms: number) => {
     const prev = timers.current.get(key);
     if (prev) {
-      try {
-        clearTimeout(prev);
-      } catch {}
+      try { window.clearTimeout(prev as any); } catch {}
       timers.current.delete(key);
     }
     const id = window.setTimeout(
@@ -245,21 +248,20 @@ const MainApplicationUI: React.FC = () => {
       },
       Math.max(0, ms)
     );
-    timers.current.set(key, id as unknown as number);
+    // In some envs Node typings leak; ensure we store the correct timer type
+    timers.current.set(key, id as unknown as ReturnType<typeof window.setTimeout>);
   }, []);
   const cancel = useCallback((key: string) => {
     const prev = timers.current.get(key);
     if (prev) {
-      try {
-        clearTimeout(prev);
-      } catch {}
+      try { window.clearTimeout(prev as any); } catch {}
       timers.current.delete(key);
     }
   }, []);
   useEffect(
     () => () => {
       try {
-        for (const id of timers.current.values()) clearTimeout(id as any);
+        for (const id of timers.current.values()) window.clearTimeout(id as any);
         timers.current.clear();
       } catch {}
     },
@@ -472,41 +474,7 @@ const MainApplicationUI: React.FC = () => {
           if (target && !(macAddress && macAddress.trim())) {
             (async () => {
               try {
-                // Send checkpoint for all KSKs before clearing Redis
-                try {
-                  const r = await fetch(
-                    `/api/aliases?mac=${encodeURIComponent(target)}&all=1`,
-                    { cache: "no-store" }
-                  );
-                  if (r.ok) {
-                    const j = await r.json();
-                    const items: any[] = Array.isArray(j?.items) ? j.items : [];
-                    const ids = Array.from(
-                      new Set(
-                        items
-                          .map((it: any) =>
-                            String((it?.ksk ?? it?.kssk) || "").trim()
-                          )
-                          .filter(Boolean)
-                      )
-                    );
-                    if (ids.length) {
-                      try {
-                        console.log(
-                          "[FLOW][CHECKPOINT] STOP path: sending for all ids",
-                          { mac: target, count: ids.length }
-                        );
-                      } catch {}
-                      await sendCheckpointForMac(target, ids).catch(() => {});
-                    } else {
-                      try {
-                        console.log(
-                          "[FLOW][CHECKPOINT] STOP path: no ids found; skipping"
-                        );
-                      } catch {}
-                    }
-                  }
-                } catch {}
+                // Do not send checkpoint on STOP path; only clean Redis/locks
                 await fetch("/api/aliases/clear", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -912,7 +880,7 @@ const MainApplicationUI: React.FC = () => {
   const lastActiveIdsRef = useRef<string[]>([]);
 
   const sendCheckpointForMac = useCallback(
-    async (mac: string, onlyIds?: string[]) => {
+    async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       const MAC = mac.toUpperCase();
       if (Date.now() < (checkpointBlockUntilTsRef.current || 0)) {
         try {
@@ -920,10 +888,10 @@ const MainApplicationUI: React.FC = () => {
             "[FLOW][CHECKPOINT] suppressed due to recent failure backoff"
           );
         } catch {}
-        return;
+        return false;
       }
-      if (checkpointMacSentRef.current.has(MAC)) return;
-      if (checkpointMacPendingRef.current.has(MAC)) return;
+      if (checkpointMacSentRef.current.has(MAC)) return false;
+      if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
       try {
         try {
@@ -936,7 +904,7 @@ const MainApplicationUI: React.FC = () => {
           `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
           { cache: "no-store" }
         );
-        if (!rList.ok) return;
+        if (!rList.ok) return false;
         const j = await rList.json();
         const items: any[] = Array.isArray(j?.items) ? j.items : [];
         let ids = items
@@ -967,16 +935,15 @@ const MainApplicationUI: React.FC = () => {
             );
             if (rXml.ok) workingDataXml = await rXml.text();
           } catch {}
-          const payload =
-            workingDataXml && workingDataXml.trim()
-              ? { requestID: "1", workingDataXml }
-              : {
-                  requestID: "1",
-                  intksk: id,
-                  sourceHostname: KROSY_SOURCE,
-                  targetHostName: KROSY_TARGET,
-                };
-          (payload as any).forceResult = true;
+          // If XML not found or empty, skip sending checkpoint for this id
+          if (!workingDataXml || !workingDataXml.trim()) {
+            try {
+              console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id });
+            } catch {}
+            continue;
+          }
+          const payload = { requestID: "1", workingDataXml } as any;
+          payload.forceResult = true;
 
           try {
             const resp = await fetch(CHECKPOINT_URL, {
@@ -1015,6 +982,7 @@ const MainApplicationUI: React.FC = () => {
           }
         }
         if (sent) checkpointMacSentRef.current.add(MAC);
+        return sent;
       } finally {
         checkpointMacPendingRef.current.delete(MAC);
       }
@@ -1078,14 +1046,17 @@ const MainApplicationUI: React.FC = () => {
             console.log("[LIVE] OFF → OK latched; suppressing live updates");
         } catch {}
 
-        // Block this MAC from re-triggering via residual scans for a while
+        // We are intentionally clearing MAC; skip the STOP-path cleanup once.
+        skipStopCleanupNextRef.current = true;
+
+        // Block this MAC from re-triggering via residual scans for a short window
         try {
           if (mac) {
             blockedMacRef.current.add(mac);
-            idleCooldownUntilRef.current = Date.now() + Math.max(CFG.RETRY_COOLDOWN_MS, 8000);
+            idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
             window.setTimeout(() => {
               try { blockedMacRef.current.delete(mac); } catch {}
-            }, Math.max(CFG.RETRY_COOLDOWN_MS, 8000));
+            }, CFG.RETRY_COOLDOWN_MS);
           }
         } catch {}
 
@@ -1106,8 +1077,8 @@ const MainApplicationUI: React.FC = () => {
           try {
             console.log("[FLOW][CHECKPOINT] finalising with ids", ids);
           } catch {}
-          await sendCheckpointForMac(mac, ids).catch(() => {});
-          setOkSystemNote("Checkpoint sent; cache cleared");
+          const sent = await sendCheckpointForMac(mac, ids).catch(() => false);
+          setOkSystemNote(sent ? "Checkpoint sent; cache cleared" : "Cache cleared");
         } else {
           try {
             console.log(
@@ -1154,11 +1125,7 @@ const MainApplicationUI: React.FC = () => {
           locksCleared = await clearKskLocksFully(mac);
         }
         try {
-          const sid = (
-            process.env.NEXT_PUBLIC_STATION_ID ||
-            process.env.STATION_ID ||
-            ""
-          ).trim();
+          const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
           if (sid) {
             await fetch("/api/ksk-lock", {
               method: "DELETE",
@@ -1363,6 +1330,20 @@ const MainApplicationUI: React.FC = () => {
       if (!mac) return;
 
       setIsChecking(true);
+      // Safety: if device never sends final RESULT/DONE, auto-unstick
+      schedule("checkWatchdog", () => {
+        if (isCheckingRef.current) {
+          try { console.warn("[FLOW][CHECK] watchdog fired; un-sticking"); } catch {}
+          setIsChecking(false);
+          setSuppressLive(false);
+          setScanResult({ text: "Check timed out", kind: "error" });
+          try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
+          scanResultTimerRef.current = window.setTimeout(() => {
+            setScanResult(null);
+            scanResultTimerRef.current = null;
+          }, 1800);
+        }
+      }, CFG.CHECK_CLIENT_MS + 1200);
       try { lastRunHadFailuresRef.current = false; } catch {}
       setCheckFailures(null);
       setShowRemoveCable(false);
@@ -1725,6 +1706,7 @@ const MainApplicationUI: React.FC = () => {
             try {
               pollBlockUntilRef.current = Date.now() + 15000; // block idle poll ~15s after success
             } catch {}
+            cancel("checkWatchdog");
             await finalizeOkForMac(mac);
             return;
           } else {
@@ -1746,12 +1728,9 @@ const MainApplicationUI: React.FC = () => {
           try {
             console.warn("[FLOW][CHECK] non-OK status", { status: res.status });
           } catch {}
-          const maxRetries = Math.max(
-            0,
-            Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "1")
-          );
+          const maxRetries = CFG.RETRIES;
           if (res.status === 429) {
-            if (attempt < maxRetries + 2) {
+            if (attempt < maxRetries) {
               clearRetryTimer();
               schedule(
                 "checkRetry",
@@ -1788,6 +1767,7 @@ const MainApplicationUI: React.FC = () => {
                 setNameHints(undefined);
               }, 1300);
             }
+            cancel("checkWatchdog");
           } else {
             console.error("CHECK error:", result);
             setDisableOkAnimation(true);
@@ -1798,16 +1778,13 @@ const MainApplicationUI: React.FC = () => {
               setActiveKssks([]);
               setNameHints(undefined);
             }, 1300);
+            cancel("checkWatchdog");
           }
           setAwaitingRelease(false);
         }
       } catch (err) {
         if ((err as any)?.name === "AbortError") {
-          const maxRetries = Math.max(
-            0,
-            Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? "1")
-          );
-          if (attempt < 1 || attempt < maxRetries) {
+          if (attempt < CFG.RETRIES) {
             clearRetryTimer();
             schedule(
               "checkRetry",
@@ -1825,6 +1802,7 @@ const MainApplicationUI: React.FC = () => {
               setNameHints(undefined);
             }, 1300);
           }
+          cancel("checkWatchdog");
         } else {
           console.error("CHECK error", err);
           setDisableOkAnimation(true);
@@ -1835,11 +1813,13 @@ const MainApplicationUI: React.FC = () => {
             setActiveKssks([]);
             setNameHints(undefined);
           }, 1300);
+          cancel("checkWatchdog");
         }
       } finally {
         if (!mountedRef.current) return;
           if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
         clearRetryTimer();
+        cancel("checkWatchdog");
         // Keep live/checking state if failures occurred, so EV stream remains visible.
         try {
           if (!lastRunHadFailuresRef.current) setIsChecking(false);
@@ -2159,9 +2139,53 @@ const MainApplicationUI: React.FC = () => {
           return;
         }
 
-        // For explicit scans, proceed to CHECK even if Redis is empty; server can merge pins.
-        // We keep the MAC bound and let /api/serial/check drive failures/union.
+        // Explicit scans with no Redis data
+        if (!hasRealData && (trigger === "sse" || trigger === "manual")) {
+          // If configured, show hint and abort quickly back to idle; otherwise, proceed to CHECK anyway
+          if (!FLAGS.CHECK_ON_EMPTY) {
+            try {
+              setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
+              if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+              const HINT_MS = 1200;
+              scanResultTimerRef.current = window.setTimeout(() => {
+                setScanResult(null);
+                scanResultTimerRef.current = null;
+                try {
+                  // Avoid STOP-path cleanup thrash since we're bailing intentionally
+                  skipStopCleanupNextRef.current = true;
+                  handleResetKfb();
+                } catch {}
+                // Clear cooldown fully after reset so next scan binds immediately
+                try { idleCooldownUntilRef.current = 0; } catch {}
+              }, HINT_MS);
+              const macUp = (mac || "").toUpperCase();
+              if (macUp) {
+                // Briefly block this MAC so we don't re-trigger a loop
+                blockedMacRef.current.add(macUp);
+                window.setTimeout(() => {
+                  try { blockedMacRef.current.delete(macUp); } catch {}
+                }, 1800);
+              }
+              // Do NOT arm next scan automatically; require a fresh user action
+              // Pause polling briefly
+              try { pollBlockUntilRef.current = Date.now() + 1500; } catch {}
+            } catch {}
+            setIsScanning(false);
+            setShowScanUi(false);
+            return;
+          } else if (FLAGS.HINT_ON_EMPTY) {
+            try {
+              setScanResult({ text: "NOTHING TO CHECK HERE — running check…", kind: "info" });
+              if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+              scanResultTimerRef.current = window.setTimeout(() => {
+                setScanResult(null);
+                scanResultTimerRef.current = null;
+              }, 1500);
+            } catch {}
+          }
+        }
 
+        // Proceed to CHECK (supports server-side pin merge)
         await runCheck(mac, 0, pins);
       } catch (e) {
         console.error("Load/MONITOR error:", e);
@@ -2262,7 +2286,7 @@ const MainApplicationUI: React.FC = () => {
     handleScanRef.current = handleScan;
   }, [handleScan]);
 
-  // Consume SSE scanner events (gated by desired port)
+  // Consume SSE scanner events (gated by desired port); ignore background scans when no MAC unless armedOnce
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
@@ -2313,7 +2337,7 @@ const MainApplicationUI: React.FC = () => {
     isSettingsSidebarOpen,
   ]);
 
-  // Polling fallback (only when SSE is disconnected; explicit opt-in)
+  // Polling fallback (explicit opt-in). Poll when SSE is disconnected OR when last scan is stale.
   useEffect(() => {
     if (!FLAGS.SCANNER_POLL) return;
     if (mainView !== "dashboard") return;
@@ -2323,8 +2347,6 @@ const MainApplicationUI: React.FC = () => {
     if (macAddress && macAddress.trim()) return;
     if (isCheckingRef.current) return;
     if (isScanningRef.current) return;
-    // Only when SSE is actually disconnected; don't poll while SSE is up
-    if ((serial as any).sseConnected) return;
     // Cooldown after a successful check/finalize to avoid immediate polling
     try {
       const until = pollBlockUntilRef.current as number | undefined;
@@ -2339,7 +2361,7 @@ const MainApplicationUI: React.FC = () => {
     const stale =
       !(typeof lastAt === "number" && isFinite(lastAt)) ||
       Date.now() - (lastAt as number) > STALE_MS;
-    // With SSE connected we always skip polling; only poll when SSE is down
+    // If SSE is connected but stale, allow polling to consume simulated scans.
 
     let stopped = false;
     let lastPollAt = 0;
@@ -2358,7 +2380,7 @@ const MainApplicationUI: React.FC = () => {
             return;
           }
         } catch {}
-        // Stop polling if SSE becomes healthy while we are running
+        // Stop polling if SSE becomes healthy and scan activity is fresh while we are running
         const lastAtNow = (serial as any).lastScanAt as
           | number
           | null
@@ -2400,6 +2422,13 @@ const MainApplicationUI: React.FC = () => {
             // Sticky MAC: ignore repeats of the current MAC
             const curMac = (macRef.current || "").toUpperCase();
             if (curMac && norm === curMac) return;
+            // Require explicit arm when idle (no bound MAC)
+            if (!curMac) {
+              let armedOnce = false;
+              try { armedOnce = !!(window as any).__armScanOnce__; } catch {}
+              if (!armedOnce) return;
+              try { delete (window as any).__armScanOnce__; } catch {}
+            }
             // Respect global cooldown and blocked list
             if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
             if (blockedMacRef.current.has(norm)) return;
@@ -2410,7 +2439,7 @@ const MainApplicationUI: React.FC = () => {
               if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000) return;
             } catch {}
             if (isCheckingRef.current) enqueueScan(norm);
-            else await handleScan(norm, "poll");
+            else await handleScan(norm, "manual");
           } else if (error) {
             const str = String(error);
             const lower = str.toLowerCase();
@@ -2419,12 +2448,17 @@ const MainApplicationUI: React.FC = () => {
               lower.includes("disconnected:not_present") ||
               lower.includes("not present") ||
               lower.includes("not_present");
-            if (isNotPresent) {
-              setErrorMsg(null);
+            if (!isNotPresent) {
+              setScanResult({ text: str, kind: "error" });
+              try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
+              scanResultTimerRef.current = window.setTimeout(() => {
+                setScanResult(null);
+                scanResultTimerRef.current = null;
+              }, 2000);
+              console.warn("[SCANNER] poll error", error);
             } else {
-              setErrorMsg(str);
+              setErrorMsg(null);
             }
-            console.warn("[SCANNER] poll error", error);
           }
         }
       } catch (e) {
@@ -2555,6 +2589,14 @@ const MainApplicationUI: React.FC = () => {
     if (!hasMac) return "idle";
     return null;
   }, [mainView, isScanning, showScanUi, scanResult, macAddress]);
+
+  // When HUD returns to idle, allow immediate scan by clearing cooldown/blocks
+  useEffect(() => {
+    if (hudMode === "idle") {
+      try { idleCooldownUntilRef.current = 0; } catch {}
+      try { blockedMacRef.current.clear(); } catch {}
+    }
+  }, [hudMode]);
 
   const hudMessage = useMemo(() => {
     if (hudMode === "scanning") return "Scanning…";

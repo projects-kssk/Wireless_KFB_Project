@@ -20,7 +20,7 @@ export default function SimulateCheckBar() {
   const [unionPins, setUnionPins] = React.useState<number[]>([]);
   const [names, setNames] = React.useState<Record<string,string>>({});
   const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
-  const [useFallbackCheck, setUseFallbackCheck] = React.useState(false);
+  const [useFallbackCheck, setUseFallbackCheck] = React.useState(true);
 
   React.useEffect(() => {
     let stop = false;
@@ -82,6 +82,7 @@ export default function SimulateCheckBar() {
     if (!mac) return;
     setBusy(true); setLast(null);
     try {
+      try { (window as any).__armScanOnce__ = true; } catch {}
       // Prefer sending a simulated scanner code so the main app flow runs like a real scan.
       // Select the same desired path the dashboard listens on; if unknown, omit path to avoid filtering.
       const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];

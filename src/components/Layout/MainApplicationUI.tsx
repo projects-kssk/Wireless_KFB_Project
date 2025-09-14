@@ -220,6 +220,12 @@ const MainApplicationUI: React.FC = () => {
 
   // Central timer scheduler
   const timers = useRef<Map<string, number>>(new Map());
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const schedule = useCallback((key: string, fn: () => void, ms: number) => {
     const prev = timers.current.get(key);
     if (prev) {
@@ -546,6 +552,10 @@ const MainApplicationUI: React.FC = () => {
   const redisDropTimerRef = useRef<number | null>(null);
   const lastRedisDropAtRef = useRef<number | null>(null);
   const macRef = useRef<string>("");
+  // Polling refs (replace window globals)
+  const pollActiveRef = useRef(false);
+  const pollRetryMsRef = useRef<number | undefined>(undefined);
+  const pollBlockUntilRef = useRef<number>(0);
   useEffect(() => {
     redisReadyRef.current = !!(serial as any).redisReady;
   }, [(serial as any).redisReady]);
@@ -770,7 +780,7 @@ const MainApplicationUI: React.FC = () => {
     if (!isChecking) return;
     // Respect global idle cooldown after success to avoid immediate polling
     try {
-      const until = (window as any).__pollBlockUntil__ as number | undefined;
+      const until = pollBlockUntilRef.current as number | undefined;
       if (typeof until === 'number' && Date.now() < until) return;
     } catch {}
     let stop = false;
@@ -1067,11 +1077,23 @@ const MainApplicationUI: React.FC = () => {
             console.log("[LIVE] OFF → OK latched; suppressing live updates");
         } catch {}
 
+        // Block this MAC from re-triggering via residual scans for a while
+        try {
+          if (mac) {
+            blockedMacRef.current.add(mac);
+            idleCooldownUntilRef.current = Date.now() + Math.max(CFG.RETRY_COOLDOWN_MS, 8000);
+            window.setTimeout(() => {
+              try { blockedMacRef.current.delete(mac); } catch {}
+            }, Math.max(CFG.RETRY_COOLDOWN_MS, 8000));
+          }
+        } catch {}
+
         setMacAddress("");
         setKfbNumber("");
 
         try {
           lastFinalizedMacRef.current = mac;
+          lastFinalizedAtRef.current = Date.now();
         } catch {}
 
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
@@ -1182,6 +1204,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Declare before any effect that reads it
   const lastFinalizedMacRef = useRef<string | null>(null);
+  const lastFinalizedAtRef = useRef<number>(0);
 
   // Post-reset sanity cleanup
   useEffect(() => {
@@ -1257,7 +1280,7 @@ const MainApplicationUI: React.FC = () => {
 
     if ((kind === "RESULT" || kind === "DONE") && ok && matches && liveAllowed) {
       // Block idle poller briefly after success to avoid immediate scanner polling
-      try { (window as any).__pollBlockUntil__ = Date.now() + 15000; } catch {}
+      try { pollBlockUntilRef.current = Date.now() + 15000; } catch {}
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
       );
@@ -1508,9 +1531,7 @@ const MainApplicationUI: React.FC = () => {
                   const branchesG = pinsG.map((pin) => {
                     const nameRaw =
                       a[String(pin)] || aliases[String(pin)] || "";
-                    const name = String(nameRaw || "").startsWith("CL_")
-                      ? String(nameRaw)
-                      : `PIN ${pin}`;
+                    const name = nameRaw ? String(nameRaw) : `PIN ${pin}`;
                     return {
                       id: `${idStr}:${pin}`,
                       branchName: name,
@@ -1637,7 +1658,7 @@ const MainApplicationUI: React.FC = () => {
               setOkFlashTick((t) => t + 1);
             }
             try {
-              (window as any).__pollBlockUntil__ = Date.now() + 15000; // block idle poll ~15s after success
+              pollBlockUntilRef.current = Date.now() + 15000; // block idle poll ~15s after success
             } catch {}
             await finalizeOkForMac(mac);
             return;
@@ -1751,6 +1772,7 @@ const MainApplicationUI: React.FC = () => {
           }, 1300);
         }
       } finally {
+        if (!mountedRef.current) return;
           if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
         clearRetryTimer();
         setIsChecking(false);
@@ -1780,7 +1802,11 @@ const MainApplicationUI: React.FC = () => {
 
   // ----- LOAD + MONITOR + AUTO-CHECK FOR A SCAN -----
   const loadBranchesData = useCallback(
-    async (value?: string, source: "scan" | "manual" = "scan") => {
+    async (
+      value?: string,
+      source: "scan" | "manual" = "scan",
+      trigger: ScanTrigger = "sse"
+    ) => {
       try {
         console.log("[FLOW][LOAD] start", {
           source,
@@ -1947,9 +1973,7 @@ const MainApplicationUI: React.FC = () => {
                   const branches = pins.map((pin) => {
                     const nameRaw =
                       a[String(pin)] || aliases[String(pin)] || "";
-                    const name = String(nameRaw || "").startsWith("CL_")
-                      ? String(nameRaw)
-                      : `PIN ${pin}`;
+                    const name = nameRaw ? String(nameRaw) : `PIN ${pin}`;
                     return {
                       id: `${idStr}:${pin}`,
                       branchName: name,
@@ -2052,6 +2076,51 @@ const MainApplicationUI: React.FC = () => {
         try {
           console.log("[FLOW][LOAD] final pins for CHECK", pins);
         } catch {}
+
+        const hasRealData =
+          (Array.isArray(pins) && pins.length > 0) ||
+          (Array.isArray(activeIds) && activeIds.length > 0) ||
+          (aliases && Object.keys(aliases).length > 0);
+        if (trigger === "poll" && !hasRealData) {
+          if (DEBUG_LIVE)
+            console.log("[FLOW][LOAD] drop poll-trigger with no data");
+          setIsScanning(false);
+          setShowScanUi(false);
+          return;
+        }
+
+        // Explicit scans (SSE/manual) with no data in Redis: show friendly toast and allow quick retry
+        if (!hasRealData && (trigger === "sse" || trigger === "manual")) {
+          try {
+            setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
+            if (scanResultTimerRef.current)
+              clearTimeout(scanResultTimerRef.current);
+            const HINT_MS = 1800;
+            scanResultTimerRef.current = window.setTimeout(() => {
+              setScanResult(null);
+              scanResultTimerRef.current = null;
+              try { handleResetKfb(); } catch {}
+              // Clear cooldown fully after reset so next scan binds immediately
+              try { idleCooldownUntilRef.current = 0; } catch {}
+            }, HINT_MS);
+            // Briefly block this MAC to avoid immediate re-trigger loops
+            const macUp = (mac || "").toUpperCase();
+            if (macUp) {
+              blockedMacRef.current.add(macUp);
+              window.setTimeout(() => {
+                try { blockedMacRef.current.delete(macUp); } catch {}
+              }, 1200);
+            }
+            // Arm the next scan to be accepted even with no bound MAC
+            try { (window as any).__armScanOnce__ = true; } catch {}
+            // Keep cooldown very short so operator can rescan quickly
+            try { idleCooldownUntilRef.current = Date.now() + 600; } catch {}
+          } catch {}
+          setIsScanning(false);
+          setShowScanUi(false);
+          return;
+        }
+
         await runCheck(mac, 0, pins);
       } catch (e) {
         console.error("Load/MONITOR error:", e);
@@ -2069,12 +2138,29 @@ const MainApplicationUI: React.FC = () => {
     [runCheck]
   );
 
+  type ScanTrigger = "sse" | "poll" | "manual";
+
   const handleScan = useCallback(
-    async (raw: string) => {
-      // Global cooldown after a check completes or stuck-scan path
-      if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
+    async (raw: string, trig: ScanTrigger = "sse") => {
+      // Global cooldown after a check completes or stuck-scan path (but allow manual/armed scans)
+      if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0)) return;
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
+      // Drop stale codes immediately after finalize to avoid phantom re-triggers
+      const recentlyFinalized = (() => {
+        try {
+          const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
+          const lastAt = Number((lastFinalizedAtRef as any)?.current || 0);
+          return !!(lastMac && normalized === lastMac && Date.now() - lastAt < 2 * 60_000);
+        } catch {
+          return false;
+        }
+      })();
+      if (trig !== "manual" && recentlyFinalized) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][SCAN] drop: recently finalized", { normalized });
+        return;
+      }
       if (
         blockedMacRef.current.has(normalized) ||
         (canonicalMac(normalized) &&
@@ -2118,7 +2204,7 @@ const MainApplicationUI: React.FC = () => {
       scanInFlightRef.current = true;
       try {
         console.log("[FLOW][SCAN] starting load");
-        await loadBranchesData(normalized);
+        await loadBranchesData(normalized, trig === "manual" ? "manual" : "scan", trig);
       } finally {
         setTimeout(() => {
           scanInFlightRef.current = false;
@@ -2140,9 +2226,15 @@ const MainApplicationUI: React.FC = () => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!(serial as any).lastScanTick) return;
+    // Allow a one-shot arm to treat next scan as an explicit user action (e.g., Dev Simulate Run Check)
+    const armedOnce = (() => {
+      try { return !!(window as any).__armScanOnce__; } catch { return false; }
+    })();
+    // If no MAC is active and we're not armed, ignore background scans
+    if (!(macAddress && macAddress.trim()) && !armedOnce) return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    if (want && seen && !pathsEqual(seen, want)) {
+    if (!armedOnce && want && seen && !pathsEqual(seen, want)) {
       const noDevices = !((serial as any).scannersDetected > 0);
       if (!noDevices) return;
     }
@@ -2152,10 +2244,26 @@ const MainApplicationUI: React.FC = () => {
     if (isCheckingRef.current || isScanningRef.current) return;
     const norm = String(code).trim().toUpperCase();
     if (!norm) return;
+    // If armed for a one-shot scan, treat as manual and bypass cooldown/blocks
+    if (armedOnce) {
+      try { delete (window as any).__armScanOnce__; } catch {}
+      void handleScan(norm, "manual");
+      return;
+    }
+    // Respect global scan cooldown
+    if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
     // Sticky MAC: ignore repeats of the current MAC until reset
     const curMac = (macRef.current || "").toUpperCase();
     if (curMac && norm === curMac) return;
-    void handleScan(norm);
+    // Ignore if MAC is temporarily blocked (post-success or stuck)
+    if (blockedMacRef.current.has(norm)) return;
+    // Also ignore if this matches a recently finalized MAC
+    try {
+      const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
+      const lastAt = Number(lastFinalizedAtRef.current || 0);
+      if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000) return;
+    } catch {}
+    void handleScan(norm, "sse");
   }, [
     (serial as any).lastScanTick,
     lastScanPath,
@@ -2178,7 +2286,7 @@ const MainApplicationUI: React.FC = () => {
     if ((serial as any).sseConnected) return;
     // Cooldown after a successful check/finalize to avoid immediate polling
     try {
-      const until = (window as any).__pollBlockUntil__ as number | undefined;
+      const until = pollBlockUntilRef.current as number | undefined;
       if (typeof until === 'number' && Date.now() < until) return;
     } catch {}
     const STALE_MS_RAW = Number(
@@ -2194,19 +2302,18 @@ const MainApplicationUI: React.FC = () => {
 
     let stopped = false;
     let lastPollAt = 0;
-    const key = "__scannerPollActive__";
-    if ((window as any)[key]) return;
-    (window as any)[key] = true;
+    if (pollActiveRef.current) return;
+    pollActiveRef.current = true;
     let timer: number | null = null;
     let ctrl: AbortController | null = null;
 
     const tick = async () => {
       try {
         try {
-          const until = (window as any).__pollBlockUntil__ as number | undefined;
+          const until = pollBlockUntilRef.current as number | undefined;
           if (typeof until === 'number' && Date.now() < until) {
             stopped = true;
-            delete (window as any)[key];
+            pollActiveRef.current = false;
             return;
           }
         } catch {}
@@ -2221,9 +2328,7 @@ const MainApplicationUI: React.FC = () => {
           Date.now() - (lastAtNow as number) > STALE_MS;
         if (sseOkNow && !staleNow) {
           stopped = true;
-          try {
-            delete (window as any).__scannerPollActive__;
-          } catch {}
+          pollActiveRef.current = false;
           return;
         }
         if (isScanningRef.current) {
@@ -2244,8 +2349,7 @@ const MainApplicationUI: React.FC = () => {
         if (res.ok) {
           const { code, path, error, retryInMs } = await res.json();
           try {
-            if (typeof retryInMs === "number")
-              (window as any).__scannerRetry = retryInMs;
+            if (typeof retryInMs === "number") pollRetryMsRef.current = retryInMs;
           } catch {}
           const raw = typeof code === "string" ? code.trim() : "";
           if (raw) {
@@ -2255,8 +2359,17 @@ const MainApplicationUI: React.FC = () => {
             // Sticky MAC: ignore repeats of the current MAC
             const curMac = (macRef.current || "").toUpperCase();
             if (curMac && norm === curMac) return;
+            // Respect global cooldown and blocked list
+            if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
+            if (blockedMacRef.current.has(norm)) return;
+            // Also ignore if recently finalized
+            try {
+              const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
+              const lastAt = Number(lastFinalizedAtRef.current || 0);
+              if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000) return;
+            } catch {}
             if (isCheckingRef.current) enqueueScan(norm);
-            else await handleScan(norm);
+            else await handleScan(norm, "poll");
           } else if (error) {
             const str = String(error);
             const lower = str.toLowerCase();
@@ -2280,8 +2393,8 @@ const MainApplicationUI: React.FC = () => {
       } finally {
         const now = Date.now();
         const delay =
-          typeof (window as any).__scannerRetry === "number"
-            ? (window as any).__scannerRetry
+          typeof pollRetryMsRef.current === "number"
+            ? pollRetryMsRef.current
             : undefined;
         let nextMs = typeof delay === "number" && delay > 0 ? delay : 1800;
         const elapsed = now - lastPollAt;
@@ -2294,9 +2407,7 @@ const MainApplicationUI: React.FC = () => {
     tick();
     return () => {
       stopped = true;
-      try {
-        delete (window as any)[key];
-      } catch {}
+      pollActiveRef.current = false;
       if (timer) window.clearTimeout(timer);
       if (ctrl) ctrl.abort();
     };
@@ -2336,7 +2447,7 @@ const MainApplicationUI: React.FC = () => {
     try {
       console.log("[FLOW][MANUAL] submit", { value: kfbInputRef.current });
     } catch {}
-    void loadBranchesData(kfbInputRef.current, "manual");
+    void loadBranchesData(kfbInputRef.current, "manual", "manual");
   };
 
   const handleManualSubmit = (submittedNumber: string) => {
@@ -2350,7 +2461,7 @@ const MainApplicationUI: React.FC = () => {
     const next = mac || val;
     setKfbInput(next);
     setKfbNumber(next);
-    void loadBranchesData(next, "manual");
+    void loadBranchesData(next, "manual", "manual");
   };
 
   // Layout helpers

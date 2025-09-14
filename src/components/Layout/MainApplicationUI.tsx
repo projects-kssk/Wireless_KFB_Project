@@ -441,7 +441,8 @@ const MainApplicationUI: React.FC = () => {
   const serial = useSerialEvents(
     suppressLive || !(macAddress && macAddress.trim())
       ? undefined
-      : (macAddress || "").toUpperCase()
+      : (macAddress || "").toUpperCase(),
+    { disabled: suppressLive || mainView !== "dashboard" }
   );
 
   // Log live state
@@ -2538,6 +2539,7 @@ const MainApplicationUI: React.FC = () => {
       >
         {mainView === "dashboard" && (
           <Header
+            serial={serial}
             onSettingsClick={handleHeaderClick}
             currentView={appCurrentViewType}
             isSidebarOpen={isLeftSidebarOpen}

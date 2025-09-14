@@ -935,7 +935,6 @@ const MainApplicationUI: React.FC = () => {
     })();
   }, []);
   const checkpointSentRef = useRef<Set<string>>(new Set());
-  const checkpointMacSentRef = useRef<Set<string>>(new Set());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const lastActiveIdsRef = useRef<string[]>([]);
@@ -951,7 +950,6 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
         return false;
       }
-      if (checkpointMacSentRef.current.has(MAC)) return false;
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
       try {
@@ -984,6 +982,21 @@ const MainApplicationUI: React.FC = () => {
         }
 
         let sent = false;
+        const ensureIntksk = (xml: string, id: string): string => {
+          try {
+            let out = xml;
+            // If intksk exists, replace its value
+            if (/(<workingData[^>]*intksk=")[^"]*(")/i.test(out)) {
+              out = out.replace(/(<workingData[^>]*intksk=")[^"]*(")/i, `$1${id}$2`);
+            } else {
+              // Otherwise, insert intksk attribute before closing '>' of workingData start tag
+              out = out.replace(/<workingData([^>]*?)>/i, (_m, attrs) => `<workingData${attrs} intksk="${id}">`);
+            }
+            return out;
+          } catch {
+            return xml;
+          }
+        };
         for (const id of ids) {
           if (checkpointSentRef.current.has(id)) continue;
           let workingDataXml: string | null = null;
@@ -997,7 +1010,9 @@ const MainApplicationUI: React.FC = () => {
           // Build payload: prefer XML; in simulation fallback to intksk when XML missing
           let payload: any;
           if (workingDataXml && workingDataXml.trim()) {
-            payload = { requestID: "1", workingDataXml };
+            // Ensure the intksk in XML matches the current KSK id
+            const fixedXml = ensureIntksk(workingDataXml, id);
+            payload = { requestID: "1", workingDataXml: fixedXml };
           } else if (String(process.env.NEXT_PUBLIC_SIMULATE || '').trim() === '1') {
             payload = {
               requestID: "1",
@@ -1049,7 +1064,6 @@ const MainApplicationUI: React.FC = () => {
             } catch {}
           }
         }
-        if (sent) checkpointMacSentRef.current.add(MAC);
         return sent;
       } finally {
         checkpointMacPendingRef.current.delete(MAC);
@@ -1261,7 +1275,6 @@ const MainApplicationUI: React.FC = () => {
       } finally {
         try {
           checkpointSentRef.current.clear();
-          checkpointMacSentRef.current.clear();
         } catch {}
         try {
           (recentCleanupRef.current as Map<string, number>).set(

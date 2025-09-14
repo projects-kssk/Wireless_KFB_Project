@@ -185,6 +185,10 @@ const MainApplicationUI: React.FC = () => {
     kind: "info" | "error";
   } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Transient info HUD countdown (e.g., NOTHING TO CHECK HERE)
+  const [infoHideAt, setInfoHideAt] = useState<number | null>(null);
+  const [infoCountdownMs, setInfoCountdownMs] = useState<number>(0);
+  const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
   const [nameHints, setNameHints] = useState<
     Record<string, string> | undefined
   >(undefined);
@@ -279,6 +283,10 @@ const MainApplicationUI: React.FC = () => {
         if (scanOverlayTimerRef.current != null) {
           clearTimeout(scanOverlayTimerRef.current);
           scanOverlayTimerRef.current = null;
+        }
+        if (infoTimerRef.current) {
+          window.clearInterval(infoTimerRef.current as any);
+          infoTimerRef.current = null;
         }
       } catch {}
     };
@@ -1948,8 +1956,8 @@ const MainApplicationUI: React.FC = () => {
             macOrKfb: mac,
           });
         } catch {}
-        setKfbNumber(mac);
-        setMacAddress(mac);
+        // Do not bind MAC to UI yet; decide after we know if we will run a CHECK
+        const pendingMac = mac;
 
         let aliases: Record<string, string> = {};
         let hadGroups = false;
@@ -2189,7 +2197,7 @@ const MainApplicationUI: React.FC = () => {
             try {
               setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
               if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
-              const HINT_MS = 1200;
+              const HINT_MS = 3000;
               scanResultTimerRef.current = window.setTimeout(() => {
                 setScanResult(null);
                 scanResultTimerRef.current = null;
@@ -2201,6 +2209,24 @@ const MainApplicationUI: React.FC = () => {
                 // Clear cooldown fully after reset so next scan binds immediately
                 try { idleCooldownUntilRef.current = 0; } catch {}
               }, HINT_MS);
+              // Start visible countdown for HUD
+              try {
+                const hideAt = Date.now() + HINT_MS;
+                setInfoHideAt(hideAt);
+                setInfoCountdownMs(HINT_MS);
+                if (infoTimerRef.current) window.clearInterval(infoTimerRef.current as any);
+                infoTimerRef.current = window.setInterval(() => {
+                  setInfoCountdownMs(() => {
+                    const rem = Math.max(0, hideAt - Date.now());
+                    if (rem <= 0) {
+                      if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
+                      setInfoHideAt(null);
+                      return 0;
+                    }
+                    return rem;
+                  });
+                }, 100) as unknown as ReturnType<typeof window.setInterval>;
+              } catch {}
               const macUp = (mac || "").toUpperCase();
               if (macUp) {
                 // Briefly block this MAC so we don't re-trigger a loop
@@ -2220,16 +2246,40 @@ const MainApplicationUI: React.FC = () => {
             try {
               setScanResult({ text: "NOTHING TO CHECK HERE — running check…", kind: "info" });
               if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+              const HINT_MS2 = 3000;
               scanResultTimerRef.current = window.setTimeout(() => {
                 setScanResult(null);
                 scanResultTimerRef.current = null;
-              }, 1500);
+              }, HINT_MS2);
+              // Start visible countdown for HUD as well
+              try {
+                const hideAt2 = Date.now() + HINT_MS2;
+                setInfoHideAt(hideAt2);
+                setInfoCountdownMs(HINT_MS2);
+                if (infoTimerRef.current) window.clearInterval(infoTimerRef.current as any);
+                infoTimerRef.current = window.setInterval(() => {
+                  setInfoCountdownMs(() => {
+                    const rem = Math.max(0, hideAt2 - Date.now());
+                    if (rem <= 0) {
+                      if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
+                      setInfoHideAt(null);
+                      return 0;
+                    }
+                    return rem;
+                  });
+                }, 100) as unknown as ReturnType<typeof window.setInterval>;
+              } catch {}
             } catch {}
           }
         }
 
         // Proceed to CHECK (supports server-side pin merge)
-        await runCheck(mac, 0, pins);
+        try {
+          // Now bind the MAC to the UI just before we actually run CHECK
+          setKfbNumber(pendingMac);
+          setMacAddress(pendingMac);
+        } catch {}
+        await runCheck(pendingMac, 0, pins);
       } catch (e) {
         console.error("Load/MONITOR error:", e);
         setKfbNumber("");
@@ -2684,10 +2734,29 @@ const MainApplicationUI: React.FC = () => {
         ? "Use the scanner."
         : "Scanner not detected. You can still enter a MAC address.";
     }
-    if (hudMode === "info" && redisDegraded)
-      return "Live cache recently degraded—retry if needed.";
+    if (hudMode === "info") {
+      if (infoHideAt) {
+        const remMs = Math.max(0, infoHideAt - Date.now());
+        const secs = Math.ceil(remMs / 1000);
+        return secs > 0 ? String(secs) : undefined;
+      }
+      // If no countdown active, optionally show degraded hint
+      if (redisDegraded) return "Live cache recently degraded—retry if needed.";
+      return undefined;
+    }
     return undefined;
-  }, [hudMode, scannerDetected, redisDegraded]);
+  }, [hudMode, scannerDetected, redisDegraded, infoHideAt, infoCountdownMs]);
+
+  // Clear countdown when info hint disappears
+  useEffect(() => {
+    if (!scanResult || scanResult.kind !== 'info') {
+      try {
+        if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
+        setInfoHideAt(null);
+        setInfoCountdownMs(0);
+      } catch {}
+    }
+  }, [scanResult]);
 
   // Stable empty collections to reduce child re-renders
   const EMPTY_BRANCHES: ReadonlyArray<BranchDisplayData> = useMemo(

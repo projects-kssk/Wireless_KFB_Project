@@ -249,14 +249,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => {
     const cur = (macAddress || "").toUpperCase();
     const prev = prevMacRef.current;
-    if (!prev && cur) {
-      try {
-        console.log("[VIEW] Dashboard enter");
-      } catch {}
-    } else if (prev && !cur) {
-      try {
-        console.log("[VIEW] Dashboard exit");
-      } catch {}
+    const logEnabled = String(process.env.NEXT_PUBLIC_VIEW_LOG || '').trim() === '1';
+    if (logEnabled) {
+      if (!prev && cur) {
+        try { console.log("[VIEW] Dashboard enter"); } catch {}
+      } else if (prev && !cur) {
+        try { console.log("[VIEW] Dashboard exit"); } catch {}
+      }
     }
     prevMacRef.current = cur;
   }, [macAddress]);
@@ -1233,7 +1232,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                             {hudMessage}
                           </div>
                         )}
-                        {hudSubMessage && (
+                        {/* Show submessage in-body for non-info only; info uses right-side badge */}
+                        {hudSubMessage && !isInfoHud && (
                           <div className="text-sm/5 opacity-80 truncate">
                             {hudSubMessage}
                           </div>
@@ -1244,14 +1244,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                           </div>
                         )}
                       </div>
-                      {onHudDismiss && !isScanningHud && (
-                        <button
-                          type="button"
-                          onClick={onHudDismiss}
-                          className="ml-2 inline-flex select-none items-center rounded-md px-2.5 py-1.5 text-sm font-medium ring-1 ring-inset bg-slate-900 text-white hover:bg-black ring-slate-900"
+                      {/* Right-side badge for info countdown (replaces Dismiss) */}
+                      {isInfoHud && hudSubMessage && (
+                        <div
+                          className="ml-2 inline-flex select-none items-center justify-center rounded-md text-sm font-semibold bg-slate-900 text-white w-8 h-8"
+                          aria-label="Countdown"
                         >
-                          Dismiss
-                        </button>
+                          {hudSubMessage}
+                        </div>
                       )}
                     </div>
                   </div>

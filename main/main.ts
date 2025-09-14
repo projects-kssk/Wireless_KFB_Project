@@ -39,6 +39,12 @@ const SIMULATE = (() => {
   const offline = String(process.env.NEXT_PUBLIC_KROSY_ONLINE ?? '').trim().toLowerCase() === 'false'
   return offline || v === '1' || v === 'true' || v === 'yes'
 })()
+// Optional GPU mitigation: disable hardware acceleration when requested
+const DISABLE_GPU = (process.env.WFKB_DISABLE_GPU || '0').trim() === '1'
+if (DISABLE_GPU) {
+  try { app.disableHardwareAcceleration() } catch {}
+  try { app.commandLine.appendSwitch('disable-gpu') } catch {}
+}
 const DISABLE_REMOTE_PROBE = (() => {
   const v = String(process.env.WFKB_DISABLE_REMOTE_PROBE ?? '0').trim().toLowerCase()
   return v === '1' || v === 'true' || v === 'yes'
@@ -168,7 +174,8 @@ async function createWindows() {
     show: false,
     autoHideMenuBar: true,
     fullscreenable: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    backgroundColor: '#ffffff',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
     title: 'Dashboard',
     icon: appIconPath(),
   })
@@ -181,7 +188,8 @@ async function createWindows() {
     show: false,
     autoHideMenuBar: true,
     fullscreenable: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    backgroundColor: '#ffffff',
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
     title: 'Setup',
     icon: appIconPath(),
   })
@@ -345,9 +353,14 @@ async function createWindows() {
   const attachRecovery = (win: BrowserWindow) => {
     try {
       const wc = win.webContents
+      // Surface GPU/renderer issues and auto-recover
       wc.on('render-process-gone', (_e, details) => {
         console.warn('[main] Renderer gone:', details?.reason)
         try { win.loadURL(`${chosenBaseRef || 'http://127.0.0.1:'+PORT}/`) } catch {}
+      })
+      app.on('gpu-process-crashed', (_ev, killed) => {
+        console.warn('[main] GPU process crashed; restarting windows', { killed })
+        resetApp('gpu-process-crashed')
       })
       win.on('unresponsive', () => {
         console.warn('[main] Window unresponsive; reloading')

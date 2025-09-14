@@ -942,14 +942,7 @@ const MainApplicationUI: React.FC = () => {
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       const MAC = mac.toUpperCase();
-      if (Date.now() < (checkpointBlockUntilTsRef.current || 0)) {
-        try {
-          console.warn(
-            "[FLOW][CHECKPOINT] suppressed due to recent failure backoff"
-          );
-        } catch {}
-        return false;
-      }
+      // Do not suppress on backoff when finalizing OK; attempt anyway
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
       try {
@@ -982,21 +975,6 @@ const MainApplicationUI: React.FC = () => {
         }
 
         let sent = false;
-        const ensureIntksk = (xml: string, id: string): string => {
-          try {
-            let out = xml;
-            // If intksk exists, replace its value
-            if (/(<workingData[^>]*intksk=")[^"]*(")/i.test(out)) {
-              out = out.replace(/(<workingData[^>]*intksk=")[^"]*(")/i, `$1${id}$2`);
-            } else {
-              // Otherwise, insert intksk attribute before closing '>' of workingData start tag
-              out = out.replace(/<workingData([^>]*?)>/i, (_m, attrs) => `<workingData${attrs} intksk="${id}">`);
-            }
-            return out;
-          } catch {
-            return xml;
-          }
-        };
         for (const id of ids) {
           if (checkpointSentRef.current.has(id)) continue;
           let workingDataXml: string | null = null;
@@ -1010,9 +988,15 @@ const MainApplicationUI: React.FC = () => {
           // Build payload: prefer XML; in simulation fallback to intksk when XML missing
           let payload: any;
           if (workingDataXml && workingDataXml.trim()) {
-            // Ensure the intksk in XML matches the current KSK id
-            const fixedXml = ensureIntksk(workingDataXml, id);
-            payload = { requestID: "1", workingDataXml: fixedXml };
+            // Optional validation only: warn if intksk in XML does not match the KSK id
+            try {
+              const m = workingDataXml.match(/<workingData\b[^>]*\bintksk="([^"]+)"/i);
+              const xmlId = m ? String(m[1] || "").trim() : null;
+              if (xmlId && xmlId !== id) {
+                console.warn("[FLOW][CHECKPOINT] XML intksk mismatch", { expect: id, xmlIntksk: xmlId });
+              }
+            } catch {}
+            payload = { requestID: "1", workingDataXml };
           } else if (String(process.env.NEXT_PUBLIC_SIMULATE || '').trim() === '1') {
             payload = {
               requestID: "1",
@@ -1164,36 +1148,49 @@ const MainApplicationUI: React.FC = () => {
           lastFinalizedAtRef.current = Date.now();
         } catch {}
 
-        const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+        // Determine active KSK IDs first
+        let ids =
+          lastActiveIdsRef.current && lastActiveIdsRef.current.length
+            ? [...lastActiveIdsRef.current]
+            : [...(activeKssks || [])];
+        if (!ids.length) {
+          try {
+            const r = await fetch(
+              `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
+              { cache: "no-store" }
+            );
+            if (r.ok) {
+              const j = await r.json();
+              const items: any[] = Array.isArray(j?.items) ? j.items : [];
+              ids = Array.from(
+                new Set(
+                  items
+                    .map((it: any) => String((it?.ksk ?? it?.kssk) || "").trim())
+                    .filter(Boolean)
+                )
+              );
+            }
+          } catch {}
+        }
+        // Gate checkpoint by either union data OR presence of at least one stored XML
+        let hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+        if (!hasSetup && ids.length) {
+          try {
+            for (const id of ids) {
+              const rXml = await fetch(
+                `/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(id)}`,
+                { cache: "no-store" }
+              );
+              if (rXml.ok) { hasSetup = true; break; }
+            }
+          } catch {}
+        }
         // After a successful OK flow, suppress the empty-hint toast for a short window
         try {
           suppressEmptyHintUntilRef.current =
             Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS);
         } catch {}
         if (hasSetup) {
-          let ids =
-            lastActiveIdsRef.current && lastActiveIdsRef.current.length
-              ? [...lastActiveIdsRef.current]
-              : [...(activeKssks || [])];
-          if (!ids.length) {
-            try {
-              const r = await fetch(
-                `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
-                { cache: "no-store" }
-              );
-              if (r.ok) {
-                const j = await r.json();
-                const items: any[] = Array.isArray(j?.items) ? j.items : [];
-                ids = Array.from(
-                  new Set(
-                    items
-                      .map((it: any) => String((it?.ksk ?? it?.kssk) || "").trim())
-                      .filter(Boolean)
-                  )
-                );
-              }
-            } catch {}
-          }
           try {
             console.log("[FLOW][CHECKPOINT] finalising with ids", ids);
           } catch {}

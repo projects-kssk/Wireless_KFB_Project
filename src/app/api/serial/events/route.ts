@@ -2,6 +2,7 @@
 import os from 'os';
 import { promises as fs } from 'fs';
 import { onSerialEvent } from '@/lib/bus';
+import { getLastScanAndClear } from '@/lib/scannerMemory';
 import {
   listSerialDevices,
   ensureScanners,
@@ -89,6 +90,7 @@ export async function GET(req: Request) {
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let pollTimer: ReturnType<typeof setInterval> | null = null;
+  let scanTimer: ReturnType<typeof setInterval> | null = null;
   let unsubscribe: (() => void) | null = null;
 
   // single cleanup path
@@ -99,6 +101,7 @@ export async function GET(req: Request) {
     try { pollTimer?.unref?.(); } catch {}
     if (heartbeat) clearInterval(heartbeat);
     if (pollTimer) clearInterval(pollTimer);
+    if (scanTimer) clearInterval(scanTimer);
     try { unsubscribe?.(); } catch {}
   };
 
@@ -285,6 +288,17 @@ export async function GET(req: Request) {
         } catch {}
       }, 5_000);
       pollTimer.unref?.();
+
+      // fast lane: forward scans from scanner memory to SSE clients
+      scanTimer = setInterval(() => {
+        try {
+          const s = getLastScanAndClear();
+          if (s && s.code) {
+            send({ type: 'scan', code: s.code, path: s.path ?? undefined });
+          }
+        } catch {}
+      }, 350);
+      scanTimer.unref?.();
     },
 
     cancel() {

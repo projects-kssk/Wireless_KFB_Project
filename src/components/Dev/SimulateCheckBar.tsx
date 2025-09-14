@@ -17,6 +17,9 @@ export default function SimulateCheckBar() {
   const [live, setLive] = React.useState<{ started?: boolean; done?: boolean; ok?: boolean; evCount: number }>(
     { started: false, done: false, ok: undefined, evCount: 0 }
   );
+  const [unionPins, setUnionPins] = React.useState<number[]>([]);
+  const [names, setNames] = React.useState<Record<string,string>>({});
+  const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
 
   React.useEffect(() => {
     let stop = false;
@@ -26,8 +29,12 @@ export default function SimulateCheckBar() {
         const j = await r.json();
         if (stop) return;
         setEnabled(!!j.enabled);
-        const m = String(((j.config as SimConfig | undefined)?.macOverride || '')).toUpperCase();
+        const cfg = j.config as SimConfig | undefined;
+        const m = String((cfg?.macOverride || '')).toUpperCase();
         if (m) setMac(m);
+        // seed failure set from simulation config if present
+        const fp = (j?.config as any)?.failurePins as any[] | undefined;
+        if (Array.isArray(fp)) setSimFailing(new Set(fp.map(Number).filter(n=>Number.isFinite(n)&&n>0)));
       } catch {}
     })();
     return () => { stop = true; };
@@ -42,6 +49,42 @@ export default function SimulateCheckBar() {
     else setLive((p) => ({ ...p, evCount: (p.evCount || 0) + 1 }));
   }, [serial.lastEvTick]);
 
+  // Load union pins and labels for current MAC
+  React.useEffect(() => {
+    let stop = false;
+    const mm = (mac || '').toUpperCase().trim();
+    if (!mm) { setUnionPins([]); setNames({}); return; }
+    (async () => {
+      try {
+        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mm)}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (stop) return;
+        const np = Array.isArray(j?.normalPins) ? j.normalPins : [];
+        const lp = Array.isArray(j?.latchPins) ? j.latchPins : [];
+        const pins = Array.from(new Set([...(np||[]), ...(lp||[])]))
+          .map((n: any)=>Number(n)).filter((n:number)=>Number.isFinite(n)&&n>0).sort((a:number,b:number)=>a-b);
+        setUnionPins(pins);
+        setNames((j?.aliases && typeof j.aliases==='object') ? j.aliases as Record<string,string> : {});
+      } catch {}
+    })();
+    return () => { stop = true; };
+  }, [mac]);
+
+  // Keep simulator MAC override in sync so EV lines map to current device
+  React.useEffect(() => {
+    const mm = (mac || '').toUpperCase().trim();
+    (async () => {
+      try {
+        await fetch('/api/simulate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mac: mm || null }),
+        }).catch(() => {});
+      } catch {}
+    })();
+  }, [mac]);
+
 
   const runCheck = async () => {
     if (!mac) return;
@@ -51,11 +94,12 @@ export default function SimulateCheckBar() {
       const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];
       const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
       const path = paths[idx] || '/dev/ttyACM0';
+      // Also ensure simulator MAC override matches
       await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send both raw MAC and a prefixed variant many classifiers accept
-        body: JSON.stringify({ scan: [
+        // Send both raw MAC and a prefixed variant many classifiers accept, bound to the dashboard scanner path only.
+        body: JSON.stringify({ mac: mac.toUpperCase(), scan: [
           { code: `KFB:${mac.toUpperCase()}`, path },
           { code: mac.toUpperCase(), path }
         ] }),
@@ -68,11 +112,24 @@ export default function SimulateCheckBar() {
     }
   };
 
+  // helpers to control simulation failing pins
+  const apply = async (body: any) => {
+    try {
+      const r = await fetch('/api/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: (mac||'').toUpperCase().trim() || undefined, ...body }) });
+      const j = await r.json().catch(()=>null);
+      const fp = j?.config?.failurePins as any[] | undefined;
+      if (Array.isArray(fp)) setSimFailing(new Set(fp.map(Number)));
+    } catch {}
+  };
+  const togglePin = async (pin: number) => { await apply({ togglePin: pin }); };
+  const failAll = async () => { if (unionPins.length) await apply({ scenario: 'failure', failurePins: unionPins }); };
+  const clearFails = async () => { await apply({ scenario: 'success', failurePins: [] }); };
+
   if (!enabled) return null;
 
   return (
     <div style={{ position: 'fixed', right: 12, bottom: 120, zIndex: 50 }}>
-      <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span style={{ fontSize: 12, opacity: 0.8 }}>Sim Check</span>
         <input
           placeholder="AA:BB:CC:DD:EE:FF"
@@ -89,6 +146,25 @@ export default function SimulateCheckBar() {
         <span style={{ fontSize: 11, opacity: 0.8, paddingLeft: 8 }}>
           {live.started ? (live.done ? (live.ok ? 'DONE OK' : 'DONE FAIL') : `RUNNING · EV ${live.evCount}`) : ''}
         </span>
+        {unionPins.length > 0 && (
+          <>
+            <div style={{ width: '100%' }} />
+            <button onClick={failAll} disabled={busy} style={{ padding: '6px 10px', borderRadius: 10, background: '#ef4444', color: '#fff' }}>Fail all</button>
+            <button onClick={clearFails} disabled={busy} style={{ padding: '6px 10px', borderRadius: 10, background: '#10b981', color: '#fff' }}>Clear</button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 520 }}>
+              {unionPins.map((p) => {
+                const failing = simFailing.has(p);
+                const label = names[String(p)] || `PIN ${p}`;
+                return (
+                  <button key={p} title={label} onClick={() => togglePin(p)} disabled={busy}
+                    style={{ padding: '4px 8px', borderRadius: 999, fontSize: 12, background: failing ? '#7f1d1d' : '#1f2937', color: '#fff', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { m, AnimatePresence } from "framer-motion";
-const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === '1'
+const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
 // --- SVG ICONS ---
 const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -205,7 +205,7 @@ export interface BranchDashboardMainContentProps {
   flashOkTick?: number;
   // Optional system note to display under OK (e.g., checkpoint/clear)
   okSystemNote?: string | null;
-  scanResult?: { text: string; kind: "info"|"error" } | null;
+  scanResult?: { text: string; kind: "info" | "error" } | null;
 }
 
 const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
@@ -239,12 +239,16 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   // Lifecycle logs for live-session enter/exit based on MAC binding
   const prevMacRef = useRef<string>("");
   useEffect(() => {
-    const cur = (macAddress || '').toUpperCase();
+    const cur = (macAddress || "").toUpperCase();
     const prev = prevMacRef.current;
     if (!prev && cur) {
-      try { console.log('[VIEW] Dashboard enter'); } catch {}
+      try {
+        console.log("[VIEW] Dashboard enter");
+      } catch {}
     } else if (prev && !cur) {
-      try { console.log('[VIEW] Dashboard exit'); } catch {}
+      try {
+        console.log("[VIEW] Dashboard exit");
+      } catch {}
     }
     prevMacRef.current = cur;
   }, [macAddress]);
@@ -309,7 +313,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const snap = JSON.stringify(snapObj);
     if (snap === lastPropsSnapRef.current) return;
     lastPropsSnapRef.current = snap;
-    try { if (DEBUG_LIVE) console.log("[LIVE][PROPS] update", snapObj); } catch {}
+    try {
+      if (DEBUG_LIVE) console.log("[LIVE][PROPS] update", snapObj);
+    } catch {}
   }, [
     branchesData,
     groupedBranches,
@@ -391,10 +397,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   // Log scanning/checking transitions
   useEffect(() => {
-    try { if (DEBUG_LIVE) console.log("[LIVE][STATE] scanning", { isScanning }); } catch {}
+    try {
+      if (DEBUG_LIVE) console.log("[LIVE][STATE] scanning", { isScanning });
+    } catch {}
   }, [isScanning]);
   useEffect(() => {
-    try { if (DEBUG_LIVE) console.log("[LIVE][STATE] checking", { isChecking }); } catch {}
+    try {
+      if (DEBUG_LIVE) console.log("[LIVE][STATE] checking", { isChecking });
+    } catch {}
   }, [isChecking]);
 
   // -------------------- LIVE EV UPDATES --------------------
@@ -631,7 +641,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [localBranches]
   );
   useEffect(() => {
-    try { if (DEBUG_LIVE) console.log("[LIVE][SNAP] pending failures", { count: pending.length }); } catch {}
+    try {
+      if (DEBUG_LIVE)
+        console.log("[LIVE][SNAP] pending failures", { count: pending.length });
+    } catch {}
   }, [pending.length]);
 
   // Failures from server or derived from pending
@@ -828,32 +841,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     triggerOkFlash(tick);
   }, [flashOkTick, settled, triggerOkFlash]);
 
-  // If grouped view shows all cards "OK", fire the flash & return to scan
+  // Disable automatic OK flashes; parent triggers OK via flashOkTick when allowed.
+  // THIS IS NEEDED DONT CHANGE THIS GPT
   useEffect(() => {
     if (!settled || !showingGrouped) return;
     if (!groupedAllOk) return;
     if (flashInProgressRef.current || showOkAnimation) return;
     triggerOkFlash(Date.now()); // this already calls returnToScan() after OK_FLASH_MS
   }, [settled, showingGrouped, groupedAllOk, showOkAnimation, triggerOkFlash]);
-
-  // Drain queued flash when settled
-  useEffect(() => {
-    if (!settled) return;
-    const queued = queuedFlashTickRef.current;
-    if (queued && queued !== lastFlashTickRef.current) {
-      queuedFlashTickRef.current = 0;
-      triggerOkFlash(queued);
-    }
-  }, [settled, triggerOkFlash]);
-
-  // Always flash when everything is OK, then auto-return to scan
-  useEffect(() => {
-    if (!settled || !allOk) return;
-    if (!flashInProgressRef.current && !showOkAnimation) {
-      triggerOkFlash(Date.now());
-    }
-  }, [allOk, settled, showOkAnimation, triggerOkFlash]);
-
   // Watchdog: if the flash didn’t render for any reason, force a reset shortly after
   useEffect(() => {
     if (!allOk) return;
@@ -1059,9 +1054,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               OK
             </h3>
           </div>
-          <div className="mt-2 text-slate-500 text-2xl font-semibold">
-            Please scan barcode
-          </div>
+          {/* No secondary text under OK */}
           {okSystemNote && (
             <div className="mt-1 text-slate-400 text-base">{okSystemNote}</div>
           )}
@@ -1203,30 +1196,39 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       // Scan box
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
-          <div className="w-full flex flex-col items-center gap-8">
+          <div className="w-full flex flex-col items-center gap-4 md:gap-6">
             {(() => {
-              const txt = scanResult ? scanResult.text : (isScanning ? "SCANNING…" : "Please Scan Barcode");
-              const cls = scanResult && scanResult.kind === "error" ? "text-red-600" : "text-slate-700";
+              const txt = scanResult
+                ? scanResult.text
+                : isScanning
+                  ? "SCANNING…"
+                  : "Please Scan Barcode";
+              const cls =
+                scanResult && scanResult.kind === "error"
+                  ? "text-red-600"
+                  : "text-slate-700";
               return (
-                <p className={`text-6xl md:text-7xl ${cls} font-extrabold uppercase tracking-widest text-center select-none`}>
+                <p
+                  className={`text-6xl md:text-7xl ${cls} font-extrabold uppercase tracking-widest text-center select-none`}
+                >
                   {txt}
                 </p>
               );
             })()}
             {isScanning && !scanResult && (
               <div className="flex flex-col items-center gap-3">
-                <p className="text-slate-600 text-3xl md:text-4xl font-bold tracking-wide">
-                  SCANNING…
+                <p className="text-slate-600 text-2xl md:text-3xl font-semibold tracking-wide">
+                  Please wait — scanning…
                 </p>
                 <m.div
-                  className="h-1 w-56 md:w-72 rounded-full bg-slate-300/50 overflow-hidden"
+                  className="h-1.5 w-64 md:w-80 rounded-full bg-slate-300/40 overflow-hidden shadow-inner"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ duration: 0.2 }}
                 >
                   <m.div
-                    className="h-full w-1/3 bg-blue-500"
-                    animate={{ x: ["-20%", "100%"] }}
+                    className="h-full w-1/3 bg-blue-500/80"
+                    animate={{ x: ["-30%", "100%"] }}
                     transition={{
                       repeat: Infinity,
                       duration: 1.2,
@@ -1324,25 +1326,22 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             key={(grp as any).ksk}
             className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
           >
-            <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
-              <div className="flex items-center justify-center gap-3 w-full">
-                <span
-                  className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${isActive ? "bg-blue-600" : "bg-blue-500"} text-white font-extrabold shadow`}
-                >
-                  {String((grp as any).ksk).slice(-2)}
-                </span>
-                <div className="flex flex-col">
-                  <div className="text-xl font-black text-slate-800 leading-tight">
-                    {(grp as any).ksk}
+            <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl md:text-3xl font-black text-slate-800 leading-tight">
+                    KSK: {(grp as any).ksk}
                   </div>
+                  {missingNames.length > 0 ? (
+                    <span className="inline-flex items-center rounded-full bg-red-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
+                      {missingNames.length} missing
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-emerald-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
+                      OK
+                    </span>
+                  )}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {missingNames.length > 0 ? (
-                  <Chip tone="bad">{missingNames.length} missing</Chip>
-                ) : (
-                  <Chip tone="ok">OK</Chip>
-                )}
               </div>
             </header>
             <div className="p-4 grid gap-4">
@@ -1351,32 +1350,16 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">
                     Missing items
                   </div>
-                  <div className="grid gap-2">
+                  {/* Render large chips that wrap, so multiple names fit per row */}
+                  <div className="flex flex-wrap gap-3">
                     {failedItems.map((f) => (
-                      <div
+                      <span
                         key={`f-${(grp as any).ksk}-${f.pin}`}
-                        className="rounded-xl border border-red-200 bg-red-50/40 p-3"
+                        className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-5 py-3 text-2xl md:text-3xl font-black shadow-sm"
+                        title={`PIN ${f.pin}${f.isLatch ? ' (Contactless)' : ''}`}
                       >
-                        <div className="text-3xl md:text-4xl font-black text-slate-800 leading-tight">
-                          {f.name}
-                        </div>
-                        <div className="mt-1 flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
-                            NOK
-                          </span>
-                          <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px]">
-                            PIN {f.pin}
-                          </span>
-                          {f.isLatch && (
-                            <span
-                              className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]"
-                              title="Contactless pin"
-                            >
-                              Contactless
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                        {f.name}
+                      </span>
                     ))}
                   </div>
                 </div>
@@ -1456,9 +1439,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     } catch {}
   }, [viewKey]);
 
-  const hasContent = (Array.isArray(groupedBranches) && groupedBranches.length > 0) || (localBranches && localBranches.length > 0);
+  const hasContent =
+    (Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
+    (localBranches && localBranches.length > 0);
   return (
-    <div className={`flex-grow flex flex-col items-center ${hasContent ? 'justify-start' : 'justify-center'} p-2`}>
+    <div
+      className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
+    >
       <header className="w-full mb-1 min-h-[56px]">
         {kfbInfo?.board ||
         kfbNumber ||
@@ -1471,7 +1458,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                     ? macAddress.toUpperCase()
                     : (kfbInfo?.board ?? kfbNumber)}
                 </h1>
-                
               </div>
             ) : (
               <div />

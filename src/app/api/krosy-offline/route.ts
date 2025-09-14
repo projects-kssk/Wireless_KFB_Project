@@ -117,7 +117,34 @@ const RAW_LIMIT = Number(process.env.KROSY_RAW_LIMIT ?? 64000);
 /* ===== http ===== */
 function cors(req: NextRequest) {
   const origin = req.headers.get("origin") || "";
-  const allow = ALLOW_ANY ? "*" : ORIGINS.includes(origin) ? origin : ORIGINS[0] || "";
+  let allow = "";
+  if (ALLOW_ANY) {
+    allow = "*";
+  } else if (ORIGINS.includes(origin)) {
+    allow = origin;
+  } else {
+    // Be lenient with localhost vs 127.0.0.1 and explicit ports
+    try {
+      const o = new URL(origin);
+      const host = o.hostname;
+      const port = o.port || (o.protocol === 'https:' ? '443' : '80');
+      const swapHost = host === '127.0.0.1' ? 'localhost' : host === 'localhost' ? '127.0.0.1' : null;
+      if (swapHost) {
+        const swapped = `${o.protocol}//${swapHost}:${port}`;
+        if (ORIGINS.includes(swapped)) allow = origin;
+      }
+      // Also accept when ORIGINS contains protocol-less hosts
+      if (!allow) {
+        for (const a of ORIGINS) {
+          try {
+            const aa = new URL(a);
+            if (aa.hostname === host && (aa.port || (aa.protocol === 'https:' ? '443' : '80')) === port) { allow = origin; break; }
+          } catch { /* ignore */ }
+        }
+      }
+    } catch {}
+    if (!allow) allow = ORIGINS[0] || "";
+  }
   return {
     "Access-Control-Allow-Origin": allow,
     Vary: "Origin",

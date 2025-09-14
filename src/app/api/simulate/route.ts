@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import serial from '@/lib/serial';
 import { broadcast } from '@/lib/bus';
+import { setLastScan } from '@/lib/scannerMemory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,7 +55,13 @@ export async function POST(req: Request) {
     const scans = Array.isArray(body.scan) ? body.scan : (body.scan ? [body.scan] : []);
     for (const s of scans) {
       const code = String((s as any)?.code ?? '').trim();
-      if (code) broadcast({ type: 'scan', code, path: (s as any)?.path ?? undefined });
+      if (code) {
+        const path = (s as any)?.path ?? undefined;
+        // broadcast over in-process bus (SSE listeners consume immediately)
+        try { broadcast({ type: 'scan', code, path }); } catch {}
+        // also push into scanner memory so polling and SSE scan-poll can consume
+        try { setLastScan(code, path ?? null); } catch {}
+      }
     }
 
     // Optional: UI cue emission as a raw line
@@ -91,7 +98,9 @@ export async function POST(req: Request) {
       // Flip membership in failurePins
       const fail = new Set<number>(Array.isArray(next?.failurePins) ? next!.failurePins : []);
       if (fail.has(ch)) fail.delete(ch); else fail.add(ch);
-      const updated = setCfg?.({ failurePins: Array.from(fail).sort((a,b)=>a-b) }) || next;
+      // Auto-toggle scenario based on whether any pins are failing now
+      const scenario = fail.size ? 'failure' : 'success';
+      const updated = setCfg?.({ failurePins: Array.from(fail).sort((a,b)=>a-b), scenario }) || next;
       // Emit EV with new state (0=fail when in set)
       const val = fail.has(ch) ? 0 : 1;
       const line = `EV P ${ch} ${val} ${mac}`;

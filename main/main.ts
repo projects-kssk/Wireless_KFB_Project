@@ -6,7 +6,11 @@ import fs from 'node:fs'
 
 const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
-const OPEN_DEVTOOLS = (process.env.WFKB_DEVTOOLS || '0') === '1'
+const OPEN_DEVTOOLS = (() => {
+  const env = String(process.env.WFKB_DEVTOOLS ?? '').trim()
+  if (env) return env === '1' || env.toLowerCase() === 'true'
+  return isDev // default: open devtools in dev
+})()
 // Candidate remote base; when WFKB_FORCE_REMOTE=1 we must use this and not start local
 const PROD_BASE_URL = process.env.WFKB_BASE_URL || 'http://172.26.202.248:3000'
 const FORCE_REMOTE = (process.env.WFKB_FORCE_REMOTE || '0') === '1'

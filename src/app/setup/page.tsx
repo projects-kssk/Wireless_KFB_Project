@@ -2372,18 +2372,18 @@ export default function SetupPage() {
                   const hit =
                     flash && flash.panel === (`ksk${idx}` as PanelKey);
                   return (
-                  <KsskSlotCompact
-                    key={idx}
-                    index={idx}
-                    code={code}
-                    status={status}
-                    allowManual={allowManual}
-                    onManualToggle={() =>
-                      setShowManualFor((s) => ({
-                        ...s,
-                        [`ksk${idx}`]: !s[`ksk${idx}`],
-                      }))
-                    }
+                    <KsskSlotCompact
+                      key={idx}
+                      index={idx}
+                      code={code}
+                      status={status}
+                      allowManual={allowManual}
+                      onManualToggle={() =>
+                        setShowManualFor((s) => ({
+                          ...s,
+                          [`ksk${idx}`]: !s[`ksk${idx}`],
+                        }))
+                      }
                       manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
                       onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
                       onForceClear={async () => {
@@ -2666,7 +2666,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   index,
   code,
   status,
-  allowManual,
+  allowManual = false,
   manualOpen,
   onManualToggle,
   onSubmit,
@@ -2763,26 +2763,6 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7 }}>
           Processing…
         </div>
-      )}
-
-      {/* manual toggle (simulation only) */}
-      {allowManual && (
-        <button
-          type="button"
-          onClick={onManualToggle}
-          style={{
-            fontSize: 12,
-            color: "#2563eb",
-            textDecoration: "underline",
-            cursor: "pointer",
-            fontWeight: 700,
-            background: "transparent",
-            border: 0,
-            justifySelf: "start",
-          }}
-        >
-          Enter manually
-        </button>
       )}
 
       {/* static scan stripes */}

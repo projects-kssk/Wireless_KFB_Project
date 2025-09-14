@@ -423,6 +423,8 @@ const MainApplicationUI: React.FC = () => {
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
   const [disableOkAnimation, setDisableOkAnimation] = useState(false);
+  const okShownOnceRef = useRef<boolean>(false);
+  const okFlashAllowedRef = useRef<boolean>(false);
   const [suppressLive, setSuppressLive] = useState(false);
   const clearRetryTimer = () => { cancel('checkRetry'); };
   const scanOverlayTimerRef = useRef<number | null>(null);
@@ -885,6 +887,9 @@ const MainApplicationUI: React.FC = () => {
     setMacAddress("");
     setSuppressLive(false);
 
+    // Disallow OK flash until a new live session actually starts
+    okFlashAllowedRef.current = false;
+
     // Reset pending scans and flags
     pendingScansRef.current = [];
     scanInFlightRef.current = false;
@@ -1085,8 +1090,8 @@ const MainApplicationUI: React.FC = () => {
       finalizeOkGuardRef.current.add(mac);
 
       try {
-        // Show the OK overlay and disable live updates
-        setOverlay({ open: true, kind: "success", code: "" });
+        // Suppress live updates and proceed to finalize without showing an extra OK flash
+        setOverlay((o) => ({ ...o, open: false }));
         setSuppressLive(true);
         try { if (DEBUG_LIVE) console.log('[LIVE] OFF → OK latched; suppressing live updates'); } catch {}
 
@@ -1243,6 +1248,7 @@ const MainApplicationUI: React.FC = () => {
       const evMac = String(ev.mac || '').toUpperCase();
       if (!current || (evMac && current === evMac)) {
         setIsChecking(true);
+        okFlashAllowedRef.current = true; // live session started
       }
     }
     // An event is considered OK if the "ok" field is truthy or the line contains "SUCCESS" or "OK".
@@ -1263,6 +1269,7 @@ const MainApplicationUI: React.FC = () => {
     // Only act if the MAC matches the current device or is empty/zero.
     const matches = !evMac || evMac === ZERO || evMac === current;
 
+    // Allow OK flash only when we had a live session (EV START/edges)
     if ((kind === "RESULT" || kind === "DONE") && ok && matches) {
       // Mark all displayed branches as OK and stop scanning/checking.
       setBranchesData((prev) =>
@@ -1271,7 +1278,14 @@ const MainApplicationUI: React.FC = () => {
       setCheckFailures([]);
       setIsChecking(false);
       setIsScanning(false);
-      setOkFlashTick((t) => t + 1);
+      // Only flash OK if a live session actually started
+      const hasLive = okFlashAllowedRef.current === true;
+      if (hasLive) {
+        if (!okShownOnceRef.current) {
+          okShownOnceRef.current = true;
+          setOkFlashTick((t) => t + 1);
+        }
+      }
       setOverlay((o) => ({ ...o, open: false }));
 
       // Immediately finalise the MAC (clears Redis, sends checkpoint, resets the UI).
@@ -1664,15 +1678,17 @@ const MainApplicationUI: React.FC = () => {
           );
 
           if (!unknown && failures.length === 0) {
-            // Success: close SCANNING overlay immediately and flash OK
-            clearScanOverlayTimeout();
-            setOverlay((o) => ({ ...o, open: false }));
+          // Success: close overlay and show unified OK once
+          clearScanOverlayTimeout();
+          setOverlay((o) => ({ ...o, open: false }));
+        setSuppressLive(true);
+          if (okFlashAllowedRef.current && !okShownOnceRef.current) {
+            okShownOnceRef.current = true;
             okForcedRef.current = true;
-            setSuppressLive(true);
-            setOkFlashTick((t) => t + 1); // show OK in child
-            // Run finalization (checkpoint if live + clear Redis/locks + Live off)
-            await finalizeOkForMac(mac);
-            return;
+            setOkFlashTick((t) => t + 1);
+          }
+          await finalizeOkForMac(mac);
+          return;
           } else {
             const rawLine =
               typeof (result as any)?.raw === "string"
@@ -1824,13 +1840,12 @@ const MainApplicationUI: React.FC = () => {
       lastScanRef.current = normalized;
       if (source === "scan") {
         if (branchesData.length === 0 && groupedBranches.length === 0) {
-          showOverlay("scanning", normalized);
-          startScanOverlayTimeout(5000);
-          try {
-            console.log("[FLOW][LOAD] showing SCANNING overlay for scan", {
-              normalized,
-            });
-          } catch {}
+          // Debounce the scanning overlay to avoid flicker when load resolves to nothing-to-check quickly.
+          schedule('scanOverlayDebounce', () => {
+            showOverlay("scanning", normalized);
+            startScanOverlayTimeout(5000);
+            try { console.log("[FLOW][LOAD] showing SCANNING overlay for scan", { normalized }); } catch {}
+          }, 250);
         }
         setShowScanUi(true);
       }
@@ -2066,15 +2081,40 @@ const MainApplicationUI: React.FC = () => {
               noGroups,
             });
           } catch {}
+          // Redis empty: show inline "NOTHING TO CHECK HERE" only (no OK), then revert to idle.
           clearScanOverlayTimeout();
-          const reason = activeIds.length === 0 ? " (no active KSK lock for this MAC)" : "";
-          showOverlay("error", `NOTHING TO CHECK HERE${reason}`);
-          hideOverlaySoon(600);
+          cancel('scanOverlayDebounce');
+          setOverlay((o) => ({ ...o, open: false }));
           setGroupedBranches([]);
+          setBranchesData([]);
           setActiveKssks([]);
+          setNormalPins(undefined);
+          setLatchPins(undefined);
           setIsScanning(false);
           setShowScanUi(false);
           setDisableOkAnimation(true);
+          setSuppressLive(true); // ignore stray OK/DONE events during reset
+          try {
+            setScanResult({ text: 'NOTHING TO CHECK HERE', kind: 'info' });
+            if (scanResultTimerRef.current) { try { clearTimeout(scanResultTimerRef.current); } catch {} scanResultTimerRef.current = null; }
+            const HINT_MS = 1500;
+            scanResultTimerRef.current = window.setTimeout(() => {
+              setScanResult(null);
+              scanResultTimerRef.current = null;
+              try { handleResetKfb(); } catch {}
+              setSuppressLive(false);
+            }, HINT_MS);
+            idleCooldownUntilRef.current = Date.now() + HINT_MS;
+            lastHandledScanRef.current = '';
+            scanDebounceRef.current = 0;
+            const macUp = (mac || '').toUpperCase();
+            if (macUp) {
+              blockedMacRef.current.add(macUp);
+              window.setTimeout(() => { try { blockedMacRef.current.delete(macUp); } catch {} }, 6000);
+            }
+            skipStopCleanupNextRef.current = true;
+            okFlashAllowedRef.current = false; // do not allow OK flash for this path
+          } catch {}
           return;
         }
 
@@ -2164,10 +2204,14 @@ const MainApplicationUI: React.FC = () => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!serial.lastScanTick) return; // no event yet
-    // Restrict to the configured scanner path for the dashboard (e.g., ACM0)
+    // Restrict to the configured scanner path for the dashboard (e.g., ACM0),
+    // but in development/simulation when no scanner is present, allow any path.
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    if (want && seen && !pathsEqual(seen, want)) return; // ignore scans from other scanner paths
+    if (want && seen && !pathsEqual(seen, want)) {
+      const noDevices = !((serial as any).scannersDetected > 0);
+      if (!noDevices) return; // keep strict when a scanner is actually present
+    }
     const code = serial.lastScan; // the latest payload
     if (!code) return;
     if (isCheckingRef.current) {

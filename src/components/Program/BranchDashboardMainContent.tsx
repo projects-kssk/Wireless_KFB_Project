@@ -1216,26 +1216,52 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               );
             })()}
             {isScanning && !scanResult && (
-              <div className="flex flex-col items-center gap-3">
-                <p className="text-slate-600 text-2xl md:text-3xl font-semibold tracking-wide">
-                  Please wait — scanning…
+              <div className="flex flex-col items-center gap-4">
+                <p className="text-slate-700 text-3xl md:text-4xl font-extrabold tracking-wider">
+                  Scanning…
                 </p>
-                <m.div
-                  className="h-1.5 w-64 md:w-80 rounded-full bg-slate-300/40 overflow-hidden shadow-inner"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                >
+                <div className="relative w-72 md:w-96 h-16 rounded-2xl border border-slate-300 bg-white shadow-lg overflow-hidden">
                   <m.div
-                    className="h-full w-1/3 bg-blue-500/80"
-                    animate={{ x: ["-30%", "100%"] }}
-                    transition={{
-                      repeat: Infinity,
-                      duration: 1.2,
-                      ease: "easeInOut",
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      backgroundImage:
+                        "repeating-linear-gradient(90deg, rgba(148,163,184,.18) 0 1px, transparent 1px 12px)",
+                      opacity: 0.5,
                     }}
                   />
-                </m.div>
+                  <m.div
+                    className="absolute top-1/2 -translate-y-1/2 h-10 w-1/3 bg-blue-500/20 blur-xl"
+                    animate={{ x: ["-20%", "110%"] }}
+                    transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                  />
+                  <m.div
+                    className="absolute top-1/2 -translate-y-1/2 h-2 w-1/3 bg-gradient-to-r from-transparent via-blue-500/70 to-transparent"
+                    animate={{ x: ["-20%", "110%"] }}
+                    transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-slate-500 font-semibold">Please wait</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <m.span
+                    className="w-2 h-2 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                  <m.span
+                    className="w-2 h-2 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.2 }}
+                  />
+                  <m.span
+                    className="w-2 h-2 rounded-full bg-blue-500"
+                    animate={{ opacity: [0.2, 1, 0.2] }}
+                    transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -1355,10 +1381,23 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                     {failedItems.map((f) => (
                       <span
                         key={`f-${(grp as any).ksk}-${f.pin}`}
-                        className="inline-flex items-center rounded-full bg-red-50 text-red-700 border border-red-200 px-5 py-3 text-2xl md:text-3xl font-black shadow-sm"
+                        className="inline-flex items-center flex-wrap gap-2 rounded-full bg-red-50 text-red-700 border border-red-200 px-5 py-3 shadow-sm"
                         title={`PIN ${f.pin}${f.isLatch ? ' (Contactless)' : ''}`}
                       >
-                        {f.name}
+                        <span className="text-2xl md:text-3xl font-black leading-none">
+                          {f.name}
+                        </span>
+                        <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-[3px] text-[11px] font-semibold">
+                          PIN {f.pin}
+                        </span>
+                        {f.isLatch && (
+                          <span
+                            className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]"
+                            title="Contactless pin"
+                          >
+                            Contactless
+                          </span>
+                        )}
                       </span>
                     ))}
                   </div>

@@ -805,8 +805,26 @@ const runTest = async () => {
             className="grid w-full h-full items-center gap-3 px-4 sm:px-6 2xl:px-10"
             style={{ paddingTop: 'env(safe-area-inset-top)', gridTemplateColumns: 'minmax(260px,340px) 1fr minmax(260px,320px)' }}
           >
-            {/* 1) Support */}
-            <div className="h-full">
+            {/* 1) Support + Version */}
+            <div className="h-full flex items-center gap-3">
+              {(() => {
+                const raw =
+                  String(
+                    process.env.NEXT_PUBLIC_APP_VERSION ||
+                      process.env.NEXT_PUBLIC_VERSION ||
+                      '0.8.0'
+                  ).trim();
+                const clean = raw.replace(/^v/i, '');
+                const label = `Version: ${clean}`;
+                return (
+                  <span
+                    className="inline-flex items-center rounded-xl border border-slate-300 bg-white text-slate-700 px-3 py-1 text-xs font-bold shadow-sm"
+                    title={label}
+                  >
+                    {label}
+                  </span>
+                );
+              })()}
               <SupportPillSM
                 className="h-full"
                 supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}

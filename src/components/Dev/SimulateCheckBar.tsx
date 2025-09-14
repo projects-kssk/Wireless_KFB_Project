@@ -90,18 +90,20 @@ export default function SimulateCheckBar() {
     if (!mac) return;
     setBusy(true); setLast(null);
     try {
-      // Prefer sending a simulated scanner code so the main app flow runs like a real scan
+      // Prefer sending a simulated scanner code so the main app flow runs like a real scan.
+      // Select the same desired path the dashboard listens on; if unknown, omit path to avoid filtering.
       const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];
       const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
-      const path = paths[idx] || '/dev/ttyACM0';
+      const desiredPath = paths[idx] || paths[0] || (serial as any).lastScanPath || undefined;
       // Also ensure simulator MAC override matches
       await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send both raw MAC and a prefixed variant many classifiers accept, bound to the dashboard scanner path only.
+        // Send both raw MAC and a prefixed variant many classifiers accept.
+        // Bind to the dashboard scanner path when known; otherwise omit path to bypass strict filtering.
         body: JSON.stringify({ mac: mac.toUpperCase(), scan: [
-          { code: `KFB:${mac.toUpperCase()}`, path },
-          { code: mac.toUpperCase(), path }
+          desiredPath ? { code: `KFB:${mac.toUpperCase()}`, path: desiredPath } : { code: `KFB:${mac.toUpperCase()}` },
+          desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }
         ] }),
       });
       // The UI’s scan handler will run load + check; we just show RUNNING status, then DONE via SSE

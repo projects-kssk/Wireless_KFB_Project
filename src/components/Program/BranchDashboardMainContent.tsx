@@ -683,6 +683,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   );
 
   const groupedAllOk = useMemo(() => {
+    if (disableOkAnimation) return false;
     if (
       !settled ||
       !Array.isArray(groupedBranches) ||
@@ -708,7 +709,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           return s === "not_tested" && isLatch;
         })
     );
-  }, [settled, groupedBranches, localBranches, isLatchPin]);
+  }, [settled, groupedBranches, localBranches, isLatchPin, disableOkAnimation]);
 
   const allOk = useMemo(() => {
     if (disableOkAnimation) return false;

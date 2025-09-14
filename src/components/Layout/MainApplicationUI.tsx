@@ -149,20 +149,20 @@ const MainApplicationUI: React.FC = () => {
 
   // Feature flags (default off unless explicitly enabled)
   const FLAGS = {
-    USE_LOCKS: String(process.env.NEXT_PUBLIC_USE_LOCKS || '').trim() === '1',
+    USE_LOCKS: String(process.env.NEXT_PUBLIC_USE_LOCKS || "").trim() === "1",
     REHYDRATE_ON_LOAD:
-      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_LOAD || '').trim() === '1',
+      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_LOAD || "").trim() === "1",
     REHYDRATE_ON_RECOVERY:
-      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_RECOVERY || '').trim() === '1',
+      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_RECOVERY || "").trim() ===
+      "1",
     STATION_WARMUP:
-      String(process.env.NEXT_PUBLIC_STATION_WARMUP || '').trim() === '1',
+      String(process.env.NEXT_PUBLIC_STATION_WARMUP || "").trim() === "1",
     SCANNER_POLL:
-      String(process.env.NEXT_PUBLIC_SCANNER_POLL_ENABLED || '').trim() ===
-      '1',
+      String(process.env.NEXT_PUBLIC_SCANNER_POLL_ENABLED || "").trim() === "1",
     HINT_ON_EMPTY:
-      String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || '').trim() === '1',
+      String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || "").trim() === "1",
     CHECK_ON_EMPTY:
-      String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || '').trim() === '1',
+      String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || "").trim() === "1",
   } as const;
 
   // UI state
@@ -188,7 +188,9 @@ const MainApplicationUI: React.FC = () => {
   // Transient info HUD countdown (e.g., NOTHING TO CHECK HERE)
   const [infoHideAt, setInfoHideAt] = useState<number | null>(null);
   const [infoCountdownMs, setInfoCountdownMs] = useState<number>(0);
-  const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+  const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(
+    null
+  );
   const [nameHints, setNameHints] = useState<
     Record<string, string> | undefined
   >(undefined);
@@ -228,7 +230,9 @@ const MainApplicationUI: React.FC = () => {
 
   // Central timer scheduler
   // Timer registry; use window's timer types to avoid Node vs DOM mismatch
-  const timers = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(new Map());
+  const timers = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(
+    new Map()
+  );
   const mountedRef = useRef(true);
   useEffect(() => {
     return () => {
@@ -238,7 +242,9 @@ const MainApplicationUI: React.FC = () => {
   const schedule = useCallback((key: string, fn: () => void, ms: number) => {
     const prev = timers.current.get(key);
     if (prev) {
-      try { window.clearTimeout(prev as any); } catch {}
+      try {
+        window.clearTimeout(prev as any);
+      } catch {}
       timers.current.delete(key);
     }
     const id = window.setTimeout(
@@ -253,19 +259,25 @@ const MainApplicationUI: React.FC = () => {
       Math.max(0, ms)
     );
     // In some envs Node typings leak; ensure we store the correct timer type
-    timers.current.set(key, id as unknown as ReturnType<typeof window.setTimeout>);
+    timers.current.set(
+      key,
+      id as unknown as ReturnType<typeof window.setTimeout>
+    );
   }, []);
   const cancel = useCallback((key: string) => {
     const prev = timers.current.get(key);
     if (prev) {
-      try { window.clearTimeout(prev as any); } catch {}
+      try {
+        window.clearTimeout(prev as any);
+      } catch {}
       timers.current.delete(key);
     }
   }, []);
   useEffect(
     () => () => {
       try {
-        for (const id of timers.current.values()) window.clearTimeout(id as any);
+        for (const id of timers.current.values())
+          window.clearTimeout(id as any);
         timers.current.clear();
       } catch {}
     },
@@ -300,6 +312,8 @@ const MainApplicationUI: React.FC = () => {
   const scanResultTimerRef = useRef<number | null>(null);
   // One-shot guard to skip STOP-path cleanup when we intentionally soft-reset
   const skipStopCleanupNextRef = useRef<boolean>(false);
+  // Suppress the empty-hint toast briefly after a successful finalize
+  const suppressEmptyHintUntilRef = useRef<number>(0);
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(
@@ -365,7 +379,9 @@ const MainApplicationUI: React.FC = () => {
   const lastScanRef = useRef("");
   // Fallback: if scanning gets stuck with NO DATA, show a soft hint (no reset)
   const hasLiveData = useMemo(() => {
-    const anyGroups = Array.isArray(groupedBranches) && groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    const anyGroups =
+      Array.isArray(groupedBranches) &&
+      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
     const anyFlat = Array.isArray(branchesData) && branchesData.length > 0;
     return anyGroups || anyFlat;
   }, [groupedBranches, branchesData]);
@@ -404,7 +420,14 @@ const MainApplicationUI: React.FC = () => {
         clearTimeout(t);
       } catch {}
     };
-  }, [isScanning, isChecking, macAddress, hasLiveData, hasUnion, checkFailures]);
+  }, [
+    isScanning,
+    isChecking,
+    macAddress,
+    hasLiveData,
+    hasUnion,
+    checkFailures,
+  ]);
 
   const [okFlashTick, setOkFlashTick] = useState(0);
   const [okSystemNote, setOkSystemNote] = useState<string | null>(null);
@@ -650,6 +673,8 @@ const MainApplicationUI: React.FC = () => {
 
   // On recovery, rehydrate + union refresh (opt-in, rate-limited, active session only)
   const rehydrateBlockUntilRef = useRef<number>(0);
+  // One-shot manual arm to accept next scan while idle (replaces window.__armScanOnce__)
+  const armScanOnceRef = useRef<boolean>(false);
   useEffect(() => {
     if (!FLAGS.REHYDRATE_ON_RECOVERY) return;
     if (redisDegraded) return;
@@ -676,13 +701,25 @@ const MainApplicationUI: React.FC = () => {
         });
         if (r.ok) {
           const j = await r.json();
-          if (Array.isArray(j?.normalPins)) setNormalPins(j.normalPins as number[]);
-          if (Array.isArray(j?.latchPins)) setLatchPins(j.latchPins as number[]);
-          if (j?.aliases && typeof j.aliases === "object") setNameHints(j.aliases as Record<string, string>);
+          if (Array.isArray(j?.normalPins))
+            setNormalPins(j.normalPins as number[]);
+          if (Array.isArray(j?.latchPins))
+            setLatchPins(j.latchPins as number[]);
+          if (j?.aliases && typeof j.aliases === "object")
+            setNameHints(j.aliases as Record<string, string>);
         }
       } catch {}
     })();
   }, [redisDegraded, macAddress, suppressLive]);
+
+  // Hoisted shared refs used by effects below
+  const okForcedRef = useRef<boolean>(false);
+  const lastHandledScanRef = useRef<string>("");
+  const scanDebounceRef = useRef<number>(0);
+  const scanInFlightRef = useRef<boolean>(false);
+  const lastRunHadFailuresRef = useRef<boolean>(false);
+  const pendingScansRef = useRef<string[]>([]);
+  const lastScanTokenRef = useRef<string>("");
 
   // Auto-success when all branches OK
   useEffect(() => {
@@ -757,7 +794,7 @@ const MainApplicationUI: React.FC = () => {
     // Respect global idle cooldown after success to avoid immediate polling
     try {
       const until = pollBlockUntilRef.current as number | undefined;
-      if (typeof until === 'number' && Date.now() < until) return;
+      if (typeof until === "number" && Date.now() < until) return;
     } catch {}
     let stop = false;
     const tick = async () => {
@@ -780,7 +817,9 @@ const MainApplicationUI: React.FC = () => {
           .map((l) => String((l as any).ksk ?? (l as any).kssk))
           .filter(Boolean);
         if (!stop && ids.length) {
-          setActiveKssks((prev) => Array.from(new Set<string>([...prev, ...ids])));
+          setActiveKssks((prev) =>
+            Array.from(new Set<string>([...prev, ...ids]))
+          );
         }
       } catch {}
     };
@@ -792,14 +831,8 @@ const MainApplicationUI: React.FC = () => {
     };
   }, [mainView, isSettingsSidebarOpen, macAddress, suppressLive, isChecking]);
 
-  const lastHandledScanRef = useRef<string>("");
-  const scanDebounceRef = useRef<number>(0);
-  const scanInFlightRef = useRef<boolean>(false);
-  const okForcedRef = useRef<boolean>(false);
-  const lastRunHadFailuresRef = useRef<boolean>(false);
-  const pendingScansRef = useRef<string[]>([]);
+  // Hoisted refs used across effects
   // Coalesce scans that arrive from SSE & poll at nearly the same time
-  const lastScanTokenRef = useRef<string>("");
   const enqueueScan = useCallback((raw: string) => {
     const code = String(raw || "")
       .trim()
@@ -809,9 +842,9 @@ const MainApplicationUI: React.FC = () => {
     if (q.length === 0 || q[q.length - 1] !== code) q.push(code);
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
-  const handleScanRef = useRef<(code: string, trig?: ScanTrigger) => void | Promise<void>>(
-    () => {}
-  );
+  const handleScanRef = useRef<
+    (code: string, trig?: ScanTrigger) => void | Promise<void>
+  >(() => {});
 
   const handleResetKfb = useCallback(() => {
     clearRetryTimer();
@@ -855,9 +888,21 @@ const MainApplicationUI: React.FC = () => {
   }, []);
 
   // ===== Krosy checkpoint integration =====
-  const CHECKPOINT_URL =
-    process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ||
-    "/api/krosy/checkpoint";
+  // Resolve checkpoint URL: prefer offline endpoint when simulating or marked offline
+  const CHECKPOINT_URL = (() => {
+    const ONLINE_FLAG =
+      String(process.env.NEXT_PUBLIC_KROSY_ONLINE || "")
+        .trim()
+        .toLowerCase() === "true";
+    const SIM_FLAG = String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1";
+    const onlineUrl =
+      process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ||
+      "/api/krosy/checkpoint";
+    const offlineUrl =
+      process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ||
+      "/api/krosy-offline/checkpoint";
+    return !ONLINE_FLAG || SIM_FLAG ? offlineUrl : onlineUrl;
+  })();
   const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
   const KROSY_SOURCE =
     process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
@@ -948,7 +993,10 @@ const MainApplicationUI: React.FC = () => {
           // If XML not found or empty, skip sending checkpoint for this id
           if (!workingDataXml || !workingDataXml.trim()) {
             try {
-              console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id });
+              console.log("[FLOW][CHECKPOINT] skip (no XML)", {
+                mac: MAC,
+                ksk: id,
+              });
             } catch {}
             continue;
           }
@@ -1067,14 +1115,18 @@ const MainApplicationUI: React.FC = () => {
             blockedMacRef.current.add(macUp);
             idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
             window.setTimeout(() => {
-              try { blockedMacRef.current.delete(macUp); } catch {}
+              try {
+                blockedMacRef.current.delete(macUp);
+              } catch {}
             }, CFG.RETRY_COOLDOWN_MS);
             // Also block the *last scanned code* (may be a KFB rather than MAC)
             const last = (lastScanRef.current || "").toUpperCase();
             if (last && last !== macUp) {
               blockedMacRef.current.add(last);
               window.setTimeout(() => {
-                try { blockedMacRef.current.delete(last); } catch {}
+                try {
+                  blockedMacRef.current.delete(last);
+                } catch {}
               }, CFG.RETRY_COOLDOWN_MS);
             }
           }
@@ -1089,6 +1141,11 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
 
         const hasSetup = await hasSetupDataForMac(mac).catch(() => false);
+        // After a successful OK flow, suppress the empty-hint toast for a short window
+        try {
+          suppressEmptyHintUntilRef.current =
+            Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS);
+        } catch {}
         if (hasSetup) {
           const ids =
             lastActiveIdsRef.current && lastActiveIdsRef.current.length
@@ -1098,7 +1155,9 @@ const MainApplicationUI: React.FC = () => {
             console.log("[FLOW][CHECKPOINT] finalising with ids", ids);
           } catch {}
           const sent = await sendCheckpointForMac(mac, ids).catch(() => false);
-          setOkSystemNote(sent ? "Checkpoint sent; cache cleared" : "Cache cleared");
+          setOkSystemNote(
+            sent ? "Checkpoint sent; cache cleared" : "Cache cleared"
+          );
         } else {
           try {
             console.log(
@@ -1171,6 +1230,10 @@ const MainApplicationUI: React.FC = () => {
           }
         } catch {}
       } finally {
+        try {
+          checkpointSentRef.current.clear();
+          checkpointMacSentRef.current.clear();
+        } catch {}
         try {
           (recentCleanupRef.current as Map<string, number>).set(
             mac,
@@ -1266,9 +1329,16 @@ const MainApplicationUI: React.FC = () => {
     const liveAllowed =
       okFlashAllowedRef.current === true && isCheckingRef.current === true;
 
-    if ((kind === "RESULT" || kind === "DONE") && ok && matches && liveAllowed) {
+    if (
+      (kind === "RESULT" || kind === "DONE") &&
+      ok &&
+      matches &&
+      liveAllowed
+    ) {
       // Block idle poller briefly after success to avoid immediate scanner polling
-      try { pollBlockUntilRef.current = Date.now() + 15000; } catch {}
+      try {
+        pollBlockUntilRef.current = Date.now() + 15000;
+      } catch {}
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
       );
@@ -1303,12 +1373,14 @@ const MainApplicationUI: React.FC = () => {
 
     let evMac = String(ev.mac || "").toUpperCase();
     if (!evMac || evMac === ZERO) {
-      const macs = raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
+      const macs =
+        raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
       evMac = macs.find((m) => m !== ZERO) || current;
     }
     const matches = evMac === current;
 
-    const isResultish = kind === "DONE" || kind === "RESULT" || /\bRESULT\b/i.test(raw);
+    const isResultish =
+      kind === "DONE" || kind === "RESULT" || /\bRESULT\b/i.test(raw);
     const isFailure =
       String(ev.ok).toLowerCase() === "false" || /\bFAIL(?:URE)?\b/i.test(raw);
 
@@ -1316,7 +1388,8 @@ const MainApplicationUI: React.FC = () => {
     // switch into live/checking mode so the UI shows live updates and failures.
     if (matches && isResultish && isFailure && !isCheckingRef.current) {
       try {
-        if (DEBUG_LIVE) console.log("[LIVE] Fallback enter on failure event", { raw });
+        if (DEBUG_LIVE)
+          console.log("[LIVE] Fallback enter on failure event", { raw });
       } catch {}
       setIsChecking(true);
       okFlashAllowedRef.current = true;
@@ -1351,20 +1424,31 @@ const MainApplicationUI: React.FC = () => {
 
       setIsChecking(true);
       // Safety: if device never sends final RESULT/DONE, auto-unstick
-      schedule("checkWatchdog", () => {
-        if (isCheckingRef.current) {
-          try { console.warn("[FLOW][CHECK] watchdog fired; un-sticking"); } catch {}
-          setIsChecking(false);
-          setSuppressLive(false);
-          setScanResult({ text: "Check timed out", kind: "error" });
-          try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
-          scanResultTimerRef.current = window.setTimeout(() => {
-            setScanResult(null);
-            scanResultTimerRef.current = null;
-          }, 1800);
-        }
-      }, CFG.CHECK_CLIENT_MS + 1200);
-      try { lastRunHadFailuresRef.current = false; } catch {}
+      schedule(
+        "checkWatchdog",
+        () => {
+          if (isCheckingRef.current) {
+            try {
+              console.warn("[FLOW][CHECK] watchdog fired; un-sticking");
+            } catch {}
+            setIsChecking(false);
+            setSuppressLive(false);
+            setScanResult({ text: "Check timed out", kind: "error" });
+            try {
+              if (scanResultTimerRef.current)
+                clearTimeout(scanResultTimerRef.current);
+            } catch {}
+            scanResultTimerRef.current = window.setTimeout(() => {
+              setScanResult(null);
+              scanResultTimerRef.current = null;
+            }, 1800);
+          }
+        },
+        CFG.CHECK_CLIENT_MS + 1200
+      );
+      try {
+        lastRunHadFailuresRef.current = false;
+      } catch {}
       setCheckFailures(null);
       setShowRemoveCable(false);
       setAwaitingRelease(false);
@@ -1427,7 +1511,9 @@ const MainApplicationUI: React.FC = () => {
           clearRetryTimer();
           const failures: number[] = result.failures || [];
           const unknown = result?.unknownFailure === true;
-          try { lastRunHadFailuresRef.current = unknown || failures.length > 0; } catch {}
+          try {
+            lastRunHadFailuresRef.current = unknown || failures.length > 0;
+          } catch {}
           const hints =
             result?.nameHints && typeof result.nameHints === "object"
               ? (result.nameHints as Record<string, string>)
@@ -1837,7 +1923,7 @@ const MainApplicationUI: React.FC = () => {
         }
       } finally {
         if (!mountedRef.current) return;
-          if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
+        if (DEBUG_LIVE) console.log("[FLOW][CHECK] end");
         clearRetryTimer();
         cancel("checkWatchdog");
         // Keep live/checking state if failures occurred, so EV stream remains visible.
@@ -1847,14 +1933,18 @@ const MainApplicationUI: React.FC = () => {
           setIsChecking(false);
         }
         // Short cooldown so stray duplicate scans don’t retrigger immediately
-        try { idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS; } catch {}
+        try {
+          idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
+        } catch {}
         // Block re-triggers for the same MAC for a short window unless user explicitly scans again
         try {
           const macUp = String(mac).toUpperCase();
           if (macUp) {
             blockedMacRef.current.add(macUp);
             window.setTimeout(() => {
-              try { blockedMacRef.current.delete(macUp); } catch {}
+              try {
+                blockedMacRef.current.delete(macUp);
+              } catch {}
             }, 8000);
           }
           // Also block the *last scanned code* (e.g., KFB) to prevent post-check loops
@@ -1862,7 +1952,9 @@ const MainApplicationUI: React.FC = () => {
           if (last && last !== macUp) {
             blockedMacRef.current.add(last);
             window.setTimeout(() => {
-              try { blockedMacRef.current.delete(last); } catch {}
+              try {
+                blockedMacRef.current.delete(last);
+              } catch {}
             }, 8000);
           }
         } catch {}
@@ -1978,7 +2070,10 @@ const MainApplicationUI: React.FC = () => {
               .filter(Boolean);
             const uniq = Array.from(new Set(list));
             if (DEBUG_LIVE)
-              console.log("[ACTIVE] KSK ids from locks", { mac: MAC, ids: uniq });
+              console.log("[ACTIVE] KSK ids from locks", {
+                mac: MAC,
+                ids: uniq,
+              });
             return uniq;
           } catch {
             return [] as string[];
@@ -1987,19 +2082,19 @@ const MainApplicationUI: React.FC = () => {
         if (activeIds.length > 3) activeIds = activeIds.slice(0, 3);
         if (activeIds.length) setActiveKssks(activeIds);
         {
-            try {
-              if (FLAGS.REHYDRATE_ON_LOAD) {
-                if (DEBUG_LIVE)
-                  console.log("[FLOW][LOAD] POST /api/aliases/rehydrate", {
-                    mac,
-                  });
-                await fetch("/api/aliases/rehydrate", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ mac }),
-                }).catch(() => {});
-                if (DEBUG_LIVE) console.log("[FLOW][LOAD] rehydrate done");
-              }
+          try {
+            if (FLAGS.REHYDRATE_ON_LOAD) {
+              if (DEBUG_LIVE)
+                console.log("[FLOW][LOAD] POST /api/aliases/rehydrate", {
+                  mac,
+                });
+              await fetch("/api/aliases/rehydrate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mac }),
+              }).catch(() => {});
+              if (DEBUG_LIVE) console.log("[FLOW][LOAD] rehydrate done");
+            }
             const rAll = await fetch(
               `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
               { cache: "no-store" }
@@ -2031,13 +2126,16 @@ const MainApplicationUI: React.FC = () => {
                 const derived = Array.from(
                   new Set(
                     items
-                      .map((it: any) => String((it.ksk ?? it.kssk) || "").trim())
+                      .map((it: any) =>
+                        String((it.ksk ?? it.kssk) || "").trim()
+                      )
                       .filter(Boolean)
                   )
                 );
                 if (derived.length) {
                   const chosen = derived.slice(0, 3);
-                  if (DEBUG_LIVE) console.log("[ACTIVE] derived ids from items", chosen);
+                  if (DEBUG_LIVE)
+                    console.log("[ACTIVE] derived ids from items", chosen);
                   setActiveKssks(chosen);
                   activeIds = chosen;
                 }
@@ -2147,13 +2245,18 @@ const MainApplicationUI: React.FC = () => {
 
               // Compute active pins from selected items and ids
               try {
-                const idsForPins = (activeIds && activeIds.length)
-                  ? activeIds
-                  : Array.from(new Set(
-                      itemsFiltered
-                        .map((it: any) => String((it.ksk ?? it.kssk) || "").trim())
-                        .filter(Boolean)
-                    ));
+                const idsForPins =
+                  activeIds && activeIds.length
+                    ? activeIds
+                    : Array.from(
+                        new Set(
+                          itemsFiltered
+                            .map((it: any) =>
+                              String((it.ksk ?? it.kssk) || "").trim()
+                            )
+                            .filter(Boolean)
+                        )
+                      );
                 const filtered = computeActivePins(
                   itemsFiltered as any,
                   idsForPins
@@ -2161,10 +2264,18 @@ const MainApplicationUI: React.FC = () => {
                 setNormalPins(filtered.normal);
                 setLatchPins(filtered.latch);
                 const mergedPins = Array.from(
-                  new Set([...(filtered.normal || []), ...(filtered.latch || [])])
+                  new Set([
+                    ...(filtered.normal || []),
+                    ...(filtered.latch || []),
+                  ])
                 ).sort((a, b) => a - b);
                 if (mergedPins.length) pins = mergedPins;
-                if (DEBUG_LIVE) console.log("[FLOW][LOAD] pins", { normal: filtered.normal.length, latch: filtered.latch.length, total: pins.length });
+                if (DEBUG_LIVE)
+                  console.log("[FLOW][LOAD] pins", {
+                    normal: filtered.normal.length,
+                    latch: filtered.latch.length,
+                    total: pins.length,
+                  });
               } catch {}
             }
           } catch {}
@@ -2195,57 +2306,89 @@ const MainApplicationUI: React.FC = () => {
           // If configured, show hint and abort quickly back to idle; otherwise, proceed to CHECK anyway
           if (!FLAGS.CHECK_ON_EMPTY) {
             try {
-              setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
-              if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
-              const HINT_MS = 3000;
-              scanResultTimerRef.current = window.setTimeout(() => {
-                setScanResult(null);
-                scanResultTimerRef.current = null;
+              const suppressNow =
+                Date.now() < (suppressEmptyHintUntilRef.current || 0);
+              if (suppressNow) {
+                // Skip showing the empty hint entirely — drop straight to idle view
                 try {
-                  // Avoid STOP-path cleanup thrash since we're bailing intentionally
                   skipStopCleanupNextRef.current = true;
-                  handleResetKfb();
+                  setScanResult(null);
+                  if (infoTimerRef.current) {
+                    window.clearInterval(infoTimerRef.current as any);
+                    infoTimerRef.current = null;
+                  }
+                  setInfoHideAt(null);
+                  setInfoCountdownMs(0);
+                  idleCooldownUntilRef.current = 0;
                 } catch {}
-                // Clear cooldown fully after reset so next scan binds immediately
-                try { idleCooldownUntilRef.current = 0; } catch {}
-              }, HINT_MS);
-              // Start visible countdown for HUD
-              try {
-                const hideAt = Date.now() + HINT_MS;
-                setInfoHideAt(hideAt);
-                setInfoCountdownMs(HINT_MS);
-                if (infoTimerRef.current) window.clearInterval(infoTimerRef.current as any);
-                infoTimerRef.current = window.setInterval(() => {
-                  setInfoCountdownMs(() => {
-                    const rem = Math.max(0, hideAt - Date.now());
-                    if (rem <= 0) {
-                      if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
-                      setInfoHideAt(null);
-                      return 0;
-                    }
-                    return rem;
-                  });
-                }, 100) as unknown as ReturnType<typeof window.setInterval>;
-              } catch {}
+              } else {
+                setScanResult({ text: "NOTHING TO CHECK HERE", kind: "info" });
+                if (scanResultTimerRef.current)
+                  clearTimeout(scanResultTimerRef.current);
+                const HINT_MS = 3000;
+                scanResultTimerRef.current = window.setTimeout(() => {
+                  setScanResult(null);
+                  scanResultTimerRef.current = null;
+                  try {
+                    // Avoid STOP-path cleanup thrash since we're bailing intentionally
+                    skipStopCleanupNextRef.current = true;
+                    handleResetKfb();
+                  } catch {}
+                  // Clear cooldown fully after reset so next scan binds immediately
+                  try {
+                    idleCooldownUntilRef.current = 0;
+                  } catch {}
+                }, HINT_MS);
+                // Start visible countdown for HUD
+                try {
+                  const hideAt = Date.now() + HINT_MS;
+                  setInfoHideAt(hideAt);
+                  setInfoCountdownMs(HINT_MS);
+                  if (infoTimerRef.current)
+                    window.clearInterval(infoTimerRef.current as any);
+                  infoTimerRef.current = window.setInterval(() => {
+                    setInfoCountdownMs(() => {
+                      const rem = Math.max(0, hideAt - Date.now());
+                      if (rem <= 0) {
+                        if (infoTimerRef.current) {
+                          window.clearInterval(infoTimerRef.current as any);
+                          infoTimerRef.current = null;
+                        }
+                        setInfoHideAt(null);
+                        return 0;
+                      }
+                      return rem;
+                    });
+                  }, 100) as unknown as ReturnType<typeof window.setInterval>;
+                } catch {}
+              }
               const macUp = (mac || "").toUpperCase();
               if (macUp) {
                 // Briefly block this MAC so we don't re-trigger a loop
                 blockedMacRef.current.add(macUp);
                 window.setTimeout(() => {
-                  try { blockedMacRef.current.delete(macUp); } catch {}
+                  try {
+                    blockedMacRef.current.delete(macUp);
+                  } catch {}
                 }, 1800);
               }
               // Do NOT arm next scan automatically; require a fresh user action
               // Pause polling briefly
-              try { pollBlockUntilRef.current = Date.now() + 1500; } catch {}
+              try {
+                pollBlockUntilRef.current = Date.now() + 1500;
+              } catch {}
             } catch {}
             setIsScanning(false);
             setShowScanUi(false);
             return;
           } else if (FLAGS.HINT_ON_EMPTY) {
             try {
-              setScanResult({ text: "NOTHING TO CHECK HERE — running check…", kind: "info" });
-              if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+              setScanResult({
+                text: "NOTHING TO CHECK HERE — running check…",
+                kind: "info",
+              });
+              if (scanResultTimerRef.current)
+                clearTimeout(scanResultTimerRef.current);
               const HINT_MS2 = 3000;
               scanResultTimerRef.current = window.setTimeout(() => {
                 setScanResult(null);
@@ -2256,12 +2399,16 @@ const MainApplicationUI: React.FC = () => {
                 const hideAt2 = Date.now() + HINT_MS2;
                 setInfoHideAt(hideAt2);
                 setInfoCountdownMs(HINT_MS2);
-                if (infoTimerRef.current) window.clearInterval(infoTimerRef.current as any);
+                if (infoTimerRef.current)
+                  window.clearInterval(infoTimerRef.current as any);
                 infoTimerRef.current = window.setInterval(() => {
                   setInfoCountdownMs(() => {
                     const rem = Math.max(0, hideAt2 - Date.now());
                     if (rem <= 0) {
-                      if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
+                      if (infoTimerRef.current) {
+                        window.clearInterval(infoTimerRef.current as any);
+                        infoTimerRef.current = null;
+                      }
                       setInfoHideAt(null);
                       return 0;
                     }
@@ -2301,7 +2448,8 @@ const MainApplicationUI: React.FC = () => {
   const handleScan = useCallback(
     async (raw: string, trig: ScanTrigger = "sse") => {
       // Global cooldown after a check completes or stuck-scan path (but allow manual/armed scans)
-      if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0)) return;
+      if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0))
+        return;
       const now = Date.now();
       const normalized = (raw || "").trim().toUpperCase();
       if (!normalized) return;
@@ -2316,7 +2464,11 @@ const MainApplicationUI: React.FC = () => {
         try {
           const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
           const lastAt = Number((lastFinalizedAtRef as any)?.current || 0);
-          return !!(lastMac && normalized === lastMac && Date.now() - lastAt < 2 * 60_000);
+          return !!(
+            lastMac &&
+            normalized === lastMac &&
+            Date.now() - lastAt < 2 * 60_000
+          );
         } catch {
           return false;
         }
@@ -2369,7 +2521,11 @@ const MainApplicationUI: React.FC = () => {
       scanInFlightRef.current = true;
       try {
         console.log("[FLOW][SCAN] starting load");
-        await loadBranchesData(normalized, trig === "manual" ? "manual" : "scan", trig);
+        await loadBranchesData(
+          normalized,
+          trig === "manual" ? "manual" : "scan",
+          trig
+        );
       } finally {
         setTimeout(() => {
           scanInFlightRef.current = false;
@@ -2391,14 +2547,18 @@ const MainApplicationUI: React.FC = () => {
     const onSimScan = (e: Event) => {
       try {
         const anyEv = e as any;
-        const code = String(anyEv?.detail?.code || '').trim();
+        const code = String(anyEv?.detail?.code || "").trim();
         if (!code) return;
-        void handleScanRef.current?.(code, 'manual');
+        void handleScanRef.current?.(code, "manual");
       } catch {}
     };
-    try { window.addEventListener('kfb:sim-scan', onSimScan as any); } catch {}
+    try {
+      window.addEventListener("kfb:sim-scan", onSimScan as any);
+    } catch {}
     return () => {
-      try { window.removeEventListener('kfb:sim-scan', onSimScan as any); } catch {}
+      try {
+        window.removeEventListener("kfb:sim-scan", onSimScan as any);
+      } catch {}
     };
   }, []);
 
@@ -2408,9 +2568,7 @@ const MainApplicationUI: React.FC = () => {
     if (isSettingsSidebarOpen) return;
     if (!(serial as any).lastScanTick) return;
     // Allow a one-shot arm to treat next scan as an explicit user action (e.g., Dev Simulate Run Check)
-    const armedOnce = (() => {
-      try { return !!(window as any).__armScanOnce__; } catch { return false; }
-    })();
+    const armedOnce = armScanOnceRef.current === true;
     // If no MAC is active and we're not armed, ignore background scans
     if (!(macAddress && macAddress.trim()) && !armedOnce) return;
     const want = resolveDesiredPath();
@@ -2426,11 +2584,7 @@ const MainApplicationUI: React.FC = () => {
     const norm = String(code).trim().toUpperCase();
     if (!norm) return;
     // If armed for a one-shot scan, treat as manual and bypass cooldown/blocks
-    if (armedOnce) {
-      try { delete (window as any).__armScanOnce__; } catch {}
-      void handleScan(norm, "manual");
-      return;
-    }
+    if (armedOnce) { armScanOnceRef.current = false; void handleScan(norm, "manual"); return; }
     // Respect global scan cooldown
     if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
     // Sticky MAC: ignore repeats of the current MAC until reset
@@ -2442,7 +2596,8 @@ const MainApplicationUI: React.FC = () => {
     try {
       const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
       const lastAt = Number(lastFinalizedAtRef.current || 0);
-      if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000) return;
+      if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000)
+        return;
     } catch {}
     void handleScan(norm, "sse");
   }, [
@@ -2466,7 +2621,7 @@ const MainApplicationUI: React.FC = () => {
     // Cooldown after a successful check/finalize to avoid immediate polling
     try {
       const until = pollBlockUntilRef.current as number | undefined;
-      if (typeof until === 'number' && Date.now() < until) return;
+      if (typeof until === "number" && Date.now() < until) return;
     } catch {}
     const STALE_MS_RAW = Number(
       process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000"
@@ -2490,7 +2645,7 @@ const MainApplicationUI: React.FC = () => {
       try {
         try {
           const until = pollBlockUntilRef.current as number | undefined;
-          if (typeof until === 'number' && Date.now() < until) {
+          if (typeof until === "number" && Date.now() < until) {
             stopped = true;
             pollActiveRef.current = false;
             return;
@@ -2528,7 +2683,8 @@ const MainApplicationUI: React.FC = () => {
         if (res.ok) {
           const { code, path, error, retryInMs } = await res.json();
           try {
-            if (typeof retryInMs === "number") pollRetryMsRef.current = retryInMs;
+            if (typeof retryInMs === "number")
+              pollRetryMsRef.current = retryInMs;
           } catch {}
           const raw = typeof code === "string" ? code.trim() : "";
           if (raw) {
@@ -2540,10 +2696,8 @@ const MainApplicationUI: React.FC = () => {
             if (curMac && norm === curMac) return;
             // Require explicit arm when idle (no bound MAC)
             if (!curMac) {
-              let armedOnce = false;
-              try { armedOnce = !!(window as any).__armScanOnce__; } catch {}
-              if (!armedOnce) return;
-              try { delete (window as any).__armScanOnce__; } catch {}
+              if (!armScanOnceRef.current) return;
+              armScanOnceRef.current = false;
             }
             // Respect global cooldown and blocked list
             if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
@@ -2552,7 +2706,12 @@ const MainApplicationUI: React.FC = () => {
             try {
               const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
               const lastAt = Number(lastFinalizedAtRef.current || 0);
-              if (lastMac && norm === lastMac && Date.now() - lastAt < 2 * 60_000) return;
+              if (
+                lastMac &&
+                norm === lastMac &&
+                Date.now() - lastAt < 2 * 60_000
+              )
+                return;
             } catch {}
             if (isCheckingRef.current) enqueueScan(norm);
             else await handleScan(norm, "manual");
@@ -2566,7 +2725,10 @@ const MainApplicationUI: React.FC = () => {
               lower.includes("not_present");
             if (!isNotPresent) {
               setScanResult({ text: str, kind: "error" });
-              try { if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current); } catch {}
+              try {
+                if (scanResultTimerRef.current)
+                  clearTimeout(scanResultTimerRef.current);
+              } catch {}
               scanResultTimerRef.current = window.setTimeout(() => {
                 setScanResult(null);
                 scanResultTimerRef.current = null;
@@ -2629,7 +2791,8 @@ const MainApplicationUI: React.FC = () => {
           // Also drop if this matches the recently finalized MAC (within 2 minutes)
           const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
           const lastAt = Number(lastFinalizedAtRef.current || 0);
-          if (lastMac && nextUp === lastMac && Date.now() - lastAt < 2 * 60_000) return;
+          if (lastMac && nextUp === lastMac && Date.now() - lastAt < 2 * 60_000)
+            return;
           void handleScanRef.current(next);
         } catch {}
       }, 50);
@@ -2714,8 +2877,12 @@ const MainApplicationUI: React.FC = () => {
   // When HUD returns to idle, allow immediate scan by clearing cooldown/blocks
   useEffect(() => {
     if (hudMode === "idle") {
-      try { idleCooldownUntilRef.current = 0; } catch {}
-      try { blockedMacRef.current.clear(); } catch {}
+      try {
+        idleCooldownUntilRef.current = 0;
+      } catch {}
+      try {
+        blockedMacRef.current.clear();
+      } catch {}
     }
   }, [hudMode]);
 
@@ -2730,9 +2897,7 @@ const MainApplicationUI: React.FC = () => {
   const hudSubMessage = useMemo(() => {
     if (hudMode === "scanning") return "Hold steady for a moment";
     if (hudMode === "idle") {
-      return scannerDetected
-        ? "Use the scanner."
-        : "Scanner not detected. You can still enter a MAC address.";
+      return scannerDetected ? "" : "Scanner not detected.";
     }
     if (hudMode === "info") {
       if (infoHideAt) {
@@ -2749,9 +2914,12 @@ const MainApplicationUI: React.FC = () => {
 
   // Clear countdown when info hint disappears
   useEffect(() => {
-    if (!scanResult || scanResult.kind !== 'info') {
+    if (!scanResult || scanResult.kind !== "info") {
       try {
-        if (infoTimerRef.current) { window.clearInterval(infoTimerRef.current as any); infoTimerRef.current = null; }
+        if (infoTimerRef.current) {
+          window.clearInterval(infoTimerRef.current as any);
+          infoTimerRef.current = null;
+        }
         setInfoHideAt(null);
         setInfoCountdownMs(0);
       } catch {}

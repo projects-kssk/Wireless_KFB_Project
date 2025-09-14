@@ -1192,15 +1192,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 </p>
               );
             })()}
-            {(() => {
-              const showNtch =
-                !!scanResult &&
-                /^(nothing\s+to\s+check\s+here)$/i.test(scanResult.text || "");
-              if (!showNtch) return null;
-              return (
-                <p className="mt-2 text-slate-400 text-xl md:text-2xl font-semibold uppercase tracking-widest select-none"></p>
-              );
-            })()}
+            {/* Remove extra spacer for NTCH to keep spacing identical to default prompt */}
 
             {/* Inline HUD under the scan prompt */}
             {(() => {
@@ -1211,17 +1203,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               const isIdleHud = hudMode === "idle";
               const base =
                 "w-[min(680px,92vw)] rounded-xl border shadow-sm backdrop-blur-md px-4 py-3";
+              // INFO (e.g., NOTHING TO CHECK HERE) uses a gentle green card
               const tone = isErrorHud
                 ? "border-red-200 bg-red-50/90 text-red-900"
                 : isScanningHud
                   ? "border-blue-200 bg-blue-50/90 text-blue-900"
-                  : isIdleHud
-                    ? "border-slate-200 bg-white/90 text-slate-900"
-                    : "border-emerald-200 bg-emerald-50/90 text-emerald-900";
+                  : isInfoHud
+                    ? "border-emerald-200 bg-emerald-50/90 text-emerald-900"
+                    : "border-slate-200 bg-white/90 text-slate-900";
               return (
                 <div className="mt-3 flex flex-col items-center">
                   <div
-                    className={`${base} ${tone}`}
+                    className={`${base} ${tone} relative`}
                     role="status"
                     aria-live="polite"
                   >
@@ -1244,16 +1237,17 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                           </div>
                         )}
                       </div>
-                      {/* Right-side badge for info countdown (replaces Dismiss) */}
-                      {isInfoHud && hudSubMessage && (
-                        <div
-                          className="ml-2 inline-flex select-none items-center justify-center rounded-md text-sm font-semibold bg-slate-900 text-white w-8 h-8"
-                          aria-label="Countdown"
-                        >
-                          {hudSubMessage}
-                        </div>
-                      )}
                     </div>
+                    {/* Absolutely positioned countdown badge so layout/centering stays identical to IDLE */}
+                    {isInfoHud && hudSubMessage && (
+                      <div
+                        className="absolute right-3 top-3 inline-flex select-none items-center justify-center rounded-full text-sm font-bold bg-emerald-700 text-white w-7 h-7 ring-1 ring-emerald-300 shadow-sm"
+                        aria-label="Countdown"
+                        title="Hiding soon"
+                      >
+                        {hudSubMessage}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

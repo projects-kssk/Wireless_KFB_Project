@@ -442,7 +442,7 @@ const MainApplicationUI: React.FC = () => {
     suppressLive || !(macAddress && macAddress.trim())
       ? undefined
       : (macAddress || "").toUpperCase(),
-    { disabled: suppressLive || mainView !== "dashboard" }
+    { disabled: suppressLive || mainView !== "dashboard", base: true }
   );
 
   // Log live state

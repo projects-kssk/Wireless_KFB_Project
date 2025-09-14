@@ -9,7 +9,7 @@ type SimConfig = {
 };
 
 export default function SimulateCheckBar() {
-  const serial = useSerialEvents();
+  const serial = useSerialEvents(undefined, { base: true });
   const [enabled, setEnabled] = React.useState(false);
   const [mac, setMac] = React.useState('');
   const [busy, setBusy] = React.useState(false);

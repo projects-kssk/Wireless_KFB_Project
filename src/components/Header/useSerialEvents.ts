@@ -70,7 +70,10 @@ export type SerialState = {
   isUnloading: boolean;
 };
 
-export function useSerialEvents(macFilter?: string, opts?: { disabled?: boolean }): SerialState {
+export function useSerialEvents(
+  macFilter?: string,
+  opts?: { disabled?: boolean; base?: boolean }
+): SerialState {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [server, setServer] = useState<SimpleStatus>("offline");
   const [netIface, setNetIface] = useState<string | null>(null);
@@ -221,7 +224,8 @@ export function useSerialEvents(macFilter?: string, opts?: { disabled?: boolean 
     };
   }, []);
 
-  const disabled = Boolean(opts?.disabled || !macFilter);
+  const baseEnabledFlag = String(process.env.NEXT_PUBLIC_BASE_SSE_ENABLED || '').trim() === '1';
+  const disabled = Boolean(opts?.disabled);
 
   useEffect(() => {
     if (disabled) {
@@ -234,9 +238,10 @@ export function useSerialEvents(macFilter?: string, opts?: { disabled?: boolean 
       try { esRef.current.close(); } catch {}
       esRef.current = null;
     }
-    // If no MAC filter is provided and base SSE is not explicitly enabled, skip creating the EventSource.
+    // If no MAC filter is provided and base SSE is not explicitly enabled, skip creating the EventSource
+    // unless the caller opted-in via opts.base.
     const baseEnabled = String(process.env.NEXT_PUBLIC_BASE_SSE_ENABLED || '').trim() === '1';
-    if (!macFilter && !baseEnabled) {
+    if (!macFilter && !baseEnabled && !opts?.base) {
       setSseConnected(false);
       return () => {
         try { esRef.current?.close(); } catch {}
@@ -351,7 +356,7 @@ export function useSerialEvents(macFilter?: string, opts?: { disabled?: boolean 
       esRef.current = null;
       setSseConnected(false);
     };
-  }, [macFilter, disabled]);
+  }, [macFilter, disabled, opts?.base]);
 
   const scannersDetected = useMemo(
     () => paths.filter((p) => ports[p]?.present).length,

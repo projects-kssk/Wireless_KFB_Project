@@ -417,6 +417,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   // -------------------- LIVE EV UPDATES --------------------
   useEffect(() => {
     if (!lastEv || !macAddress) return;
+    const SIMULATE = String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1";
 
     const current = String(macAddress).toUpperCase();
     const evMac = String(lastEv.mac || "").toUpperCase();
@@ -580,7 +581,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (
       (kind === "P" || kind === "L") &&
       ch != null &&
-      expected.has(ch) &&
+      ((expected.size === 0) || expected.has(ch)) &&
       (val === 0 || val === 1)
     ) {
       // De-dupe identical values
@@ -590,8 +591,26 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       startTransition(() =>
         setLocalBranches((prev) => {
+          // Seed from expected pins if we don't have a baseline yet
+          let base = prev;
+          if (prev.length === 0 && expectedPins.length > 0) {
+            const latchSet = new Set<number>(normalizedLatchPins);
+            base = expectedPins.map(
+              (p) =>
+                ({
+                  id: String(p),
+                  branchName: `PIN ${p}`,
+                  testStatus: latchSet.has(p)
+                    ? ("not_tested" as const)
+                    : ("ok" as const),
+                  pinNumber: p,
+                  isLatch: latchSet.has(p),
+                }) as BranchDisplayData
+            );
+          }
+
           let changed = false;
-          const next = prev.map((b) => {
+          const next = base.map((b) => {
             if (b.pinNumber !== ch) return b;
 
             // Latch pins: ignore release (0), keep last OK
@@ -599,15 +618,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             const nextStatus =
               val === 1
                 ? "ok"
-                : isLatch
-                  ? b.testStatus // ignore downgrades for latch
+                : isLatch && !SIMULATE
+                  ? b.testStatus // ignore downgrades for latch in production
                   : "nok";
 
             if (b.testStatus === nextStatus) return b;
             changed = true;
             return { ...b, testStatus: nextStatus } as any;
           });
-          return changed ? next : prev;
+          return changed ? next : base;
         })
       );
     }

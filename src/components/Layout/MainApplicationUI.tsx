@@ -93,7 +93,7 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
 }
 const KFB_REGEX = compileRegex(
   process.env.NEXT_PUBLIC_KFB_REGEX,
-  /^[A-Z0-9]{4}$/
+  /^KFB$/
 );
 
 const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
@@ -163,6 +163,8 @@ const MainApplicationUI: React.FC = () => {
       String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || "").trim() === "1",
     CHECK_ON_EMPTY:
       String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || "").trim() === "1",
+    SIMULATE:
+      String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1",
   } as const;
 
   // UI state
@@ -473,10 +475,14 @@ const MainApplicationUI: React.FC = () => {
 
   /* Live serial */
   const serial = useSerialEvents(
-    suppressLive || !(macAddress && macAddress.trim())
+    // In simulation, keep SSE active even while suppressLive to reflect pin toggles immediately
+    (suppressLive && !FLAGS.SIMULATE) || !(macAddress && macAddress.trim())
       ? undefined
       : (macAddress || "").toUpperCase(),
-    { disabled: suppressLive || mainView !== "dashboard", base: true }
+    {
+      disabled: (suppressLive && !FLAGS.SIMULATE) || mainView !== "dashboard",
+      base: true,
+    }
   );
 
   // Log live state
@@ -975,8 +981,6 @@ const MainApplicationUI: React.FC = () => {
             ).trim();
             ids = [firstId].filter(Boolean) as string[];
           }
-        } else if (ids.length > 1) {
-          ids = [ids[0]];
         }
 
         let sent = false;
@@ -990,18 +994,24 @@ const MainApplicationUI: React.FC = () => {
             );
             if (rXml.ok) workingDataXml = await rXml.text();
           } catch {}
-          // If XML not found or empty, skip sending checkpoint for this id
-          if (!workingDataXml || !workingDataXml.trim()) {
+          // Build payload: prefer XML; in simulation fallback to intksk when XML missing
+          let payload: any;
+          if (workingDataXml && workingDataXml.trim()) {
+            payload = { requestID: "1", workingDataXml };
+          } else if (String(process.env.NEXT_PUBLIC_SIMULATE || '').trim() === '1') {
+            payload = {
+              requestID: "1",
+              intksk: id,
+              sourceHostname: KROSY_SOURCE,
+              targetHostName: KROSY_TARGET,
+            };
+          } else {
             try {
-              console.log("[FLOW][CHECKPOINT] skip (no XML)", {
-                mac: MAC,
-                ksk: id,
-              });
+              console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id });
             } catch {}
             continue;
           }
-          const payload = { requestID: "1", workingDataXml } as any;
-          payload.forceResult = true;
+          (payload as any).forceResult = true;
 
           try {
             const resp = await fetch(CHECKPOINT_URL, {
@@ -1147,10 +1157,29 @@ const MainApplicationUI: React.FC = () => {
             Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS);
         } catch {}
         if (hasSetup) {
-          const ids =
+          let ids =
             lastActiveIdsRef.current && lastActiveIdsRef.current.length
-              ? lastActiveIdsRef.current
-              : activeKssks || [];
+              ? [...lastActiveIdsRef.current]
+              : [...(activeKssks || [])];
+          if (!ids.length) {
+            try {
+              const r = await fetch(
+                `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
+                { cache: "no-store" }
+              );
+              if (r.ok) {
+                const j = await r.json();
+                const items: any[] = Array.isArray(j?.items) ? j.items : [];
+                ids = Array.from(
+                  new Set(
+                    items
+                      .map((it: any) => String((it?.ksk ?? it?.kssk) || "").trim())
+                      .filter(Boolean)
+                  )
+                );
+              }
+            } catch {}
+          }
           try {
             console.log("[FLOW][CHECKPOINT] finalising with ids", ids);
           } catch {}
@@ -1990,17 +2019,18 @@ const MainApplicationUI: React.FC = () => {
       } catch {}
       const kfbRaw = (value ?? kfbInputRef.current).trim();
       if (!kfbRaw) return;
-      const normalized = kfbRaw.toUpperCase();
-      const macCanon = canonicalMac(normalized);
+      const macCanon = canonicalMac(kfbRaw);
       const isMac = !!macCanon;
-      if (!isMac && !KFB_REGEX.test(normalized)) {
+      if (!isMac && !KFB_REGEX.test(kfbRaw)) {
         if (source === "manual") {
-          setErrorMsg("Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF");
+          setErrorMsg(
+            "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
+          );
         }
-        console.warn("[FLOW][SCAN] rejected by patterns", { normalized });
+        console.warn("[FLOW][SCAN] rejected by patterns", { raw: kfbRaw });
         return;
       }
-      lastScanRef.current = normalized;
+      lastScanRef.current = kfbRaw.toUpperCase();
       if (source === "scan") {
         setShowScanUi(true);
         try {
@@ -2016,7 +2046,7 @@ const MainApplicationUI: React.FC = () => {
       setCheckFailures(null);
 
       try {
-        const mac = isMac ? (macCanon as string) : normalized;
+        const mac = isMac ? (macCanon as string) : "KFB";
 
         try {
           const prevMac = (macAddress || "").toUpperCase();
@@ -2451,8 +2481,9 @@ const MainApplicationUI: React.FC = () => {
       if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0))
         return;
       const now = Date.now();
-      const normalized = (raw || "").trim().toUpperCase();
-      if (!normalized) return;
+      const trimmed = (raw || "").trim();
+      if (!trimmed) return;
+      const normalized = trimmed.toUpperCase();
       // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
       try {
         const token = `${normalized}:${Math.floor(now / 1500)}`;
@@ -2510,9 +2541,9 @@ const MainApplicationUI: React.FC = () => {
         setKfbNumber(normalized);
       }
 
-      if (!(canonicalMac(normalized) || KFB_REGEX.test(normalized))) {
+      if (!(canonicalMac(trimmed) || KFB_REGEX.test(trimmed))) {
         try {
-          console.warn("[FLOW][SCAN] invalid format", { normalized });
+          console.warn("[FLOW][SCAN] invalid format", { code: trimmed });
         } catch {}
         return;
       }
@@ -2522,7 +2553,7 @@ const MainApplicationUI: React.FC = () => {
       try {
         console.log("[FLOW][SCAN] starting load");
         await loadBranchesData(
-          normalized,
+          trimmed,
           trig === "manual" ? "manual" : "scan",
           trig
         );
@@ -2810,17 +2841,17 @@ const MainApplicationUI: React.FC = () => {
   };
 
   const handleManualSubmit = (submittedNumber: string) => {
-    const val = submittedNumber.trim().toUpperCase();
-    if (!val) return;
-    if (!(canonicalMac(val) || KFB_REGEX.test(val))) {
-      setErrorMsg("Invalid code. Expected MAC like AA:BB:CC:DD:EE:FF");
+    const valRaw = submittedNumber.trim();
+    if (!valRaw) return;
+    if (!(canonicalMac(valRaw) || KFB_REGEX.test(valRaw))) {
+      setErrorMsg("Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase).");
       return;
     }
-    const mac = canonicalMac(val);
-    const next = mac || val;
+    const mac = canonicalMac(valRaw);
+    const next = mac || "KFB";
     setKfbInput(next);
     setKfbNumber(next);
-    void loadBranchesData(next, "manual", "manual");
+    void loadBranchesData(valRaw, "manual", "manual");
   };
 
   // Layout helpers
@@ -3033,10 +3064,11 @@ const MainApplicationUI: React.FC = () => {
                 isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
                 activeKssks={derived.effActiveKssks}
-                lastEv={suppressLive ? null : (serial as any).lastEv}
-                lastEvTick={suppressLive ? 0 : (serial as any).lastEvTick}
-                normalPins={suppressLive ? undefined : derived.effNormalPins}
-                latchPins={suppressLive ? undefined : derived.effLatchPins}
+                // Always pass EVs so live pin toggles react immediately, even during sim suppressLive
+                lastEv={(serial as any).lastEv}
+                lastEvTick={(serial as any).lastEvTick}
+                normalPins={FLAGS.SIMULATE ? derived.effNormalPins : (suppressLive ? undefined : derived.effNormalPins)}
+                latchPins={FLAGS.SIMULATE ? derived.effLatchPins : (suppressLive ? undefined : derived.effLatchPins)}
                 onResetKfb={handleResetKfb}
                 onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}

@@ -11,9 +11,6 @@ import React, {
 } from "react";
 import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
 import { Header } from "@/components/Header/Header";
-import { BranchControlSidebar } from "@/components/Program/BranchControlSidebar";
-import { SettingsPageContent } from "@/components/Settings/SettingsPageContent";
-import { SettingsBranchesPageContent } from "@/components/Settings/SettingsBranchesPageContent";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
@@ -76,7 +73,6 @@ async function hasSetupDataForMac(mac: string): Promise<boolean> {
   return false;
 }
 
-const SIDEBAR_WIDTH = "24rem";
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 const isAcmPath = (p?: string | null) =>
   !p ||
@@ -2937,8 +2933,8 @@ const MainApplicationUI: React.FC = () => {
 
   // Layout helpers
   const actualHeaderHeight = mainView === "dashboard" ? "4rem" : "0rem";
-  const leftOffset =
-    mainView === "dashboard" && isLeftSidebarOpen ? SIDEBAR_WIDTH : "0";
+  // Sidebar removed from main application; keep layout fixed
+  const leftOffset = "0";
   const appCurrentViewType =
     mainView === "settingsConfiguration" || mainView === "settingsBranches"
       ? "settings"
@@ -3091,20 +3087,7 @@ const MainApplicationUI: React.FC = () => {
 
   return (
     <div className="relative flex min-h-screen bg-white">
-      {mainView === "dashboard" && (
-        <BranchControlSidebar
-          isOpen={isLeftSidebarOpen}
-          toggleSidebar={toggleLeftSidebar}
-          branches={branchesData}
-          onSetStatus={(id, status) =>
-            setBranchesData((data) =>
-              data.map((b) => (b.id === id ? { ...b, testStatus: status } : b))
-            )
-          }
-          sidebarWidthProvided={SIDEBAR_WIDTH}
-          appHeaderHeight={actualHeaderHeight}
-        />
-      )}
+      {/* BranchControlSidebar removed */}
 
       <div
         className="flex flex-1 flex-col transition-all"
@@ -3160,16 +3143,8 @@ const MainApplicationUI: React.FC = () => {
 
               <form onSubmit={handleKfbSubmit} className="hidden" />
             </>
-          ) : mainView === "settingsConfiguration" ? (
-            <SettingsPageContent
-              onNavigateBack={showDashboard}
-              onShowProgramForConfig={showBranchesSettings}
-            />
           ) : (
-            <SettingsBranchesPageContent
-              onNavigateBack={showDashboard}
-              configId={currentConfigIdForProgram}
-            />
+            <div className="p-6 text-slate-600">Settings view is disabled.</div>
           )}
         </main>
       </div>

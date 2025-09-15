@@ -23,6 +23,7 @@ function keyForXml(mac: string, kssk: string) {
 
 // Dedicated read log (separate from app log stream) → write under /logs
 const READ_LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), "logs");
+const READ_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? '0') === '1';
 function ymdParts(d = new Date()) {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, "0");
@@ -30,6 +31,7 @@ function ymdParts(d = new Date()) {
   return { y, m, day };
 }
 async function appendReadLog(mac: string, ksk: string, hit: boolean, bytes: number, note?: string) {
+  if (!READ_LOGS_ENABLED) return; // verbose read logging disabled
   try {
     const { y, m, day } = ymdParts();
     const f = path.join(READ_LOG_DIR, `aliases-xml-reads-${y}-${m}-${day}.log`);

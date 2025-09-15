@@ -47,6 +47,7 @@ const now = () => Date.now();
 
 /* ----------------- logging ----------------- */
 const LOG_DIR = path.join(process.cwd(), "monitor.logs");
+const MONITOR_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? '0') === '1';
 async function ensureLogDir(dir = LOG_DIR) { try { await fs.mkdir(dir, { recursive: true }); } catch {} }
 async function pruneOldMonitorLogs(root: string, maxAgeDays = 31) {
   try {
@@ -81,6 +82,7 @@ function logFilePath() {
 }
 
 async function appendLog(entry: Record<string, unknown>) {
+  if (!MONITOR_LOGS_ENABLED) return; // verbose monitor logs disabled
   try {
     const p = logFilePath();
     await ensureLogDir(path.dirname(p));

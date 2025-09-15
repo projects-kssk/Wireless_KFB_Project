@@ -81,7 +81,8 @@ function cors(req: NextRequest) {
     Vary: "Origin",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Accept",
-    "Access-Control-Expose-Headers": "X-Krosy-Used-Url",
+    // Expose custom headers so fetch() can read them in the browser
+    "Access-Control-Expose-Headers": "X-Krosy-Used-Url, X-Krosy-Log-Path, X-Krosy-Log-Dir",
     "Access-Control-Max-Age": "600",
   };
 }

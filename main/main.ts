@@ -6,6 +6,10 @@ import fs from 'node:fs'
 
 const PORT = parseInt(process.env.PORT || '3003', 10)
 const isDev = !app.isPackaged
+// Silence Electron dev-time security warnings while we keep dev-friendly settings
+if (isDev && !process.env.ELECTRON_DISABLE_SECURITY_WARNINGS) {
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
+}
 const OPEN_DEVTOOLS = (() => {
   const env = String(process.env.WFKB_DEVTOOLS ?? '').trim()
   if (env) return env === '1' || env.toLowerCase() === 'true'

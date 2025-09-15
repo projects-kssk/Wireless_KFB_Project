@@ -30,6 +30,12 @@ type HudMode = "idle" | "scanning" | "info" | "error";
  * -------------------------------------------------------------------------------*/
 
 async function hasSetupDataForMac(mac: string): Promise<boolean> {
+  // Guard against partial MACs while UI builds
+  try {
+    const mm = String(mac || "").toUpperCase();
+    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+    if (!MAC_RE.test(mm)) return false;
+  } catch {}
   try {
     const rAll = await fetch(
       `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
@@ -166,6 +172,11 @@ const MainApplicationUI: React.FC = () => {
     SIMULATE:
       String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1",
   } as const;
+
+  // Operational mode: assume Redis is always available (suppress degraded mode)
+  // Default to assuming Redis is present unless explicitly disabled
+  const ASSUME_REDIS_READY =
+    String(process.env.NEXT_PUBLIC_ASSUME_REDIS_READY ?? "1").trim() === "1";
 
   // UI state
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
@@ -569,6 +580,12 @@ const MainApplicationUI: React.FC = () => {
   }, [macAddress]);
   useEffect(() => {
     try {
+      if (ASSUME_REDIS_READY) {
+        // In this mode we don't enter degraded; treat redis as stable
+        prevRedisReadyRef.current = !!(serial as any).redisReady;
+        if (redisDegraded) setRedisDegraded(false);
+        return;
+      }
       const ready = !!(serial as any).redisReady;
       const prev = prevRedisReadyRef.current;
       prevRedisReadyRef.current = ready;
@@ -686,7 +703,7 @@ const MainApplicationUI: React.FC = () => {
     if (redisDegraded) return;
     if (suppressLive) return;
     const mac = (macAddress || "").toUpperCase();
-    if (!mac) return;
+    if (!mac || !MAC_ONLY_REGEX.test(mac)) return;
     // Only while scanning or checking; avoid chatter when idle
     if (!isScanning && !isChecking) return;
     // Rate limit to avoid repeated network calls when state flaps

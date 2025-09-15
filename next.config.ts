@@ -1,6 +1,8 @@
 // next.config.ts
 import type { NextConfig } from 'next'
 
+const isProd = process.env.NODE_ENV === 'production'
+
 const nextConfig: NextConfig = {
   // 1) Required for Electron packaging + custom server:
   //    produces .next/standalone with its own node_modules/next runtime
@@ -60,6 +62,28 @@ const nextConfig: NextConfig = {
     }
 
     return config
+  },
+
+  // Add a strict CSP in production to satisfy Electron security guidance
+  async headers() {
+    if (!isProd) return []
+    const csp = [
+      "default-src 'self'",
+      // Allow inline scripts (Next embeds JSON/bootstrap); never allow 'unsafe-eval'
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob:",
+      "font-src 'self' data:",
+      // App talks to same-origin APIs and may use WS for events
+      "connect-src 'self' http: https: ws: wss:",
+      "frame-src 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
+    return [
+      { source: '/:path*', headers: [ { key: 'Content-Security-Policy', value: csp } ] },
+    ]
   },
 }
 

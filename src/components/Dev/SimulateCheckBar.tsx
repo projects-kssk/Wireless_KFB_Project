@@ -54,7 +54,8 @@ export default function SimulateCheckBar() {
   React.useEffect(() => {
     let stop = false;
     const mm = (mac || '').toUpperCase().trim();
-    if (!mm) { setUnionPins([]); setNames({}); return; }
+    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+    if (!mm || !MAC_RE.test(mm)) { setUnionPins([]); setNames({}); return; }
     (async () => {
       try {
         const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mm)}`, { cache: 'no-store' });
@@ -79,7 +80,8 @@ export default function SimulateCheckBar() {
   React.useEffect(() => { liveRef.current = { started: live.started, done: live.done, ok: live.ok }; }, [live.started, live.done, live.ok]);
 
   const runCheck = async () => {
-    if (!mac) return;
+    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+    if (!mac || !MAC_RE.test(mac.toUpperCase())) return;
     setBusy(true); setLast(null);
     try {
       try { (window as any).__armScanOnce__ = true; } catch {}

@@ -23,13 +23,13 @@ for (const pair of TAG_LEVELS_RAW.split(",")) {
   if ((levels as any).includes(lv)) TAG_MIN[k] = lv as Level;
 }
 
-// Sensible defaults when not explicitly overridden and not in DEBUG mode
-if (!TAG_LEVELS_RAW && (process.env.DEBUG ?? "0") !== "1") {
-  TAG_MIN["redis"]              = "warn";
-  TAG_MIN["ksk-lock"]           = "warn";
-  TAG_MIN["api:krosy-offline"]  = "warn";
-  TAG_MIN["api:serial/check"]   = "warn";
-  TAG_MIN["api:serial"]         = "warn";
+// Sensible defaults for noisy tags unless explicitly overridden (and not in DEBUG mode)
+if ((process.env.DEBUG ?? "0") !== "1") {
+  if (!("redis" in TAG_MIN))             TAG_MIN["redis"] = "warn";
+  if (!("ksk-lock" in TAG_MIN))          TAG_MIN["ksk-lock"] = "warn";
+  if (!("api:krosy-offline" in TAG_MIN)) TAG_MIN["api:krosy-offline"] = "warn";
+  if (!("api:serial/check" in TAG_MIN))  TAG_MIN["api:serial/check"] = "warn";
+  if (!("api:serial" in TAG_MIN))        TAG_MIN["api:serial"] = "warn";
 }
 
 function levelIdx(l: Level) { return levels.indexOf(l); }

@@ -40,6 +40,7 @@ function minFor(tag?: string): Level {
 }
 
 let day = ""; let stream: fs.WriteStream | null = null;
+let errorStream: fs.WriteStream | null = null;
 
 function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
   try {
@@ -76,17 +77,32 @@ function ensureStream() {
   return stream;
 }
 
+// Always-on error sink, independent of LOG_ENABLE
+function ensureErrorStream() {
+  try { fs.mkdirSync(DIR, { recursive: true }); } catch {}
+  if (!errorStream) {
+    try { errorStream = fs.createWriteStream(path.join(DIR, `errors.log`), { flags: "a" }); } catch {}
+  }
+  return errorStream;
+}
+
 function write(level: Level, tag: string | undefined, msg: string, extra?: any) {
   // Global filter: only monitor unless it's an error
   if (MONITOR_ONLY && tag !== "monitor" && level !== "error") return;
   // Per-tag & global min
   const effMin = minFor(tag);
-  if (!ENABLED || levelIdx(level) < levelIdx(effMin)) return;
+  const allow = ENABLED && levelIdx(level) >= levelIdx(effMin);
   const line = JSON.stringify({ ts: new Date().toISOString(), level, tag, msg, ...(extra?{extra}: {}) });
   // console
   (level === "debug" ? console.log : (console as any)[level])(`[${tag ?? "app"}] ${msg}`);
-  // file
-  try { ensureStream()?.write(line + "\n"); } catch {}
+  // primary app file (honors LOG_ENABLE / LOG_VERBOSE and min levels)
+  if (allow) {
+    try { ensureStream()?.write(line + "\n"); } catch {}
+  }
+  // error-only sink (always on; ignores LOG_ENABLE)
+  if (level === "error") {
+    try { ensureErrorStream()?.write(line + "\n"); } catch {}
+  }
 }
 
 export const LOG = {

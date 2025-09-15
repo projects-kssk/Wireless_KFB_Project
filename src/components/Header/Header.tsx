@@ -411,13 +411,17 @@ function StatusBanner({ status, mac, error }: { status: DiscoverState; mac: stri
   }
   return (
     <div className={`${base} bg-white/80 ring-slate-200`}>
-      <div className="grid gap-1 place-items-center">
-        <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-semibold text-slate-800">
+      <div className="grid gap-2 place-items-center">
+        <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-extrabold text-slate-800">
           <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
           <span>Waiting for ESP</span>
         </div>
+        <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 text-[12px] font-semibold text-slate-600 ring-1 ring-slate-200">
+          <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
+          <span>Press BOOT + EN on the ESP to connect</span>
+        </div>
         {mac && (
-          <div className="text-sm font-bold text-slate-500">Last: {mac}</div>
+          <div className="text-xs font-bold text-slate-500">Last MAC: {mac}</div>
         )}
       </div>
     </div>
@@ -435,7 +439,7 @@ function DiscoverEspModal({
   const showSuccess = status === 'success' && testStatus === 'ok';
   const stripText =
     status === 'searching'
-      ? 'Waiting for BUTTON PRESS ON ESP…'
+      ? 'Press BOOT + EN on the ESP…'
       : showSuccess
       ? 'SUCCESS'
       : status === 'success'
@@ -505,12 +509,16 @@ function DiscoverEspModal({
                       </button>
                       <button
                         onClick={onPinTest}
-                        className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-emerald-300 shadow-[0_20px_60px_rgba(16,185,129,.25)] bg-gradient-to-b from-emerald-400 to-emerald-600"
+                        className="h-44 w-44 md:h-52 md:w-52 rounded-full select-none text-white font-extrabold text-3xl md:text-4xl tracking-wide focus:outline-none ring-2 ring-amber-300 shadow-[0_20px_60px_rgba(245,158,11,.25)] bg-gradient-to-b from-amber-400 to-amber-600"
                         aria-label="PIN TEST"
                         title="Send MONITOR for pins 1–40 to this ESP"
                       >
                         PIN TEST
                       </button>
+                    </div>
+                    <div className="flex items-center gap-6 text-[12px] font-semibold text-slate-600">
+                      <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />TEST: Send handshake + test</span>
+                      <span className="inline-flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-amber-400" />PIN TEST: Toggle pins 1–40</span>
                     </div>
                     {!!testMsg && (
                       <div

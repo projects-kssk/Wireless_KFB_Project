@@ -952,16 +952,24 @@ const MainApplicationUI: React.FC = () => {
             onlyIds: onlyIds && onlyIds.length ? onlyIds : undefined,
           });
         } catch {}
-        const rList = await fetch(
-          `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
-          { cache: "no-store" }
-        );
-        if (!rList.ok) return false;
-        const j = await rList.json();
-        const items: any[] = Array.isArray(j?.items) ? j.items : [];
-        let ids = items
-          .map((it) => String((it.ksk ?? it.kssk) || "").trim())
-          .filter(Boolean);
+        let ids: string[] = [];
+        try {
+          const rList = await fetch(
+            `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
+            { cache: "no-store" }
+          );
+          if (rList.ok) {
+            const j = await rList.json();
+            const items: any[] = Array.isArray(j?.items) ? j.items : [];
+            ids = items
+              .map((it) => String((it.ksk ?? it.kssk) || "").trim())
+              .filter(Boolean);
+          }
+        } catch {}
+        // If alias query failed/empty, fall back to onlyIds if provided
+        if ((!ids || ids.length === 0) && onlyIds && onlyIds.length) {
+          ids = [...new Set(onlyIds.map((s) => String(s).trim()).filter(Boolean))];
+        }
 
         if (onlyIds && onlyIds.length) {
           const want = new Set(onlyIds.map((s) => s.toUpperCase()));
@@ -978,13 +986,19 @@ const MainApplicationUI: React.FC = () => {
         for (const id of ids) {
           if (checkpointSentRef.current.has(id)) continue;
           let workingDataXml: string | null = null;
-          try {
-            const rXml = await fetch(
-              `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
-              { cache: "no-store" }
-            );
-            if (rXml.ok) workingDataXml = await rXml.text();
-          } catch {}
+          // Try a few times in case Redis is momentarily degraded
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const rXml = await fetch(
+                `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
+                { cache: "no-store" }
+              );
+              if (rXml.ok) { workingDataXml = await rXml.text(); break; }
+              // 404 => no XML stored; do not retry
+              if (rXml.status === 404) break;
+            } catch {}
+            await new Promise((res) => setTimeout(res, 250));
+          }
           // Build payload: prefer XML; if missing, fall back to intksk so server can fetch workingData
           let payload: any;
           if (workingDataXml && workingDataXml.trim()) {
@@ -1198,19 +1212,9 @@ const MainApplicationUI: React.FC = () => {
             } catch {}
           }
         }
-        // Gate checkpoint by either union data OR presence of at least one stored XML
-        let hasSetup = await hasSetupDataForMac(mac).catch(() => false);
-        if (!hasSetup && ids.length) {
-          try {
-            for (const id of ids) {
-              const rXml = await fetch(
-                `/api/aliases/xml?mac=${encodeURIComponent(mac)}&kssk=${encodeURIComponent(id)}`,
-                { cache: "no-store" }
-              );
-              if (rXml.ok) { hasSetup = true; break; }
-            }
-          } catch {}
-        }
+        // Gate: allow checkpoint attempt if we have any candidate KSK IDs
+        // This avoids skipping when Redis is briefly degraded; per‑KSK send still requires XML.
+        let hasSetup = ids.length > 0;
         // After a successful OK flow, suppress the empty-hint toast for a short window
         try {
           suppressEmptyHintUntilRef.current =

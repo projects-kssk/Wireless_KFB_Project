@@ -1012,8 +1012,22 @@ const MainApplicationUI: React.FC = () => {
               if (Date.now() < blockUntil) break;
               const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`, { cache: "no-store" });
               if (rXml.ok) { workingDataXml = await rXml.text(); break; }
-              // 404 => no XML stored; do not retry
-              if (rXml.status === 404) break;
+              // 404 => try to ensure XML is saved once, then retry read
+              if (rXml.status === 404 && attempt === 0) {
+                try {
+                  const ensure = await fetch('/api/aliases/xml/ensure', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mac: MAC, ksk: id, requestID: `${Date.now()}_${id}` }),
+                  }).catch(() => null);
+                  if (ensure && ensure.ok) {
+                    // Re-try read immediately
+                    const r2 = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`, { cache: 'no-store' }).catch(() => null);
+                    if (r2 && r2.ok) { workingDataXml = await r2.text(); break; }
+                  }
+                } catch {}
+                break;
+              }
             } catch {}
             await new Promise((res) => setTimeout(res, 250));
           }
@@ -1372,6 +1386,8 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     const mac = lastFinalizedMacRef.current;
     if (!mac) return;
+    // Do not run while a checkpoint send is still in progress for this MAC
+    try { if (checkpointMacPendingRef.current.has(mac.toUpperCase())) return; } catch {}
     const onScanView =
       mainView === "dashboard" && !(macAddress && macAddress.trim());
     if (!onScanView) return;

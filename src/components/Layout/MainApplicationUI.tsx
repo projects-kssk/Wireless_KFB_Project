@@ -924,6 +924,8 @@ const MainApplicationUI: React.FC = () => {
       "/api/krosy-offline/checkpoint";
     return !ONLINE_FLAG || SIM_FLAG ? offlineUrl : onlineUrl;
   })();
+  const OFFLINE_MODE = CHECKPOINT_URL.includes("/api/krosy-offline/checkpoint");
+  const CLIENT_RESULT_URL = (process.env.NEXT_PUBLIC_KROSY_RESULT_URL || "").trim();
   const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
   const KROSY_SOURCE =
     process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
@@ -1032,6 +1034,11 @@ const MainApplicationUI: React.FC = () => {
             payload = { requestID: `${Date.now()}_${id}`, intksk: id };
           }
           (payload as any).forceResult = true;
+          // If using the offline route and a client-side result URL is provided, direct the
+          // checkpoint leg to that HTTP endpoint instead of TCP to the device.
+          if (OFFLINE_MODE && CLIENT_RESULT_URL) {
+            (payload as any).checkpointUrl = CLIENT_RESULT_URL;
+          }
 
           // Verbose client-side trace for each KSK checkpoint
           try {

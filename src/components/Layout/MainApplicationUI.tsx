@@ -223,6 +223,8 @@ const MainApplicationUI: React.FC = () => {
   const lastGroupsRef = useRef<
     Array<{ ksk: string; branches: BranchDisplayData[] }>
   >([]);
+  // After finalize(clear), avoid re-reading aliases XML for a short window to prevent not_found spam
+  const xmlReadBlockUntilRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     lastGroupsRef.current = groupedBranches;
   }, [groupedBranches]);
@@ -1007,10 +1009,10 @@ const MainApplicationUI: React.FC = () => {
           // Try a few times in case Redis is momentarily degraded
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
-              const rXml = await fetch(
-                `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
-                { cache: "no-store" }
-              );
+              // Skip XML read if we've recently cleared this MAC (avoid post-clear not_found spam)
+              const blockUntil = xmlReadBlockUntilRef.current.get(MAC) || 0;
+              if (Date.now() < blockUntil) break;
+              const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`, { cache: "no-store" });
               if (rXml.ok) { workingDataXml = await rXml.text(); break; }
               // 404 => no XML stored; do not retry
               if (rXml.status === 404) break;
@@ -1065,10 +1067,15 @@ const MainApplicationUI: React.FC = () => {
               if (resp.status >= 500) {
                 checkpointBlockUntilTsRef.current = Date.now() + 120_000;
                 try {
-                  console.warn(
-                    "[FLOW][CHECKPOINT] server error; enabling backoff",
-                    { status: resp.status, ksk: id }
-                  );
+                  let detail: any = null;
+                  try { detail = await resp.json(); } catch { try { detail = await resp.text(); } catch {} }
+                  const used = resp.headers.get("X-Krosy-Used-Url") || resp.headers.get("X-Krosy-Log-Path") || resp.headers.get("X-Krosy-Log-Dir") || null;
+                  console.warn("[FLOW][CHECKPOINT] server error; enabling backoff", {
+                    status: resp.status,
+                    ksk: id,
+                    used,
+                    detail,
+                  });
                 } catch {}
               }
             } else {
@@ -1330,6 +1337,10 @@ const MainApplicationUI: React.FC = () => {
       } finally {
         try {
           checkpointSentRef.current.clear();
+        } catch {}
+        try {
+          // Block XML reads for this MAC shortly after we clear aliases to avoid not_found noise
+          xmlReadBlockUntilRef.current.set(mac, Date.now() + 60_000);
         } catch {}
         try {
           (recentCleanupRef.current as Map<string, number>).set(
@@ -1899,18 +1910,20 @@ const MainApplicationUI: React.FC = () => {
           );
 
           if (!unknown && failures.length === 0) {
+            // Consistency with LIVE OK: perform finalize (checkpoint + clear) first,
+            // then trigger the OK flash. This shows OK after cleanup.
             clearScanOverlayTimeout();
             setSuppressLive(true);
-            if (okFlashAllowedRef.current && !okShownOnceRef.current) {
-              okShownOnceRef.current = true;
-              okForcedRef.current = true;
-              setOkFlashTick((t) => t + 1);
-            }
             try {
               pollBlockUntilRef.current = Date.now() + 15000; // block idle poll ~15s after success
             } catch {}
             cancel("checkWatchdog");
             await finalizeOkForMac(mac);
+            if (okFlashAllowedRef.current && !okShownOnceRef.current) {
+              okShownOnceRef.current = true;
+              okForcedRef.current = true;
+              setOkFlashTick((t) => t + 1);
+            }
             return;
           } else {
             const text = unknown

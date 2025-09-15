@@ -1013,8 +1013,8 @@ const MainApplicationUI: React.FC = () => {
             } catch {}
             payload = { requestID: `${Date.now()}_${id}`, workingDataXml };
           } else {
-            try { console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id }); } catch {}
-            continue;
+            try { console.log("[FLOW][CHECKPOINT] no XML → fallback to intksk", { mac: MAC, ksk: id }); } catch {}
+            payload = { requestID: `${Date.now()}_${id}`, intksk: id };
           }
           (payload as any).forceResult = true;
 
@@ -1209,6 +1209,16 @@ const MainApplicationUI: React.FC = () => {
                   .map((row: any) => String((row?.ksk ?? row?.kssk) || "").trim())
                   .filter(Boolean);
                 if (fromLocks.length) ids = Array.from(new Set(fromLocks));
+              }
+            } catch {}
+          }
+          // Fallback: derive IDs from last alias snapshot in memory if still empty
+          if (!ids.length) {
+            try {
+              const snapshot = itemsAllFromAliasesRef.current || [];
+              if (snapshot.length) {
+                const fromSnap = Array.from(new Set(snapshot.map((it:any) => String((it.ksk ?? (it as any).kssk) || '').trim()).filter(Boolean)));
+                if (fromSnap.length) ids = fromSnap;
               }
             } catch {}
           }

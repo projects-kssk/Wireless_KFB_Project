@@ -1042,7 +1042,7 @@ const MainApplicationUI: React.FC = () => {
                 console.warn("[FLOW][CHECKPOINT] XML intksk mismatch", { expect: id, xmlIntksk: xmlId });
               }
             } catch {}
-            payload = { requestID: `${Date.now()}_${id}`, workingDataXml };
+            payload = { requestID: `${Date.now()}_${id}`, workingDataXml, intksk: id };
           } else {
             try { console.log("[FLOW][CHECKPOINT] no XML → fallback to intksk", { mac: MAC, ksk: id }); } catch {}
             payload = { requestID: `${Date.now()}_${id}`, intksk: id };

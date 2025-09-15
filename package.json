@@ -39,6 +39,8 @@
     "logs:full": "LOG_MONITOR_ONLY=0 LOG_LEVEL=debug next dev",
     "locks": "node scripts/print-locks-redis.mjs",
     "locks:deleteall": "node scripts/clear-all-locks.mjs",
+    "locks:delete": "node scripts/clear-locks-by-mac.mjs",
+    "locks:delete:08:3A:8D:15:27:54": "node scripts/clear-locks-by-mac.mjs 08:3A:8D:15:27:54",
     "locks:station": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs",
     "locks:watch": "node scripts/print-locks-redis.mjs --watch --clear",
     "locks:station:watch": "STATION_ID=$npm_config_id node scripts/print-locks-redis.mjs --watch --clear"

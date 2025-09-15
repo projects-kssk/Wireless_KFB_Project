@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   //    produces .next/standalone with its own node_modules/next runtime
   output: 'standalone',
 
+  // Keep prod build leaner on device
+  productionBrowserSourceMaps: false,
+
   images: {
     unoptimized: true,
   },
@@ -14,33 +17,7 @@ const nextConfig: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
 
-  experimental: {
-    // Allow Electron to load dev assets from common origins and optional remote
-    allowedDevOrigins: (() => {
-      const base: string[] = [
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:3001',
-        'http://localhost:3000',
-        'http://localhost:3001',
-        // Common network IP used in this project
-        'http://172.26.202.248:3000',
-        // Common local LAN host seen in logs
-        'http://192.168.1.168:3000',
-      ]
-      const envCandidates = [
-        process.env.NEXT_PUBLIC_REMOTE_BASE,
-        process.env.WFKB_BASE_URL,
-      ].filter(Boolean) as string[]
-      for (const uri of envCandidates) {
-        try {
-          const u = new URL(uri)
-          const origin = `${u.protocol}//${u.host}`
-          if (!base.includes(origin)) base.push(origin)
-        } catch {}
-      }
-      return base
-    })(),
-  },
+  // experimental: {}, // remove unknown keys to avoid Next warnings
 
   // 3) Precise control via webpack hook
   webpack(config, { isServer }) {

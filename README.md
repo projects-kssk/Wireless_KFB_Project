@@ -59,10 +59,77 @@ Prerequisites
   - `NEXT_PUBLIC_KFB_REGEX` (accept pattern for KFB input)
   - `NEXT_PUBLIC_STATION_ID` (used for lock ownership)
 - Logging (defaults set in `.env`)
+  - `LOG_VERBOSE=1` – enable verbose logging (app file logs, monitor logs, aliases‑XML reads)
   - `LOG_ENABLE=1`, `LOG_DIR=./logs`, `LOG_LEVEL=info`
   - `LOG_MONITOR_ONLY=1` (print only monitor-tag info/warn)
   - `LOG_MONITOR_START_ONLY=1` (show only MONITOR start lines; failures still appear)
   - `LOG_TAG_LEVELS=redis=warn,ksk-lock=warn` (optional per-tag overrides)
+
+<div align="center">
+
+# KFB Wireless Clip Tester
+
+Reliable station app for scanning a KFB board (MAC), programming pins, and confirming success — with optional Krosy checkpoint and automatic cleanup.
+
+<p>
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-desktop-blue" />
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-App%20Router-black" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-blue" />
+  <img alt="Redis" src="https://img.shields.io/badge/Redis-required-red" />
+</p>
+
+</div>
+
+— Simple for operators. Powerful for engineers.
+
+## What it does (non‑technical)
+- Scan a device’s MAC address and run tests on its pins.
+- Show a clear “OK” when everything passes.
+- Optionally send a “checkpoint” to a Krosy server for record keeping.
+- Clean up temporary data automatically after success.
+
+## Who uses this
+- Operators on the production line (scan, see status, move on).
+- Technicians who need quick feedback and basic diagnostics.
+
+## Quick start (operators)
+1) Power the station and plug in the USB devices. Make sure the green status lights for the scanners and server appear in the header.
+2) Scan the QR/barcode on the device (or type in the MAC address).
+3) Wait for the app to show the results. A big “OK” means you’re done.
+4) If there’s a problem, the app shows which pins failed. Re‑test or ask a technician.
+
+Tip: If you see a message about “locks” or “Redis”, call support — it’s a server connection issue, not your fault.
+
+## Daily use
+- One device at a time. Scan clearly, wait for the result, then proceed.
+- The app removes old data automatically after a success.
+- The “Settings” panels are hidden in this build to keep things simple.
+
+## Need help?
+- Troubleshooting guide: docs/ERRORS.md
+- Full process (what happens behind the scenes): docs/PROCESS-FLOW.md
+- Application behavior (UI flow): docs/MAINAPPLICATION.md
+
+---
+
+## For programmers and technicians
+- Read the detailed Programmer’s Guide: PROGRAMMERS.md
+- Quick links to internal docs:
+  - AGENTS.md – repo conventions and agent notes
+  - docs/SETUP.md – how the Setup/Krosy side works
+  - docs/PROCESS-FLOW.md – end‑to‑end behavior
+  - docs/ERRORS.md – practical checks and where to look
+  - suggestions.md – backlog of proposed improvements
+
+Repo Structure (developer overview)
+- src/app/ – Next.js App Router pages and API routes
+- src/components/ – React components (PascalCase .tsx)
+- src/lib/ – Shared utilities (serial, redis, logger, rid)
+- main/ – Electron main process (main.ts, preload.ts, menu.ts)
+- server.ts and dist-server/ – Node server entry and build output
+- public/ and assets/ – Static assets
+- scripts/ – Dev helpers (Redis/locks)
+- logs/, monitor.logs/, .krosy-logs/
 
 ## Logging Cheat‑Sheet
 - Console (concise):
@@ -71,16 +138,20 @@ Prerequisites
   - `CHECK fail mac=… failures=[…]` (always printed)
   - Errors from any tag always show
 - Files (structured JSON):
-  - App logs in `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1`)
-  - Detailed monitor events in `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log`
+  - App logs: `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1` or `LOG_VERBOSE=1`).
+  - Errors: `./logs/errors.log` (error‑level only; always on, independent of LOG_ENABLE).
+  - Monitor logs: `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (enabled by LOG_VERBOSE=1).
+  - Aliases XML reads: `./logs/aliases-xml-reads-YYYY-MM-DD.log` (enabled by LOG_VERBOSE=1).
 
-## Repo Structure (selected)
-- `server.ts` – Next server + WS bridge for serial events (dev-prod compatible)
-- `main/` – Electron main process (starts Next or uses packaged server)
-- `src/lib/serial.ts` – ESP + scanner orchestration, ring buffer, cooldowns
-- `src/lib/logger.ts` – Structured logger with env-driven filtering
-- `src/app/api/*` – API routes (see below)
-- `scripts/print-locks-redis.mjs` – Inspect KSK locks (supports station filter, watch, regex)
+---
+
+## More documentation
+- PROGRAMMERS.md – development guide (build, run, code structure)
+- AGENTS.md – repository rules and conventions
+- docs/SETUP.md – Setup page and Krosy extraction
+- docs/MAINAPPLICATION.md – Main application (dashboard) behavior
+- docs/PROCESS-FLOW.md – End‑to‑end process
+- docs/ERRORS.md – Troubleshooting and checks
 
 ## API Reference
 

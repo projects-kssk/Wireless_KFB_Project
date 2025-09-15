@@ -4,10 +4,11 @@
 - `src/app`: Next.js App Router pages and API routes (e.g., `src/app/api/.../route.ts`).
 - `src/components`: Reusable React components (PascalCase `.tsx`).
 - `src/lib`: Shared utilities (e.g., `serial.ts`, `redis.ts`, `logger.ts`).
-- `main`: Electron main process (`main.ts`, `preload.ts`, `menu.ts`).
-- `server.ts` + `dist-server`: Node server entry and its build output.
-- `public` and `assets`: Static assets; `assets/icon.png` used for packaging.
-- `scripts`: Dev helpers (Redis/locks). Env files: `.env`, `.env.production`.
+- `main/`: Electron main process (`main.ts`, `preload.ts`, `menu.ts`).
+- `server.ts` + `dist-server/`: Node server entry and its build output.
+- `public/` and `assets/`: Static assets; `assets/icon.png` used for packaging.
+- `scripts/`: Dev helpers (Redis/locks). Env files: `.env`, `.env.production`, `.env.example`.
+- Logs: `logs/` (app logs + errors.log), `.krosy-logs/` (Krosy XML/result), `monitor.logs/` (monitor JSON lines).
 
 ## Build, Test, and Development Commands
 - `npm run predev`: Start Redis container and wait for it (required for locks).
@@ -78,9 +79,16 @@
   - API accepts `ksk` (preferred) and legacy `kssk` fields for compatibility.
 
 - Logging & retention
-  - App logs: `logs/app-YYYY-MM-DD.log`, pruned after ~31 days.
-  - Monitor logs: `monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log`, pruned after ~31 days.
+  - App logs: `logs/app-YYYY-MM-DD.log`, pruned after ~31 days. Controlled by `LOG_ENABLE=1` or `LOG_VERBOSE=1`.
+  - Errors: `logs/errors.log` (error-level only; always on, independent of `LOG_ENABLE`).
+  - Monitor logs: `monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (guarded by `LOG_VERBOSE=1`).
+  - Aliases XML reads: `logs/aliases-xml-reads-YYYY-MM-DD.log` (guarded by `LOG_VERBOSE=1`).
   - Krosy logs (request/response and checkpoint): `.krosy-logs/YYYY-MM/<stamp>_<requestId>/...`, pruned after ~31 days.
+
+Environment quick refs for logging
+- `LOG_VERBOSE=1` enables app file logging, monitor logs, and aliases-XML read logs.
+- `LOG_ENABLE=1` also enables app file logging (used if you want app logs without monitor/XML extras).
+- `LOG_MONITOR_ONLY=1` restricts console/file to the monitor tag (errors still always print).
 
 
 See also: `docs/PROCESS-FLOW.md` (full details) and `docs/ERRORS.md` (detailed checks & troubleshooting).

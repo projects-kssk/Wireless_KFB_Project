@@ -5,8 +5,7 @@ Purpose: run day-to-day scanning and validation. It listens to serial/scanner ev
 ## Views
 
 - Dashboard: default view for scanning and checking devices.
-- Settings (Configuration): station/scanner/timeout preferences and diagnostics.
-- Settings (Branches): branch/pin visibility derived from stored aliases (read-only summary).
+- Settings panels are currently disabled in the main application shell.
 
 ## Data Sources
 
@@ -60,7 +59,20 @@ Krosy (for checkpoint and identity)
   - `NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE=/api/krosy/checkpoint`
   - `NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE=/api/krosy-offline/checkpoint`
   - `NEXT_PUBLIC_KROSY_IDENTITY_URL=/api/krosy`
-- Host hints: `NEXT_PUBLIC_KROSY_IP_ONLINE`, `NEXT_PUBLIC_KROSY_IP_OFFLINE`
+  - Host hints: `NEXT_PUBLIC_KROSY_IP_ONLINE`, `NEXT_PUBLIC_KROSY_IP_OFFLINE`
+
+Logging
+- `LOG_VERBOSE=1` – enable verbose logging (app file logs, monitor logs, aliases‑XML read logs)
+- `LOG_ENABLE=1` – enable app file logs (without monitor/XML extras)
+- Errors always append to `logs/errors.log` (independent of flags)
+
+Repo Structure (base overview)
+- `src/app/` – App Router pages and API routes.
+- `src/components/` – UI components.
+- `src/lib/` – Shared utilities.
+- `main/` – Electron main process.
+- `server.ts` + `dist-server/` – Node server and build output.
+- Logs: `logs/` (app + errors.log), `monitor.logs/`, `.krosy-logs/`.
 
 Redis
 - `REDIS_URL`

@@ -17,7 +17,11 @@ This guide lists practical checks for common failure points: Krosy connectivity,
   - `GET /api/serial?probe=1` for ESP health snapshot.
   - `GET /api/serial/devices` to list serial ports.
   - `GET /api/serial/events` (SSE) for scanner and ESP events.
-- Logs: App logs in `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1`), pruned monthly.
+- Logs:
+  - App logs: `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1` or `LOG_VERBOSE=1`).
+  - Errors: `./logs/errors.log` (error-level only; always on).
+  - Monitor logs: `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (enabled by `LOG_VERBOSE=1`).
+  - Aliases XML reads: `./logs/aliases-xml-reads-YYYY-MM-DD.log` (enabled by `LOG_VERBOSE=1`).
 
 ## Scanners (1 & 2)
 - Device paths: `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1`.

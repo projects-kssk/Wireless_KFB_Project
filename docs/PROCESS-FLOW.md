@@ -19,6 +19,10 @@ This document describes the current, end‑to‑end behavior of the app: how Set
   - `KSK_DEFAULT_TTL_SEC`, `KSK_REQUIRE_REDIS` – Server defaults and policy.
 - Check behavior
   - `CHECK_SEND_MODE=mac|union|client|merge` – How `/api/serial/check` builds the pin set to send.
+- Logging
+  - `LOG_VERBOSE=1` – Enable verbose logging (app file logs, monitor logs, aliases‑XML read logs).
+  - `LOG_ENABLE=1` – Enable app file logs without enabling monitor/XML extras.
+  - Errors always persist to `logs/errors.log` regardless of the flags above.
 
 ## 1) Setup Flow (Scan MAC, then up to 3 KSKs)
 1. Scan KFB (MAC) on the Setup page (top banner shows MAC when ready).
@@ -79,6 +83,7 @@ On terminal success (from serial SSE: `RESULT`/`DONE` with OK) for the current M
   - Clear aliases for this MAC: `POST /api/aliases/clear` with `{ mac }`
   - Clear station locks for this MAC across all stations (force):
     - `DELETE /api/ksk-lock` with `{ mac, [stationId], force: 1 }`
+  - Post‑reset sanity cleanup runs only after checkpoint sends finish, to avoid nuking XML needed for checkpoint.
 
 ## 4) Station Locks (Redis Keys)
 - Lock values: `ksk:<ksk>` → JSON `{ kssk, mac, stationId, ts }` with TTL

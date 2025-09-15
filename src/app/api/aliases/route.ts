@@ -218,8 +218,15 @@ export async function POST(req: Request) {
       try { await withRetry(() => r.sadd(indexKey(mac), ksk)); }
       catch (e: any) { log.error('POST aliases index sadd failed', { mac, ksk, error: String(e?.message ?? e) }); }
       if (xml) {
-        try { await withRetry(() => r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml)); }
-        catch (e: any) { log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) }); }
+        try {
+          await withRetry(() => r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml));
+          try {
+            const bytes = typeof xml === 'string' ? Buffer.byteLength(xml, 'utf8') : String(xml).length;
+            log.info('POST aliases xml saved', { mac, ksk, bytes });
+          } catch {}
+        } catch (e: any) {
+          log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) });
+        }
       }
       // Also persist a lightweight last-pins snapshot for tooling/watchers
       try {
@@ -230,7 +237,13 @@ export async function POST(req: Request) {
       }
     }
     if (!wroteMac) return NextResponse.json({ error: 'redis_write_failed' }, { status: 503 });
-    log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
+    try {
+      const xmlIncluded = typeof xml === 'string' && xml.length > 0;
+      const xmlBytes = xmlIncluded ? Buffer.byteLength(xml as string, 'utf8') : 0;
+      log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length, xml: xmlIncluded, xmlBytes });
+    } catch {
+      log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
+    }
     // Rebuild union for MAC key from all KSK entries so UI has complete map
     try {
       // Rehydrate index by scanning keys and SADD any missing KSKs

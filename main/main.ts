@@ -45,6 +45,53 @@ if (DISABLE_GPU) {
   try { app.disableHardwareAcceleration() } catch {}
   try { app.commandLine.appendSwitch('disable-gpu') } catch {}
 }
+// Optional GPU tuning for Jetson/ARM (env‑controlled to avoid regressions on other hosts)
+const USE_EGL = (process.env.WFKB_USE_EGL || '0').trim() === '1'
+const IS_LINUX = process.platform === 'linux'
+const IS_ARM64 = process.arch === 'arm64' || (process.env.WFKB_ASSUME_ARM64 || '0').trim() === '1'
+if (USE_EGL && IS_LINUX && IS_ARM64) {
+  try { app.commandLine.appendSwitch('use-gl', 'egl') } catch {}
+}
+const IGNORE_GPU_BLOCKLIST = (process.env.WFKB_IGNORE_GPU_BLOCKLIST || '0').trim() === '1'
+if (IGNORE_GPU_BLOCKLIST) {
+  try { app.commandLine.appendSwitch('ignore-gpu-blocklist') } catch {}
+}
+const ENABLE_CANVAS_ACCEL = (process.env.WFKB_ENABLE_CANVAS_ACCEL || '0').trim() === '1'
+if (ENABLE_CANVAS_ACCEL) {
+  try { app.commandLine.appendSwitch('enable-features', 'CanvasOopRasterization,Accelerated2dCanvas') } catch {}
+  try { app.commandLine.appendSwitch('enable-gpu-rasterization') } catch {}
+}
+// Additional tuning toggles (safe defaults off)
+const ENABLE_ZERO_COPY = (process.env.WFKB_ENABLE_ZERO_COPY || '0').trim() === '1'
+if (ENABLE_ZERO_COPY) {
+  try { app.commandLine.appendSwitch('enable-zero-copy') } catch {}
+  try { app.commandLine.appendSwitch('enable-native-gpu-memory-buffers') } catch {}
+}
+const NO_PROXY = (process.env.WFKB_NO_PROXY || '0').trim() === '1'
+if (NO_PROXY) {
+  try { app.commandLine.appendSwitch('no-proxy-server') } catch {}
+}
+const DISABLE_BG_THROTTLING = (process.env.WFKB_DISABLE_BG_THROTTLING || '0').trim() === '1'
+if (DISABLE_BG_THROTTLING) {
+  try { app.commandLine.appendSwitch('disable-renderer-backgrounding') } catch {}
+  try { app.commandLine.appendSwitch('disable-background-timer-throttling') } catch {}
+}
+const LOW_END_MODE = (process.env.WFKB_LOW_END_MODE || '0').trim() === '1'
+if (LOW_END_MODE) {
+  try { app.commandLine.appendSwitch('enable-low-end-device-mode') } catch {}
+  const rasterThreads = String(process.env.WFKB_RASTER_THREADS || '').trim()
+  if (rasterThreads) {
+    try { app.commandLine.appendSwitch('num-raster-threads', rasterThreads) } catch {}
+  }
+}
+const USE_VULKAN = (process.env.WFKB_USE_VULKAN || '0').trim() === '1'
+if (USE_VULKAN) {
+  try { app.commandLine.appendSwitch('use-vulkan') } catch {}
+}
+const OZONE_PLATFORM = String(process.env.WFKB_OZONE_PLATFORM || '').trim()
+if (OZONE_PLATFORM) {
+  try { app.commandLine.appendSwitch('ozone-platform-hint', OZONE_PLATFORM) } catch {}
+}
 const DISABLE_REMOTE_PROBE = (() => {
   const v = String(process.env.WFKB_DISABLE_REMOTE_PROBE ?? '0').trim().toLowerCase()
   return v === '1' || v === 'true' || v === 'yes'
@@ -175,7 +222,7 @@ async function createWindows() {
     autoHideMenuBar: true,
     fullscreenable: true,
     backgroundColor: '#ffffff',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, spellcheck: false },
     title: 'Dashboard',
     icon: appIconPath(),
   })
@@ -189,7 +236,7 @@ async function createWindows() {
     autoHideMenuBar: true,
     fullscreenable: true,
     backgroundColor: '#ffffff',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, spellcheck: false },
     title: 'Setup',
     icon: appIconPath(),
   })
@@ -281,30 +328,39 @@ async function createWindows() {
       console.error('[main] Local server not available:', serverReadyErr || e)
       return
     }
-    // Probe remote
-    let remoteCandidate: URL | null = null
-    const forced = (process.env.WFKB_BASE_URL || '').trim()
-    try {
-      const u = new URL(forced || PROD_BASE_URL)
-      if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
-    } catch {}
-    if (remoteCandidate) {
-      const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
+    // Default to local; optionally probe remote unless disabled via env
+    chosenBase = localBase
+    if (!DISABLE_REMOTE_PROBE) {
+      // Probe remote
+      let remoteCandidate: URL | null = null
+      const forced = (process.env.WFKB_BASE_URL || '').trim()
       try {
-        await splashInfo(`Checking network server ${remoteCandidate.hostname}:${remotePort}…`)
-        await waitForPort(remotePort, remoteCandidate.hostname, 3000)
-        chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
-        await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
-      } catch {
-        await splashStep('Krosy offline: network server not reachable; using local')
-        console.warn('[main] Remote not reachable, falling back to local:', remoteCandidate?.href)
+        const u = new URL(forced || PROD_BASE_URL)
+        if (!['localhost', '127.0.0.1'].includes(u.hostname)) remoteCandidate = u
+      } catch {}
+      if (remoteCandidate) {
+        const remotePort = remoteCandidate.port ? parseInt(remoteCandidate.port, 10) : (remoteCandidate.protocol === 'https:' ? 443 : 80)
+        try {
+          await splashInfo(`Checking network server ${remoteCandidate.hostname}:${remotePort}…`)
+          await waitForPort(remotePort, remoteCandidate.hostname, 3000)
+          chosenBase = `${remoteCandidate.protocol}//${remoteCandidate.host}`
+          await splashStep(`Connected to network server ${remoteCandidate.hostname}:${remotePort}`)
+        } catch {
+          await splashStep('Krosy offline: network server not reachable; using local')
+          console.warn('[main] Remote not reachable, falling back to local:', remoteCandidate?.href)
+        }
       }
+    } else {
+      await splashInfo('Remote probe disabled; using local server')
     }
   }
 
   await splashInfo(`Loading UI from ${chosenBase} …`)
-  await mainWin.loadURL(`${chosenBase}/`)
-  await setupWin.loadURL(`${chosenBase}/setup`)
+  // Load both windows concurrently to minimize startup time
+  await Promise.all([
+    mainWin.loadURL(`${chosenBase}/`),
+    setupWin.loadURL(`${chosenBase}/setup`),
+  ])
   chosenBaseRef = chosenBase
   await splashStep('Renderer loaded')
   await splashDone()
@@ -358,9 +414,16 @@ async function createWindows() {
         console.warn('[main] Renderer gone:', details?.reason)
         try { win.loadURL(`${chosenBaseRef || 'http://127.0.0.1:'+PORT}/`) } catch {}
       })
-      app.on('gpu-process-crashed', (_ev, killed) => {
-        console.warn('[main] GPU process crashed; restarting windows', { killed })
-        resetApp('gpu-process-crashed')
+      // Use modern child-process-gone instead of deprecated gpu-process-crashed
+      app.on('child-process-gone', (_event, details) => {
+        try {
+          const reason = (details as any)?.reason || 'unknown'
+          const type = (details as any)?.type || ''
+          if (String(type).toLowerCase().includes('gpu')) {
+            console.warn('[main] GPU process gone; restarting windows', { reason, type })
+            resetApp('gpu-process-gone')
+          }
+        } catch {}
       })
       win.on('unresponsive', () => {
         console.warn('[main] Window unresponsive; reloading')
@@ -376,6 +439,21 @@ async function createWindows() {
   }
   attachRecovery(mainWin)
   attachRecovery(setupWin)
+
+  // Clamp popup creation (saves processes and prevents stray windows)
+  const denyPopups = (win: BrowserWindow) => {
+    try {
+      win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      win.webContents.on('will-navigate', (e, url) => {
+        const base = chosenBaseRef || `http://127.0.0.1:${PORT}`
+        if (!url.startsWith(base)) {
+          try { e.preventDefault() } catch {}
+        }
+      })
+    } catch {}
+  }
+  denyPopups(mainWin)
+  denyPopups(setupWin)
 
   // Auto fullscreen/kiosk and scale across displays
   try {
@@ -448,7 +526,22 @@ if (!gotLock) {
       } catch {}
     }
   })
-  app.whenReady().then(createWindows)
+  app.whenReady().then(async () => {
+    try {
+      // Quick visibility into Chromium GPU pipeline and device
+      const status = app.getGPUFeatureStatus?.()
+      if (status) console.log('[main] GPU feature status:', status)
+      try {
+        const info = await app.getGPUInfo('complete')
+        console.log('[main] GPU info (summary):', {
+          vendor: (info as any)?.gpuDevice?.[0]?.vendor || (info as any)?.auxAttributes?.glVendor,
+          device: (info as any)?.gpuDevice?.[0]?.device || (info as any)?.auxAttributes?.glRenderer,
+          driverVersion: (info as any)?.gpuDevice?.[0]?.driverVendor || (info as any)?.auxAttributes?.glVersion,
+        })
+      } catch {}
+    } catch {}
+    createWindows()
+  })
 }
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindows() })

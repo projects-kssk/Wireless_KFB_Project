@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { getRedis } from "@/lib/redis";
 import { LOG } from "@/lib/logger";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,25 @@ function keyForKssk(mac: string, kssk: string) {
 }
 function keyForXml(mac: string, kssk: string) {
   return `kfb:aliases:xml:${mac.toUpperCase()}:${kssk}`;
+}
+
+// Dedicated read log (separate from app log stream) → write under /logs
+const READ_LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), "logs");
+function ymdParts(d = new Date()) {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return { y, m, day };
+}
+async function appendReadLog(mac: string, ksk: string, hit: boolean, bytes: number, note?: string) {
+  try {
+    const { y, m, day } = ymdParts();
+    const f = path.join(READ_LOG_DIR, `aliases-xml-reads-${y}-${m}-${day}.log`);
+    await fs.mkdir(READ_LOG_DIR, { recursive: true });
+    const ts = new Date().toISOString();
+    const line = JSON.stringify({ ts, mac, ksk, hit, bytes, note: note || null });
+    await fs.appendFile(f, line + "\n", "utf8");
+  } catch {}
 }
 
 async function connectIfNeeded(r: any, timeoutMs = 400): Promise<boolean> {
@@ -73,6 +94,7 @@ export async function GET(req: Request) {
   const r: any = getRedis();
   const haveRedis = r && await connectIfNeeded(r);
   if (!haveRedis) {
+    try { await appendReadLog(mac, kssk, false, 0, "redis_unavailable"); } catch {}
     const resp = NextResponse.json({ error: "redis_unavailable" }, { status: 503 });
     resp.headers.set("X-KSK-Mode", "redis");
     return resp;
@@ -105,9 +127,11 @@ export async function GET(req: Request) {
 
   if (!xml) {
     log.info("xml not found", { mac, kssk });
+    try { await appendReadLog(mac, kssk, false, 0, "not_found"); } catch {}
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  try { await appendReadLog(mac, kssk, true, Buffer.byteLength(xml, "utf8")); } catch {}
   return new NextResponse(xml, {
     status: 200,
     headers: { "content-type": "text/xml; charset=utf-8", "X-KSK-Mode": "redis" },

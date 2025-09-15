@@ -985,7 +985,7 @@ const MainApplicationUI: React.FC = () => {
             );
             if (rXml.ok) workingDataXml = await rXml.text();
           } catch {}
-          // Build payload: prefer XML; in simulation fallback to intksk when XML missing
+          // Build payload: prefer XML; if missing, fall back to intksk so server can fetch workingData
           let payload: any;
           if (workingDataXml && workingDataXml.trim()) {
             // Optional validation only: warn if intksk in XML does not match the KSK id
@@ -996,18 +996,9 @@ const MainApplicationUI: React.FC = () => {
                 console.warn("[FLOW][CHECKPOINT] XML intksk mismatch", { expect: id, xmlIntksk: xmlId });
               }
             } catch {}
-            payload = { requestID: "1", workingDataXml };
-          } else if (String(process.env.NEXT_PUBLIC_SIMULATE || '').trim() === '1') {
-            payload = {
-              requestID: "1",
-              intksk: id,
-              sourceHostname: KROSY_SOURCE,
-              targetHostName: KROSY_TARGET,
-            };
+            payload = { requestID: `${Date.now()}_${id}`, workingDataXml };
           } else {
-            try {
-              console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id });
-            } catch {}
+            try { console.log("[FLOW][CHECKPOINT] skip (no XML)", { mac: MAC, ksk: id }); } catch {}
             continue;
           }
           (payload as any).forceResult = true;
@@ -1027,7 +1018,7 @@ const MainApplicationUI: React.FC = () => {
                 try {
                   console.warn(
                     "[FLOW][CHECKPOINT] server error; enabling backoff",
-                    { status: resp.status }
+                    { status: resp.status, ksk: id }
                   );
                 } catch {}
               }
@@ -1035,9 +1026,11 @@ const MainApplicationUI: React.FC = () => {
               checkpointSentRef.current.add(id);
               sent = true;
               try {
+                const logPath = resp.headers.get("X-Krosy-Log-Path") || resp.headers.get("X-Krosy-Log-Dir") || null;
                 console.log("[FLOW][CHECKPOINT] sent OK checkpoint", {
                   mac: MAC,
                   ksk: id,
+                  logPath,
                 });
               } catch {}
             }
@@ -1171,6 +1164,22 @@ const MainApplicationUI: React.FC = () => {
               );
             }
           } catch {}
+          // Fallback: derive IDs from active locks if aliases are empty
+          if (!ids.length) {
+            try {
+              const rLocks = await fetch(`/api/ksk-lock`, { cache: "no-store" }).catch(() => null);
+              if (rLocks && rLocks.ok) {
+                const jL = await rLocks.json().catch(() => null);
+                const locks: any[] = Array.isArray(jL?.locks) ? jL.locks : [];
+                const wantMac = (mac || "").toUpperCase();
+                const fromLocks = locks
+                  .filter((row: any) => String(row?.mac || "").toUpperCase() === wantMac)
+                  .map((row: any) => String((row?.ksk ?? row?.kssk) || "").trim())
+                  .filter(Boolean);
+                if (fromLocks.length) ids = Array.from(new Set(fromLocks));
+              }
+            } catch {}
+          }
         }
         // Gate checkpoint by either union data OR presence of at least one stored XML
         let hasSetup = await hasSetupDataForMac(mac).catch(() => false);

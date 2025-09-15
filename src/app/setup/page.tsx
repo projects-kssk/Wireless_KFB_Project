@@ -1439,7 +1439,14 @@ export default function SetupPage() {
         // No client-side alias cache; rely on Redis via aliases API
 
         // Also save to Redis so other clients can render after CHECK-only
+        // Policy: only persist when we extracted at least one pin
         try {
+          const hasSomePins =
+            !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
+          if (!hasSomePins) {
+            // Skip persistence if extraction yielded no pins
+            throw new Error("skip_persist_no_pins");
+          }
           const xmlRaw = xmlRawForName || undefined;
           const hints = xmlRaw
             ? extractNameHintsFromKrosyXML(xmlRaw, macUp)
@@ -1568,7 +1575,13 @@ export default function SetupPage() {
               // If both are missing, skip hard error; proceed (UI stays green from save).
             }
           } catch {}
-        } catch {}
+        } catch (e) {
+          // Only suppress the local persist if we intentionally skipped due to no pins
+          if ((e as any)?.message !== 'skip_persist_no_pins') {
+            // Log a soft warning; UI already shows KSK status
+            try { console.warn('[SETUP] persist skipped or failed', (e as any)?.message || e); } catch {}
+          }
+        }
 
         // No local grouping persistence; dashboard derives from Redis
 
@@ -1733,6 +1746,7 @@ export default function SetupPage() {
                 diag,
               });
             } catch {}
+            // Per policy: do not persist XML when extraction fails
             await releaseLock(code);
             bump(target, null, "idle");
             showErr(code, "No pins extracted. Please scan again.", panel);

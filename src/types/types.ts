@@ -80,7 +80,4 @@ export interface NotificationType {
   type: 'success' | 'error' | 'info' | null;
 }
 
-export interface SettingsPageContentProps {
-  onNavigateBack?: () => void; // Made optional as per SettingsPageContent.tsx
-  onShowProgramForConfig: (configId: number) => void;
-}
+// Removed SettingsPageContentProps; settings views are not used

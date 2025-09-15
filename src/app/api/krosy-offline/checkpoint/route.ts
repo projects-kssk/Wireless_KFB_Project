@@ -382,7 +382,15 @@ export async function POST(req: NextRequest) {
         ok: false, phase: "workingRequest", requestID: reqId, usedUrl: reqOut.used,
         status: reqOut.status, durationMs: dur1, error: reqOut.error || "no xml response",
         responsePreview: (reqRespPretty || reqOut.text || "").slice(0, 2000),
-      }, null, 2), { status: 502, headers: { "Content-Type": "application/json", ...cors(req) } });
+      }, null, 2), {
+        status: 502,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Krosy-Used-Url": reqOut.used,
+          "X-Krosy-Log-Path": base,
+          ...cors(req),
+        },
+      });
     }
     workingDataXml = reqOut.text;
   }
@@ -441,5 +449,13 @@ export async function POST(req: NextRequest) {
     error: resOut.error,
     sentWorkingResultPreview: prettyResultReq.slice(0, 2000),
     responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
-  }, null, 2), { status: resOut.ok ? 200 : 502, headers: { "Content-Type": "application/json", ...cors(req) } });
+  }, null, 2), {
+    status: resOut.ok ? 200 : 502,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Krosy-Used-Url": resOut.used,
+      "X-Krosy-Log-Path": base,
+      ...cors(req),
+    },
+  });
 }

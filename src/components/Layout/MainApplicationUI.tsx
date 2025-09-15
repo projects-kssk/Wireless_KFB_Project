@@ -953,6 +953,7 @@ const MainApplicationUI: React.FC = () => {
           });
         } catch {}
         let ids: string[] = [];
+        let items: any[] = [];
         try {
           const rList = await fetch(
             `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
@@ -960,7 +961,7 @@ const MainApplicationUI: React.FC = () => {
           );
           if (rList.ok) {
             const j = await rList.json();
-            const items: any[] = Array.isArray(j?.items) ? j.items : [];
+            items = Array.isArray(j?.items) ? j.items : [];
             ids = items
               .map((it) => String((it.ksk ?? it.kssk) || "").trim())
               .filter(Boolean);

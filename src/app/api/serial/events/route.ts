@@ -35,6 +35,8 @@ const __LAST_LOG = {
 const isLikelySerialPath = (p: string) =>
   /\/dev\/(tty(ACM|USB)\d+|tty\.usb|cu\.usb)/i.test(p);
 
+const ZERO_MAC = '00:00:00:00:00:00';
+
 function netIfaceName() {
   return (process.env.NET_IFACE || 'eth0').trim();
 }
@@ -221,6 +223,10 @@ export async function GET(req: Request) {
                   return; // drop when strict or no filter is set
                 }
               }
+              if (!mac || mac === ZERO_MAC) {
+                const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
+                mac = matches.find((match) => match[1] !== ZERO_MAC)?.[1] ?? matches[0]?.[1] ?? mac;
+              }
               if (macAllowed(mac)) {
                 try {
                   const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
@@ -233,7 +239,7 @@ export async function GET(req: Request) {
 
             if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
               const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
-              let mac = matches.length ? matches[matches.length - 1]![1] : null;
+              let mac = matches.find((match) => match[1] !== ZERO_MAC)?.[1] ?? matches[0]?.[1] ?? null;
               const ok = /\bSUCCESS\b/i.test(line);
               // If a MAC filter is provided and the line's MAC doesn't match (e.g., hub MAC),
               // remap to the requested MAC unless EV_STRICT is enabled.

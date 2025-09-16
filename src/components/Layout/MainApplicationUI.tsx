@@ -564,8 +564,9 @@ const MainApplicationUI: React.FC = () => {
   const ALLOW_IDLE_SCANS = String(
     process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
   ) === "1";
+  // Default to non-strict so scans "just work" even if paths differ (by-id vs tty)
   const STRICT_SCANNER_PATH = String(
-    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "1"
+    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "0"
   ) === "1";
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
@@ -586,8 +587,20 @@ const MainApplicationUI: React.FC = () => {
     return !!(na && nb && na === nb);
   };
   const resolveDesiredPath = (): string | null => {
-    const list = (serial as any).scannerPaths || [];
-    if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+    const list: string[] = (serial as any).scannerPaths || [];
+    if (Array.isArray(list) && list.length) {
+      // Prefer explicit ACM0 path when present
+      const acm0 = list.find(
+        (p) => /(^|\/)ttyACM0$/.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p)
+      );
+      if (acm0) return acm0;
+      // Fallback: USB0 if your scanner enumerates as USB
+      const usb0 = list.find(
+        (p) => /(^|\/)ttyUSB0$/.test(p) || /(\/|^)(USB)0(?!\d)/i.test(p)
+      );
+      if (usb0) return usb0;
+      if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+    }
     return null;
   };
 

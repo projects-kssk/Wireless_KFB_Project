@@ -95,10 +95,7 @@ function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
     return fallback;
   }
 }
-const KFB_REGEX = compileRegex(
-  process.env.NEXT_PUBLIC_KFB_REGEX,
-  /^KFB$/
-);
+const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^KFB$/);
 
 const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
 const canonicalMac = (raw: string): string | null => {
@@ -163,7 +160,23 @@ const MainApplicationUI: React.FC = () => {
       2000,
       Number(process.env.NEXT_PUBLIC_RETRY_COOLDOWN_MS ?? 5000)
     ),
+    FINALIZED_RESCAN_BLOCK_MS: Math.max(
+      0,
+      Number(process.env.NEXT_PUBLIC_FINALIZED_RESCAN_BLOCK_MS ?? 0)
+    ),
+    WAIT_FOR_START_BEFORE_FINALIZE_MS: Math.max(
+      0,
+      Number(process.env.NEXT_PUBLIC_WAIT_FOR_START_BEFORE_FINALIZE_MS ?? 600)
+    ),
+    START_SEEN_TTL_MS: Math.max(
+      1000,
+      Number(process.env.NEXT_PUBLIC_START_SEEN_TTL_MS ?? 5000)
+    ),
   } as const;
+  const FINALIZED_RESCAN_BLOCK_MS = CFG.FINALIZED_RESCAN_BLOCK_MS;
+  const WAIT_FOR_START_BEFORE_FINALIZE_MS =
+    CFG.WAIT_FOR_START_BEFORE_FINALIZE_MS;
+  const START_SEEN_TTL_MS = CFG.START_SEEN_TTL_MS;
 
   // Feature flags (default off unless explicitly enabled)
   const FLAGS = {
@@ -181,8 +194,7 @@ const MainApplicationUI: React.FC = () => {
       String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || "").trim() === "1",
     CHECK_ON_EMPTY:
       String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || "").trim() === "1",
-    SIMULATE:
-      String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1",
+    SIMULATE: String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1",
   } as const;
 
   // Operational mode: assume Redis is always available (suppress degraded mode)
@@ -536,7 +548,8 @@ const MainApplicationUI: React.FC = () => {
           const target = lastLiveMacRef.current;
           // Do not auto-clear Redis or locks on STOP; only clear on OK finalize.
           // If you want legacy STOP cleanup, set NEXT_PUBLIC_CLEAN_ON_STOP=1
-          const CLEAN_ON_STOP = String(process.env.NEXT_PUBLIC_CLEAN_ON_STOP || "").trim() === "1";
+          const CLEAN_ON_STOP =
+            String(process.env.NEXT_PUBLIC_CLEAN_ON_STOP || "").trim() === "1";
           if (CLEAN_ON_STOP && target && !(macAddress && macAddress.trim())) {
             (async () => {
               try {
@@ -546,7 +559,9 @@ const MainApplicationUI: React.FC = () => {
                   body: JSON.stringify({ mac: target }),
                 }).catch(() => {});
                 await clearKskLocksFully(target).catch(() => {});
-                try { console.log("[CLEANUP] Done for MAC", { mac: target }); } catch {}
+                try {
+                  console.log("[CLEANUP] Done for MAC", { mac: target });
+                } catch {}
               } finally {
                 lastLiveMacRef.current = null;
               }
@@ -563,9 +578,8 @@ const MainApplicationUI: React.FC = () => {
     | string
     | null
     | undefined;
-  const ALLOW_IDLE_SCANS = String(
-    process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
-  ) === "1";
+  const ALLOW_IDLE_SCANS =
+    String(process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1") === "1";
   // Default to non-strict so scans "just work" even if paths differ (by-id vs tty)
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
@@ -960,7 +974,8 @@ const MainApplicationUI: React.FC = () => {
       String(process.env.NEXT_PUBLIC_KROSY_ONLINE || "")
         .trim()
         .toLowerCase() === "true";
-    const SIM_FLAG = String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1";
+    const SIM_FLAG =
+      String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1";
     const onlineUrl =
       process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE ||
       "/api/krosy/checkpoint";
@@ -970,7 +985,9 @@ const MainApplicationUI: React.FC = () => {
     return !ONLINE_FLAG || SIM_FLAG ? offlineUrl : onlineUrl;
   })();
   const OFFLINE_MODE = CHECKPOINT_URL.includes("/api/krosy-offline/checkpoint");
-  const CLIENT_RESULT_URL = (process.env.NEXT_PUBLIC_KROSY_RESULT_URL || "").trim();
+  const CLIENT_RESULT_URL = (
+    process.env.NEXT_PUBLIC_KROSY_RESULT_URL || ""
+  ).trim();
   const isHttpUrl = (u?: string | null) => !!u && /^(https?:)\/\//i.test(u);
   const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
   const KROSY_SOURCE =
@@ -1032,7 +1049,9 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
         // If alias query failed/empty, fall back to onlyIds if provided
         if ((!ids || ids.length === 0) && onlyIds && onlyIds.length) {
-          ids = [...new Set(onlyIds.map((s) => String(s).trim()).filter(Boolean))];
+          ids = [
+            ...new Set(onlyIds.map((s) => String(s).trim()).filter(Boolean)),
+          ];
         }
 
         if (onlyIds && onlyIds.length) {
@@ -1056,20 +1075,36 @@ const MainApplicationUI: React.FC = () => {
               // Skip XML read if we've recently cleared this MAC (avoid post-clear not_found spam)
               const blockUntil = xmlReadBlockUntilRef.current.get(MAC) || 0;
               if (Date.now() < blockUntil) break;
-              const rXml = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`, { cache: "no-store" });
-              if (rXml.ok) { workingDataXml = await rXml.text(); break; }
+              const rXml = await fetch(
+                `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
+                { cache: "no-store" }
+              );
+              if (rXml.ok) {
+                workingDataXml = await rXml.text();
+                break;
+              }
               // 404 => try to ensure XML is saved once, then retry read
               if (rXml.status === 404 && attempt === 0) {
                 try {
-                  const ensure = await fetch('/api/aliases/xml/ensure', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mac: MAC, ksk: id, requestID: `${Date.now()}_${id}` }),
+                  const ensure = await fetch("/api/aliases/xml/ensure", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      mac: MAC,
+                      ksk: id,
+                      requestID: `${Date.now()}_${id}`,
+                    }),
                   }).catch(() => null);
                   if (ensure && ensure.ok) {
                     // Re-try read immediately
-                    const r2 = await fetch(`/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`, { cache: 'no-store' }).catch(() => null);
-                    if (r2 && r2.ok) { workingDataXml = await r2.text(); break; }
+                    const r2 = await fetch(
+                      `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
+                      { cache: "no-store" }
+                    ).catch(() => null);
+                    if (r2 && r2.ok) {
+                      workingDataXml = await r2.text();
+                      break;
+                    }
                   }
                 } catch {}
                 break;
@@ -1082,15 +1117,29 @@ const MainApplicationUI: React.FC = () => {
           if (workingDataXml && workingDataXml.trim()) {
             // Optional validation only: warn if intksk in XML does not match the KSK id
             try {
-              const m = workingDataXml.match(/<workingData\b[^>]*\bintksk="([^"]+)"/i);
+              const m = workingDataXml.match(
+                /<workingData\b[^>]*\bintksk="([^"]+)"/i
+              );
               const xmlId = m ? String(m[1] || "").trim() : null;
               if (xmlId && xmlId !== id) {
-                console.warn("[FLOW][CHECKPOINT] XML intksk mismatch", { expect: id, xmlIntksk: xmlId });
+                console.warn("[FLOW][CHECKPOINT] XML intksk mismatch", {
+                  expect: id,
+                  xmlIntksk: xmlId,
+                });
               }
             } catch {}
-            payload = { requestID: `${Date.now()}_${id}`, workingDataXml, intksk: id };
+            payload = {
+              requestID: `${Date.now()}_${id}`,
+              workingDataXml,
+              intksk: id,
+            };
           } else {
-            try { console.log("[FLOW][CHECKPOINT] no XML → fallback to intksk", { mac: MAC, ksk: id }); } catch {}
+            try {
+              console.log("[FLOW][CHECKPOINT] no XML → fallback to intksk", {
+                mac: MAC,
+                ksk: id,
+              });
+            } catch {}
             payload = { requestID: `${Date.now()}_${id}`, intksk: id };
           }
           (payload as any).forceResult = true;
@@ -1131,21 +1180,37 @@ const MainApplicationUI: React.FC = () => {
                 checkpointBlockUntilTsRef.current = Date.now() + 120_000;
                 try {
                   let detail: any = null;
-                  try { detail = await resp.json(); } catch { try { detail = await resp.text(); } catch {} }
-                  const used = resp.headers.get("X-Krosy-Used-Url") || resp.headers.get("X-Krosy-Log-Path") || resp.headers.get("X-Krosy-Log-Dir") || null;
-                  console.warn("[FLOW][CHECKPOINT] server error; enabling backoff", {
-                    status: resp.status,
-                    ksk: id,
-                    used,
-                    detail,
-                  });
+                  try {
+                    detail = await resp.json();
+                  } catch {
+                    try {
+                      detail = await resp.text();
+                    } catch {}
+                  }
+                  const used =
+                    resp.headers.get("X-Krosy-Used-Url") ||
+                    resp.headers.get("X-Krosy-Log-Path") ||
+                    resp.headers.get("X-Krosy-Log-Dir") ||
+                    null;
+                  console.warn(
+                    "[FLOW][CHECKPOINT] server error; enabling backoff",
+                    {
+                      status: resp.status,
+                      ksk: id,
+                      used,
+                      detail,
+                    }
+                  );
                 } catch {}
               }
             } else {
               checkpointSentRef.current.add(id);
               sent = true;
               try {
-                const logPath = resp.headers.get("X-Krosy-Log-Path") || resp.headers.get("X-Krosy-Log-Dir") || null;
+                const logPath =
+                  resp.headers.get("X-Krosy-Log-Path") ||
+                  resp.headers.get("X-Krosy-Log-Dir") ||
+                  null;
                 console.log("[FLOW][CHECKPOINT] sent OK checkpoint", {
                   mac: MAC,
                   ksk: id,
@@ -1286,7 +1351,9 @@ const MainApplicationUI: React.FC = () => {
               ids = Array.from(
                 new Set(
                   items
-                    .map((it: any) => String((it?.ksk ?? it?.kssk) || "").trim())
+                    .map((it: any) =>
+                      String((it?.ksk ?? it?.kssk) || "").trim()
+                    )
                     .filter(Boolean)
                 )
               );
@@ -1295,14 +1362,21 @@ const MainApplicationUI: React.FC = () => {
           // Fallback: derive IDs from active locks if aliases are empty
           if (!ids.length) {
             try {
-              const rLocks = await fetch(`/api/ksk-lock`, { cache: "no-store" }).catch(() => null);
+              const rLocks = await fetch(`/api/ksk-lock`, {
+                cache: "no-store",
+              }).catch(() => null);
               if (rLocks && rLocks.ok) {
                 const jL = await rLocks.json().catch(() => null);
                 const locks: any[] = Array.isArray(jL?.locks) ? jL.locks : [];
                 const wantMac = (mac || "").toUpperCase();
                 const fromLocks = locks
-                  .filter((row: any) => String(row?.mac || "").toUpperCase() === wantMac)
-                  .map((row: any) => String((row?.ksk ?? row?.kssk) || "").trim())
+                  .filter(
+                    (row: any) =>
+                      String(row?.mac || "").toUpperCase() === wantMac
+                  )
+                  .map((row: any) =>
+                    String((row?.ksk ?? row?.kssk) || "").trim()
+                  )
                   .filter(Boolean);
                 if (fromLocks.length) ids = Array.from(new Set(fromLocks));
               }
@@ -1313,7 +1387,15 @@ const MainApplicationUI: React.FC = () => {
             try {
               const snapshot = itemsAllFromAliasesRef.current || [];
               if (snapshot.length) {
-                const fromSnap = Array.from(new Set(snapshot.map((it:any) => String((it.ksk ?? (it as any).kssk) || '').trim()).filter(Boolean)));
+                const fromSnap = Array.from(
+                  new Set(
+                    snapshot
+                      .map((it: any) =>
+                        String((it.ksk ?? (it as any).kssk) || "").trim()
+                      )
+                      .filter(Boolean)
+                  )
+                );
                 if (fromSnap.length) ids = fromSnap;
               }
             } catch {}
@@ -1447,7 +1529,9 @@ const MainApplicationUI: React.FC = () => {
     const mac = lastFinalizedMacRef.current;
     if (!mac) return;
     // Do not run while a checkpoint send is still in progress for this MAC
-    try { if (checkpointMacPendingRef.current.has(mac.toUpperCase())) return; } catch {}
+    try {
+      if (checkpointMacPendingRef.current.has(mac.toUpperCase())) return;
+    } catch {}
     const onScanView =
       mainView === "dashboard" && !(macAddress && macAddress.trim());
     if (!onScanView) return;
@@ -1494,7 +1578,7 @@ const MainApplicationUI: React.FC = () => {
     if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
       const evMac = String(ev.mac || "").toUpperCase();
-      if (!current && evMac && evMac !== ZERO) {
+      if (!current && evMac && evMac !== ZERO_MAC) {
         try {
           console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
         } catch {}
@@ -2134,14 +2218,18 @@ const MainApplicationUI: React.FC = () => {
             if (macUp) {
               blockedMacRef.current.add(macUp);
               window.setTimeout(() => {
-                try { blockedMacRef.current.delete(macUp); } catch {}
+                try {
+                  blockedMacRef.current.delete(macUp);
+                } catch {}
               }, 8000);
             }
             const last = (lastScanRef.current || "").toUpperCase();
             if (last && last !== macUp) {
               blockedMacRef.current.add(last);
               window.setTimeout(() => {
-                try { blockedMacRef.current.delete(last); } catch {}
+                try {
+                  blockedMacRef.current.delete(last);
+                } catch {}
               }, 8000);
             }
           } else {
@@ -2214,7 +2302,10 @@ const MainApplicationUI: React.FC = () => {
           const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
           if (trigger !== "manual" && Date.now() < until) {
             try {
-              console.info("[FLOW][LOAD] skip; empty cooldown active", { mac: macForCooldown, remainingMs: until - Date.now() });
+              console.info("[FLOW][LOAD] skip; empty cooldown active", {
+                mac: macForCooldown,
+                remainingMs: until - Date.now(),
+              });
             } catch {}
             setIsScanning(false);
             setShowScanUi(false);
@@ -2226,11 +2317,19 @@ const MainApplicationUI: React.FC = () => {
           const prevMac = (macAddress || "").toUpperCase();
           const nextMac = String(mac).toUpperCase();
           if (prevMac && prevMac !== nextMac) {
-            console.log("[FLOW][SCAN] switching MAC; preserving Redis state", { prevMac });
+            console.log("[FLOW][SCAN] switching MAC; preserving Redis state", {
+              prevMac,
+            });
             // Do not auto-clear aliases or locks when switching; only clear on OK finalize
-            try { setActiveKssks([]); } catch {}
-            try { itemsAllFromAliasesRef.current = []; } catch {}
-            try { lastActiveIdsRef.current = []; } catch {}
+            try {
+              setActiveKssks([]);
+            } catch {}
+            try {
+              itemsAllFromAliasesRef.current = [];
+            } catch {}
+            try {
+              lastActiveIdsRef.current = [];
+            } catch {}
           }
         } catch {}
         try {
@@ -2661,10 +2760,11 @@ const MainApplicationUI: React.FC = () => {
         try {
           const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
           const lastAt = Number((lastFinalizedAtRef as any)?.current || 0);
+          if (!FINALIZED_RESCAN_BLOCK_MS) return false;
           return !!(
             lastMac &&
             normalized === lastMac &&
-            Date.now() - lastAt < 2 * 60_000
+            Date.now() - lastAt < FINALIZED_RESCAN_BLOCK_MS
           );
         } catch {
           return false;
@@ -2732,7 +2832,7 @@ const MainApplicationUI: React.FC = () => {
         }, 300);
       }
     },
-    [loadBranchesData]
+    [FINALIZED_RESCAN_BLOCK_MS, loadBranchesData]
   );
 
   useEffect(() => {
@@ -2775,7 +2875,10 @@ const MainApplicationUI: React.FC = () => {
     const pathMismatch = want && seen && !pathsEqual(seen, want);
     if (pathMismatch && !armedOnce) {
       try {
-        console.warn("[SCAN] ignoring scan from different path", { expected: want, got: seen });
+        console.warn("[SCAN] ignoring scan from different path", {
+          expected: want,
+          got: seen,
+        });
       } catch {}
       return;
     }
@@ -2786,7 +2889,11 @@ const MainApplicationUI: React.FC = () => {
     const norm = String(code).trim().toUpperCase();
     if (!norm) return;
     // If armed for a one-shot scan, treat as manual and bypass cooldown/blocks
-    if (armedOnce) { armScanOnceRef.current = false; void handleScan(norm, "manual"); return; }
+    if (armedOnce) {
+      armScanOnceRef.current = false;
+      void handleScan(norm, "manual");
+      return;
+    }
     // Respect global scan cooldown
     if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
     // Sticky MAC: previously ignored repeats; allow re-scan of same MAC when idle/not checking
@@ -2795,7 +2902,9 @@ const MainApplicationUI: React.FC = () => {
     if (!ALLOW_REPEAT_SAME_MAC && curMac && norm === curMac) return;
     // Ignore if MAC is temporarily blocked (post-success or stuck)
     if (blockedMacRef.current.has(norm)) {
-      try { console.warn("[FLOW][SCAN] blocked MAC cooldown", { mac: norm }); } catch {}
+      try {
+        console.warn("[FLOW][SCAN] blocked MAC cooldown", { mac: norm });
+      } catch {}
       return;
     }
     // Also ignore if this matches a recently finalized MAC
@@ -3022,7 +3131,9 @@ const MainApplicationUI: React.FC = () => {
     const valRaw = submittedNumber.trim();
     if (!valRaw) return;
     if (!(canonicalMac(valRaw) || KFB_REGEX.test(valRaw))) {
-      setErrorMsg("Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase).");
+      setErrorMsg(
+        "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
+      );
       return;
     }
     const mac = canonicalMac(valRaw);
@@ -3232,8 +3343,20 @@ const MainApplicationUI: React.FC = () => {
                 // Always pass EVs so live pin toggles react immediately, even during sim suppressLive
                 lastEv={(serial as any).lastEv}
                 lastEvTick={(serial as any).lastEvTick}
-                normalPins={FLAGS.SIMULATE ? derived.effNormalPins : (suppressLive ? undefined : derived.effNormalPins)}
-                latchPins={FLAGS.SIMULATE ? derived.effLatchPins : (suppressLive ? undefined : derived.effLatchPins)}
+                normalPins={
+                  FLAGS.SIMULATE
+                    ? derived.effNormalPins
+                    : suppressLive
+                      ? undefined
+                      : derived.effNormalPins
+                }
+                latchPins={
+                  FLAGS.SIMULATE
+                    ? derived.effLatchPins
+                    : suppressLive
+                      ? undefined
+                      : derived.effLatchPins
+                }
                 onResetKfb={handleResetKfb}
                 onFinalizeOk={finalizeOkForMac}
                 flashOkTick={okFlashTick}

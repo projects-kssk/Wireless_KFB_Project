@@ -798,6 +798,7 @@ const MainApplicationUI: React.FC = () => {
   const lastRunHadFailuresRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
   const lastScanTokenRef = useRef<string>("");
+  const startSeenRef = useRef<Map<string, number>>(new Map());
 
   // Auto-success when all branches OK
   useEffect(() => {
@@ -1577,7 +1578,15 @@ const MainApplicationUI: React.FC = () => {
     const kind = String(ev.kind || "").toUpperCase();
     if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
-      const evMac = String(ev.mac || "").toUpperCase();
+      let evMac = String(ev.mac || "").toUpperCase();
+      if (!evMac || evMac === ZERO_MAC) {
+        try {
+          const macs =
+            raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
+          const first = macs.find((m) => m !== ZERO_MAC);
+          if (first) evMac = first.toUpperCase();
+        } catch {}
+      }
       if (!current && evMac && evMac !== ZERO_MAC) {
         try {
           console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
@@ -1588,6 +1597,17 @@ const MainApplicationUI: React.FC = () => {
       if (!current || (evMac && current === evMac)) {
         setIsChecking(true);
         okFlashAllowedRef.current = true;
+      }
+      if (evMac && evMac !== ZERO_MAC) {
+        const macUp = evMac.toUpperCase();
+        const seenAt = Date.now();
+        startSeenRef.current.set(macUp, seenAt);
+        window.setTimeout(() => {
+          const ts = startSeenRef.current.get(macUp) || 0;
+          if (ts && ts <= seenAt) {
+            startSeenRef.current.delete(macUp);
+          }
+        }, START_SEEN_TTL_MS);
       }
     }
     const ok =
@@ -1692,7 +1712,12 @@ const MainApplicationUI: React.FC = () => {
         }
       } catch {}
     }
-  }, [(serial as any).lastEvTick, macAddress, suppressLive]);
+  }, [
+    (serial as any).lastEvTick,
+    macAddress,
+    suppressLive,
+    START_SEEN_TTL_MS,
+  ]);
 
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {

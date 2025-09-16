@@ -42,7 +42,8 @@ const DEFAULT_CONNECT = (process.env.KROSY_CONNECT_HOST || "172.26.192.1:10080")
 /** Fallback TCP port if host has no :port */
 const TCP_PORT = Number(process.env.KROSY_TCP_PORT || 10080);
 // Optional: forward checkpoint result to an HTTP endpoint (central collector)
-const REPORT_URL = (process.env.KROSY_RESULT_URL || "").trim();
+const REPORT_URL_RAW = (process.env.KROSY_RESULT_URL || "").trim();
+const REPORT_URL = /^(https?:)\/\//i.test(REPORT_URL_RAW) ? REPORT_URL_RAW : "";
 const REPORT_IP = (process.env.KROSY_RESULT_IP || "").trim(); // if set, build URL with this IP and incoming port
 const REPORT_PATH = (process.env.KROSY_RESULT_PATH || "/api/checkpoint").trim();
 const REPORT_SCHEME = (process.env.KROSY_RESULT_SCHEME || "").trim(); // http|https (optional)

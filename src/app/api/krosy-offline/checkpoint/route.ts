@@ -24,7 +24,10 @@ const TCP_TIMEOUT_MS = Number(process.env.KROSY_TCP_TIMEOUT_MS || 10000);
 const TCP_TERMINATOR = (process.env.KROSY_TCP_TERMINATOR || "newline").toLowerCase();
 
 /** NEW: checkpoint leg can be HTTP */
-const DEFAULT_CHECKPOINT_URL = (process.env.KROSY_RESULT_URL || "http://localhost:3001/api/checkpoint").trim();
+const KROSY_RESULT_URL_RAW = (process.env.KROSY_RESULT_URL || "").trim();
+const DEFAULT_CHECKPOINT_URL = /^(https?:)\/\//i.test(KROSY_RESULT_URL_RAW)
+  ? KROSY_RESULT_URL_RAW
+  : "http://localhost:3001/api/checkpoint";
 
 /* ===== VC NS ===== */
 const VC_NS_V01 = "http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1";

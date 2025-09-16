@@ -565,7 +565,7 @@ const MainApplicationUI: React.FC = () => {
     process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
   ) === "1";
   const STRICT_SCANNER_PATH = String(
-    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "0"
+    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "1"
   ) === "1";
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
@@ -957,6 +957,7 @@ const MainApplicationUI: React.FC = () => {
   })();
   const OFFLINE_MODE = CHECKPOINT_URL.includes("/api/krosy-offline/checkpoint");
   const CLIENT_RESULT_URL = (process.env.NEXT_PUBLIC_KROSY_RESULT_URL || "").trim();
+  const isHttpUrl = (u?: string | null) => !!u && /^(https?:)\/\//i.test(u);
   const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
   const KROSY_SOURCE =
     process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
@@ -1081,7 +1082,7 @@ const MainApplicationUI: React.FC = () => {
           (payload as any).forceResult = true;
           // If using the offline route and a client-side result URL is provided, direct the
           // checkpoint leg to that HTTP endpoint instead of TCP to the device.
-          if (OFFLINE_MODE && CLIENT_RESULT_URL) {
+          if (OFFLINE_MODE && isHttpUrl(CLIENT_RESULT_URL)) {
             (payload as any).checkpointUrl = CLIENT_RESULT_URL;
           }
 
@@ -1192,6 +1193,8 @@ const MainApplicationUI: React.FC = () => {
         handleResetKfb();
         return;
       }
+      // Safety: never finalize/clear when the last run had failures
+      try { if (lastRunHadFailuresRef.current) { return; } } catch {}
       if (finalizeOkGuardRef.current.has(mac)) return;
       try {
         const last =

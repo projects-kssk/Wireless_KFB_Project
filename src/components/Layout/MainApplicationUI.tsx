@@ -2752,10 +2752,7 @@ const MainApplicationUI: React.FC = () => {
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     const pathMismatch = want && seen && !pathsEqual(seen, want);
-    if (pathMismatch && !armedOnce) {
-      const noDevices = !((serial as any).scannersDetected > 0);
-      if (!noDevices) return;
-    }
+    if (pathMismatch && !armedOnce) return;
     const code = (serial as any).lastScan;
     if (!code) return;
     // Ignore incoming scans while a CHECK is active or while we're already scanning

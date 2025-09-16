@@ -2754,7 +2754,8 @@ const MainApplicationUI: React.FC = () => {
       return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    if (STRICT_SCANNER_PATH && !armedOnce && want && seen && !pathsEqual(seen, want)) {
+    const pathMismatch = want && seen && !pathsEqual(seen, want);
+    if (pathMismatch && !armedOnce) {
       const noDevices = !((serial as any).scannersDetected > 0);
       if (!noDevices) return;
     }
@@ -2872,7 +2873,7 @@ const MainApplicationUI: React.FC = () => {
           if (raw) {
             const norm = raw.toUpperCase();
             if (path && !isAcmPath(path)) return;
-            if (STRICT_SCANNER_PATH && want && path && !pathsEqual(path, want)) return;
+            if (want && path && !pathsEqual(path, want)) return;
             // Sticky MAC: previously ignored repeats; allow re-scan of same MAC when idle/not checking
             const curMac = (macRef.current || "").toUpperCase();
             const ALLOW_REPEAT_SAME_MAC = true; // allow by default

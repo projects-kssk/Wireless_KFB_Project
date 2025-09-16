@@ -130,6 +130,11 @@ export async function GET(req: Request) {
     return up && macSet.has(up);
   };
   const EV_STRICT = (process.env.EV_STRICT ?? '0') === '1';
+  const firstFilterMac = (() => {
+    if (!macSet || macSet.size === 0) return null;
+    const first = macSet.values().next();
+    return first && !first.done ? String(first.value || '').toUpperCase() : null;
+  })();
 
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
@@ -172,7 +177,7 @@ export async function GET(req: Request) {
       // bus → SSE
       unsubscribe = onSerialEvent(e => send(e));
 
-      let currentMonitorMac: string | null = null;
+      let currentMonitorMac: string | null = firstFilterMac;
 
       // initial payloads
       try { send({ type: 'net', ...(await ethStatus()) }); } catch {}

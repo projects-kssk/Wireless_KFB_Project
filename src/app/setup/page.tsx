@@ -1884,7 +1884,13 @@ export default function SetupPage() {
   };
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
-    if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
+    if (Array.isArray(list) && list.length) {
+      const acm1 = list.find((p) => /(^|\/)ttyACM1$/.test(p));
+      if (acm1) return acm1;
+      const usb1 = list.find((p) => /(^|\/)ttyUSB1$/.test(p));
+      if (usb1) return usb1;
+      if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
+    }
     // Do not guess a device path; wait until scanner paths are discovered
     return null;
   };

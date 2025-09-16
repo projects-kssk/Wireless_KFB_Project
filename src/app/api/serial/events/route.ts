@@ -37,6 +37,39 @@ const isLikelySerialPath = (p: string) =>
 
 const ZERO_MAC = '00:00:00:00:00:00';
 
+function macsFromLine(line: string): string[] {
+  if (!line) return [];
+  return Array.from(String(line).toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || []);
+}
+
+function preferMacFromLine(line: string, fallback?: string | null): string | null {
+  const matches = macsFromLine(line);
+  const firstReal = matches.find((m) => m !== ZERO_MAC);
+  const firstAny = matches[0] ?? null;
+  if (firstReal) return firstReal;
+  if (firstAny) return firstAny;
+  if (fallback) return String(fallback).toUpperCase();
+  return null;
+}
+
+function prioritizeScannerPaths(list: string[]): string[] {
+  const uniq = Array.from(new Set((list || []).filter(Boolean)));
+  const score = (p: string) => {
+    const tail = (p.split('/') .pop() || p).toLowerCase();
+    if (/ttyacm0$/.test(tail)) return 0;
+    if (/ttyacm1$/.test(tail)) return 1;
+    if (/ttyusb0$/.test(tail)) return 2;
+    if (/ttyusb1$/.test(tail)) return 3;
+    return 10;
+  };
+  return uniq.sort((a, b) => {
+    const sa = score(a);
+    const sb = score(b);
+    if (sa !== sb) return sa - sb;
+    return a.localeCompare(b);
+  });
+}
+
 function netIfaceName() {
   return (process.env.NET_IFACE || 'eth0').trim();
 }
@@ -130,12 +163,14 @@ export async function GET(req: Request) {
       // bus → SSE
       unsubscribe = onSerialEvent(e => send(e));
 
+      let currentMonitorMac: string | null = null;
+
       // initial payloads
       try { send({ type: 'net', ...(await ethStatus()) }); } catch {}
       try { const r: any = getRedis(); const d = redisDetail(); send({ type: 'redis', ready: !!(r && (r.status === 'ready')), status: r?.status, detail: d }); } catch {}
 
       const configured = envScannerPaths();
-      let allPaths = configured.slice();
+      let allPaths = prioritizeScannerPaths(configured);
       send({ type: 'scanner/paths', paths: allPaths });
 
       try {
@@ -147,7 +182,7 @@ export async function GET(req: Request) {
           .filter(Boolean)
           .filter(isLikelySerialPath) as string[];
 
-        allPaths = Array.from(new Set([...allPaths, ...discovered]));
+        allPaths = prioritizeScannerPaths([...allPaths, ...discovered]);
         if (allPaths.length) send({ type: 'scanner/paths', paths: allPaths });
 
         considerDevicesForScanner(devices, allPaths.join(','));
@@ -178,16 +213,21 @@ export async function GET(req: Request) {
               const kind = m[1].toUpperCase();
               const ch = Number(m[2]);
               const val = Number(m[3]);
-              let mac = m[4].toUpperCase();
-              if (!mac || mac === '00:00:00:00:00:00') {
-                const firstMac = line.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
-                if (firstMac && firstMac[1]) mac = firstMac[1];
+              let mac: string | null = (m[4] || '').toUpperCase();
+              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(line, currentMonitorMac);
+              if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
+              if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
+                const first = macSet.values().next();
+                if (!first.done) mac = String(first.value || '').toUpperCase();
               }
+              if (!mac || mac === ZERO_MAC) return;
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
                 const first = macSet.values().next();
-                if (!first.done) mac = first.value as string;
+                if (first.done) return;
+                mac = String(first.value || '').toUpperCase();
               }
+              if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
               try { console.log('[events] EV', { kind, ch, val, mac, line }); } catch {}
               send({ type: 'ev', kind, ch, val, mac, raw: line, ts: Date.now() });
               return;
@@ -195,17 +235,20 @@ export async function GET(req: Request) {
 
             // Monitor session start signal from hub
             if (/\bMONITOR-START\b/i.test(line)) {
-              let mac: string | null = null;
-              const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
-              mac = matches.length ? matches[matches.length - 1]![1] : null;
-              if (!macAllowed(mac || undefined)) {
-                if (macSet && !EV_STRICT) {
-                  const first = macSet.values().next();
-                  if (!first.done) mac = first.value as string;
-                } else {
-                  return;
-                }
+              let mac = preferMacFromLine(line, currentMonitorMac);
+              if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
+              if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
+                const first = macSet.values().next();
+                if (!first.done) mac = String(first.value || '').toUpperCase();
               }
+              if (!mac) return;
+              if (!macAllowed(mac)) {
+                if (EV_STRICT || !macSet) return;
+                const first = macSet.values().next();
+                if (first.done) return;
+                mac = String(first.value || '').toUpperCase();
+              }
+              currentMonitorMac = mac && mac !== ZERO_MAC ? mac : currentMonitorMac;
               try { console.log('[events] EV START', { mac, line }); } catch {}
               send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: line, ts: Date.now() });
               return;
@@ -213,44 +256,45 @@ export async function GET(req: Request) {
 
             if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
               const ok = /^SUCCESS$/i.test(m[1]);
-              let mac = m[2].toUpperCase();
-              // Align behavior with RESULT: remap to requested MAC when EV_STRICT is off
-              if (!macAllowed(mac || undefined)) {
-                if (macSet && !EV_STRICT) {
-                  const first = macSet.values().next();
-                  if (!first.done) mac = first.value as string;
-                } else {
-                  return; // drop when strict or no filter is set
-                }
+              let mac: string | null = (m[2] || '').toUpperCase();
+              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(line, currentMonitorMac);
+              if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
+              if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
+                const first = macSet.values().next();
+                if (!first.done) mac = String(first.value || '').toUpperCase();
               }
-              if (!mac || mac === ZERO_MAC) {
-                const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
-                mac = matches.find((match) => match[1] !== ZERO_MAC)?.[1] ?? matches[0]?.[1] ?? mac;
+              if (!mac) return;
+              if (!macAllowed(mac)) {
+                if (EV_STRICT || !macSet) return;
+                const first = macSet.values().next();
+                if (first.done) return;
+                mac = String(first.value || '').toUpperCase();
               }
-              if (macAllowed(mac)) {
-                try {
-                  const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
-                  if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
-                } catch {}
-                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
-              }
+              if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
+              try {
+                const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
+                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
+              } catch {}
+              send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
               return;
             }
 
             if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
-              const matches = Array.from(line.toUpperCase().matchAll(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g));
-              let mac = matches.find((match) => match[1] !== ZERO_MAC)?.[1] ?? matches[0]?.[1] ?? null;
+              let mac: string | null = preferMacFromLine(line, currentMonitorMac);
               const ok = /\bSUCCESS\b/i.test(line);
-              // If a MAC filter is provided and the line's MAC doesn't match (e.g., hub MAC),
-              // remap to the requested MAC unless EV_STRICT is enabled.
-              if (!macAllowed(mac || undefined)) {
-                if (macSet && !EV_STRICT) {
-                  const first = macSet.values().next();
-                  if (!first.done) mac = first.value as string;
-                } else {
-                  return; // drop when strict or no filter is set
-                }
+              if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
+              if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
+                const first = macSet.values().next();
+                if (!first.done) mac = String(first.value || '').toUpperCase();
               }
+              if (!mac) return;
+              if (!macAllowed(mac)) {
+                if (EV_STRICT || !macSet) return;
+                const first = macSet.values().next();
+                if (first.done) return;
+                mac = String(first.value || '').toUpperCase();
+              }
+              if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
               try {
                 const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
                 if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });

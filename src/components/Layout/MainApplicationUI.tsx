@@ -340,6 +340,7 @@ const MainApplicationUI: React.FC = () => {
   const skipStopCleanupNextRef = useRef<boolean>(false);
   // Suppress the empty-hint toast briefly after a successful finalize
   const suppressEmptyHintUntilRef = useRef<number>(0);
+  const emptyScanCooldownRef = useRef<Map<string, number>>(new Map());
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(
@@ -2191,6 +2192,17 @@ const MainApplicationUI: React.FC = () => {
 
       try {
         const mac = isMac ? (macCanon as string) : "KFB";
+        const macForCooldown = isMac ? String(macCanon).toUpperCase() : "";
+        if (macForCooldown) {
+          const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
+          if (trigger !== "manual" && Date.now() < until) {
+            if (DEBUG_LIVE)
+              console.log("[FLOW][LOAD] skip; empty cooldown active", { mac: macForCooldown });
+            setIsScanning(false);
+            setShowScanUi(false);
+            return;
+          }
+        }
 
         try {
           const prevMac = (macAddress || "").toUpperCase();
@@ -2527,6 +2539,7 @@ const MainApplicationUI: React.FC = () => {
               if (macUp) {
                 // Briefly block this MAC so we don't re-trigger a loop
                 blockedMacRef.current.add(macUp);
+                emptyScanCooldownRef.current.set(macUp, Date.now() + 5000);
                 window.setTimeout(() => {
                   try {
                     blockedMacRef.current.delete(macUp);
@@ -2587,6 +2600,9 @@ const MainApplicationUI: React.FC = () => {
           setKfbNumber(pendingMac);
           setMacAddress(pendingMac);
         } catch {}
+        if (macForCooldown) {
+          emptyScanCooldownRef.current.delete(macForCooldown);
+        }
         await runCheck(pendingMac, 0, pins);
       } catch (e) {
         console.error("Load/MONITOR error:", e);

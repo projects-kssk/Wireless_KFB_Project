@@ -42,12 +42,21 @@ function macsFromLine(line: string): string[] {
   return Array.from(String(line).toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || []);
 }
 
+function macFromReplySegment(line: string): string | null {
+  const match = String(line)
+    .toUpperCase()
+    .match(/REPLY\s+FROM\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
+  return match && match[1] ? match[1] : null;
+}
+
 function preferMacFromLine(line: string, fallback?: string | null): string | null {
+  const fromReply = macFromReplySegment(line);
+  if (fromReply && fromReply !== ZERO_MAC) return fromReply;
   const matches = macsFromLine(line);
   const firstReal = matches.find((m) => m !== ZERO_MAC);
   const firstAny = matches[0] ?? null;
   if (firstReal) return firstReal;
-  if (firstAny) return firstAny;
+  if (firstAny && firstAny !== ZERO_MAC) return firstAny;
   if (fallback) return String(fallback).toUpperCase();
   return null;
 }

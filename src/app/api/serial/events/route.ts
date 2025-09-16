@@ -36,6 +36,7 @@ const isLikelySerialPath = (p: string) =>
   /\/dev\/(tty(ACM|USB)\d+|tty\.usb|cu\.usb)/i.test(p);
 
 const ZERO_MAC = '00:00:00:00:00:00';
+const ZERO_PATTERN = /00:00:00:00:00:00/gi;
 
 function macsFromLine(line: string): string[] {
   if (!line) return [];
@@ -47,6 +48,12 @@ function macFromReplySegment(line: string): string | null {
     .toUpperCase()
     .match(/REPLY\s+FROM\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
   return match && match[1] ? match[1] : null;
+}
+
+function rewriteLineMac(line: string, mac?: string | null): string {
+  if (!line || !mac || mac === ZERO_MAC) return line;
+  try { return line.replace(ZERO_PATTERN, mac); }
+  catch { return line; }
 }
 
 function preferMacFromLine(line: string, fallback?: string | null): string | null {
@@ -218,12 +225,12 @@ export async function GET(req: Request) {
         const s: any = (serial as any).getEspLineStream?.();
         const onLine = (buf: Buffer | string) => {
           try {
-            const line = String(buf).trim();
-            if (!line) return;
+            const rawLine = String(buf).trim();
+            if (!rawLine) return;
 
             let m: RegExpMatchArray | null = null;
 
-            if ((m = line.match(/\bEV\s+([PL])\s+(\d{1,3})\s+([01])\s+([0-9A-F:]{17})/i))) {
+            if ((m = rawLine.match(/\bEV\s+([PL])\s+(\d{1,3})\s+([01])\s+([0-9A-F:]{17})/i))) {
               const kind = m[1].toUpperCase();
               const ch = Number(m[2]);
               const val = Number(m[3]);

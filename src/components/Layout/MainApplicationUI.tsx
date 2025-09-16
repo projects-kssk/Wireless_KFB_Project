@@ -1491,9 +1491,17 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
+    const ZERO = "00:00:00:00:00:00";
     if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
       const evMac = String(ev.mac || "").toUpperCase();
+      if (!current && evMac && evMac !== ZERO) {
+        try {
+          console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
+        } catch {}
+        setMacAddress(evMac);
+        setKfbNumber(evMac);
+      }
       if (!current || (evMac && current === evMac)) {
         setIsChecking(true);
         okFlashAllowedRef.current = true;
@@ -1502,7 +1510,6 @@ const MainApplicationUI: React.FC = () => {
     const ok =
       (/\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw)) ||
       String(ev.ok).toLowerCase() === "true";
-    const ZERO = "00:00:00:00:00:00";
     const current = (macAddress || "").toUpperCase();
 
     let evMac = String(ev.mac || "").toUpperCase();
@@ -2208,8 +2215,9 @@ const MainApplicationUI: React.FC = () => {
         if (macForCooldown) {
           const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
           if (trigger !== "manual" && Date.now() < until) {
-            if (DEBUG_LIVE)
-              console.log("[FLOW][LOAD] skip; empty cooldown active", { mac: macForCooldown });
+            try {
+              console.info("[FLOW][LOAD] skip; empty cooldown active", { mac: macForCooldown, remainingMs: until - Date.now() });
+            } catch {}
             setIsScanning(false);
             setShowScanUi(false);
             return;
@@ -2767,7 +2775,12 @@ const MainApplicationUI: React.FC = () => {
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     const pathMismatch = want && seen && !pathsEqual(seen, want);
-    if (pathMismatch && !armedOnce) return;
+    if (pathMismatch && !armedOnce) {
+      try {
+        console.warn("[SCAN] ignoring scan from different path", { expected: want, got: seen });
+      } catch {}
+      return;
+    }
     const code = (serial as any).lastScan;
     if (!code) return;
     // Ignore incoming scans while a CHECK is active or while we're already scanning
@@ -2783,7 +2796,10 @@ const MainApplicationUI: React.FC = () => {
     const ALLOW_REPEAT_SAME_MAC = true; // allow by default
     if (!ALLOW_REPEAT_SAME_MAC && curMac && norm === curMac) return;
     // Ignore if MAC is temporarily blocked (post-success or stuck)
-    if (blockedMacRef.current.has(norm)) return;
+    if (blockedMacRef.current.has(norm)) {
+      try { console.warn("[FLOW][SCAN] blocked MAC cooldown", { mac: norm }); } catch {}
+      return;
+    }
     // Also ignore if this matches a recently finalized MAC
     try {
       const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();

@@ -241,7 +241,7 @@ export async function GET(req: Request) {
                 const first = macSet.values().next();
                 if (!first.done) mac = String(first.value || '').toUpperCase();
               }
-              if (!mac) return;
+              if (!mac || mac === ZERO_MAC) return;
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
                 const first = macSet.values().next();
@@ -263,7 +263,7 @@ export async function GET(req: Request) {
                 const first = macSet.values().next();
                 if (!first.done) mac = String(first.value || '').toUpperCase();
               }
-              if (!mac) return;
+              if (!mac || mac === ZERO_MAC) return;
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
                 const first = macSet.values().next();
@@ -287,7 +287,7 @@ export async function GET(req: Request) {
                 const first = macSet.values().next();
                 if (!first.done) mac = String(first.value || '').toUpperCase();
               }
-              if (!mac) return;
+              if (!mac || mac === ZERO_MAC) return;
               if (!macAllowed(mac)) {
                 if (EV_STRICT || !macSet) return;
                 const first = macSet.values().next();

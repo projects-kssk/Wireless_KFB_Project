@@ -85,51 +85,39 @@ export default function SimulateCheckBar() {
     setBusy(true); setLast(null);
     try {
       try { (window as any).__armScanOnce__ = true; } catch {}
-      // Prefer sending a simulated scanner code so the main app flow runs like a real scan.
+      // Prefer sending a single simulated scanner code so the main app flow runs like a real scan.
       // Select the same desired path the dashboard listens on; if unknown, omit path to avoid filtering.
       const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];
       const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
       const desiredPath = paths[idx] || paths[0] || (serial as any).lastScanPath || undefined;
-      // Also set simulator MAC override explicitly now (only on Run Check)
       await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // Send both raw MAC and a prefixed variant many classifiers accept.
-        // Bind to the dashboard scanner path when known; otherwise omit path to bypass strict filtering.
-        body: JSON.stringify({ mac: mac.toUpperCase(), scan: [
-          desiredPath ? { code: `KFB:${mac.toUpperCase()}`, path: desiredPath } : { code: `KFB:${mac.toUpperCase()}` },
-          desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }
-        ] }),
+        body: JSON.stringify({
+          mac: mac.toUpperCase(),
+          scan: [desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }],
+        }),
       });
-      // Also dispatch a local event to nudge the main UI immediately in case SSE scan events are delayed
-      try {
-        const ev = new CustomEvent('kfb:sim-scan', { detail: { code: mac.toUpperCase() } });
-        window.dispatchEvent(ev);
-      } catch {}
-      // Nudge the main app to handle the scan by sending a follow-up dev-cue that updates scanner memory periodically for a short window.
-      // This helps when the first scan gets swallowed due to path timing.
-      try {
-        const pulses = Array.from({ length: 3 }).map((_, i) => ({ code: mac.toUpperCase(), path: desiredPath }));
-        await fetch('/api/simulate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scan: pulses })
-        }).catch(() => {});
-        // Optional fallback: only if enabled and no START was seen soon after scans
-        if (useFallbackCheck) {
-          setTimeout(async () => {
-            try {
-              if (liveRef.current.started) return; // main app already reacting via SSE
-              const res = await fetch('/api/serial/check', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mac: mac.toUpperCase() })
+      // Optional fallback: only if enabled and no START was seen soon after the single scan
+      if (useFallbackCheck) {
+        setTimeout(async () => {
+          try {
+            if (liveRef.current.started) return; // main app already reacting via SSE
+            const res = await fetch('/api/serial/check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mac: mac.toUpperCase() }),
+            });
+            const j = await res.json().catch(() => null);
+            if (res.ok)
+              setLast({
+                ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0,
+                failures: Array.isArray(j?.failures) ? j.failures.length : undefined,
               });
-              const j = await res.json().catch(() => null);
-              if (res.ok) setLast({ ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0, failures: Array.isArray(j?.failures) ? j.failures.length : undefined });
-              else setLast({ ok: false, msg: j?.error || String(res.status) });
-            } catch {}
-          }, 600);
-        }
-      } catch {}
+            else setLast({ ok: false, msg: j?.error || String(res.status) });
+          } catch {}
+        }, 600);
+      }
     } catch (e: any) {
       setLast({ ok: false, msg: String(e?.message || e) });
     } finally {

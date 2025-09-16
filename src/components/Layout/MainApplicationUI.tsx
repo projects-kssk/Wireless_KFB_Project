@@ -239,7 +239,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     lastGroupsRef.current = groupedBranches;
   }, [groupedBranches]);
-  const finalizeOkGuardRef = useRef<Set<string>>(new Set());
+  const finalizeOkGuardRef = useRef<Map<string, number>>(new Map());
 
   // Throttle repeated cleanup calls per MAC (avoid bursts of clear/delete)
   const recentCleanupRef = useRef<Map<string, number>>(new Map());
@@ -944,7 +944,10 @@ const MainApplicationUI: React.FC = () => {
     scanDebounceRef.current = 0;
     lastScanRef.current = "";
     try {
-      finalizeOkGuardRef.current.clear();
+      const now = Date.now();
+      for (const [mac, until] of finalizeOkGuardRef.current.entries()) {
+        if (!until || until <= now) finalizeOkGuardRef.current.delete(mac);
+      }
     } catch {}
 
     // No session key bump; view resets via state above
@@ -1205,8 +1208,17 @@ const MainApplicationUI: React.FC = () => {
         return;
       }
       // Safety: never finalize/clear when the last run had failures
-      try { if (lastRunHadFailuresRef.current) { return; } } catch {}
-      if (finalizeOkGuardRef.current.has(mac)) return;
+      try {
+        if (lastRunHadFailuresRef.current) {
+          return;
+        }
+      } catch {}
+      const guardWindowMs = Math.max(2000, CFG.RETRY_COOLDOWN_MS);
+      const guard = finalizeOkGuardRef.current;
+      const guardUntil = guard.get(mac) || 0;
+      const nowTs = Date.now();
+      if (guardUntil && nowTs < guardUntil) return;
+      guard.set(mac, nowTs + guardWindowMs);
       try {
         const last =
           (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(
@@ -1214,8 +1226,6 @@ const MainApplicationUI: React.FC = () => {
           ) || 0;
         if (Date.now() - last < 5000) return;
       } catch {}
-      finalizeOkGuardRef.current.add(mac);
-
       try {
         setSuppressLive(true);
         try {
@@ -1410,7 +1420,12 @@ const MainApplicationUI: React.FC = () => {
             Date.now()
           );
         } catch {}
-        finalizeOkGuardRef.current.delete(mac);
+        try {
+          finalizeOkGuardRef.current.set(
+            mac,
+            Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS)
+          );
+        } catch {}
         handleResetKfb();
       }
     },

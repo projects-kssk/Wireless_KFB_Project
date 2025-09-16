@@ -1494,7 +1494,7 @@ const MainApplicationUI: React.FC = () => {
     if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
       const evMac = String(ev.mac || "").toUpperCase();
-      if (!current && evMac && evMac !== ZERO_MAC) {
+      if (!current && evMac && evMac !== ZERO) {
         try {
           console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
         } catch {}
@@ -1560,7 +1560,7 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
-        const current = (macAddress || "").toUpperCase();
+    const current = (macAddress || "").toUpperCase();
     if (!current) return;
 
     let evMac = String(ev.mac || "").toUpperCase();

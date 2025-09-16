@@ -1,0 +1,74 @@
+[NEXT] [ksk-lock] GET list
+[NEXT]  GET /api/ksk-lock?stationId=JETSON-01 200 in 54ms
+[NEXT]  ○ Compiling /api/aliases ...
+[NEXT]  ✓ Compiled /api/aliases in 617ms (1477 modules)
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [aliases] GET aliases
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT] [aliases] GET aliases items
+[NEXT]  GET /api/aliases?mac=78%3A42%3A1C%3A6B%3A8C%3A28&all=1 200 in 803ms
+[NEXT] [aliases] GET aliases
+[NEXT] [aliases] GET aliases single
+[NEXT]  GET /api/aliases?mac=78%3A42%3A1C%3A6B%3A8C%3A28 200 in 74ms
+[NEXT]  GET /api/serial/events 200 in 9664ms
+[NEXT]  ○ Compiling /api/serial/check ...
+[NEXT]  ✓ Compiled /api/serial/check in 1972ms (1491 modules)
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [aliases] GET aliases
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT] [aliases] GET aliases items
+[NEXT] [ksk-lock] GET list
+[NEXT]  GET /api/aliases?mac=78%3A42%3A1C%3A6B%3A8C%3A28&all=1 200 in 2264ms
+[NEXT]  GET /api/ksk-lock?stationId=JETSON-01 200 in 1211ms
+[NEXT]  ○ Compiling /api/aliases/xml ...
+[NEXT]  ✓ Compiled /api/aliases/xml in 980ms (1493 modules)
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT]  GET /api/aliases/xml?mac=78%3A42%3A1C%3A6B%3A8C%3A28&kssk=830577903926 200 in 1131ms
+[NEXT]  ○ Compiling /api/krosy/checkpoint ...
+[NEXT]  ✓ Compiled /api/krosy/checkpoint in 1232ms (1501 modules)
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT] [ksk-lock] GET list
+[NEXT]  GET /api/ksk-lock?stationId=JETSON-01 200 in 915ms
+[NEXT]  ○ Compiling /api/checkpoint ...
+[NEXT]  ✓ Compiled /api/checkpoint in 853ms (1503 modules)
+[NEXT] [checkpoint] received { hasBody: true }
+[NEXT]  POST /api/checkpoint 200 in 1006ms
+[NEXT]  POST /api/krosy/checkpoint 200 in 2841ms
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT]  GET /api/aliases/xml?mac=78%3A42%3A1C%3A6B%3A8C%3A28&kssk=830577904402 200 in 242ms
+[NEXT] [checkpoint] received { hasBody: true }
+[NEXT]  POST /api/checkpoint 200 in 48ms
+[NEXT]  POST /api/krosy/checkpoint 200 in 473ms
+[NEXT] [ksk-lock] GET list
+[NEXT]  GET /api/ksk-lock?stationId=JETSON-01 200 in 84ms
+[NEXT]  GET /api/aliases/xml?mac=78%3A42%3A1C%3A6B%3A8C%3A28&kssk=830577904811 200 in 85ms
+[NEXT] [checkpoint] received { hasBody: true }
+[NEXT]  POST /api/checkpoint 200 in 106ms
+[NEXT]  POST /api/krosy/checkpoint 200 in 449ms
+[NEXT]  ○ Compiling /api/aliases/clear ...
+[NEXT]  ✓ Compiled /api/aliases/clear in 1399ms (1505 modules)
+[NEXT] [redis] init url=redis://127.0.0.1:6379 lazyConnect=false offlineQueue=false timeout=2000ms
+[NEXT] [redis] connect → redis://127.0.0.1:6379
+[NEXT] [redis] ready
+[NEXT] [aliases:clear] cleared aliases
+[NEXT]  POST /api/aliases/clear 200 in 1781ms
+[NEXT] [aliases] GET aliases
+[NEXT] [aliases] GET aliases items
+[NEXT]  GET /api/aliases?mac=78%3A42%3A1C%3A6B%3A8C%3A28&all=1 200 in 82ms
+[NEXT] [ksk-lock] DELETE bulk mac (scan)
+[NEXT]  DELETE /api/ksk-lock?mac=78%3A42%3A1C%3A6B%3A8C%3A28&force=1 200 in 95ms
+[NEXT] [ksk-lock] GET list (empty)
+[NEXT]  GET /api/ksk-lock 200 in 34ms
+[NEXT] [ksk-lock] DELETE bulk mac (scan)
+[NEXT]  DELETE /api/ksk-lock 200 in 58ms
+[NEXT] [aliases] GET aliases
+[NEXT] [aliases] GET aliases items
+[NEXT]  GET /api/aliases?mac=78%3A42%3A1C%3A6B%3A8C%3A28&all=1 200 in 31ms

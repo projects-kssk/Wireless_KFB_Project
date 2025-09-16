@@ -235,7 +235,7 @@ export async function GET(req: Request) {
               const ch = Number(m[2]);
               const val = Number(m[3]);
               let mac: string | null = (m[4] || '').toUpperCase();
-              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(line, currentMonitorMac);
+              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(rawLine, currentMonitorMac);
               if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
               if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
                 const first = macSet.values().next();
@@ -249,14 +249,15 @@ export async function GET(req: Request) {
                 mac = String(first.value || '').toUpperCase();
               }
               if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
-              try { console.log('[events] EV', { kind, ch, val, mac, line }); } catch {}
-              send({ type: 'ev', kind, ch, val, mac, raw: line, ts: Date.now() });
+              const lineOut = rewriteLineMac(rawLine, mac);
+              try { console.log('[events] EV', { kind, ch, val, mac, line: lineOut }); } catch {}
+              send({ type: 'ev', kind, ch, val, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               return;
             }
 
             // Monitor session start signal from hub
-            if (/\bMONITOR-START\b/i.test(line)) {
-              let mac = preferMacFromLine(line, currentMonitorMac);
+            if (/\bMONITOR-START\b/i.test(rawLine)) {
+              let mac = preferMacFromLine(rawLine, currentMonitorMac);
               if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
               if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
                 const first = macSet.values().next();
@@ -270,15 +271,16 @@ export async function GET(req: Request) {
                 mac = String(first.value || '').toUpperCase();
               }
               currentMonitorMac = mac && mac !== ZERO_MAC ? mac : currentMonitorMac;
-              try { console.log('[events] EV START', { mac, line }); } catch {}
-              send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: line, ts: Date.now() });
+              const lineOut = rewriteLineMac(rawLine, mac);
+              try { console.log('[events] EV START', { mac, line: lineOut }); } catch {}
+              send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               return;
             }
 
-            if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
+            if ((m = rawLine.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
               const ok = /^SUCCESS$/i.test(m[1]);
               let mac: string | null = (m[2] || '').toUpperCase();
-              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(line, currentMonitorMac);
+              if (!mac || mac === ZERO_MAC) mac = preferMacFromLine(rawLine, currentMonitorMac);
               if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
               if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
                 const first = macSet.values().next();
@@ -294,15 +296,18 @@ export async function GET(req: Request) {
               if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
               try {
                 const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
-                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
-              } catch {}
-              send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
+                const lineOut = rewriteLineMac(rawLine, mac);
+                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line: lineOut });
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
+              } catch {
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: rewriteLineMac(rawLine, mac), ts: Date.now() });
+              }
               return;
             }
 
-            if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(line)) {
-              let mac: string | null = preferMacFromLine(line, currentMonitorMac);
-              const ok = /\bSUCCESS\b/i.test(line);
+            if (/\bRESULT\s+(SUCCESS|FAILURE)\b/i.test(rawLine)) {
+              let mac: string | null = preferMacFromLine(rawLine, currentMonitorMac);
+              const ok = /\bSUCCESS\b/i.test(rawLine);
               if ((!mac || mac === ZERO_MAC) && currentMonitorMac) mac = currentMonitorMac;
               if ((!mac || mac === ZERO_MAC) && macSet && !EV_STRICT) {
                 const first = macSet.values().next();
@@ -318,9 +323,12 @@ export async function GET(req: Request) {
               if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
               try {
                 const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
-                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line });
-              } catch {}
-              send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: line, ts: Date.now() });
+                const lineOut = rewriteLineMac(rawLine, mac);
+                if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line: lineOut });
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
+              } catch {
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: rewriteLineMac(rawLine, mac), ts: Date.now() });
+              }
               return;
             }
           } catch {}

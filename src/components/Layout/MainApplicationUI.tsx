@@ -15,6 +15,7 @@ import BranchDashboardMainContent from "@/components/Program/BranchDashboardMain
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
+const ZERO_MAC = "00:00:00:00:00:00" as const;
 
 /* --------------------------------------------------------------------------------
  * Small, dependency-free HUD for Scan/Idle/Toast states
@@ -795,7 +796,6 @@ const MainApplicationUI: React.FC = () => {
       const cur = (macAddress || "").toUpperCase();
       if (ev && cur) {
         const evMac = String(ev.mac || "").toUpperCase();
-        const ZERO = "00:00:00:00:00:00";
         const raw = String(ev.line || ev.raw || "");
         const kindRaw = String(ev.kind || "").toUpperCase();
         const isResult = /\bRESULT\b/i.test(raw) || kindRaw === "RESULT";
@@ -804,7 +804,7 @@ const MainApplicationUI: React.FC = () => {
           kindRaw === "DONE" && String(ev.ok).toLowerCase() === "false";
         const macMatch =
           !evMac ||
-          evMac === ZERO ||
+          evMac === ZERO_MAC ||
           evMac === cur ||
           /reply\s+from\s+([0-9A-F]{2}(?::[0-9A-F]{2}){5})/i.test(raw);
         if (macMatch && (isDoneFail || (isResult && isFailText))) return;
@@ -1491,11 +1491,10 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
-    const ZERO = "00:00:00:00:00:00";
-    if (kind === "START") {
+        if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
       const evMac = String(ev.mac || "").toUpperCase();
-      if (!current && evMac && evMac !== ZERO) {
+      if (!current && evMac && evMac !== ZERO_MAC) {
         try {
           console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
         } catch {}
@@ -1513,10 +1512,10 @@ const MainApplicationUI: React.FC = () => {
     const current = (macAddress || "").toUpperCase();
 
     let evMac = String(ev.mac || "").toUpperCase();
-    if (!evMac || evMac === ZERO) {
+    if (!evMac || evMac === ZERO_MAC) {
       const macs =
         raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
-      evMac = macs.find((m) => m !== ZERO) || current;
+      evMac = macs.find((m) => m !== ZERO_MAC) || current;
     }
 
     const matches = !!current && evMac === current;
@@ -1561,15 +1560,14 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
-    const ZERO = "00:00:00:00:00:00";
-    const current = (macAddress || "").toUpperCase();
+        const current = (macAddress || "").toUpperCase();
     if (!current) return;
 
     let evMac = String(ev.mac || "").toUpperCase();
-    if (!evMac || evMac === ZERO) {
+    if (!evMac || evMac === ZERO_MAC) {
       const macs =
         raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
-      evMac = macs.find((m) => m !== ZERO) || current;
+      evMac = macs.find((m) => m !== ZERO_MAC) || current;
     }
     const matches = evMac === current;
 

@@ -211,7 +211,16 @@ export async function GET(req: Request) {
 
             if ((m = line.match(/\bEV\s+DONE\s+(SUCCESS|FAILURE)\s+([0-9A-F:]{17})/i))) {
               const ok = /^SUCCESS$/i.test(m[1]);
-              const mac = m[2].toUpperCase();
+              let mac = m[2].toUpperCase();
+              // Align behavior with RESULT: remap to requested MAC when EV_STRICT is off
+              if (!macAllowed(mac || undefined)) {
+                if (macSet && !EV_STRICT) {
+                  const first = macSet.values().next();
+                  if (!first.done) mac = first.value as string;
+                } else {
+                  return; // drop when strict or no filter is set
+                }
+              }
               if (macAllowed(mac)) {
                 try {
                   const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;

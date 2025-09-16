@@ -77,8 +77,9 @@ type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 const isAcmPath = (p?: string | null) =>
   !p ||
   /(^|\/)ttyACM\d+$/.test(p) ||
-  /(^|\/)ACM\d+($|[^0-9])/.test(p) ||
-  /\/by-id\/.*ACM\d+/i.test(p);
+  /(^|\/)ttyUSB\d+$/.test(p) ||
+  /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
+  /\/by-id\/.*(ACM|USB)\d+/i.test(p);
 
 function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
   if (!src) return fallback;
@@ -106,6 +107,20 @@ const canonicalMac = (raw: string): string | null => {
   if (hex.length !== 12) return null;
   const mac = hex.match(/.{1,2}/g)?.join(":") || "";
   return MAC_ONLY_REGEX.test(mac) ? mac : null;
+};
+
+// Extract a MAC anywhere in the string. Prefer colon-form; fall back to contiguous 12-hex.
+const extractMac = (raw: string): string | null => {
+  const s = String(raw || "").toUpperCase();
+  const m1 = s.match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
+  if (m1 && m1[1]) return m1[1];
+  const m2 = s.match(/\b([0-9A-F]{12})\b/);
+  if (m2 && m2[1]) {
+    const parts = m2[1].match(/.{1,2}/g) || [];
+    const mac = parts.join(":");
+    return MAC_ONLY_REGEX.test(mac) ? mac : null;
+  }
+  return null;
 };
 
 // Merge aliases helper shared by runCheck and loadBranchesData
@@ -546,6 +561,9 @@ const MainApplicationUI: React.FC = () => {
     | undefined;
   const ALLOW_IDLE_SCANS = String(
     process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
+  ) === "1";
+  const STRICT_SCANNER_PATH = String(
+    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "0"
   ) === "1";
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
@@ -2072,30 +2090,27 @@ const MainApplicationUI: React.FC = () => {
         } catch {
           setIsChecking(false);
         }
-        // Short cooldown so stray duplicate scans don’t retrigger immediately
+        // Apply cooldown/blocks only on success. After failures, allow immediate re-scan.
         try {
-          idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
-        } catch {}
-        // Block re-triggers for the same MAC for a short window unless user explicitly scans again
-        try {
-          const macUp = String(mac).toUpperCase();
-          if (macUp) {
-            blockedMacRef.current.add(macUp);
-            window.setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(macUp);
-              } catch {}
-            }, 8000);
-          }
-          // Also block the *last scanned code* (e.g., KFB) to prevent post-check loops
-          const last = (lastScanRef.current || "").toUpperCase();
-          if (last && last !== macUp) {
-            blockedMacRef.current.add(last);
-            window.setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(last);
-              } catch {}
-            }, 8000);
+          if (!lastRunHadFailuresRef.current) {
+            idleCooldownUntilRef.current = Date.now() + CFG.RETRY_COOLDOWN_MS;
+            const macUp = String(mac).toUpperCase();
+            if (macUp) {
+              blockedMacRef.current.add(macUp);
+              window.setTimeout(() => {
+                try { blockedMacRef.current.delete(macUp); } catch {}
+              }, 8000);
+            }
+            const last = (lastScanRef.current || "").toUpperCase();
+            if (last && last !== macUp) {
+              blockedMacRef.current.add(last);
+              window.setTimeout(() => {
+                try { blockedMacRef.current.delete(last); } catch {}
+              }, 8000);
+            }
+          } else {
+            // Failure path: clear cooldown so same-MAC re-scan triggers immediately
+            idleCooldownUntilRef.current = 0;
           }
         } catch {}
       }
@@ -2130,7 +2145,7 @@ const MainApplicationUI: React.FC = () => {
       } catch {}
       const kfbRaw = (value ?? kfbInputRef.current).trim();
       if (!kfbRaw) return;
-      const macCanon = canonicalMac(kfbRaw);
+      const macCanon = canonicalMac(kfbRaw) || extractMac(kfbRaw);
       const isMac = !!macCanon;
       if (!isMac && !KFB_REGEX.test(kfbRaw)) {
         if (source === "manual") {
@@ -2594,7 +2609,8 @@ const MainApplicationUI: React.FC = () => {
       const now = Date.now();
       const trimmed = (raw || "").trim();
       if (!trimmed) return;
-      const normalized = trimmed.toUpperCase();
+      const macFromAny = extractMac(trimmed);
+      const normalized = (macFromAny || trimmed).toUpperCase();
       // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
       try {
         const token = `${normalized}:${Math.floor(now / 1500)}`;
@@ -2652,7 +2668,7 @@ const MainApplicationUI: React.FC = () => {
         setKfbNumber(normalized);
       }
 
-      if (!(canonicalMac(trimmed) || KFB_REGEX.test(trimmed))) {
+      if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
         try {
           console.warn("[FLOW][SCAN] invalid format", { code: trimmed });
         } catch {}
@@ -2664,7 +2680,7 @@ const MainApplicationUI: React.FC = () => {
       try {
         console.log("[FLOW][SCAN] starting load");
         await loadBranchesData(
-          trimmed,
+          macFromAny || trimmed,
           trig === "manual" ? "manual" : "scan",
           trig
         );
@@ -2717,7 +2733,7 @@ const MainApplicationUI: React.FC = () => {
       return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    if (!armedOnce && want && seen && !pathsEqual(seen, want)) {
+    if (STRICT_SCANNER_PATH && !armedOnce && want && seen && !pathsEqual(seen, want)) {
       const noDevices = !((serial as any).scannersDetected > 0);
       if (!noDevices) return;
     }
@@ -2731,9 +2747,10 @@ const MainApplicationUI: React.FC = () => {
     if (armedOnce) { armScanOnceRef.current = false; void handleScan(norm, "manual"); return; }
     // Respect global scan cooldown
     if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
-    // Sticky MAC: ignore repeats of the current MAC until reset
+    // Sticky MAC: previously ignored repeats; allow re-scan of same MAC when idle/not checking
     const curMac = (macRef.current || "").toUpperCase();
-    if (curMac && norm === curMac) return;
+    const ALLOW_REPEAT_SAME_MAC = true; // allow by default
+    if (!ALLOW_REPEAT_SAME_MAC && curMac && norm === curMac) return;
     // Ignore if MAC is temporarily blocked (post-success or stuck)
     if (blockedMacRef.current.has(norm)) return;
     // Also ignore if this matches a recently finalized MAC
@@ -2834,10 +2851,11 @@ const MainApplicationUI: React.FC = () => {
           if (raw) {
             const norm = raw.toUpperCase();
             if (path && !isAcmPath(path)) return;
-            if (want && path && !pathsEqual(path, want)) return;
-            // Sticky MAC: ignore repeats of the current MAC
+            if (STRICT_SCANNER_PATH && want && path && !pathsEqual(path, want)) return;
+            // Sticky MAC: previously ignored repeats; allow re-scan of same MAC when idle/not checking
             const curMac = (macRef.current || "").toUpperCase();
-            if (curMac && norm === curMac) return;
+            const ALLOW_REPEAT_SAME_MAC = true; // allow by default
+            if (!ALLOW_REPEAT_SAME_MAC && curMac && norm === curMac) return;
             // When idle (no bound MAC): allow if env flag is set; otherwise require explicit arm
             if (!curMac) {
               if (!ALLOW_IDLE_SCANS) {

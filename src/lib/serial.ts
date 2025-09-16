@@ -527,9 +527,16 @@ export async function ensureScannerForPath(path: string, baudRate = DEFAULT_SCAN
   if (inCooldown(retry)) throw new Error(`SCANNER_COOLDOWN ${path} until ${new Date(retry.nextAttemptAt).toISOString()}`);
   function looksLikeSamePath(candidate: string, wanted: string) {
     if (candidate === wanted) return true;
-    // accept by-id that ends in ACM0 when wanted is /dev/ttyACM0, etc.
     const tail = wanted.split("/").pop() || wanted;
-    return candidate.endsWith(tail) || /\/by-id\/.*ACM0/i.test(candidate);
+    if (candidate.endsWith(tail)) return true;
+    // accept by-id that ends in same ACM/USB index (e.g., ACM1)
+    const num = (s: string) => {
+      const m = s.match(/(ACM|USB)(\d+)/i);
+      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
+    };
+    const a = num(candidate);
+    const b = num(wanted) || num(tail);
+    return !!(a && b && a === b);
   }
 
   const devices = await SerialPort.list();

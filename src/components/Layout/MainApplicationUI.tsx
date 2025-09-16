@@ -544,6 +544,9 @@ const MainApplicationUI: React.FC = () => {
     | string
     | null
     | undefined;
+  const ALLOW_IDLE_SCANS = String(
+    process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
+  ) === "1";
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
   );
@@ -552,7 +555,15 @@ const MainApplicationUI: React.FC = () => {
     if (a === b) return true;
     const ta = a.split("/").pop() || a;
     const tb = b.split("/").pop() || b;
-    return ta === tb || a.endsWith(tb) || b.endsWith(ta);
+    if (ta === tb || a.endsWith(tb) || b.endsWith(ta)) return true;
+    // Heuristic: match ACM/USB numeric suffix equivalence
+    const num = (s: string) => {
+      const m = s.match(/(ACM|USB)(\d+)/i);
+      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
+    };
+    const na = num(a) || num(ta);
+    const nb = num(b) || num(tb);
+    return !!(na && nb && na === nb);
   };
   const resolveDesiredPath = (): string | null => {
     const list = (serial as any).scannerPaths || [];
@@ -2693,15 +2704,17 @@ const MainApplicationUI: React.FC = () => {
     };
   }, []);
 
-  // Consume SSE scanner events (gated by desired port); ignore background scans when no MAC unless armedOnce
+  // Consume SSE scanner events (gated by desired port);
+  // ignore background scans when no MAC unless armedOnce or ALLOW_IDLE_SCANS
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!(serial as any).lastScanTick) return;
     // Allow a one-shot arm to treat next scan as an explicit user action (e.g., Dev Simulate Run Check)
     const armedOnce = armScanOnceRef.current === true;
-    // If no MAC is active and we're not armed, ignore background scans
-    if (!(macAddress && macAddress.trim()) && !armedOnce) return;
+    // If no MAC is active and we're not armed, ignore background scans unless allowed by env
+    if (!ALLOW_IDLE_SCANS && !(macAddress && macAddress.trim()) && !armedOnce)
+      return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
     if (!armedOnce && want && seen && !pathsEqual(seen, want)) {
@@ -2825,10 +2838,12 @@ const MainApplicationUI: React.FC = () => {
             // Sticky MAC: ignore repeats of the current MAC
             const curMac = (macRef.current || "").toUpperCase();
             if (curMac && norm === curMac) return;
-            // Require explicit arm when idle (no bound MAC)
+            // When idle (no bound MAC): allow if env flag is set; otherwise require explicit arm
             if (!curMac) {
-              if (!armScanOnceRef.current) return;
-              armScanOnceRef.current = false;
+              if (!ALLOW_IDLE_SCANS) {
+                if (!armScanOnceRef.current) return;
+                armScanOnceRef.current = false;
+              }
             }
             // Respect global cooldown and blocked list
             if (Date.now() < (idleCooldownUntilRef.current || 0)) return;

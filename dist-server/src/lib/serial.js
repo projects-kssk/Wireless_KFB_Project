@@ -446,7 +446,9 @@ function attachScannerHandlers(path, state, retry, port, parser) {
         bumpCooldown(retry);
     });
 }
-export async function ensureScannerForPath(path, baudRate = 115200) {
+// Resolve default scanner baud from environment with a sensible fallback
+const DEFAULT_SCANNER_BAUD = Number(process.env.SCANNER_BAUD ?? 115200);
+export async function ensureScannerForPath(path, baudRate = DEFAULT_SCANNER_BAUD) {
     if (SIMULATE) {
         // In simulation, do not claim scanners are open unless explicitly injected by tests.
         // No-op.
@@ -529,7 +531,7 @@ export async function ensureScannerForPath(path, baudRate = 115200) {
     });
     return state.starting;
 }
-export async function ensureScanners(pathsInput, baudRate = 115200) {
+export async function ensureScanners(pathsInput, baudRate = DEFAULT_SCANNER_BAUD) {
     const base = pathsInput ??
         process.env.SCANNER_TTY_PATHS ??
         process.env.SCANNER_TTY_PATH ??
@@ -545,7 +547,7 @@ export async function ensureScanners(pathsInput, baudRate = 115200) {
 }
 export async function ensureScanner(path = (process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0")
     .split(",")[0]
-    .trim(), baudRate = 115200) {
+    .trim(), baudRate = DEFAULT_SCANNER_BAUD) {
     return ensureScannerForPath(path, baudRate);
 }
 export function getScannerStatus() {

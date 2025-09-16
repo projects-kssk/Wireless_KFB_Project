@@ -1862,7 +1862,8 @@ export default function SetupPage() {
   );
 
   // ---- Serial scanner integration (SSE) ----
-  const serial = useSerialEvents();
+  // Enable base SSE in Setup to receive live scanner/device status without a MAC filter
+  const serial = useSerialEvents(undefined, { base: true });
   const SETUP_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_SETUP ?? "1"
   );

@@ -532,23 +532,25 @@ const MainApplicationUI: React.FC = () => {
             return;
           }
           const target = lastLiveMacRef.current;
-          if (target && !(macAddress && macAddress.trim())) {
+          // Do not auto-clear Redis or locks on STOP; only clear on OK finalize.
+          // If you want legacy STOP cleanup, set NEXT_PUBLIC_CLEAN_ON_STOP=1
+          const CLEAN_ON_STOP = String(process.env.NEXT_PUBLIC_CLEAN_ON_STOP || "").trim() === "1";
+          if (CLEAN_ON_STOP && target && !(macAddress && macAddress.trim())) {
             (async () => {
               try {
-                // Do not send checkpoint on STOP path; only clean Redis/locks
                 await fetch("/api/aliases/clear", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ mac: target }),
                 }).catch(() => {});
                 await clearKskLocksFully(target).catch(() => {});
-                try {
-                  console.log("[CLEANUP] Done for MAC", { mac: target });
-                } catch {}
+                try { console.log("[CLEANUP] Done for MAC", { mac: target }); } catch {}
               } finally {
                 lastLiveMacRef.current = null;
               }
             })();
+          } else {
+            lastLiveMacRef.current = null;
           }
         }
       } catch {}
@@ -2178,24 +2180,11 @@ const MainApplicationUI: React.FC = () => {
           const prevMac = (macAddress || "").toUpperCase();
           const nextMac = String(mac).toUpperCase();
           if (prevMac && prevMac !== nextMac) {
-            console.log("[FLOW][SCAN] switching MAC; clearing previous", {
-              prevMac,
-            });
-            await fetch("/api/aliases/clear", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ mac: prevMac }),
-            }).catch(() => {});
-            await clearKskLocksFully(prevMac).catch(() => {});
-            try {
-              setActiveKssks([]);
-            } catch {}
-            try {
-              itemsAllFromAliasesRef.current = [];
-            } catch {}
-            try {
-              lastActiveIdsRef.current = [];
-            } catch {}
+            console.log("[FLOW][SCAN] switching MAC; preserving Redis state", { prevMac });
+            // Do not auto-clear aliases or locks when switching; only clear on OK finalize
+            try { setActiveKssks([]); } catch {}
+            try { itemsAllFromAliasesRef.current = []; } catch {}
+            try { lastActiveIdsRef.current = []; } catch {}
           }
         } catch {}
         try {

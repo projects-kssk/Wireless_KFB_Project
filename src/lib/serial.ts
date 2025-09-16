@@ -492,7 +492,10 @@ function attachScannerHandlers(
 
 
 
-export async function ensureScannerForPath(path: string, baudRate = 115200): Promise<void> {
+// Resolve default scanner baud from environment with a sensible fallback
+const DEFAULT_SCANNER_BAUD = Number(process.env.SCANNER_BAUD ?? 115200);
+
+export async function ensureScannerForPath(path: string, baudRate = DEFAULT_SCANNER_BAUD): Promise<void> {
   if (SIMULATE) {
     // In simulation, do not claim scanners are open unless explicitly injected by tests.
     // No-op.
@@ -575,7 +578,7 @@ const parser = port
   return state.starting;
 }
 
-export async function ensureScanners(pathsInput?: string | string[], baudRate = 115200): Promise<void> {
+export async function ensureScanners(pathsInput?: string | string[], baudRate = DEFAULT_SCANNER_BAUD): Promise<void> {
   const base =
     pathsInput ??
     process.env.SCANNER_TTY_PATHS ??
@@ -596,7 +599,7 @@ export async function ensureScanner(
   path = (process.env.SCANNER_TTY_PATHS ?? process.env.SCANNER_TTY_PATH ?? "/dev/ttyACM0")
     .split(",")[0]
     .trim(),
-  baudRate = 115200
+  baudRate = DEFAULT_SCANNER_BAUD
 ): Promise<void> {
   return ensureScannerForPath(path, baudRate);
 }

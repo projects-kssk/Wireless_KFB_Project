@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 const levels = ["debug", "info", "warn", "error"];
-const ENABLED = (process.env.LOG_ENABLE ?? "0") === "1";
+// Global enable: honor either LOG_ENABLE or LOG_VERBOSE (single switch requested)
+const ENABLED = ((process.env.LOG_ENABLE ?? "0") === "1") || ((process.env.LOG_VERBOSE ?? "0") === "1");
 const DIR = process.env.LOG_DIR || "./logs";
 const BASE = process.env.LOG_FILE_BASENAME || "app";
 const MIN = (process.env.LOG_LEVEL || "info").toLowerCase();
@@ -19,13 +20,18 @@ for (const pair of TAG_LEVELS_RAW.split(",")) {
     if (levels.includes(lv))
         TAG_MIN[k] = lv;
 }
-// Sensible defaults when not explicitly overridden and not in DEBUG mode
-if (!TAG_LEVELS_RAW && (process.env.DEBUG ?? "0") !== "1") {
-    TAG_MIN["redis"] = "warn";
-    TAG_MIN["ksk-lock"] = "warn";
-    TAG_MIN["api:krosy-offline"] = "warn";
-    TAG_MIN["api:serial/check"] = "warn";
-    TAG_MIN["api:serial"] = "warn";
+// Sensible defaults for noisy tags unless explicitly overridden (and not in DEBUG mode)
+if ((process.env.DEBUG ?? "0") !== "1") {
+    if (!("redis" in TAG_MIN))
+        TAG_MIN["redis"] = "warn";
+    if (!("ksk-lock" in TAG_MIN))
+        TAG_MIN["ksk-lock"] = "warn";
+    if (!("api:krosy-offline" in TAG_MIN))
+        TAG_MIN["api:krosy-offline"] = "warn";
+    if (!("api:serial/check" in TAG_MIN))
+        TAG_MIN["api:serial/check"] = "warn";
+    if (!("api:serial" in TAG_MIN))
+        TAG_MIN["api:serial"] = "warn";
 }
 function levelIdx(l) { return levels.indexOf(l); }
 function minFor(tag) {
@@ -35,6 +41,7 @@ function minFor(tag) {
 }
 let day = "";
 let stream = null;
+let errorStream = null;
 function pruneOldAppLogs(dir, base, maxAgeDays = 31) {
     try {
         const files = fs.readdirSync(dir, { withFileTypes: true });
@@ -80,22 +87,44 @@ function ensureStream() {
     }
     return stream;
 }
+// Always-on error sink, independent of LOG_ENABLE
+function ensureErrorStream() {
+    try {
+        fs.mkdirSync(DIR, { recursive: true });
+    }
+    catch { }
+    if (!errorStream) {
+        try {
+            errorStream = fs.createWriteStream(path.join(DIR, `errors.log`), { flags: "a" });
+        }
+        catch { }
+    }
+    return errorStream;
+}
 function write(level, tag, msg, extra) {
     // Global filter: only monitor unless it's an error
     if (MONITOR_ONLY && tag !== "monitor" && level !== "error")
         return;
     // Per-tag & global min
     const effMin = minFor(tag);
-    if (!ENABLED || levelIdx(level) < levelIdx(effMin))
-        return;
+    const allow = ENABLED && levelIdx(level) >= levelIdx(effMin);
     const line = JSON.stringify({ ts: new Date().toISOString(), level, tag, msg, ...(extra ? { extra } : {}) });
     // console
     (level === "debug" ? console.log : console[level])(`[${tag ?? "app"}] ${msg}`);
-    // file
-    try {
-        ensureStream()?.write(line + "\n");
+    // primary app file (honors LOG_ENABLE / LOG_VERBOSE and min levels)
+    if (allow) {
+        try {
+            ensureStream()?.write(line + "\n");
+        }
+        catch { }
     }
-    catch { }
+    // error-only sink (always on; ignores LOG_ENABLE)
+    if (level === "error") {
+        try {
+            ensureErrorStream()?.write(line + "\n");
+        }
+        catch { }
+    }
 }
 export const LOG = {
     tag(t) {

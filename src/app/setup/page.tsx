@@ -1919,9 +1919,10 @@ export default function SetupPage() {
       try {
         ctrl = new AbortController();
         const want = resolveDesiredPath();
+        // Consume the scan so we don't repeatedly trigger the same setup on stale polls
         const url = want
-          ? `/api/serial/scanner?path=${encodeURIComponent(want)}`
-          : "/api/serial/scanner";
+          ? `/api/serial/scanner?path=${encodeURIComponent(want)}&consume=1`
+          : "/api/serial/scanner?consume=1";
         const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
         if (r.ok) {
           const { code, retryInMs } = await r.json();

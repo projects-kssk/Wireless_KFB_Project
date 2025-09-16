@@ -566,9 +566,6 @@ const MainApplicationUI: React.FC = () => {
     process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1"
   ) === "1";
   // Default to non-strict so scans "just work" even if paths differ (by-id vs tty)
-  const STRICT_SCANNER_PATH = String(
-    process.env.NEXT_PUBLIC_DASHBOARD_STRICT_SCANNER_PATH ?? "0"
-  ) === "1";
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
   );

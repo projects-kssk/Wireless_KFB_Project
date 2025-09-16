@@ -1491,7 +1491,7 @@ const MainApplicationUI: React.FC = () => {
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
-        if (kind === "START") {
+    if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
       const evMac = String(ev.mac || "").toUpperCase();
       if (!current && evMac && evMac !== ZERO_MAC) {

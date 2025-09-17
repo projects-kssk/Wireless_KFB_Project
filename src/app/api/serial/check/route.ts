@@ -304,6 +304,22 @@ export async function POST(request: Request) {
     }
     await sendToEsp(cmdStr);
 
+    // Some firmware builds do not emit a MONITOR-START line on CHECK.
+    // Synthesize one so dashboard/live views enter monitoring immediately.
+    try {
+      const startLine = `MONITOR-START ${macUp}`;
+      broadcast({
+        type: 'ev',
+        kind: 'START',
+        ch: null,
+        val: null,
+        mac: macUp,
+        raw: startLine,
+        line: startLine,
+        ts: Date.now(),
+      });
+    } catch {}
+
     // Optional handshake: don't fail if not seen
     try {
       await waitForNextLine(SENT_RE, signal, HANDSHAKE_TIMEOUT_MS);

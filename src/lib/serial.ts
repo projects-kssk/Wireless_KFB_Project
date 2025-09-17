@@ -136,6 +136,8 @@ function armEsp(): EspLineStream {
       // Simulate the hub log style for CHECK and MONITOR
       if (up.startsWith('CHECK')) {
         emitLine(`Sent 'CHECK' to ${mac}`);
+        // Mirror the hub behaviour by signalling monitor start so the UI enters live mode.
+        setTimeout(() => emitLine(`MONITOR-START ${mac}`), 15);
         const scen = conf.scenario;
         const delay = conf.resultDelayMs;
         if (scen === 'timeout') {

@@ -22,7 +22,17 @@ type SerialEvent =
   | { type: "scanner/close"; path?: string }
   | { type: "scanner/error"; error: string; path?: string }
   | { type: "scanner/paths"; paths: string[] }
-  | { type: "ev"; kind: 'P'|'L'|'DONE'; ch: number | null; val: number | null; ok?: boolean; mac?: string | null; raw?: string; ts?: number }
+  | {
+      type: "ev";
+      kind: 'P' | 'L' | 'DONE' | 'START';
+      ch: number | null;
+      val: number | null;
+      ok?: boolean;
+      mac?: string | null;
+      raw?: string;
+      line?: string;
+      ts?: number;
+    }
   | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
 
 export type ScannerPortState = {

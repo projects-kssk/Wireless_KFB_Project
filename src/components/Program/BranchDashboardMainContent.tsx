@@ -654,53 +654,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   // No recent MACs loaded from localStorage; keep ephemeral in memory
 
-  // Only NOK in the main flat list. Sort by pin then name
-  const pending = useMemo(
-    () =>
-      localBranches
-        .filter((b) => b.testStatus === "nok")
-        .sort((a, b) => {
-          const ap =
-            typeof a.pinNumber === "number"
-              ? a.pinNumber
-              : Number.POSITIVE_INFINITY;
-          const bp =
-            typeof b.pinNumber === "number"
-              ? b.pinNumber
-              : Number.POSITIVE_INFINITY;
-          if (ap !== bp) return ap - bp;
-          return String(a.branchName).localeCompare(String(b.branchName));
-        }),
-    [localBranches]
-  );
-  useEffect(() => {
-    try {
-      if (DEBUG_LIVE)
-        console.log("[LIVE][SNAP] pending failures", { count: pending.length });
-    } catch {}
-  }, [pending.length]);
-
-  // Failures from server or derived from pending
-  const failurePins: number[] = useMemo(() => {
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-      return [
-        ...new Set(
-          (checkFailures as number[]).filter((n) => Number.isFinite(n))
-        ),
-      ].sort((a, b) => a - b);
-    }
-    const pins = pending
-      .map((b) => b.pinNumber)
-      .filter((n): n is number => typeof n === "number");
-    return [...new Set(pins)].sort((a, b) => a - b);
-  }, [checkFailures, pending]);
-
-  // helper: identify latch (contactless) pins
-  const isLatchPin = useCallback(
-    (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
-    [normalizedLatchPins]
-  );
-
   const unionNameByPin = useMemo(() => {
     const map: Record<number, string> = {};
     if (Array.isArray(groupedBranches)) {
@@ -729,6 +682,62 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       unionNameByPin[pin] ||
       `PIN ${pin}`,
     [nameHints, unionNameByPin]
+  );
+
+  // Only NOK in the main flat list. Sort by pin then name
+  const pending = useMemo(() => {
+    const nok = localBranches
+      .filter((b) => b.testStatus === "nok")
+      .sort((a, b) => {
+        const ap =
+          typeof a.pinNumber === "number"
+            ? a.pinNumber
+            : Number.POSITIVE_INFINITY;
+        const bp =
+          typeof b.pinNumber === "number"
+            ? b.pinNumber
+            : Number.POSITIVE_INFINITY;
+        if (ap !== bp) return ap - bp;
+        return String(a.branchName).localeCompare(String(b.branchName));
+      });
+    if (nok.length > 0) return nok;
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+      return checkFailures.map((pin) => ({
+        id: `FAIL:${pin}`,
+        branchName: labelForPin(pin),
+        testStatus: "nok" as const,
+        pinNumber: pin,
+        kfbInfoValue: undefined,
+      }));
+    }
+    return nok;
+  }, [localBranches, checkFailures, labelForPin]);
+  useEffect(() => {
+    try {
+      if (DEBUG_LIVE)
+        console.log("[LIVE][SNAP] pending failures", { count: pending.length });
+    } catch {}
+  }, [pending.length]);
+
+  // Failures from server or derived from pending
+  const failurePins: number[] = useMemo(() => {
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+      return [
+        ...new Set(
+          (checkFailures as number[]).filter((n) => Number.isFinite(n))
+        ),
+      ].sort((a, b) => a - b);
+    }
+    const pins = pending
+      .map((b) => b.pinNumber)
+      .filter((n): n is number => typeof n === "number");
+    return [...new Set(pins)].sort((a, b) => a - b);
+  }, [checkFailures, pending]);
+
+  // helper: identify latch (contactless) pins
+  const isLatchPin = useCallback(
+    (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
+    [normalizedLatchPins]
   );
 
   // All-OK gates

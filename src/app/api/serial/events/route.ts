@@ -182,7 +182,15 @@ export async function GET(req: Request) {
       heartbeat.unref?.();
 
       // bus → SSE
-      unsubscribe = onSerialEvent(e => send(e));
+      unsubscribe = onSerialEvent((e) => {
+        if (e && typeof e === 'object' && (e as any).type === 'ev') {
+          const ev = e as { type: string; kind?: string; mac?: string | null };
+          if (ev.kind === 'START' && ev.mac) {
+            currentMonitorMac = String(ev.mac || '').toUpperCase() || currentMonitorMac;
+          }
+        }
+        send(e);
+      });
 
       let currentMonitorMac: string | null = firstFilterMac;
 

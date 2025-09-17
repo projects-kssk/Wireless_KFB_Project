@@ -72,15 +72,19 @@ export default function SimulateCheckBar() {
     const ok = await loadSimulatorConfig();
     if (ok && isMountedRef.current) {
       setPanelOpen(true);
+      setBusy(false);
       setLast(null);
       setLive({ ...LIVE_INITIAL });
+      liveRef.current = { ...LIVE_INITIAL };
     }
   }, [panelOpen, loadingConfig, loadSimulatorConfig]);
 
   const handleClosePanel = React.useCallback(() => {
     setPanelOpen(false);
+    setBusy(false);
     setLast(null);
     setLive({ ...LIVE_INITIAL });
+    liveRef.current = { ...LIVE_INITIAL };
   }, []);
 
   // Listen to EV stream for START/DONE and count when monitoring
@@ -187,7 +191,7 @@ export default function SimulateCheckBar() {
         const detail = { code: mac.toUpperCase(), trigger: 'simulate', allowDuringSetup: true };
         window.dispatchEvent(new CustomEvent('kfb:sim-scan', { detail }));
       } catch {}
-      // Optional fallback: only if enabled and no START was seen soon after the single scan
+      // Optional fallback: only if the toggle is enabled and no START was seen soon after the single scan
       if (useFallbackCheck) {
         setTimeout(async () => {
           try {
@@ -220,7 +224,9 @@ export default function SimulateCheckBar() {
       const r = await fetch('/api/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: (mac||'').toUpperCase().trim() || undefined, ...body }) });
       const j = await r.json().catch(()=>null);
       const fp = j?.config?.failurePins as any[] | undefined;
-      if (Array.isArray(fp)) setSimFailing(new Set(fp.map(Number)));
+      if (Array.isArray(fp)) {
+        setSimFailing(new Set(fp.map(Number).filter((n) => Number.isFinite(n) && n > 0)));
+      }
     } catch {}
   };
   const togglePin = async (pin: number) => { await apply({ togglePin: pin }); };
@@ -228,7 +234,15 @@ export default function SimulateCheckBar() {
   const clearFails = async () => { await apply({ scenario: 'success', failurePins: [] }); };
 
   if (!panelOpen) {
-    if (available === false) return null;
+    if (available === false) {
+      return (
+        <div style={{ position: 'fixed', right: 12, bottom: 120, zIndex: 50 }}>
+          <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.65)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.25)', fontSize: 11 }}>
+            Simulation disabled
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{ position: 'fixed', right: 12, bottom: 120, zIndex: 50 }}>
         <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8 }}>

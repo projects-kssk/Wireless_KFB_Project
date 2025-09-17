@@ -1451,6 +1451,43 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
     return (
       <div className="w-full p-6">
+        {failurePins.length > 0 && (
+          <div className="mb-4">
+            <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">
+              Missing items
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {failurePins.map((pin) => {
+                const nm =
+                  (nameHints && nameHints[String(pin)]) || `PIN ${pin}`;
+                const latch = isLatchPin(pin);
+                return (
+                  <div
+                    key={`flat-miss-${pin}`}
+                    className="group inline-flex items-center flex-wrap gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 shadow-sm"
+                    title={`PIN ${pin}${latch ? " (Contactless)" : ""}`}
+                  >
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
+                      !
+                    </span>
+                    <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
+                      {nm}
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
+                      PIN {pin}
+                    </span>
+                    {latch && (
+                      <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]">
+                        Contactless
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
           {pending.map((branch) => (
             <BranchCard key={branch.id} branch={branch} />

@@ -17,6 +17,8 @@ import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
+const ENTER_LIVE_ON_FAILURE =
+  String(process.env.NEXT_PUBLIC_LIVE_ON_FAILURE || "").trim() === "1";
 
 /* --------------------------------------------------------------------------------
  * Small, dependency-free HUD for Scan/Idle/Toast states
@@ -445,8 +447,8 @@ const MainApplicationUI: React.FC = () => {
   const serial = useSerialEvents(
     // In simulation, keep SSE active even while suppressLive to reflect pin toggles immediately
     (suppressLive && !FLAGS.SIMULATE) ||
-    setupScanActive ||
-    !(macAddress && macAddress.trim())
+      setupScanActive ||
+      !(macAddress && macAddress.trim())
       ? undefined
       : (macAddress || "").toUpperCase(),
     {
@@ -867,9 +869,7 @@ const MainApplicationUI: React.FC = () => {
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
   const handleScanRef = useRef<
-    (code: string, trig?: ScanTrigger, force?: boolean) =>
-      | void
-      | Promise<void>
+    (code: string, trig?: ScanTrigger, force?: boolean) => void | Promise<void>
   >(() => {});
 
   const handleResetKfb = useCallback(() => {
@@ -1222,10 +1222,7 @@ const MainApplicationUI: React.FC = () => {
       if (guardUntil && nowTs < guardUntil) return;
       guard.set(mac, nowTs + guardWindowMs);
       try {
-        if (
-          WAIT_FOR_START_BEFORE_FINALIZE_MS > 0 &&
-          START_SEEN_TTL_MS > 0
-        ) {
+        if (WAIT_FOR_START_BEFORE_FINALIZE_MS > 0 && START_SEEN_TTL_MS > 0) {
           const firstSeen = startSeenRef.current.get(mac) || 0;
           let seenRecently =
             firstSeen && Date.now() - firstSeen <= START_SEEN_TTL_MS;
@@ -1524,7 +1521,7 @@ const MainApplicationUI: React.FC = () => {
   // Finalization on RESULT/DONE:OK
   useEffect(() => {
     if (setupScanActive) return;
-    if (suppressLive) return;
+
     const ev = (serial as any).lastEv as {
       kind?: string;
       mac?: string | null;
@@ -1620,6 +1617,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Enter live mode on RESULT/DONE failures as a fallback (e.g., missed START)
   useEffect(() => {
+    if (!ENTER_LIVE_ON_FAILURE) return;
     if (setupScanActive) return;
     if (suppressLive) return;
     const ev = (serial as any).lastEv as {
@@ -1654,8 +1652,13 @@ const MainApplicationUI: React.FC = () => {
     if (matches && isResultish && isFailure && !isCheckingRef.current) {
       try {
         if (DEBUG_LIVE)
-          console.log("[LIVE] Fallback enter on failure event", { raw });
+          console.log(
+            "[LIVE] Fallback enter on failure event → enabling live",
+            { raw }
+          );
       } catch {}
+      // Force-enable live even if it was previously suppressed by an OK finalize
+      setSuppressLive(false);
       setIsChecking(true);
       okFlashAllowedRef.current = true;
 
@@ -1684,9 +1687,9 @@ const MainApplicationUI: React.FC = () => {
   }, [
     (serial as any).lastEvTick,
     macAddress,
-    suppressLive,
     START_SEEN_TTL_MS,
     setupScanActive,
+    suppressLive,
   ]);
 
   const runCheck = useCallback(
@@ -1714,6 +1717,7 @@ const MainApplicationUI: React.FC = () => {
         }
       }
 
+      setSuppressLive(false);
       setIsChecking(true);
       // Safety: if device never sends final RESULT/DONE, auto-unstick
       schedule(
@@ -2083,7 +2087,10 @@ const MainApplicationUI: React.FC = () => {
                       (pin: number) =>
                         ({
                           id: String(pin),
-                          branchName: `PIN ${pin}`,
+                          branchName:
+                            hints?.[String(pin)] ??
+                            nameHints?.[String(pin)] ??
+                            `PIN ${pin}`,
                           testStatus: "nok" as TestStatus,
                           pinNumber: pin,
                           kfbInfoValue: undefined,
@@ -2119,6 +2126,10 @@ const MainApplicationUI: React.FC = () => {
             }
             return;
           } else {
+            // Failure path: stay OUT of live; just show MAC + missing CLs
+            setSuppressLive(true);
+            okFlashAllowedRef.current = false;
+            setIsChecking(false);
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
@@ -2271,6 +2282,7 @@ const MainApplicationUI: React.FC = () => {
       latchPins,
       activeKssks,
       handleResetKfb,
+      nameHints,
       setupScanActive,
     ]
   );
@@ -2553,7 +2565,10 @@ const MainApplicationUI: React.FC = () => {
                 pins = Array.from(pinSet).sort((x, y) => x - y);
               // Always try to fetch union to collect aliases
               try {
-                const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: "no-store" });
+                const rUnion = await fetch(
+                  `/api/aliases?mac=${encodeURIComponent(mac)}`,
+                  { cache: "no-store" }
+                );
                 if (rUnion.ok) {
                   const jU = await rUnion.json();
                   const aU =

@@ -52,6 +52,7 @@ Scanners
 - Index routing:
   - `NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD=0`
   - `NEXT_PUBLIC_SCANNER_INDEX_SETUP=1` (used by Setup view; here for reference)
+- Force dashboard to a specific port: `NEXT_PUBLIC_SCANNER_PATH_DASHBOARD=/dev/ttyACM1`
 
 Krosy (for checkpoint and identity)
 - `NEXT_PUBLIC_KROSY_ONLINE=true|false`

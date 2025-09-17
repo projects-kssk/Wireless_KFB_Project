@@ -13,6 +13,7 @@ import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
 import { Header } from "@/components/Header/Header";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
+import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
@@ -27,53 +28,6 @@ type HudMode = "idle" | "scanning" | "info" | "error";
  * Existing app logic
  * -------------------------------------------------------------------------------*/
 
-async function hasSetupDataForMac(mac: string): Promise<boolean> {
-  // Guard against partial MACs while UI builds
-  try {
-    const mm = String(mac || "").toUpperCase();
-    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
-    if (!MAC_RE.test(mm)) return false;
-  } catch {}
-  try {
-    const rAll = await fetch(
-      `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
-      { cache: "no-store" }
-    );
-    if (rAll.ok) {
-      const j = await rAll.json();
-      const items: Array<{
-        aliases?: Record<string, string>;
-        normalPins?: number[];
-        latchPins?: number[];
-      }> = Array.isArray(j?.items) ? j.items : [];
-      const any = items.some((it) => {
-        const a =
-          it.aliases &&
-          typeof it.aliases === "object" &&
-          Object.keys(it.aliases).length > 0;
-        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
-        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
-        return !!(a || np || lp);
-      });
-      if (any) return true;
-    }
-    const rOne = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, {
-      cache: "no-store",
-    });
-    if (rOne.ok) {
-      const ju = await rOne.json();
-      const a =
-        ju &&
-        typeof ju.aliases === "object" &&
-        Object.keys(ju.aliases || {}).length > 0;
-      const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
-      const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
-      return !!(a || np || lp);
-    }
-  } catch {}
-  return false;
-}
-
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 const isAcmPath = (p?: string | null) =>
   !p ||
@@ -82,7 +36,7 @@ const isAcmPath = (p?: string | null) =>
   /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
   /\/by-id\/.*(ACM|USB)\d+/i.test(p);
 
-const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
 const canonicalMac = (raw: string): string | null => {
   const s = String(raw || "").trim();
   if (!s) return null;
@@ -191,6 +145,17 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>("dashboard");
+  const [setupScanActive, setSetupScanActive] = useState(() =>
+    readScanScope("setup")
+  );
+  useEffect(() => {
+    const unsubscribe = subscribeScanScope("setup", setSetupScanActive);
+    return () => {
+      try {
+        unsubscribe();
+      } catch {}
+    };
+  }, []);
 
   // Data / process state
   const [branchesData, setBranchesData] = useState<BranchDisplayData[]>([]);
@@ -339,6 +304,7 @@ const MainApplicationUI: React.FC = () => {
   // Suppress the empty-hint toast briefly after a successful finalize
   const suppressEmptyHintUntilRef = useRef<number>(0);
   const emptyScanCooldownRef = useRef<Map<string, number>>(new Map());
+  const emptyCheckCooldownRef = useRef<Map<string, number>>(new Map());
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(
@@ -466,27 +432,6 @@ const MainApplicationUI: React.FC = () => {
   };
   const scanOverlayTimerRef = useRef<number | null>(null);
   const scanStartedAtRef = useRef<number | null>(null);
-  const MIN_SCAN_UI_MS = Math.max(
-    500,
-    Number(process.env.NEXT_PUBLIC_MIN_SCAN_UI_MS ?? "1000")
-  );
-
-  const startScanOverlayTimeout = (
-    ms = Math.max(
-      1000,
-      Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? "3000")
-    )
-  ) => {
-    if (scanOverlayTimerRef.current != null) {
-      try {
-        clearTimeout(scanOverlayTimerRef.current);
-      } catch {}
-      scanOverlayTimerRef.current = null;
-    }
-    scanOverlayTimerRef.current = window.setTimeout(() => {
-      scanOverlayTimerRef.current = null;
-    }, ms);
-  };
   const clearScanOverlayTimeout = () => {
     if (scanOverlayTimerRef.current != null) {
       try {
@@ -499,11 +444,16 @@ const MainApplicationUI: React.FC = () => {
   /* Live serial */
   const serial = useSerialEvents(
     // In simulation, keep SSE active even while suppressLive to reflect pin toggles immediately
-    (suppressLive && !FLAGS.SIMULATE) || !(macAddress && macAddress.trim())
+    (suppressLive && !FLAGS.SIMULATE) ||
+    setupScanActive ||
+    !(macAddress && macAddress.trim())
       ? undefined
       : (macAddress || "").toUpperCase(),
     {
-      disabled: (suppressLive && !FLAGS.SIMULATE) || mainView !== "dashboard",
+      disabled:
+        setupScanActive ||
+        (suppressLive && !FLAGS.SIMULATE) ||
+        mainView !== "dashboard",
       base: true,
     }
   );
@@ -512,6 +462,7 @@ const MainApplicationUI: React.FC = () => {
   const liveStateRef = useRef<string>("off");
   const lastLiveMacRef = useRef<string | null>(null);
   useEffect(() => {
+    if (setupScanActive) return;
     const hasMac = !!(macAddress && macAddress.trim());
     const on = hasMac && !suppressLive && mainView === "dashboard";
     const next = on ? "on" : "off";
@@ -557,7 +508,7 @@ const MainApplicationUI: React.FC = () => {
         }
       } catch {}
     }
-  }, [macAddress, suppressLive, mainView]);
+  }, [macAddress, suppressLive, mainView, setupScanActive]);
 
   const lastScanPath = (serial as any).lastScanPath as
     | string
@@ -569,6 +520,9 @@ const MainApplicationUI: React.FC = () => {
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
   );
+  const DASH_SCANNER_PATH = (
+    process.env.NEXT_PUBLIC_SCANNER_PATH_DASHBOARD || ""
+  ).trim();
   const pathsEqual = (a?: string | null, b?: string | null) => {
     if (!a || !b) return false;
     if (a === b) return true;
@@ -586,19 +540,24 @@ const MainApplicationUI: React.FC = () => {
   };
   const resolveDesiredPath = (): string | null => {
     const list: string[] = (serial as any).scannerPaths || [];
-    if (Array.isArray(list) && list.length) {
-      // Prefer explicit ACM0 path when present
-      const acm0 = list.find(
-        (p) => /(^|\/)ttyACM0$/.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p)
-      );
-      if (acm0) return acm0;
-      // Fallback: USB0 if your scanner enumerates as USB
-      const usb0 = list.find(
-        (p) => /(^|\/)ttyUSB0$/.test(p) || /(\/|^)(USB)0(?!\d)/i.test(p)
-      );
-      if (usb0) return usb0;
-      if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+    if (!Array.isArray(list) || !list.length) return null;
+
+    if (DASH_SCANNER_PATH) {
+      const fixed = list.find((p) => pathsEqual(p, DASH_SCANNER_PATH));
+      if (fixed) return fixed;
     }
+
+    const acm1 = list.find(
+      (p) => /(^|\/)ttyACM1$/i.test(p) || /(\/|^)(ACM)1(?!\d)/i.test(p)
+    );
+    if (acm1) return acm1;
+    const usb1 = list.find(
+      (p) => /(^|\/)ttyUSB1$/i.test(p) || /(\/|^)(USB)1(?!\d)/i.test(p)
+    );
+    if (usb1) return usb1;
+
+    if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+
     return null;
   };
 
@@ -684,6 +643,7 @@ const MainApplicationUI: React.FC = () => {
 
   // SSE union listener (restricted when degraded)
   useEffect(() => {
+    if (setupScanActive) return;
     const u = (serial as any).lastUnion as {
       mac?: string;
       normalPins?: number[];
@@ -732,6 +692,7 @@ const MainApplicationUI: React.FC = () => {
     suppressLive,
     activeKssks,
     computeActivePins,
+    setupScanActive,
   ]);
 
   // On recovery, rehydrate + union refresh (opt-in, rate-limited, active session only)
@@ -975,32 +936,7 @@ const MainApplicationUI: React.FC = () => {
     process.env.NEXT_PUBLIC_KROSY_RESULT_URL || ""
   ).trim();
   const isHttpUrl = (u?: string | null) => !!u && /^(https?:)\/\//i.test(u);
-  const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
-  const KROSY_SOURCE =
-    process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
-  const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
-  const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || "").trim();
-  const [krosyLive, setKrosyLive] = useState(
-    String(process.env.NEXT_PUBLIC_KROSY_ONLINE) === "true"
-  );
-  useEffect(() => {
-    (async () => {
-      try {
-        const idUrl =
-          process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL || "/api/krosy/checkpoint";
-        const r = await fetch(idUrl, {
-          headers: { Accept: "application/json" },
-          cache: "no-store",
-        });
-        if (!r.ok) return;
-        const j = await r.json();
-        const ip = String(j?.ip || "").trim();
-        if (ip && IP_ONLINE && ip === IP_ONLINE) setKrosyLive(true);
-        else if (ip && IP_OFFLINE && ip === IP_OFFLINE) setKrosyLive(false);
-      } catch {}
-    })();
-  }, []);
-  const checkpointSentRef = useRef<Set<string>>(new Set());
+  const checkpointSentByMacRef = useRef<Map<string, Set<string>>>(new Map());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const lastActiveIdsRef = useRef<string[]>([]);
@@ -1008,6 +944,16 @@ const MainApplicationUI: React.FC = () => {
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       const MAC = mac.toUpperCase();
+      const backoffUntil = checkpointBlockUntilTsRef.current || 0;
+      if (Date.now() < backoffUntil) {
+        try {
+          console.warn("[FLOW][CHECKPOINT] backoff active; skip", {
+            mac: MAC,
+            remainingMs: backoffUntil - Date.now(),
+          });
+        } catch {}
+        return false;
+      }
       // Do not suppress on backoff when finalizing OK; attempt anyway
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
@@ -1052,8 +998,10 @@ const MainApplicationUI: React.FC = () => {
         }
 
         let sent = false;
+        const sentSet =
+          checkpointSentByMacRef.current.get(MAC) ?? new Set<string>();
         for (const id of ids) {
-          if (checkpointSentRef.current.has(id)) continue;
+          if (sentSet.has(id)) continue;
           let workingDataXml: string | null = null;
           // Try a few times in case Redis is momentarily degraded
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -1190,7 +1138,8 @@ const MainApplicationUI: React.FC = () => {
                 } catch {}
               }
             } else {
-              checkpointSentRef.current.add(id);
+              sentSet.add(id);
+              checkpointSentByMacRef.current.set(MAC, sentSet);
               sent = true;
               try {
                 const logPath =
@@ -1216,7 +1165,7 @@ const MainApplicationUI: React.FC = () => {
         checkpointMacPendingRef.current.delete(MAC);
       }
     },
-    [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]
+    [CHECKPOINT_URL]
   );
 
   async function clearKskLocksFully(mac: string): Promise<boolean> {
@@ -1495,7 +1444,7 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
       } finally {
         try {
-          checkpointSentRef.current.clear();
+          checkpointSentByMacRef.current.delete(mac);
         } catch {}
         try {
           // Block XML reads for this MAC shortly after we clear aliases to avoid not_found noise
@@ -1522,7 +1471,6 @@ const MainApplicationUI: React.FC = () => {
     [
       START_SEEN_TTL_MS,
       WAIT_FOR_START_BEFORE_FINALIZE_MS,
-      hasSetupDataForMac,
       sendCheckpointForMac,
       handleResetKfb,
       clearKskLocksFully,
@@ -1573,6 +1521,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Finalization on RESULT/DONE:OK
   useEffect(() => {
+    if (setupScanActive) return;
     if (suppressLive) return;
     const ev = (serial as any).lastEv as {
       kind?: string;
@@ -1655,6 +1604,7 @@ const MainApplicationUI: React.FC = () => {
         okShownOnceRef.current = true;
         setOkFlashTick((t) => t + 1);
       }
+      okFlashAllowedRef.current = false;
       finalizeOkForMac(evMac || current);
     }
   }, [
@@ -1662,11 +1612,13 @@ const MainApplicationUI: React.FC = () => {
     macAddress,
     suppressLive,
     START_SEEN_TTL_MS,
+    setupScanActive,
     finalizeOkForMac,
   ]);
 
   // Enter live mode on RESULT/DONE failures as a fallback (e.g., missed START)
   useEffect(() => {
+    if (setupScanActive) return;
     if (suppressLive) return;
     const ev = (serial as any).lastEv as {
       kind?: string;
@@ -1732,17 +1684,40 @@ const MainApplicationUI: React.FC = () => {
     macAddress,
     suppressLive,
     START_SEEN_TTL_MS,
+    setupScanActive,
   ]);
 
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
+      if (setupScanActive) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][CHECK] suppressed (setup active)", {
+            mac,
+            attempt,
+          });
+        return;
+      }
+      const MAC = String(mac).toUpperCase();
+      const noPins = !Array.isArray(pins) || pins.length === 0;
+      if (noPins) {
+        const until = emptyCheckCooldownRef.current.get(MAC) || 0;
+        if (Date.now() < until) {
+          if (DEBUG_LIVE)
+            console.log("[FLOW][CHECK] skip empty check (cooldown)", {
+              mac: MAC,
+              remainingMs: until - Date.now(),
+            });
+          return;
+        }
+      }
 
       setIsChecking(true);
       // Safety: if device never sends final RESULT/DONE, auto-unstick
       schedule(
         "checkWatchdog",
         () => {
+          if (okForcedRef.current) return;
           if (isCheckingRef.current) {
             try {
               console.warn("[FLOW][CHECK] watchdog fired; un-sticking");
@@ -2118,6 +2093,14 @@ const MainApplicationUI: React.FC = () => {
           );
 
           if (!unknown && failures.length === 0) {
+            if (noPins) {
+              try {
+                emptyCheckCooldownRef.current.set(
+                  MAC,
+                  Date.now() + Math.max(3000, CFG.RETRY_COOLDOWN_MS)
+                );
+              } catch {}
+            }
             // Consistency with LIVE OK: perform finalize (checkpoint + clear) first,
             // then trigger the OK flash. This shows OK after cleanup.
             clearScanOverlayTimeout();
@@ -2286,6 +2269,7 @@ const MainApplicationUI: React.FC = () => {
       latchPins,
       activeKssks,
       handleResetKfb,
+      setupScanActive,
     ]
   );
 
@@ -2296,6 +2280,17 @@ const MainApplicationUI: React.FC = () => {
       source: "scan" | "manual" = "scan",
       trigger: ScanTrigger = "sse"
     ) => {
+      if (setupScanActive) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][LOAD] skip; setup flow owns scanner", {
+            value,
+            source,
+            trigger,
+          });
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
+      }
       try {
         console.log("[FLOW][LOAD] start", {
           source,
@@ -2342,11 +2337,12 @@ const MainApplicationUI: React.FC = () => {
         const macForCooldown = mac;
         if (macForCooldown) {
           const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
-          if (trigger !== "manual" && Date.now() < until) {
+          if (Date.now() < until) {
             try {
               console.info("[FLOW][LOAD] skip; empty cooldown active", {
                 mac: macForCooldown,
                 remainingMs: until - Date.now(),
+                trigger,
               });
             } catch {}
             setIsScanning(false);
@@ -2748,6 +2744,15 @@ const MainApplicationUI: React.FC = () => {
               } catch {}
             } catch {}
           }
+          try {
+            const macUp = (mac || "").toUpperCase();
+            if (macUp) {
+              emptyScanCooldownRef.current.set(
+                macUp,
+                Date.now() + Math.max(3000, CFG.RETRY_COOLDOWN_MS)
+              );
+            }
+          } catch {}
         }
 
         // Proceed to CHECK (supports server-side pin merge)
@@ -2773,13 +2778,21 @@ const MainApplicationUI: React.FC = () => {
         setShowScanUi(false);
       }
     },
-    [runCheck]
+    [runCheck, setupScanActive]
   );
 
   type ScanTrigger = "sse" | "poll" | "manual";
 
   const handleScan = useCallback(
     async (raw: string, trig: ScanTrigger = "sse") => {
+      if (setupScanActive && trig !== "manual") {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][SCAN] ignored because setup is active", {
+            raw,
+            trigger: trig,
+          });
+        return;
+      }
       // Global cooldown after a check completes or stuck-scan path (but allow manual/armed scans)
       if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0))
         return;
@@ -2818,11 +2831,7 @@ const MainApplicationUI: React.FC = () => {
           console.log("[FLOW][SCAN] drop: recently finalized", { normalized });
         return;
       }
-      if (
-        blockedMacRef.current.has(normalized) ||
-        (canonicalMac(normalized) &&
-          blockedMacRef.current.has(canonicalMac(normalized)!.toUpperCase()))
-      ) {
+      if (blockedMacRef.current.has(normalized)) {
         try {
           console.log("[FLOW][SCAN] blocked (cooldown)", { normalized });
         } catch {}
@@ -2864,7 +2873,7 @@ const MainApplicationUI: React.FC = () => {
         }, 300);
       }
     },
-    [FINALIZED_RESCAN_BLOCK_MS, loadBranchesData]
+    [FINALIZED_RESCAN_BLOCK_MS, loadBranchesData, setupScanActive]
   );
 
   useEffect(() => {
@@ -2878,7 +2887,9 @@ const MainApplicationUI: React.FC = () => {
         const anyEv = e as any;
         const code = String(anyEv?.detail?.code || "").trim();
         if (!code) return;
-        void handleScanRef.current?.(code, "manual");
+        if (!setupScanActive) {
+          void handleScanRef.current?.(code, "manual");
+        }
       } catch {}
     };
     try {
@@ -2889,11 +2900,12 @@ const MainApplicationUI: React.FC = () => {
         window.removeEventListener("kfb:sim-scan", onSimScan as any);
       } catch {}
     };
-  }, []);
+  }, [setupScanActive]);
 
   // Consume SSE scanner events (gated by desired port);
   // ignore background scans when no MAC unless armedOnce or ALLOW_IDLE_SCANS
   useEffect(() => {
+    if (setupScanActive) return;
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!(serial as any).lastScanTick) return;
@@ -2904,15 +2916,20 @@ const MainApplicationUI: React.FC = () => {
       return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    const pathMismatch = want && seen && !pathsEqual(seen, want);
-    if (pathMismatch && !armedOnce) {
-      try {
-        console.warn("[SCAN] ignoring scan from different path", {
-          expected: want,
-          got: seen,
-        });
-      } catch {}
-      return;
+    if (!armedOnce) {
+      if (!want) {
+        if (DEBUG_LIVE)
+          console.warn("[SCAN] no dashboard scanner path resolved; ignoring");
+        return;
+      }
+      if (!seen || !pathsEqual(seen, want)) {
+        if (DEBUG_LIVE)
+          console.warn("[SCAN] ignoring scan from different path", {
+            expected: want,
+            got: seen || null,
+          });
+        return;
+      }
     }
     const code = (serial as any).lastScan;
     if (!code) return;
@@ -2953,6 +2970,7 @@ const MainApplicationUI: React.FC = () => {
     handleScan,
     mainView,
     isSettingsSidebarOpen,
+    setupScanActive,
   ]);
 
   // Polling fallback (explicit opt-in). Poll when SSE is disconnected OR when last scan is stale.
@@ -2960,6 +2978,7 @@ const MainApplicationUI: React.FC = () => {
     if (!FLAGS.SCANNER_POLL) return;
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (setupScanActive) return;
     // Only poll when truly idle on the scan screen (no active MAC and not checking/scanning)
     if (suppressLive) return;
     if (macAddress && macAddress.trim()) return;
@@ -3122,6 +3141,7 @@ const MainApplicationUI: React.FC = () => {
     suppressLive,
     (serial as any).lastScanAt,
     (serial as any).sseConnected,
+    setupScanActive,
   ]);
 
   // Process most recent queued scan after CHECK ends (guarded)

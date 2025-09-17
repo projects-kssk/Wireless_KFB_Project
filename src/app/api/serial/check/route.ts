@@ -685,10 +685,33 @@ async function sendCheckpointFromAliases(macUp: string, requestId: string) {
       if (s.startsWith('/')) return `http://127.0.0.1:${String(process.env.PORT || '3003')}${s}`;
       return null;
     };
-    const cpUrl =
-      toAbs(process.env.KROSY_CHECKPOINT_URL) ||
+    const boolEnv = (value?: string | null) => {
+      const token = String(value || "").trim().toLowerCase();
+      if (!token) return false;
+      return token === "1" || token === "true" || token === "yes";
+    };
+    const resolveOnlineFlag = () => {
+      const raw =
+        process.env.KROSY_ONLINE ?? process.env.NEXT_PUBLIC_KROSY_ONLINE;
+      if (raw === undefined) return true;
+      return boolEnv(raw);
+    };
+    const onlineEnabled = resolveOnlineFlag();
+    const simulateEnabled = boolEnv(process.env.SIMULATE) ||
+      boolEnv(process.env.NEXT_PUBLIC_SIMULATE);
+    const preferOffline = simulateEnabled || !onlineEnabled;
+
+    const offlineUrl =
+      toAbs(process.env.KROSY_CHECKPOINT_URL_OFFLINE) ||
+      toAbs(process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE) ||
+      `http://127.0.0.1:${String(process.env.PORT || '3003')}/api/krosy-offline/checkpoint`;
+    const onlineUrl =
       toAbs(process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE) ||
       `http://127.0.0.1:${String(process.env.PORT || '3003')}/api/krosy/checkpoint`;
+
+    const cpUrl =
+      toAbs(process.env.KROSY_CHECKPOINT_URL) ||
+      (preferOffline ? offlineUrl : onlineUrl);
     await fetch(cpUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

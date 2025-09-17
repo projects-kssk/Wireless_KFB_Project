@@ -14,6 +14,7 @@ import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import TableSwap from "@/components/Tables/TableSwap";
 import type { RefObject } from "react";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
+import { acquireScanScope, releaseScanScope } from "@/lib/scanScope";
 
 /* ===== Config ===== */
 // Krosy client HTTP timeout: prefer KROSY-specific; fallback to setup; default 30s
@@ -607,6 +608,22 @@ export default function SetupPage() {
   const [setupName, setSetupName] = useState<string>("");
   const sendBusyRef = useRef(false);
   const [simulateOn, setSimulateOn] = useState<boolean>(false);
+
+  useEffect(() => {
+    const token = acquireScanScope("setup");
+    const handleWindowExit = () => releaseScanScope("setup", token);
+    try {
+      window.addEventListener("beforeunload", handleWindowExit);
+      window.addEventListener("pagehide", handleWindowExit);
+    } catch {}
+    return () => {
+      try {
+        window.removeEventListener("beforeunload", handleWindowExit);
+        window.removeEventListener("pagehide", handleWindowExit);
+      } catch {}
+      handleWindowExit();
+    };
+  }, []);
 
   useEffect(() => {
     let stop = false;
@@ -1867,6 +1884,8 @@ export default function SetupPage() {
   const SETUP_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_SETUP ?? "1"
   );
+  const SETUP_SCANNER_PATH = (process.env.NEXT_PUBLIC_SCANNER_PATH_SETUP || "")
+    .trim();
   const pathsEqual = (a?: string | null, b?: string | null) => {
     if (!a || !b) return false;
     if (a === b) return true;
@@ -1884,14 +1903,20 @@ export default function SetupPage() {
   };
   const resolveDesiredPath = (): string | null => {
     const list = serial.scannerPaths || [];
-    if (Array.isArray(list) && list.length) {
-      const acm1 = list.find((p) => /(^|\/)ttyACM1$/.test(p));
-      if (acm1) return acm1;
-      const usb1 = list.find((p) => /(^|\/)ttyUSB1$/.test(p));
-      if (usb1) return usb1;
-      if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
+    if (!Array.isArray(list) || !list.length) return null;
+
+    if (SETUP_SCANNER_PATH) {
+      const fixed = list.find((p) => pathsEqual(p, SETUP_SCANNER_PATH));
+      if (fixed) return fixed;
     }
-    // Do not guess a device path; wait until scanner paths are discovered
+
+    const acm0 = list.find((p) => /(^|\/)ttyACM0$/i.test(p));
+    if (acm0) return acm0;
+    const usb0 = list.find((p) => /(^|\/)ttyUSB0$/i.test(p));
+    if (usb0) return usb0;
+
+    if (list[SETUP_SCANNER_INDEX]) return list[SETUP_SCANNER_INDEX] || null;
+
     return null;
   };
   const desiredPath = resolveDesiredPath();

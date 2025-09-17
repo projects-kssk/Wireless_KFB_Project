@@ -17,6 +17,8 @@ import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
+const ENTER_LIVE_ON_FAILURE =
+  String(process.env.NEXT_PUBLIC_LIVE_ON_FAILURE ?? "1").trim() === "1";
 
 /* --------------------------------------------------------------------------------
  * Small, dependency-free HUD for Scan/Idle/Toast states
@@ -28,53 +30,6 @@ type HudMode = "idle" | "scanning" | "info" | "error";
  * Existing app logic
  * -------------------------------------------------------------------------------*/
 
-async function hasSetupDataForMac(mac: string): Promise<boolean> {
-  // Guard against partial MACs while UI builds
-  try {
-    const mm = String(mac || "").toUpperCase();
-    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
-    if (!MAC_RE.test(mm)) return false;
-  } catch {}
-  try {
-    const rAll = await fetch(
-      `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
-      { cache: "no-store" }
-    );
-    if (rAll.ok) {
-      const j = await rAll.json();
-      const items: Array<{
-        aliases?: Record<string, string>;
-        normalPins?: number[];
-        latchPins?: number[];
-      }> = Array.isArray(j?.items) ? j.items : [];
-      const any = items.some((it) => {
-        const a =
-          it.aliases &&
-          typeof it.aliases === "object" &&
-          Object.keys(it.aliases).length > 0;
-        const np = Array.isArray(it.normalPins) && it.normalPins.length > 0;
-        const lp = Array.isArray(it.latchPins) && it.latchPins.length > 0;
-        return !!(a || np || lp);
-      });
-      if (any) return true;
-    }
-    const rOne = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, {
-      cache: "no-store",
-    });
-    if (rOne.ok) {
-      const ju = await rOne.json();
-      const a =
-        ju &&
-        typeof ju.aliases === "object" &&
-        Object.keys(ju.aliases || {}).length > 0;
-      const np = Array.isArray(ju?.normalPins) && ju.normalPins.length > 0;
-      const lp = Array.isArray(ju?.latchPins) && ju.latchPins.length > 0;
-      return !!(a || np || lp);
-    }
-  } catch {}
-  return false;
-}
-
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 const isAcmPath = (p?: string | null) =>
   !p ||
@@ -83,22 +38,7 @@ const isAcmPath = (p?: string | null) =>
   /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
   /\/by-id\/.*(ACM|USB)\d+/i.test(p);
 
-function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
-  if (!src) return fallback;
-  try {
-    if (src.startsWith("/") && src.lastIndexOf("/") > 0) {
-      const i = src.lastIndexOf("/");
-      return new RegExp(src.slice(1, i), src.slice(i + 1));
-    }
-    return new RegExp(src);
-  } catch (e) {
-    console.warn("Invalid NEXT_PUBLIC_KFB_REGEX. Using fallback.", e);
-    return fallback;
-  }
-}
-const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^KFB$/);
-
-const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
 const canonicalMac = (raw: string): string | null => {
   const s = String(raw || "").trim();
   if (!s) return null;
@@ -207,7 +147,7 @@ const MainApplicationUI: React.FC = () => {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
   const [isSettingsSidebarOpen, setIsSettingsSidebarOpen] = useState(false);
   const [mainView, setMainView] = useState<MainView>("dashboard");
-  const [setupScanActive, setSetupScanActive] = useState<boolean>(() =>
+  const [setupScanActive, setSetupScanActive] = useState(() =>
     readScanScope("setup")
   );
   useEffect(() => {
@@ -271,6 +211,11 @@ const MainApplicationUI: React.FC = () => {
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
+  const [lastFailureSummary, setLastFailureSummary] = useState<{
+    mac: string;
+    pins: number[];
+    hints?: Record<string, string>;
+  } | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
   // Reflect isChecking in a ref for async handlers
@@ -366,6 +311,7 @@ const MainApplicationUI: React.FC = () => {
   // Suppress the empty-hint toast briefly after a successful finalize
   const suppressEmptyHintUntilRef = useRef<number>(0);
   const emptyScanCooldownRef = useRef<Map<string, number>>(new Map());
+  const emptyCheckCooldownRef = useRef<Map<string, number>>(new Map());
 
   // Helper: compute active pins strictly from items for the currently active KSK ids
   const computeActivePins = useCallback(
@@ -493,27 +439,6 @@ const MainApplicationUI: React.FC = () => {
   };
   const scanOverlayTimerRef = useRef<number | null>(null);
   const scanStartedAtRef = useRef<number | null>(null);
-  const MIN_SCAN_UI_MS = Math.max(
-    500,
-    Number(process.env.NEXT_PUBLIC_MIN_SCAN_UI_MS ?? "1000")
-  );
-
-  const startScanOverlayTimeout = (
-    ms = Math.max(
-      1000,
-      Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? "3000")
-    )
-  ) => {
-    if (scanOverlayTimerRef.current != null) {
-      try {
-        clearTimeout(scanOverlayTimerRef.current);
-      } catch {}
-      scanOverlayTimerRef.current = null;
-    }
-    scanOverlayTimerRef.current = window.setTimeout(() => {
-      scanOverlayTimerRef.current = null;
-    }, ms);
-  };
   const clearScanOverlayTimeout = () => {
     if (scanOverlayTimerRef.current != null) {
       try {
@@ -526,7 +451,9 @@ const MainApplicationUI: React.FC = () => {
   /* Live serial */
   const serial = useSerialEvents(
     // In simulation, keep SSE active even while suppressLive to reflect pin toggles immediately
-    setupScanActive || (suppressLive && !FLAGS.SIMULATE)
+    (suppressLive && !FLAGS.SIMULATE) ||
+      setupScanActive ||
+      !(macAddress && macAddress.trim())
       ? undefined
       : (macAddress || "").toUpperCase(),
     {
@@ -542,6 +469,7 @@ const MainApplicationUI: React.FC = () => {
   const liveStateRef = useRef<string>("off");
   const lastLiveMacRef = useRef<string | null>(null);
   useEffect(() => {
+    if (setupScanActive) return;
     const hasMac = !!(macAddress && macAddress.trim());
     const on = hasMac && !suppressLive && mainView === "dashboard";
     const next = on ? "on" : "off";
@@ -587,7 +515,7 @@ const MainApplicationUI: React.FC = () => {
         }
       } catch {}
     }
-  }, [macAddress, suppressLive, mainView]);
+  }, [macAddress, suppressLive, mainView, setupScanActive]);
 
   const lastScanPath = (serial as any).lastScanPath as
     | string
@@ -599,6 +527,9 @@ const MainApplicationUI: React.FC = () => {
   const DASH_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
   );
+  const DASH_SCANNER_PATH = (
+    process.env.NEXT_PUBLIC_SCANNER_PATH_DASHBOARD || ""
+  ).trim();
   const pathsEqual = (a?: string | null, b?: string | null) => {
     if (!a || !b) return false;
     if (a === b) return true;
@@ -616,19 +547,24 @@ const MainApplicationUI: React.FC = () => {
   };
   const resolveDesiredPath = (): string | null => {
     const list: string[] = (serial as any).scannerPaths || [];
-    if (Array.isArray(list) && list.length) {
-      // Prefer explicit ACM0 path when present
-      const acm0 = list.find(
-        (p) => /(^|\/)ttyACM0$/.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p)
-      );
-      if (acm0) return acm0;
-      // Fallback: USB0 if your scanner enumerates as USB
-      const usb0 = list.find(
-        (p) => /(^|\/)ttyUSB0$/.test(p) || /(\/|^)(USB)0(?!\d)/i.test(p)
-      );
-      if (usb0) return usb0;
-      if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+    if (!Array.isArray(list) || !list.length) return null;
+
+    if (DASH_SCANNER_PATH) {
+      const fixed = list.find((p) => pathsEqual(p, DASH_SCANNER_PATH));
+      if (fixed) return fixed;
     }
+
+    const acm1 = list.find(
+      (p) => /(^|\/)ttyACM1$/i.test(p) || /(\/|^)(ACM)1(?!\d)/i.test(p)
+    );
+    if (acm1) return acm1;
+    const usb1 = list.find(
+      (p) => /(^|\/)ttyUSB1$/i.test(p) || /(\/|^)(USB)1(?!\d)/i.test(p)
+    );
+    if (usb1) return usb1;
+
+    if (list[DASH_SCANNER_INDEX]) return list[DASH_SCANNER_INDEX] || null;
+
     return null;
   };
 
@@ -714,6 +650,7 @@ const MainApplicationUI: React.FC = () => {
 
   // SSE union listener (restricted when degraded)
   useEffect(() => {
+    if (setupScanActive) return;
     const u = (serial as any).lastUnion as {
       mac?: string;
       normalPins?: number[];
@@ -753,7 +690,12 @@ const MainApplicationUI: React.FC = () => {
       );
       setNormalPins(fromItems.normal);
       setLatchPins(fromItems.latch);
-      if (u.names && typeof u.names === "object") setNameHints(u.names as any);
+      if (u.names && typeof u.names === "object") {
+        setNameHints((prev) => ({
+          ...(prev || {}),
+          ...(u.names as Record<string, string>),
+        }));
+      }
     } catch {}
   }, [
     (serial as any).lastUnion,
@@ -762,6 +704,7 @@ const MainApplicationUI: React.FC = () => {
     suppressLive,
     activeKssks,
     computeActivePins,
+    setupScanActive,
   ]);
 
   // On recovery, rehydrate + union refresh (opt-in, rate-limited, active session only)
@@ -813,6 +756,7 @@ const MainApplicationUI: React.FC = () => {
   const lastRunHadFailuresRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
   const lastScanTokenRef = useRef<string>("");
+  const startSeenRef = useRef<Map<string, number>>(new Map());
 
   // Auto-success when all branches OK
   useEffect(() => {
@@ -935,7 +879,7 @@ const MainApplicationUI: React.FC = () => {
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
   const handleScanRef = useRef<
-    (code: string, trig?: ScanTrigger) => void | Promise<void>
+    (code: string, trig?: ScanTrigger, force?: boolean) => void | Promise<void>
   >(() => {});
 
   const handleResetKfb = useCallback(() => {
@@ -954,6 +898,7 @@ const MainApplicationUI: React.FC = () => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
+    setLastFailureSummary(null);
     setNormalPins(undefined);
     setLatchPins(undefined);
 
@@ -1004,32 +949,7 @@ const MainApplicationUI: React.FC = () => {
     process.env.NEXT_PUBLIC_KROSY_RESULT_URL || ""
   ).trim();
   const isHttpUrl = (u?: string | null) => !!u && /^(https?:)\/\//i.test(u);
-  const KROSY_TARGET = process.env.NEXT_PUBLIC_KROSY_XML_TARGET || "ksskkfb01";
-  const KROSY_SOURCE =
-    process.env.NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME || KROSY_TARGET;
-  const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
-  const IP_OFFLINE = (process.env.NEXT_PUBLIC_KROSY_IP_OFFLINE || "").trim();
-  const [krosyLive, setKrosyLive] = useState(
-    String(process.env.NEXT_PUBLIC_KROSY_ONLINE) === "true"
-  );
-  useEffect(() => {
-    (async () => {
-      try {
-        const idUrl =
-          process.env.NEXT_PUBLIC_KROSY_IDENTITY_URL || "/api/krosy/checkpoint";
-        const r = await fetch(idUrl, {
-          headers: { Accept: "application/json" },
-          cache: "no-store",
-        });
-        if (!r.ok) return;
-        const j = await r.json();
-        const ip = String(j?.ip || "").trim();
-        if (ip && IP_ONLINE && ip === IP_ONLINE) setKrosyLive(true);
-        else if (ip && IP_OFFLINE && ip === IP_OFFLINE) setKrosyLive(false);
-      } catch {}
-    })();
-  }, []);
-  const checkpointSentRef = useRef<Set<string>>(new Set());
+  const checkpointSentByMacRef = useRef<Map<string, Set<string>>>(new Map());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const lastActiveIdsRef = useRef<string[]>([]);
@@ -1037,6 +957,16 @@ const MainApplicationUI: React.FC = () => {
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       const MAC = mac.toUpperCase();
+      const backoffUntil = checkpointBlockUntilTsRef.current || 0;
+      if (Date.now() < backoffUntil) {
+        try {
+          console.warn("[FLOW][CHECKPOINT] backoff active; skip", {
+            mac: MAC,
+            remainingMs: backoffUntil - Date.now(),
+          });
+        } catch {}
+        return false;
+      }
       // Do not suppress on backoff when finalizing OK; attempt anyway
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
@@ -1081,8 +1011,10 @@ const MainApplicationUI: React.FC = () => {
         }
 
         let sent = false;
+        const sentSet =
+          checkpointSentByMacRef.current.get(MAC) ?? new Set<string>();
         for (const id of ids) {
-          if (checkpointSentRef.current.has(id)) continue;
+          if (sentSet.has(id)) continue;
           let workingDataXml: string | null = null;
           // Try a few times in case Redis is momentarily degraded
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -1219,7 +1151,8 @@ const MainApplicationUI: React.FC = () => {
                 } catch {}
               }
             } else {
-              checkpointSentRef.current.add(id);
+              sentSet.add(id);
+              checkpointSentByMacRef.current.set(MAC, sentSet);
               sent = true;
               try {
                 const logPath =
@@ -1245,7 +1178,7 @@ const MainApplicationUI: React.FC = () => {
         checkpointMacPendingRef.current.delete(MAC);
       }
     },
-    [CHECKPOINT_URL, KROSY_SOURCE, KROSY_TARGET]
+    [CHECKPOINT_URL]
   );
 
   async function clearKskLocksFully(mac: string): Promise<boolean> {
@@ -1300,6 +1233,22 @@ const MainApplicationUI: React.FC = () => {
       if (guardUntil && nowTs < guardUntil) return;
       guard.set(mac, nowTs + guardWindowMs);
       try {
+        if (WAIT_FOR_START_BEFORE_FINALIZE_MS > 0 && START_SEEN_TTL_MS > 0) {
+          const firstSeen = startSeenRef.current.get(mac) || 0;
+          let seenRecently =
+            firstSeen && Date.now() - firstSeen <= START_SEEN_TTL_MS;
+          if (!seenRecently) {
+            const waitUntil = Date.now() + WAIT_FOR_START_BEFORE_FINALIZE_MS;
+            while (Date.now() < waitUntil) {
+              await new Promise((res) => setTimeout(res, 50));
+              const ts = startSeenRef.current.get(mac) || 0;
+              if (ts && Date.now() - ts <= START_SEEN_TTL_MS) {
+                seenRecently = true;
+                break;
+              }
+            }
+          }
+        }
         const last =
           (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(
             mac
@@ -1505,7 +1454,7 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
       } finally {
         try {
-          checkpointSentRef.current.clear();
+          checkpointSentByMacRef.current.delete(mac);
         } catch {}
         try {
           // Block XML reads for this MAC shortly after we clear aliases to avoid not_found noise
@@ -1523,11 +1472,15 @@ const MainApplicationUI: React.FC = () => {
             Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS)
           );
         } catch {}
+        try {
+          startSeenRef.current.delete(mac);
+        } catch {}
         handleResetKfb();
       }
     },
     [
-      hasSetupDataForMac,
+      START_SEEN_TTL_MS,
+      WAIT_FOR_START_BEFORE_FINALIZE_MS,
       sendCheckpointForMac,
       handleResetKfb,
       clearKskLocksFully,
@@ -1579,7 +1532,7 @@ const MainApplicationUI: React.FC = () => {
   // Finalization on RESULT/DONE:OK
   useEffect(() => {
     if (setupScanActive) return;
-    if (suppressLive) return;
+
     const ev = (serial as any).lastEv as {
       kind?: string;
       mac?: string | null;
@@ -1593,7 +1546,15 @@ const MainApplicationUI: React.FC = () => {
     const kind = String(ev.kind || "").toUpperCase();
     if (kind === "START") {
       const current = (macAddress || "").toUpperCase();
-      const evMac = String(ev.mac || "").toUpperCase();
+      let evMac = String(ev.mac || "").toUpperCase();
+      if (!evMac || evMac === ZERO_MAC) {
+        try {
+          const macs =
+            raw.toUpperCase().match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/g) || [];
+          const first = macs.find((m) => m !== ZERO_MAC);
+          if (first) evMac = first.toUpperCase();
+        } catch {}
+      }
       if (!current && evMac && evMac !== ZERO_MAC) {
         try {
           console.info("[LIVE] binding MAC from monitor start", { mac: evMac });
@@ -1604,6 +1565,17 @@ const MainApplicationUI: React.FC = () => {
       if (!current || (evMac && current === evMac)) {
         setIsChecking(true);
         okFlashAllowedRef.current = true;
+      }
+      if (evMac && evMac !== ZERO_MAC) {
+        const macUp = evMac.toUpperCase();
+        const seenAt = Date.now();
+        startSeenRef.current.set(macUp, seenAt);
+        window.setTimeout(() => {
+          const ts = startSeenRef.current.get(macUp) || 0;
+          if (ts && ts <= seenAt) {
+            startSeenRef.current.delete(macUp);
+          }
+        }, START_SEEN_TTL_MS);
       }
     }
     const ok =
@@ -1642,12 +1614,22 @@ const MainApplicationUI: React.FC = () => {
         okShownOnceRef.current = true;
         setOkFlashTick((t) => t + 1);
       }
+      okFlashAllowedRef.current = false;
       finalizeOkForMac(evMac || current);
     }
-  }, [(serial as any).lastEvTick, macAddress, suppressLive, finalizeOkForMac]);
+  }, [
+    (serial as any).lastEvTick,
+    macAddress,
+    suppressLive,
+    START_SEEN_TTL_MS,
+    setupScanActive,
+    finalizeOkForMac,
+  ]);
 
   // Enter live mode on RESULT/DONE failures as a fallback (e.g., missed START)
   useEffect(() => {
+    if (!ENTER_LIVE_ON_FAILURE) return;
+    if (setupScanActive) return;
     if (suppressLive) return;
     const ev = (serial as any).lastEv as {
       kind?: string;
@@ -1676,13 +1658,18 @@ const MainApplicationUI: React.FC = () => {
     const isFailure =
       String(ev.ok).toLowerCase() === "false" || /\bFAIL(?:URE)?\b/i.test(raw);
 
-    // If we got a failure event for the current MAC, but we're not in checking state,
-    // switch into live/checking mode so the UI shows live updates and failures.
-    if (matches && isResultish && isFailure && !isCheckingRef.current) {
+    // If we got a failure event for the current MAC, switch into live/checking mode
+    // so the UI surfaces the failure data even if a fetch is still in flight.
+    if (matches && isResultish && isFailure) {
       try {
         if (DEBUG_LIVE)
-          console.log("[LIVE] Fallback enter on failure event", { raw });
+          console.log(
+            "[LIVE] Fallback enter on failure event → enabling live",
+            { raw }
+          );
       } catch {}
+      // Force-enable live even if it was previously suppressed by an OK finalize
+      setSuppressLive(false);
       setIsChecking(true);
       okFlashAllowedRef.current = true;
 
@@ -1696,29 +1683,128 @@ const MainApplicationUI: React.FC = () => {
             .filter((n) => Number.isFinite(n));
           if (pins.length) {
             setCheckFailures(pins);
-            // Mark known branches as failed where possible
-            setBranchesData((prev) =>
-              prev.map((b) =>
-                pins.includes(Number(b.pinNumber))
-                  ? { ...b, testStatus: "nok" as const }
-                  : b
-              )
-            );
+            const groupNames = new Map<number, string>();
+            for (const group of lastGroupsRef.current || []) {
+              for (const branch of group.branches || []) {
+                const value =
+                  typeof branch.pinNumber === "number"
+                    ? branch.pinNumber
+                    : Number(branch.pinNumber);
+                if (Number.isFinite(value))
+                  groupNames.set(value, branch.branchName);
+              }
+            }
+            // Mark known branches as failed; append rows for missing pins.
+            setBranchesData((prev) => {
+              const pinSet = new Set(pins);
+              const existingNames = new Map<number, string>();
+              for (const b of prev) {
+                const value =
+                  typeof b.pinNumber === "number"
+                    ? b.pinNumber
+                    : Number(b.pinNumber);
+                if (Number.isFinite(value))
+                  existingNames.set(value, b.branchName);
+              }
+              const knownPins = new Set<number>(existingNames.keys());
+              const added = pins
+                .filter((p) => !knownPins.has(p))
+                .map((p) => {
+                  const key = String(p);
+                  const displayName =
+                    (nameHints && nameHints[key]) ??
+                    groupNames.get(p) ??
+                    existingNames.get(p) ??
+                    `PIN ${p}`;
+                  return {
+                    id: key,
+                    branchName: displayName,
+                    testStatus: "nok" as const,
+                    pinNumber: p,
+                    kfbInfoValue: undefined,
+                  } as BranchDisplayData;
+                });
+              const updated = prev.map((b) => {
+                const value =
+                  typeof b.pinNumber === "number"
+                    ? b.pinNumber
+                    : Number(b.pinNumber);
+                if (Number.isFinite(value) && pinSet.has(value)) {
+                  return { ...b, testStatus: "nok" as const };
+                }
+                return b;
+              });
+              return [...updated, ...added];
+            });
           }
         }
       } catch {}
     }
-  }, [(serial as any).lastEvTick, macAddress, suppressLive]);
+  }, [
+    (serial as any).lastEvTick,
+    macAddress,
+    START_SEEN_TTL_MS,
+    setupScanActive,
+    suppressLive,
+    ENTER_LIVE_ON_FAILURE,
+  ]);
 
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
+      if (setupScanActive) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][CHECK] suppressed (setup active)", {
+            mac,
+            attempt,
+          });
+        return;
+      }
+      const MAC = String(mac).toUpperCase();
+      const parsePins = (value: unknown): number[] => {
+        const out = new Set<number>();
+        const consume = (input: unknown) => {
+          if (Array.isArray(input)) {
+            for (const item of input) consume(item);
+            return;
+          }
+          if (typeof input === "number") {
+            if (Number.isFinite(input) && input > 0) out.add(Math.trunc(input));
+            return;
+          }
+          if (typeof input === "string") {
+            const parts = input.split(/[^0-9]+/);
+            for (const part of parts) {
+              if (!part) continue;
+              const n = Number.parseInt(part, 10);
+              if (Number.isFinite(n) && n > 0) out.add(n);
+            }
+            return;
+          }
+        };
+        consume(value);
+        return Array.from(out).sort((a, b) => a - b);
+      };
+      const noPins = !Array.isArray(pins) || pins.length === 0;
+      if (noPins) {
+        const until = emptyCheckCooldownRef.current.get(MAC) || 0;
+        if (Date.now() < until) {
+          if (DEBUG_LIVE)
+            console.log("[FLOW][CHECK] skip empty check (cooldown)", {
+              mac: MAC,
+              remainingMs: until - Date.now(),
+            });
+          return;
+        }
+      }
 
+      setSuppressLive(false);
       setIsChecking(true);
       // Safety: if device never sends final RESULT/DONE, auto-unstick
       schedule(
         "checkWatchdog",
         () => {
+          if (okForcedRef.current) return;
           if (isCheckingRef.current) {
             try {
               console.warn("[FLOW][CHECK] watchdog fired; un-sticking");
@@ -1742,6 +1828,7 @@ const MainApplicationUI: React.FC = () => {
         lastRunHadFailuresRef.current = false;
       } catch {}
       setCheckFailures(null);
+      setLastFailureSummary(null);
       setShowRemoveCable(false);
       setAwaitingRelease(false);
 
@@ -1801,16 +1888,85 @@ const MainApplicationUI: React.FC = () => {
               console.log("[FLOW][CHECK] cached active KSKs", activeIds);
           } catch {}
           clearRetryTimer();
-          const failures: number[] = result.failures || [];
+          const parsePins = (value: unknown): number[] => {
+            const normalize = (tokens: string[]): number[] =>
+              tokens
+                .map((token) => parseInt(token, 10))
+                .filter((num) => Number.isFinite(num));
+            if (Array.isArray(value)) {
+              return normalize(
+                value.flatMap((entry) =>
+                  String(entry)
+                    .split(/[^\d]+/)
+                    .filter((part) => part.length > 0)
+                )
+              );
+            }
+            if (typeof value === "string") {
+              return normalize(
+                value.split(/[^\d]+/).filter((part) => part.length > 0)
+              );
+            }
+            return [];
+          };
+
+          const failuresFromResult = parsePins((result as any)?.failures);
+          const failuresFromAltField = parsePins(
+            (result as any)?.missing ?? (result as any)?.failurePins
+          );
+          let failures: number[] = failuresFromResult.length
+            ? failuresFromResult
+            : failuresFromAltField;
+
+          if (!failures.length && typeof result?.line === "string") {
+            const fromLine = result.line.match(/MISSING\s+([0-9 ,]+)/i);
+            if (fromLine?.[1]) failures = parsePins(fromLine[1]);
+          }
+
+          const lineText = String(result?.line ?? result?.raw ?? "");
+          const explicitOk =
+            result?.ok === true || /\bSUCCESS\b/i.test(lineText);
+          const explicitFail =
+            result?.ok === false || /\bFAIL(?:URE)?\b/i.test(lineText);
           const unknown = result?.unknownFailure === true;
           try {
-            lastRunHadFailuresRef.current = unknown || failures.length > 0;
+            lastRunHadFailuresRef.current =
+              unknown || explicitFail || failures.length > 0;
           } catch {}
           const hints =
             result?.nameHints && typeof result.nameHints === "object"
               ? (result.nameHints as Record<string, string>)
               : undefined;
-          setNameHints(hints);
+          const combinedHints =
+            hints && Object.keys(hints).length
+              ? { ...(nameHints || {}), ...hints }
+              : nameHints;
+
+          if (failures.length) {
+            const hintsForDisplay = combinedHints || {};
+            startTransition(() => {
+              setBranchesData(() =>
+                failures.map((pin) => {
+                  const key = String(pin);
+                  const displayName = hintsForDisplay[key] ?? `PIN ${pin}`;
+                  return {
+                    id: key,
+                    branchName: displayName,
+                    testStatus: "nok" as TestStatus,
+                    pinNumber: pin,
+                    kfbInfoValue: undefined,
+                  } as BranchDisplayData;
+                })
+              );
+              setGroupedBranches([]);
+            });
+          }
+
+          setNameHints((prev) =>
+            hints && Object.keys(hints).length
+              ? { ...(prev || {}), ...hints }
+              : prev
+          );
           try {
             const n = Array.isArray(result?.normalPins)
               ? (result.normalPins as number[])
@@ -1822,6 +1978,15 @@ const MainApplicationUI: React.FC = () => {
             setLatchPins(l);
           } catch {}
           setCheckFailures(failures);
+          if (failures.length > 0) {
+            setLastFailureSummary({
+              mac: MAC,
+              pins: failures.slice(),
+              hints,
+            });
+          } else {
+            setLastFailureSummary(null);
+          }
           startTransition(() =>
             setBranchesData((_prev) => {
               const macUp = mac.toUpperCase();
@@ -1860,18 +2025,26 @@ const MainApplicationUI: React.FC = () => {
                   : latchPins || []
                 ).filter((n: number) => Number.isFinite(n)) as number[]
               );
-              const flat = pins.map((pin) => ({
-                id: String(pin),
-                branchName: aliases[String(pin)] || `PIN ${pin}`,
-                testStatus: failures.includes(pin)
-                  ? ("nok" as TestStatus)
-                  : contactless.has(pin)
-                    ? ("not_tested" as TestStatus)
-                    : ("ok" as TestStatus),
-                pinNumber: pin,
-                kfbInfoValue: undefined,
-                isLatch: contactless.has(pin),
-              }));
+              const flat = pins.map((pin) => {
+                const key = String(pin);
+                const displayName =
+                  (hints && hints[key]) ??
+                  (nameHints && nameHints[key]) ??
+                  aliases[key] ??
+                  `PIN ${pin}`;
+                return {
+                  id: key,
+                  branchName: displayName,
+                  testStatus: failures.includes(pin)
+                    ? ("nok" as TestStatus)
+                    : contactless.has(pin)
+                      ? ("not_tested" as TestStatus)
+                      : ("ok" as TestStatus),
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                  isLatch: contactless.has(pin),
+                } as BranchDisplayData;
+              });
               const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
                 ? ((result as any).itemsActive as Array<{
                     ksk?: string;
@@ -1973,12 +2146,16 @@ const MainApplicationUI: React.FC = () => {
                     ((it as any).ksk ?? (it as any).kssk) || ""
                   );
                   const branchesG = pinsG.map((pin) => {
-                    const nameRaw =
-                      a[String(pin)] || aliases[String(pin)] || "";
-                    const name = nameRaw ? String(nameRaw) : `PIN ${pin}`;
+                    const key = String(pin);
+                    const displayName =
+                      a[key] ??
+                      (hints && hints[key]) ??
+                      (nameHints && nameHints[key]) ??
+                      aliases[key] ??
+                      `PIN ${pin}`;
                     return {
                       id: `${idStr}:${pin}`,
-                      branchName: name,
+                      branchName: displayName,
                       testStatus: failures.includes(pin)
                         ? ("nok" as TestStatus)
                         : contactless.has(pin)
@@ -2022,16 +2199,21 @@ const MainApplicationUI: React.FC = () => {
                   (p: number) => Number.isFinite(p) && !knownPinsSet.has(p)
                 );
                 if (extraPins.length) {
-                  const extraBranches = extraPins.map(
-                    (pin) =>
-                      ({
-                        id: `CHECK:${pin}`,
-                        branchName: `PIN ${pin}`,
-                        testStatus: "nok" as TestStatus,
-                        pinNumber: pin,
-                        kfbInfoValue: undefined,
-                      }) as BranchDisplayData
-                  );
+                  const extraBranches = extraPins.map((pin) => {
+                    const key = String(pin);
+                    const displayName =
+                      (hints && hints[key]) ??
+                      (nameHints && nameHints[key]) ??
+                      aliases[key] ??
+                      `PIN ${pin}`;
+                    return {
+                      id: `CHECK:${pin}`,
+                      branchName: displayName,
+                      testStatus: "nok" as TestStatus,
+                      pinNumber: pin,
+                      kfbInfoValue: undefined,
+                    } as BranchDisplayData;
+                  });
                   groups.push({ ksk: "CHECK", branches: extraBranches });
                 }
                 const prev = lastGroupsRef.current || [];
@@ -2078,22 +2260,40 @@ const MainApplicationUI: React.FC = () => {
               return extras.length
                 ? [
                     ...flat,
-                    ...extras.map(
-                      (pin: number) =>
-                        ({
-                          id: String(pin),
-                          branchName: `PIN ${pin}`,
-                          testStatus: "nok" as TestStatus,
-                          pinNumber: pin,
-                          kfbInfoValue: undefined,
-                        }) as BranchDisplayData
-                    ),
+                    ...extras.map((pin: number) => {
+                      const key = String(pin);
+                      const displayName =
+                        (hints && hints[key]) ??
+                        (nameHints && nameHints[key]) ??
+                        aliases[key] ??
+                        `PIN ${pin}`;
+                      return {
+                        id: key,
+                        branchName: displayName,
+                        testStatus: "nok" as TestStatus,
+                        pinNumber: pin,
+                        kfbInfoValue: undefined,
+                      } as BranchDisplayData;
+                    }),
                   ]
                 : flat;
             })
           );
 
-          if (!unknown && failures.length === 0) {
+          if (
+            explicitOk &&
+            !explicitFail &&
+            !unknown &&
+            failures.length === 0
+          ) {
+            if (noPins) {
+              try {
+                emptyCheckCooldownRef.current.set(
+                  MAC,
+                  Date.now() + Math.max(3000, CFG.RETRY_COOLDOWN_MS)
+                );
+              } catch {}
+            }
             // Consistency with LIVE OK: perform finalize (checkpoint + clear) first,
             // then trigger the OK flash. This shows OK after cleanup.
             clearScanOverlayTimeout();
@@ -2110,6 +2310,16 @@ const MainApplicationUI: React.FC = () => {
             }
             return;
           } else {
+            if (ENTER_LIVE_ON_FAILURE) {
+              // Legacy behavior: keep live updates flowing so operators can react immediately.
+              setSuppressLive(false);
+              okFlashAllowedRef.current = true;
+            } else {
+              // Failure path: stay OUT of live; just show MAC + missing CLs
+              setSuppressLive(true);
+              okFlashAllowedRef.current = false;
+              setIsChecking(false);
+            }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
@@ -2165,6 +2375,7 @@ const MainApplicationUI: React.FC = () => {
                 setGroupedBranches([]);
                 setActiveKssks([]);
                 setNameHints(undefined);
+                setLastFailureSummary(null);
               }, 1300);
             }
             cancel("checkWatchdog");
@@ -2177,6 +2388,7 @@ const MainApplicationUI: React.FC = () => {
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
+              setLastFailureSummary(null);
             }, 1300);
             cancel("checkWatchdog");
           }
@@ -2200,6 +2412,7 @@ const MainApplicationUI: React.FC = () => {
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
+              setLastFailureSummary(null);
             }, 1300);
           }
           cancel("checkWatchdog");
@@ -2212,6 +2425,7 @@ const MainApplicationUI: React.FC = () => {
             setGroupedBranches([]);
             setActiveKssks([]);
             setNameHints(undefined);
+            setLastFailureSummary(null);
           }, 1300);
           cancel("checkWatchdog");
         }
@@ -2262,6 +2476,8 @@ const MainApplicationUI: React.FC = () => {
       latchPins,
       activeKssks,
       handleResetKfb,
+      nameHints,
+      setupScanActive,
     ]
   );
 
@@ -2270,8 +2486,20 @@ const MainApplicationUI: React.FC = () => {
     async (
       value?: string,
       source: "scan" | "manual" = "scan",
-      trigger: ScanTrigger = "sse"
+      trigger: ScanTrigger = "sse",
+      force = false
     ) => {
+      if (setupScanActive && !force) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][LOAD] skip; setup flow owns scanner", {
+            value,
+            source,
+            trigger,
+          });
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
+      }
       try {
         console.log("[FLOW][LOAD] start", {
           source,
@@ -2283,20 +2511,23 @@ const MainApplicationUI: React.FC = () => {
       try {
         console.log("[FLOW] State → scanning");
       } catch {}
-      const kfbRaw = (value ?? kfbInputRef.current).trim();
-      if (!kfbRaw) return;
-      const macCanon = canonicalMac(kfbRaw) || extractMac(kfbRaw);
-      const isMac = !!macCanon;
-      if (!isMac && !KFB_REGEX.test(kfbRaw)) {
-        if (source === "manual") {
-          setErrorMsg(
-            "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
-          );
-        }
-        console.warn("[FLOW][SCAN] rejected by patterns", { raw: kfbRaw });
+      const inputRaw = (value ?? kfbInputRef.current).trim();
+      if (!inputRaw) {
+        if (source === "manual") setErrorMsg("Empty code.");
         return;
       }
-      lastScanRef.current = kfbRaw.toUpperCase();
+      const macCanon = canonicalMac(inputRaw) || extractMac(inputRaw);
+      if (!macCanon) {
+        if (source === "manual") {
+          setErrorMsg(
+            "Invalid MAC. Please scan a full 12-hex MAC (e.g., AA:BB:CC:DD:EE:FF)."
+          );
+        }
+        // Only MACs are valid inputs in this flow
+        return;
+      }
+      const mac = macCanon.toUpperCase();
+      lastScanRef.current = mac;
       if (source === "scan") {
         setShowScanUi(true);
         try {
@@ -2312,15 +2543,15 @@ const MainApplicationUI: React.FC = () => {
       setCheckFailures(null);
 
       try {
-        const mac = isMac ? (macCanon as string) : "KFB";
-        const macForCooldown = isMac ? String(macCanon).toUpperCase() : "";
+        const macForCooldown = mac;
         if (macForCooldown) {
           const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
-          if (trigger !== "manual" && Date.now() < until) {
+          if (Date.now() < until) {
             try {
               console.info("[FLOW][LOAD] skip; empty cooldown active", {
                 mac: macForCooldown,
                 remainingMs: until - Date.now(),
+                trigger,
               });
             } catch {}
             setIsScanning(false);
@@ -2331,7 +2562,7 @@ const MainApplicationUI: React.FC = () => {
 
         try {
           const prevMac = (macAddress || "").toUpperCase();
-          const nextMac = String(mac).toUpperCase();
+          const nextMac = mac;
           if (prevMac && prevMac !== nextMac) {
             console.log("[FLOW][SCAN] switching MAC; preserving Redis state", {
               prevMac,
@@ -2350,11 +2581,11 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
         try {
           console.log("[FLOW][LOAD] accepted input", {
-            type: isMac ? "mac" : "kfb",
+            type: "mac",
             macOrKfb: mac,
           });
         } catch {}
-        // Do not bind MAC to UI yet; decide after we know if we will run a CHECK
+        // Bind MAC immediately (MAC-only flow)
         const pendingMac = mac;
 
         let aliases: Record<string, string> = {};
@@ -2725,11 +2956,20 @@ const MainApplicationUI: React.FC = () => {
               } catch {}
             } catch {}
           }
+          try {
+            const macUp = (mac || "").toUpperCase();
+            if (macUp) {
+              emptyScanCooldownRef.current.set(
+                macUp,
+                Date.now() + Math.max(3000, CFG.RETRY_COOLDOWN_MS)
+              );
+            }
+          } catch {}
         }
 
         // Proceed to CHECK (supports server-side pin merge)
         try {
-          // Now bind the MAC to the UI just before we actually run CHECK
+          // Display scanned MAC in the input (field name reused)
           setKfbNumber(pendingMac);
           setMacAddress(pendingMac);
         } catch {}
@@ -2750,21 +2990,33 @@ const MainApplicationUI: React.FC = () => {
         setShowScanUi(false);
       }
     },
-    [runCheck]
+    [runCheck, setupScanActive]
   );
 
   type ScanTrigger = "sse" | "poll" | "manual";
 
   const handleScan = useCallback(
-    async (raw: string, trig: ScanTrigger = "sse") => {
+    async (raw: string, trig: ScanTrigger = "sse", force = false) => {
+      if (setupScanActive && !force) {
+        if (DEBUG_LIVE)
+          console.log("[FLOW][SCAN] ignored because setup is active", {
+            raw,
+            trigger: trig,
+          });
+        return;
+      }
       // Global cooldown after a check completes or stuck-scan path (but allow manual/armed scans)
       if (trig !== "manual" && Date.now() < (idleCooldownUntilRef.current || 0))
         return;
       const now = Date.now();
       const trimmed = (raw || "").trim();
       if (!trimmed) return;
-      const macFromAny = extractMac(trimmed);
-      const normalized = (macFromAny || trimmed).toUpperCase();
+      const macFromAny = extractMac(trimmed) || canonicalMac(trimmed);
+      if (!macFromAny) {
+        // Only MACs are valid scan inputs in this flow
+        return;
+      }
+      const normalized = macFromAny.toUpperCase();
       // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
       try {
         const token = `${normalized}:${Math.floor(now / 1500)}`;
@@ -2791,11 +3043,7 @@ const MainApplicationUI: React.FC = () => {
           console.log("[FLOW][SCAN] drop: recently finalized", { normalized });
         return;
       }
-      if (
-        blockedMacRef.current.has(normalized) ||
-        (canonicalMac(normalized) &&
-          blockedMacRef.current.has(canonicalMac(normalized)!.toUpperCase()))
-      ) {
+      if (blockedMacRef.current.has(normalized)) {
         try {
           console.log("[FLOW][SCAN] blocked (cooldown)", { normalized });
         } catch {}
@@ -2823,21 +3071,15 @@ const MainApplicationUI: React.FC = () => {
         setKfbNumber(normalized);
       }
 
-      if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
-        try {
-          console.warn("[FLOW][SCAN] invalid format", { code: trimmed });
-        } catch {}
-        return;
-      }
-
       if (isScanningRef.current || scanInFlightRef.current) return;
       scanInFlightRef.current = true;
       try {
         console.log("[FLOW][SCAN] starting load");
         await loadBranchesData(
-          macFromAny || trimmed,
+          macFromAny,
           trig === "manual" ? "manual" : "scan",
-          trig
+          trig,
+          force
         );
       } finally {
         setTimeout(() => {
@@ -2848,7 +3090,7 @@ const MainApplicationUI: React.FC = () => {
         }, 300);
       }
     },
-    [FINALIZED_RESCAN_BLOCK_MS, loadBranchesData]
+    [FINALIZED_RESCAN_BLOCK_MS, loadBranchesData, setupScanActive]
   );
 
   useEffect(() => {
@@ -2862,7 +3104,9 @@ const MainApplicationUI: React.FC = () => {
         const anyEv = e as any;
         const code = String(anyEv?.detail?.code || "").trim();
         if (!code) return;
-        void handleScanRef.current?.(code, "manual");
+        const allowDuringSetup = anyEv?.detail?.allowDuringSetup === true;
+        if (setupScanActive && !allowDuringSetup) return;
+        void handleScanRef.current?.(code, "manual", allowDuringSetup === true);
       } catch {}
     };
     try {
@@ -2873,11 +3117,12 @@ const MainApplicationUI: React.FC = () => {
         window.removeEventListener("kfb:sim-scan", onSimScan as any);
       } catch {}
     };
-  }, []);
+  }, [setupScanActive]);
 
   // Consume SSE scanner events (gated by desired port);
   // ignore background scans when no MAC unless armedOnce or ALLOW_IDLE_SCANS
   useEffect(() => {
+    if (setupScanActive) return;
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
     if (!(serial as any).lastScanTick) return;
@@ -2888,15 +3133,20 @@ const MainApplicationUI: React.FC = () => {
       return;
     const want = resolveDesiredPath();
     const seen = lastScanPath;
-    const pathMismatch = want && seen && !pathsEqual(seen, want);
-    if (pathMismatch && !armedOnce) {
-      try {
-        console.warn("[SCAN] ignoring scan from different path", {
-          expected: want,
-          got: seen,
-        });
-      } catch {}
-      return;
+    if (!armedOnce) {
+      if (!want) {
+        if (DEBUG_LIVE)
+          console.warn("[SCAN] no dashboard scanner path resolved; ignoring");
+        return;
+      }
+      if (!seen || !pathsEqual(seen, want)) {
+        if (DEBUG_LIVE)
+          console.warn("[SCAN] ignoring scan from different path", {
+            expected: want,
+            got: seen || null,
+          });
+        return;
+      }
     }
     const code = (serial as any).lastScan;
     if (!code) return;
@@ -2937,6 +3187,7 @@ const MainApplicationUI: React.FC = () => {
     handleScan,
     mainView,
     isSettingsSidebarOpen,
+    setupScanActive,
   ]);
 
   // Polling fallback (explicit opt-in). Poll when SSE is disconnected OR when last scan is stale.
@@ -2944,6 +3195,7 @@ const MainApplicationUI: React.FC = () => {
     if (!FLAGS.SCANNER_POLL) return;
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
+    if (setupScanActive) return;
     // Only poll when truly idle on the scan screen (no active MAC and not checking/scanning)
     if (suppressLive) return;
     if (macAddress && macAddress.trim()) return;
@@ -3106,6 +3358,7 @@ const MainApplicationUI: React.FC = () => {
     suppressLive,
     (serial as any).lastScanAt,
     (serial as any).sseConnected,
+    setupScanActive,
   ]);
 
   // Process most recent queued scan after CHECK ends (guarded)
@@ -3145,18 +3398,21 @@ const MainApplicationUI: React.FC = () => {
 
   const handleManualSubmit = (submittedNumber: string) => {
     const valRaw = submittedNumber.trim();
-    if (!valRaw) return;
-    if (!(canonicalMac(valRaw) || KFB_REGEX.test(valRaw))) {
+    if (!valRaw) {
+      setErrorMsg("Empty code.");
+      return;
+    }
+    const macCanon = canonicalMac(valRaw) || extractMac(valRaw);
+    if (!macCanon) {
       setErrorMsg(
-        "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
+        "Invalid MAC. Please scan or enter a full 12-hex MAC (e.g., AA:BB:CC:DD:EE:FF)."
       );
       return;
     }
-    const mac = canonicalMac(valRaw);
-    const next = mac || "KFB";
+    const next = macCanon.toUpperCase();
     setKfbInput(next);
     setKfbNumber(next);
-    void loadBranchesData(valRaw, "manual", "manual");
+    void loadBranchesData(next, "manual", "manual");
   };
 
   // Layout helpers
@@ -3192,6 +3448,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Derived HUD state (idle / scanning / toast)
   const scannerDetected = useMemo(() => {
+    if (setupScanActive) return false;
     try {
       return (
         (serial as any).scannersDetected > 0 || !!(serial as any).sseConnected
@@ -3199,27 +3456,44 @@ const MainApplicationUI: React.FC = () => {
     } catch {
       return false;
     }
-  }, [(serial as any).scannersDetected, (serial as any).sseConnected]);
+  }, [
+    (serial as any).scannersDetected,
+    (serial as any).sseConnected,
+    setupScanActive,
+  ]);
 
   const hudMode: HudMode | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
     if (isScanning && showScanUi) return "scanning";
     if (scanResult) return scanResult.kind;
     const hasMac = !!(macAddress && macAddress.trim());
-    if (!hasMac) return "idle";
+    const branchCount = branchesData.length;
+    const groupCount = groupedBranches.length;
+    if (!hasMac) {
+      if (branchCount === 0 && groupCount === 0) return "idle";
+      return null;
+    }
     return null;
-  }, [mainView, isScanning, showScanUi, scanResult, macAddress]);
+  }, [
+    mainView,
+    isScanning,
+    showScanUi,
+    scanResult,
+    macAddress,
+    branchesData.length,
+    groupedBranches.length,
+  ]);
 
   // When HUD returns to idle, allow immediate scan by clearing cooldown/blocks
   useEffect(() => {
-    if (hudMode === "idle") {
-      try {
+    if (hudMode !== "idle") return;
+    try {
+      const until = idleCooldownUntilRef.current || 0;
+      if (!until) return;
+      if (Date.now() >= until) {
         idleCooldownUntilRef.current = 0;
-      } catch {}
-      try {
-        blockedMacRef.current.clear();
-      } catch {}
-    }
+      }
+    } catch {}
   }, [hudMode]);
 
   const hudMessage = useMemo(() => {
@@ -3263,20 +3537,6 @@ const MainApplicationUI: React.FC = () => {
   }, [scanResult]);
 
   // Stable empty collections to reduce child re-renders
-  const EMPTY_BRANCHES: ReadonlyArray<BranchDisplayData> = useMemo(
-    () => Object.freeze([] as BranchDisplayData[]),
-    []
-  );
-  const EMPTY_GROUPS: ReadonlyArray<{
-    ksk: string;
-    branches: BranchDisplayData[];
-  }> = useMemo(
-    () =>
-      Object.freeze(
-        [] as Array<{ ksk: string; branches: BranchDisplayData[] }>
-      ),
-    []
-  );
   const EMPTY_IDS: ReadonlyArray<string> = useMemo(
     () => Object.freeze([] as string[]),
     []
@@ -3286,19 +3546,13 @@ const MainApplicationUI: React.FC = () => {
   const derived = useMemo(() => {
     const hasMac = !!(macAddress && macAddress.trim());
     return {
-      effBranches: hasMac
-        ? branchesData
-        : (EMPTY_BRANCHES as BranchDisplayData[]),
-      effGroups: hasMac
-        ? groupedBranches
-        : (EMPTY_GROUPS as Array<{
-            ksk: string;
-            branches: BranchDisplayData[];
-          }>),
-      effFailures: hasMac ? checkFailures : null,
+      effBranches: branchesData,
+      effGroups: groupedBranches,
+      effFailures: checkFailures,
       effActiveKssks: hasMac ? activeKssks : (EMPTY_IDS as string[]),
       effNormalPins: hasMac ? normalPins : undefined,
       effLatchPins: hasMac ? latchPins : undefined,
+      effFailureSummary: lastFailureSummary,
     };
   }, [
     macAddress,
@@ -3308,8 +3562,7 @@ const MainApplicationUI: React.FC = () => {
     activeKssks,
     normalPins,
     latchPins,
-    EMPTY_BRANCHES,
-    EMPTY_GROUPS,
+    lastFailureSummary,
     EMPTY_IDS,
   ]);
 
@@ -3354,6 +3607,7 @@ const MainApplicationUI: React.FC = () => {
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning && showScanUi}
+                isChecking={isChecking}
                 macAddress={macAddress}
                 activeKssks={derived.effActiveKssks}
                 // Always pass EVs so live pin toggles react immediately, even during sim suppressLive
@@ -3362,14 +3616,14 @@ const MainApplicationUI: React.FC = () => {
                 normalPins={
                   FLAGS.SIMULATE
                     ? derived.effNormalPins
-                    : suppressLive
+                    : suppressLive || setupScanActive
                       ? undefined
                       : derived.effNormalPins
                 }
                 latchPins={
                   FLAGS.SIMULATE
                     ? derived.effLatchPins
-                    : suppressLive
+                    : suppressLive || setupScanActive
                       ? undefined
                       : derived.effLatchPins
                 }

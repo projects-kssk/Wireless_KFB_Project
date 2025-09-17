@@ -2887,9 +2887,14 @@ const MainApplicationUI: React.FC = () => {
         const anyEv = e as any;
         const code = String(anyEv?.detail?.code || "").trim();
         if (!code) return;
-        if (!setupScanActive) {
-          void handleScanRef.current?.(code, "manual");
+        const allowDuringSetup = anyEv?.detail?.allowDuringSetup === true;
+        if (setupScanActive && !allowDuringSetup) return;
+        if (allowDuringSetup && setupScanActive) {
+          try {
+            setSetupScanActive(false);
+          } catch {}
         }
+        void handleScanRef.current?.(code, "manual");
       } catch {}
     };
     try {

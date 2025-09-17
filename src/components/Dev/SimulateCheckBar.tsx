@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useSerialEvents } from '@/components/Header/useSerialEvents';
+import { clearScanScope } from '@/lib/scanScope';
 
 type SimConfig = {
   scenario: string;
@@ -124,6 +125,7 @@ export default function SimulateCheckBar() {
     setBusy(true); setLast(null);
     try {
       try { (window as any).__armScanOnce__ = true; } catch {}
+      try { clearScanScope('setup'); } catch {}
       // Prefer sending a single simulated scanner code so the main app flow runs like a real scan.
       // Target the same path the main dashboard listens on so Setup doesn't consume the scan.
       const desiredPath = resolveDashboardPath() || (serial as any).lastScanPath || undefined;
@@ -135,6 +137,10 @@ export default function SimulateCheckBar() {
           scan: [desiredPath ? { code: mac.toUpperCase(), path: desiredPath } : { code: mac.toUpperCase() }],
         }),
       });
+      try {
+        const detail = { code: mac.toUpperCase(), trigger: 'simulate', allowDuringSetup: true };
+        window.dispatchEvent(new CustomEvent('kfb:sim-scan', { detail }));
+      } catch {}
       // Optional fallback: only if enabled and no START was seen soon after the single scan
       if (useFallbackCheck) {
         setTimeout(async () => {

@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { useSerialEvents } from '@/components/Header/useSerialEvents';
-import { clearScanScope } from '@/lib/scanScope';
 
 type SimConfig = {
   scenario: string;
@@ -125,7 +124,6 @@ export default function SimulateCheckBar() {
     setBusy(true); setLast(null);
     try {
       try { (window as any).__armScanOnce__ = true; } catch {}
-      try { clearScanScope('setup'); } catch {}
       // Prefer sending a single simulated scanner code so the main app flow runs like a real scan.
       // Target the same path the main dashboard listens on so Setup doesn't consume the scan.
       const desiredPath = resolveDashboardPath() || (serial as any).lastScanPath || undefined;

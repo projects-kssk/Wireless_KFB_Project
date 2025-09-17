@@ -128,11 +128,3 @@ export const subscribeScanScope = (
     window.removeEventListener("storage", storageHandler);
   };
 };
-
-export const clearScanScope = (scope: ScanScope) => {
-  if (!ensureWindow()) return;
-  const current = readState();
-  if (!current[scope]?.length) return;
-  const next: ScanScopeState = { ...current, [scope]: [], ts: Date.now() };
-  writeState(next);
-};

@@ -867,7 +867,9 @@ const MainApplicationUI: React.FC = () => {
     if (q.length > 5) q.splice(0, q.length - 5);
   }, []);
   const handleScanRef = useRef<
-    (code: string, trig?: ScanTrigger) => void | Promise<void>
+    (code: string, trig?: ScanTrigger, force?: boolean) =>
+      | void
+      | Promise<void>
   >(() => {});
 
   const handleResetKfb = useCallback(() => {
@@ -2278,9 +2280,10 @@ const MainApplicationUI: React.FC = () => {
     async (
       value?: string,
       source: "scan" | "manual" = "scan",
-      trigger: ScanTrigger = "sse"
+      trigger: ScanTrigger = "sse",
+      force = false
     ) => {
-      if (setupScanActive) {
+      if (setupScanActive && !force) {
         if (DEBUG_LIVE)
           console.log("[FLOW][LOAD] skip; setup flow owns scanner", {
             value,
@@ -2784,8 +2787,8 @@ const MainApplicationUI: React.FC = () => {
   type ScanTrigger = "sse" | "poll" | "manual";
 
   const handleScan = useCallback(
-    async (raw: string, trig: ScanTrigger = "sse") => {
-      if (setupScanActive) {
+    async (raw: string, trig: ScanTrigger = "sse", force = false) => {
+      if (setupScanActive && !force) {
         if (DEBUG_LIVE)
           console.log("[FLOW][SCAN] ignored because setup is active", {
             raw,
@@ -2863,7 +2866,12 @@ const MainApplicationUI: React.FC = () => {
       scanInFlightRef.current = true;
       try {
         console.log("[FLOW][SCAN] starting load");
-        await loadBranchesData(macFromAny, trig === "manual" ? "manual" : "scan", trig);
+        await loadBranchesData(
+          macFromAny,
+          trig === "manual" ? "manual" : "scan",
+          trig,
+          force
+        );
       } finally {
         setTimeout(() => {
           scanInFlightRef.current = false;
@@ -2889,12 +2897,7 @@ const MainApplicationUI: React.FC = () => {
         if (!code) return;
         const allowDuringSetup = anyEv?.detail?.allowDuringSetup === true;
         if (setupScanActive && !allowDuringSetup) return;
-        if (allowDuringSetup && setupScanActive) {
-          try {
-            setSetupScanActive(false);
-          } catch {}
-        }
-        void handleScanRef.current?.(code, "manual");
+        void handleScanRef.current?.(code, "manual", allowDuringSetup === true);
       } catch {}
     };
     try {

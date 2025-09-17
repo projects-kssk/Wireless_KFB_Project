@@ -82,21 +82,6 @@ const isAcmPath = (p?: string | null) =>
   /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
   /\/by-id\/.*(ACM|USB)\d+/i.test(p);
 
-function compileRegex(src: string | undefined, fallback: RegExp): RegExp {
-  if (!src) return fallback;
-  try {
-    if (src.startsWith("/") && src.lastIndexOf("/") > 0) {
-      const i = src.lastIndexOf("/");
-      return new RegExp(src.slice(1, i), src.slice(i + 1));
-    }
-    return new RegExp(src);
-  } catch (e) {
-    console.warn("Invalid NEXT_PUBLIC_KFB_REGEX. Using fallback.", e);
-    return fallback;
-  }
-}
-const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^KFB$/);
-
 const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
 const canonicalMac = (raw: string): string | null => {
   const s = String(raw || "").trim();
@@ -1286,6 +1271,25 @@ const MainApplicationUI: React.FC = () => {
       if (guardUntil && nowTs < guardUntil) return;
       guard.set(mac, nowTs + guardWindowMs);
       try {
+        if (
+          WAIT_FOR_START_BEFORE_FINALIZE_MS > 0 &&
+          START_SEEN_TTL_MS > 0
+        ) {
+          const firstSeen = startSeenRef.current.get(mac) || 0;
+          let seenRecently =
+            firstSeen && Date.now() - firstSeen <= START_SEEN_TTL_MS;
+          if (!seenRecently) {
+            const waitUntil = Date.now() + WAIT_FOR_START_BEFORE_FINALIZE_MS;
+            while (Date.now() < waitUntil) {
+              await new Promise((res) => setTimeout(res, 50));
+              const ts = startSeenRef.current.get(mac) || 0;
+              if (ts && Date.now() - ts <= START_SEEN_TTL_MS) {
+                seenRecently = true;
+                break;
+              }
+            }
+          }
+        }
         const last =
           (recentCleanupRef.current as Map<string, number> | undefined)?.get?.(
             mac
@@ -1509,10 +1513,15 @@ const MainApplicationUI: React.FC = () => {
             Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS)
           );
         } catch {}
+        try {
+          startSeenRef.current.delete(mac);
+        } catch {}
         handleResetKfb();
       }
     },
     [
+      START_SEEN_TTL_MS,
+      WAIT_FOR_START_BEFORE_FINALIZE_MS,
       hasSetupDataForMac,
       sendCheckpointForMac,
       handleResetKfb,
@@ -1648,7 +1657,13 @@ const MainApplicationUI: React.FC = () => {
       }
       finalizeOkForMac(evMac || current);
     }
-  }, [(serial as any).lastEvTick, macAddress, suppressLive, finalizeOkForMac]);
+  }, [
+    (serial as any).lastEvTick,
+    macAddress,
+    suppressLive,
+    START_SEEN_TTL_MS,
+    finalizeOkForMac,
+  ]);
 
   // Enter live mode on RESULT/DONE failures as a fallback (e.g., missed START)
   useEffect(() => {
@@ -2293,16 +2308,15 @@ const MainApplicationUI: React.FC = () => {
         console.log("[FLOW] State → scanning");
       } catch {}
       const kfbRaw = (value ?? kfbInputRef.current).trim();
-      if (!kfbRaw) return;
+      if (!kfbRaw) {
+        if (source === "manual") setErrorMsg("Empty code.");
+        return;
+      }
       const macCanon = canonicalMac(kfbRaw) || extractMac(kfbRaw);
       const isMac = !!macCanon;
-      if (!isMac && !KFB_REGEX.test(kfbRaw)) {
-        if (source === "manual") {
-          setErrorMsg(
-            "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
-          );
-        }
-        console.warn("[FLOW][SCAN] rejected by patterns", { raw: kfbRaw });
+      if (!isMac && kfbRaw.length > 64) {
+        if (source === "manual") setErrorMsg("Code too long.");
+        console.warn("[FLOW][SCAN] rejected: too long", { length: kfbRaw.length });
         return;
       }
       lastScanRef.current = kfbRaw.toUpperCase();
@@ -2772,8 +2786,16 @@ const MainApplicationUI: React.FC = () => {
       const now = Date.now();
       const trimmed = (raw || "").trim();
       if (!trimmed) return;
+      const macDirect = canonicalMac(trimmed);
       const macFromAny = extractMac(trimmed);
       const normalized = (macFromAny || trimmed).toUpperCase();
+      const hasMac = !!(macDirect || macFromAny);
+      if (!hasMac && trimmed.length > 64) {
+        console.warn("[FLOW][SCAN] drop: code too long", {
+          length: trimmed.length,
+        });
+        return;
+      }
       // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
       try {
         const token = `${normalized}:${Math.floor(now / 1500)}`;
@@ -2830,13 +2852,6 @@ const MainApplicationUI: React.FC = () => {
       if (normalized !== kfbInputRef.current) {
         setKfbInput(normalized);
         setKfbNumber(normalized);
-      }
-
-      if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
-        try {
-          console.warn("[FLOW][SCAN] invalid format", { code: trimmed });
-        } catch {}
-        return;
       }
 
       if (isScanningRef.current || scanInFlightRef.current) return;
@@ -3154,15 +3169,17 @@ const MainApplicationUI: React.FC = () => {
 
   const handleManualSubmit = (submittedNumber: string) => {
     const valRaw = submittedNumber.trim();
-    if (!valRaw) return;
-    if (!(canonicalMac(valRaw) || KFB_REGEX.test(valRaw))) {
-      setErrorMsg(
-        "Invalid code. Enter a MAC (AA:BB:CC:DD:EE:FF) or 'KFB' (uppercase)."
-      );
+    if (!valRaw) {
+      setErrorMsg("Empty code.");
       return;
     }
-    const mac = canonicalMac(valRaw);
-    const next = mac || "KFB";
+    const macCanon = canonicalMac(valRaw) || extractMac(valRaw);
+    const isMac = !!macCanon;
+    if (!isMac && valRaw.length > 64) {
+      setErrorMsg("Code too long.");
+      return;
+    }
+    const next = isMac ? (macCanon as string) : "KFB";
     setKfbInput(next);
     setKfbNumber(next);
     void loadBranchesData(valRaw, "manual", "manual");

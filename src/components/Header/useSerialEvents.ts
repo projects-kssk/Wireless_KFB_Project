@@ -250,8 +250,12 @@ export function useSerialEvents(
       };
     }
 
-    const url = macFilter && macFilter.trim()
-      ? `${SSE_PATH}?mac=${encodeURIComponent(macFilter.trim().toUpperCase())}`
+    const trimmedMac = macFilter?.trim();
+    const normalizedMac = trimmedMac ? trimmedMac.toUpperCase() : "";
+    // Treat sentinel scans like "KFB" as unfiltered so live events still flow.
+    const isSentinel = normalizedMac === "KFB";
+    const url = trimmedMac && !isSentinel
+      ? `${SSE_PATH}?mac=${encodeURIComponent(normalizedMac)}`
       : SSE_PATH;
     const es = new EventSource(url);
     esRef.current = es;

@@ -2307,19 +2307,23 @@ const MainApplicationUI: React.FC = () => {
       try {
         console.log("[FLOW] State → scanning");
       } catch {}
-      const kfbRaw = (value ?? kfbInputRef.current).trim();
-      if (!kfbRaw) {
+      const inputRaw = (value ?? kfbInputRef.current).trim();
+      if (!inputRaw) {
         if (source === "manual") setErrorMsg("Empty code.");
         return;
       }
-      const macCanon = canonicalMac(kfbRaw) || extractMac(kfbRaw);
-      const isMac = !!macCanon;
-      if (!isMac && kfbRaw.length > 64) {
-        if (source === "manual") setErrorMsg("Code too long.");
-        console.warn("[FLOW][SCAN] rejected: too long", { length: kfbRaw.length });
+      const macCanon = canonicalMac(inputRaw) || extractMac(inputRaw);
+      if (!macCanon) {
+        if (source === "manual") {
+          setErrorMsg(
+            "Invalid MAC. Please scan a full 12-hex MAC (e.g., AA:BB:CC:DD:EE:FF)."
+          );
+        }
+        // Only MACs are valid inputs in this flow
         return;
       }
-      lastScanRef.current = kfbRaw.toUpperCase();
+      const mac = macCanon.toUpperCase();
+      lastScanRef.current = mac;
       if (source === "scan") {
         setShowScanUi(true);
         try {
@@ -2335,8 +2339,7 @@ const MainApplicationUI: React.FC = () => {
       setCheckFailures(null);
 
       try {
-        const mac = isMac ? (macCanon as string) : "KFB";
-        const macForCooldown = isMac ? String(macCanon).toUpperCase() : "";
+        const macForCooldown = mac;
         if (macForCooldown) {
           const until = emptyScanCooldownRef.current.get(macForCooldown) || 0;
           if (trigger !== "manual" && Date.now() < until) {
@@ -2354,7 +2357,7 @@ const MainApplicationUI: React.FC = () => {
 
         try {
           const prevMac = (macAddress || "").toUpperCase();
-          const nextMac = String(mac).toUpperCase();
+          const nextMac = mac;
           if (prevMac && prevMac !== nextMac) {
             console.log("[FLOW][SCAN] switching MAC; preserving Redis state", {
               prevMac,
@@ -2373,11 +2376,11 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
         try {
           console.log("[FLOW][LOAD] accepted input", {
-            type: isMac ? "mac" : "kfb",
+            type: "mac",
             macOrKfb: mac,
           });
         } catch {}
-        // Do not bind MAC to UI yet; decide after we know if we will run a CHECK
+        // Bind MAC immediately (MAC-only flow)
         const pendingMac = mac;
 
         let aliases: Record<string, string> = {};
@@ -2551,10 +2554,7 @@ const MainApplicationUI: React.FC = () => {
                 pins = Array.from(pinSet).sort((x, y) => x - y);
               // Always try to fetch union to collect aliases
               try {
-                const rUnion = await fetch(
-                  `/api/aliases?mac=${encodeURIComponent(mac)}`,
-                  { cache: "no-store" }
-                );
+                const rUnion = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, { cache: "no-store" });
                 if (rUnion.ok) {
                   const jU = await rUnion.json();
                   const aU =
@@ -2752,7 +2752,7 @@ const MainApplicationUI: React.FC = () => {
 
         // Proceed to CHECK (supports server-side pin merge)
         try {
-          // Now bind the MAC to the UI just before we actually run CHECK
+          // Display scanned MAC in the input (field name reused)
           setKfbNumber(pendingMac);
           setMacAddress(pendingMac);
         } catch {}
@@ -2786,16 +2786,12 @@ const MainApplicationUI: React.FC = () => {
       const now = Date.now();
       const trimmed = (raw || "").trim();
       if (!trimmed) return;
-      const macDirect = canonicalMac(trimmed);
-      const macFromAny = extractMac(trimmed);
-      const normalized = (macFromAny || trimmed).toUpperCase();
-      const hasMac = !!(macDirect || macFromAny);
-      if (!hasMac && trimmed.length > 64) {
-        console.warn("[FLOW][SCAN] drop: code too long", {
-          length: trimmed.length,
-        });
+      const macFromAny = extractMac(trimmed) || canonicalMac(trimmed);
+      if (!macFromAny) {
+        // Only MACs are valid scan inputs in this flow
         return;
       }
+      const normalized = macFromAny.toUpperCase();
       // Global scan token to coalesce SSE vs poll duplicates within ~1.5s
       try {
         const token = `${normalized}:${Math.floor(now / 1500)}`;
@@ -2858,11 +2854,7 @@ const MainApplicationUI: React.FC = () => {
       scanInFlightRef.current = true;
       try {
         console.log("[FLOW][SCAN] starting load");
-        await loadBranchesData(
-          macFromAny || trimmed,
-          trig === "manual" ? "manual" : "scan",
-          trig
-        );
+        await loadBranchesData(macFromAny, trig === "manual" ? "manual" : "scan", trig);
       } finally {
         setTimeout(() => {
           scanInFlightRef.current = false;
@@ -3174,15 +3166,16 @@ const MainApplicationUI: React.FC = () => {
       return;
     }
     const macCanon = canonicalMac(valRaw) || extractMac(valRaw);
-    const isMac = !!macCanon;
-    if (!isMac && valRaw.length > 64) {
-      setErrorMsg("Code too long.");
+    if (!macCanon) {
+      setErrorMsg(
+        "Invalid MAC. Please scan or enter a full 12-hex MAC (e.g., AA:BB:CC:DD:EE:FF)."
+      );
       return;
     }
-    const next = isMac ? (macCanon as string) : "KFB";
+    const next = macCanon.toUpperCase();
     setKfbInput(next);
     setKfbNumber(next);
-    void loadBranchesData(valRaw, "manual", "manual");
+    void loadBranchesData(next, "manual", "manual");
   };
 
   // Layout helpers

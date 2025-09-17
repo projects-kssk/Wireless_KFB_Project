@@ -79,6 +79,45 @@ export default function SimulateCheckBar() {
   const liveRef = React.useRef<{ started?: boolean; done?: boolean; ok?: boolean }>({});
   React.useEffect(() => { liveRef.current = { started: live.started, done: live.done, ok: live.ok }; }, [live.started, live.done, live.ok]);
 
+  const pathsEqual = (a?: string | null, b?: string | null) => {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const tail = (s: string) => (s.split('/').pop() || s).toLowerCase();
+    const ta = tail(a);
+    const tb = tail(b);
+    if (ta === tb) return true;
+    const normalize = (s: string) => {
+      const m = s.match(/(ACM|USB)(\d+)/i);
+      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
+    };
+    const na = normalize(a) || normalize(ta);
+    const nb = normalize(b) || normalize(tb);
+    return !!(na && nb && na === nb);
+  };
+
+  const resolveDashboardPath = (): string | undefined => {
+    const list: string[] = Array.isArray((serial as any).scannerPaths)
+      ? (serial as any).scannerPaths
+      : [];
+    if (!list.length) return undefined;
+
+    const configured = (process.env.NEXT_PUBLIC_SCANNER_PATH_DASHBOARD || '').trim();
+    if (configured) {
+      const fixed = list.find((p) => pathsEqual(p, configured));
+      if (fixed) return fixed;
+    }
+
+    const preferAcm1 = list.find((p) => /(^|\/)ttyACM1$/i.test(p) || /(\/|^)(ACM)1(?!\d)/i.test(p));
+    if (preferAcm1) return preferAcm1;
+    const preferUsb1 = list.find((p) => /(^|\/)ttyUSB1$/i.test(p) || /(\/|^)(USB)1(?!\d)/i.test(p));
+    if (preferUsb1) return preferUsb1;
+
+    const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '1'));
+    if (list[idx]) return list[idx];
+
+    return list[0];
+  };
+
   const runCheck = async () => {
     const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
     if (!mac || !MAC_RE.test(mac.toUpperCase())) return;
@@ -86,10 +125,8 @@ export default function SimulateCheckBar() {
     try {
       try { (window as any).__armScanOnce__ = true; } catch {}
       // Prefer sending a single simulated scanner code so the main app flow runs like a real scan.
-      // Select the same desired path the dashboard listens on; if unknown, omit path to avoid filtering.
-      const paths: string[] = Array.isArray((serial as any).scannerPaths) ? (serial as any).scannerPaths : [];
-      const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
-      const desiredPath = paths[idx] || paths[0] || (serial as any).lastScanPath || undefined;
+      // Target the same path the main dashboard listens on so Setup doesn't consume the scan.
+      const desiredPath = resolveDashboardPath() || (serial as any).lastScanPath || undefined;
       await fetch('/api/simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

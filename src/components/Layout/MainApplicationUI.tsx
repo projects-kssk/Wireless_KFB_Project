@@ -454,7 +454,7 @@ const MainApplicationUI: React.FC = () => {
         setupScanActive ||
         (suppressLive && !FLAGS.SIMULATE) ||
         mainView !== "dashboard",
-      base: true,
+      base: !setupScanActive,
     }
   );
 
@@ -2785,7 +2785,7 @@ const MainApplicationUI: React.FC = () => {
 
   const handleScan = useCallback(
     async (raw: string, trig: ScanTrigger = "sse") => {
-      if (setupScanActive && trig !== "manual") {
+      if (setupScanActive) {
         if (DEBUG_LIVE)
           console.log("[FLOW][SCAN] ignored because setup is active", {
             raw,
@@ -3231,6 +3231,7 @@ const MainApplicationUI: React.FC = () => {
 
   // Derived HUD state (idle / scanning / toast)
   const scannerDetected = useMemo(() => {
+    if (setupScanActive) return false;
     try {
       return (
         (serial as any).scannersDetected > 0 || !!(serial as any).sseConnected
@@ -3238,7 +3239,11 @@ const MainApplicationUI: React.FC = () => {
     } catch {
       return false;
     }
-  }, [(serial as any).scannersDetected, (serial as any).sseConnected]);
+  }, [
+    (serial as any).scannersDetected,
+    (serial as any).sseConnected,
+    setupScanActive,
+  ]);
 
   const hudMode: HudMode | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
@@ -3401,14 +3406,14 @@ const MainApplicationUI: React.FC = () => {
                 normalPins={
                   FLAGS.SIMULATE
                     ? derived.effNormalPins
-                    : suppressLive
+                    : suppressLive || setupScanActive
                       ? undefined
                       : derived.effNormalPins
                 }
                 latchPins={
                   FLAGS.SIMULATE
                     ? derived.effLatchPins
-                    : suppressLive
+                    : suppressLive || setupScanActive
                       ? undefined
                       : derived.effLatchPins
                 }

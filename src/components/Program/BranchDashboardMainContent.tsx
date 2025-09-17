@@ -370,13 +370,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, []);
 
   const hasData = useMemo(() => {
-    if (
+    const haveGroups =
       Array.isArray(groupedBranches) &&
-      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0)
-    )
-      return true;
-    return localBranches.length > 0;
-  }, [groupedBranches, localBranches]);
+      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    const haveFlat = localBranches.length > 0;
+    const haveFailures =
+      Array.isArray(checkFailures) && checkFailures.length > 0;
+    return haveGroups || haveFlat || haveFailures;
+  }, [groupedBranches, localBranches, checkFailures]);
 
   // Busy debounce: enter after 250ms, exit after 350ms. Only overlay when no data yet.
   const OK_FLASH_MS = 1500;

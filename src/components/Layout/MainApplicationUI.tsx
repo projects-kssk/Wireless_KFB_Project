@@ -18,7 +18,7 @@ import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
 const ENTER_LIVE_ON_FAILURE =
-  String(process.env.NEXT_PUBLIC_LIVE_ON_FAILURE || "").trim() === "1";
+  String(process.env.NEXT_PUBLIC_LIVE_ON_FAILURE ?? "1").trim() === "1";
 
 /* --------------------------------------------------------------------------------
  * Small, dependency-free HUD for Scan/Idle/Toast states
@@ -211,6 +211,11 @@ const MainApplicationUI: React.FC = () => {
 
   // Check flow
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
+  const [lastFailureSummary, setLastFailureSummary] = useState<{
+    mac: string;
+    pins: number[];
+    hints?: Record<string, string>;
+  } | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
   // Reflect isChecking in a ref for async handlers
@@ -685,7 +690,12 @@ const MainApplicationUI: React.FC = () => {
       );
       setNormalPins(fromItems.normal);
       setLatchPins(fromItems.latch);
-      if (u.names && typeof u.names === "object") setNameHints(u.names as any);
+      if (u.names && typeof u.names === "object") {
+        setNameHints((prev) => ({
+          ...(prev || {}),
+          ...(u.names as Record<string, string>),
+        }));
+      }
     } catch {}
   }, [
     (serial as any).lastUnion,
@@ -888,6 +898,7 @@ const MainApplicationUI: React.FC = () => {
     setGroupedBranches([]);
     setActiveKssks([]);
     setNameHints(undefined);
+    setLastFailureSummary(null);
     setNormalPins(undefined);
     setLatchPins(undefined);
 
@@ -1672,14 +1683,59 @@ const MainApplicationUI: React.FC = () => {
             .filter((n) => Number.isFinite(n));
           if (pins.length) {
             setCheckFailures(pins);
-            // Mark known branches as failed where possible
-            setBranchesData((prev) =>
-              prev.map((b) =>
-                pins.includes(Number(b.pinNumber))
-                  ? { ...b, testStatus: "nok" as const }
-                  : b
-              )
-            );
+            const groupNames = new Map<number, string>();
+            for (const group of lastGroupsRef.current || []) {
+              for (const branch of group.branches || []) {
+                const value =
+                  typeof branch.pinNumber === "number"
+                    ? branch.pinNumber
+                    : Number(branch.pinNumber);
+                if (Number.isFinite(value))
+                  groupNames.set(value, branch.branchName);
+              }
+            }
+            // Mark known branches as failed; append rows for missing pins.
+            setBranchesData((prev) => {
+              const pinSet = new Set(pins);
+              const existingNames = new Map<number, string>();
+              for (const b of prev) {
+                const value =
+                  typeof b.pinNumber === "number"
+                    ? b.pinNumber
+                    : Number(b.pinNumber);
+                if (Number.isFinite(value))
+                  existingNames.set(value, b.branchName);
+              }
+              const knownPins = new Set<number>(existingNames.keys());
+              const added = pins
+                .filter((p) => !knownPins.has(p))
+                .map((p) => {
+                  const key = String(p);
+                  const displayName =
+                    (nameHints && nameHints[key]) ??
+                    groupNames.get(p) ??
+                    existingNames.get(p) ??
+                    `PIN ${p}`;
+                  return {
+                    id: key,
+                    branchName: displayName,
+                    testStatus: "nok" as const,
+                    pinNumber: p,
+                    kfbInfoValue: undefined,
+                  } as BranchDisplayData;
+                });
+              const updated = prev.map((b) => {
+                const value =
+                  typeof b.pinNumber === "number"
+                    ? b.pinNumber
+                    : Number(b.pinNumber);
+                if (Number.isFinite(value) && pinSet.has(value)) {
+                  return { ...b, testStatus: "nok" as const };
+                }
+                return b;
+              });
+              return [...updated, ...added];
+            });
           }
         }
       } catch {}
@@ -1748,6 +1804,7 @@ const MainApplicationUI: React.FC = () => {
         lastRunHadFailuresRef.current = false;
       } catch {}
       setCheckFailures(null);
+      setLastFailureSummary(null);
       setShowRemoveCable(false);
       setAwaitingRelease(false);
 
@@ -1816,7 +1873,11 @@ const MainApplicationUI: React.FC = () => {
             result?.nameHints && typeof result.nameHints === "object"
               ? (result.nameHints as Record<string, string>)
               : undefined;
-          setNameHints((prev) => (hints ? hints : prev));
+          setNameHints((prev) =>
+            hints && Object.keys(hints).length
+              ? { ...(prev || {}), ...hints }
+              : prev
+          );
           try {
             const n = Array.isArray(result?.normalPins)
               ? (result.normalPins as number[])
@@ -1828,6 +1889,15 @@ const MainApplicationUI: React.FC = () => {
             setLatchPins(l);
           } catch {}
           setCheckFailures(failures);
+          if (failures.length > 0) {
+            setLastFailureSummary({
+              mac: MAC,
+              pins: failures.slice(),
+              hints,
+            });
+          } else {
+            setLastFailureSummary(null);
+          }
           startTransition(() =>
             setBranchesData((_prev) => {
               const macUp = mac.toUpperCase();
@@ -1866,18 +1936,26 @@ const MainApplicationUI: React.FC = () => {
                   : latchPins || []
                 ).filter((n: number) => Number.isFinite(n)) as number[]
               );
-              const flat = pins.map((pin) => ({
-                id: String(pin),
-                branchName: aliases[String(pin)] || `PIN ${pin}`,
-                testStatus: failures.includes(pin)
-                  ? ("nok" as TestStatus)
-                  : contactless.has(pin)
-                    ? ("not_tested" as TestStatus)
-                    : ("ok" as TestStatus),
-                pinNumber: pin,
-                kfbInfoValue: undefined,
-                isLatch: contactless.has(pin),
-              }));
+              const flat = pins.map((pin) => {
+                const key = String(pin);
+                const displayName =
+                  (hints && hints[key]) ??
+                  (nameHints && nameHints[key]) ??
+                  aliases[key] ??
+                  `PIN ${pin}`;
+                return {
+                  id: key,
+                  branchName: displayName,
+                  testStatus: failures.includes(pin)
+                    ? ("nok" as TestStatus)
+                    : contactless.has(pin)
+                      ? ("not_tested" as TestStatus)
+                      : ("ok" as TestStatus),
+                  pinNumber: pin,
+                  kfbInfoValue: undefined,
+                  isLatch: contactless.has(pin),
+                } as BranchDisplayData;
+              });
               const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
                 ? ((result as any).itemsActive as Array<{
                     ksk?: string;
@@ -1979,12 +2057,16 @@ const MainApplicationUI: React.FC = () => {
                     ((it as any).ksk ?? (it as any).kssk) || ""
                   );
                   const branchesG = pinsG.map((pin) => {
-                    const nameRaw =
-                      a[String(pin)] || aliases[String(pin)] || "";
-                    const name = nameRaw ? String(nameRaw) : `PIN ${pin}`;
+                    const key = String(pin);
+                    const displayName =
+                      a[key] ??
+                      (hints && hints[key]) ??
+                      (nameHints && nameHints[key]) ??
+                      aliases[key] ??
+                      `PIN ${pin}`;
                     return {
                       id: `${idStr}:${pin}`,
-                      branchName: name,
+                      branchName: displayName,
                       testStatus: failures.includes(pin)
                         ? ("nok" as TestStatus)
                         : contactless.has(pin)
@@ -2028,16 +2110,21 @@ const MainApplicationUI: React.FC = () => {
                   (p: number) => Number.isFinite(p) && !knownPinsSet.has(p)
                 );
                 if (extraPins.length) {
-                  const extraBranches = extraPins.map(
-                    (pin) =>
-                      ({
-                        id: `CHECK:${pin}`,
-                        branchName: `PIN ${pin}`,
-                        testStatus: "nok" as TestStatus,
-                        pinNumber: pin,
-                        kfbInfoValue: undefined,
-                      }) as BranchDisplayData
-                  );
+                  const extraBranches = extraPins.map((pin) => {
+                    const key = String(pin);
+                    const displayName =
+                      (hints && hints[key]) ??
+                      (nameHints && nameHints[key]) ??
+                      aliases[key] ??
+                      `PIN ${pin}`;
+                    return {
+                      id: `CHECK:${pin}`,
+                      branchName: displayName,
+                      testStatus: "nok" as TestStatus,
+                      pinNumber: pin,
+                      kfbInfoValue: undefined,
+                    } as BranchDisplayData;
+                  });
                   groups.push({ ksk: "CHECK", branches: extraBranches });
                 }
                 const prev = lastGroupsRef.current || [];
@@ -2084,19 +2171,21 @@ const MainApplicationUI: React.FC = () => {
               return extras.length
                 ? [
                     ...flat,
-                    ...extras.map(
-                      (pin: number) =>
-                        ({
-                          id: String(pin),
-                          branchName:
-                            hints?.[String(pin)] ??
-                            nameHints?.[String(pin)] ??
-                            `PIN ${pin}`,
-                          testStatus: "nok" as TestStatus,
-                          pinNumber: pin,
-                          kfbInfoValue: undefined,
-                        }) as BranchDisplayData
-                    ),
+                    ...extras.map((pin: number) => {
+                      const key = String(pin);
+                      const displayName =
+                        (hints && hints[key]) ??
+                        (nameHints && nameHints[key]) ??
+                        aliases[key] ??
+                        `PIN ${pin}`;
+                      return {
+                        id: key,
+                        branchName: displayName,
+                        testStatus: "nok" as TestStatus,
+                        pinNumber: pin,
+                        kfbInfoValue: undefined,
+                      } as BranchDisplayData;
+                    }),
                   ]
                 : flat;
             })
@@ -2192,6 +2281,7 @@ const MainApplicationUI: React.FC = () => {
                 setGroupedBranches([]);
                 setActiveKssks([]);
                 setNameHints(undefined);
+                setLastFailureSummary(null);
               }, 1300);
             }
             cancel("checkWatchdog");
@@ -2204,6 +2294,7 @@ const MainApplicationUI: React.FC = () => {
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
+              setLastFailureSummary(null);
             }, 1300);
             cancel("checkWatchdog");
           }
@@ -2227,6 +2318,7 @@ const MainApplicationUI: React.FC = () => {
               setGroupedBranches([]);
               setActiveKssks([]);
               setNameHints(undefined);
+              setLastFailureSummary(null);
             }, 1300);
           }
           cancel("checkWatchdog");
@@ -2239,6 +2331,7 @@ const MainApplicationUI: React.FC = () => {
             setGroupedBranches([]);
             setActiveKssks([]);
             setNameHints(undefined);
+            setLastFailureSummary(null);
           }, 1300);
           cancel("checkWatchdog");
         }
@@ -3337,20 +3430,6 @@ const MainApplicationUI: React.FC = () => {
   }, [scanResult]);
 
   // Stable empty collections to reduce child re-renders
-  const EMPTY_BRANCHES: ReadonlyArray<BranchDisplayData> = useMemo(
-    () => Object.freeze([] as BranchDisplayData[]),
-    []
-  );
-  const EMPTY_GROUPS: ReadonlyArray<{
-    ksk: string;
-    branches: BranchDisplayData[];
-  }> = useMemo(
-    () =>
-      Object.freeze(
-        [] as Array<{ ksk: string; branches: BranchDisplayData[] }>
-      ),
-    []
-  );
   const EMPTY_IDS: ReadonlyArray<string> = useMemo(
     () => Object.freeze([] as string[]),
     []
@@ -3360,19 +3439,13 @@ const MainApplicationUI: React.FC = () => {
   const derived = useMemo(() => {
     const hasMac = !!(macAddress && macAddress.trim());
     return {
-      effBranches: hasMac
-        ? branchesData
-        : (EMPTY_BRANCHES as BranchDisplayData[]),
-      effGroups: hasMac
-        ? groupedBranches
-        : (EMPTY_GROUPS as Array<{
-            ksk: string;
-            branches: BranchDisplayData[];
-          }>),
+      effBranches: branchesData,
+      effGroups: groupedBranches,
       effFailures: checkFailures,
       effActiveKssks: hasMac ? activeKssks : (EMPTY_IDS as string[]),
       effNormalPins: hasMac ? normalPins : undefined,
       effLatchPins: hasMac ? latchPins : undefined,
+      effFailureSummary: lastFailureSummary,
     };
   }, [
     macAddress,
@@ -3382,8 +3455,7 @@ const MainApplicationUI: React.FC = () => {
     activeKssks,
     normalPins,
     latchPins,
-    EMPTY_BRANCHES,
-    EMPTY_GROUPS,
+    lastFailureSummary,
     EMPTY_IDS,
   ]);
 

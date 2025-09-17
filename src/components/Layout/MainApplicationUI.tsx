@@ -3264,14 +3264,14 @@ const MainApplicationUI: React.FC = () => {
 
   // When HUD returns to idle, allow immediate scan by clearing cooldown/blocks
   useEffect(() => {
-    if (hudMode === "idle") {
-      try {
+    if (hudMode !== "idle") return;
+    try {
+      const until = idleCooldownUntilRef.current || 0;
+      if (!until) return;
+      if (Date.now() >= until) {
         idleCooldownUntilRef.current = 0;
-      } catch {}
-      try {
-        blockedMacRef.current.clear();
-      } catch {}
-    }
+      }
+    } catch {}
   }, [hudMode]);
 
   const hudMessage = useMemo(() => {

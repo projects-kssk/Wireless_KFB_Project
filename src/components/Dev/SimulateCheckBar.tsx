@@ -8,50 +8,98 @@ type SimConfig = {
   macOverride?: string | null;
 };
 
+const LIVE_INITIAL = {
+  started: false,
+  done: false,
+  ok: undefined as boolean | undefined,
+  evCount: 0,
+};
+
 export default function SimulateCheckBar() {
-  const serial = useSerialEvents(undefined, { base: true });
-  const [enabled, setEnabled] = React.useState(false);
+  const [panelOpen, setPanelOpen] = React.useState(false);
+  const [available, setAvailable] = React.useState<boolean | null>(null);
+  const [loadingConfig, setLoadingConfig] = React.useState(false);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const serial = useSerialEvents(undefined, { disabled: !panelOpen, base: panelOpen });
   const [mac, setMac] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [last, setLast] = React.useState<{ ok?: boolean; failures?: number; msg?: string } | null>(null);
   const [live, setLive] = React.useState<{ started?: boolean; done?: boolean; ok?: boolean; evCount: number }>(
-    { started: false, done: false, ok: undefined, evCount: 0 }
+    () => ({ ...LIVE_INITIAL })
   );
   const [unionPins, setUnionPins] = React.useState<number[]>([]);
   const [names, setNames] = React.useState<Record<string,string>>({});
   const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
   const [useFallbackCheck, setUseFallbackCheck] = React.useState(true);
 
-  React.useEffect(() => {
-    let stop = false;
-    (async () => {
-      try {
-        const r = await fetch('/api/simulate', { cache: 'no-store' });
-        const j = await r.json();
-        if (stop) return;
-        setEnabled(!!j.enabled);
-        const cfg = j.config as SimConfig | undefined;
-        const m = String((cfg?.macOverride || '')).toUpperCase();
-        if (m) setMac(m);
-        // seed failure set from simulation config if present
-        const fp = (j?.config as any)?.failurePins as any[] | undefined;
-        if (Array.isArray(fp)) setSimFailing(new Set(fp.map(Number).filter(n=>Number.isFinite(n)&&n>0)));
-      } catch {}
-    })();
-    return () => { stop = true; };
+  const isMountedRef = React.useRef(true);
+  React.useEffect(() => () => { isMountedRef.current = false; }, []);
+
+  const loadSimulatorConfig = React.useCallback(async () => {
+    setLoadingConfig(true);
+    setLoadError(null);
+    try {
+      const r = await fetch('/api/simulate', { cache: 'no-store' });
+      const j = await r.json();
+      if (!isMountedRef.current) return false;
+      const enabled = !!j?.enabled;
+      setAvailable(enabled);
+      if (!enabled) {
+        setLoadError(j?.error ? String(j.error) : 'Simulation disabled');
+        return false;
+      }
+      const cfg = j?.config as SimConfig | undefined;
+      const m = String((cfg?.macOverride || '')).toUpperCase();
+      if (m) setMac(m);
+      const fp = (cfg as any)?.failurePins as any[] | undefined;
+      if (Array.isArray(fp)) {
+        setSimFailing(new Set(fp.map(Number).filter((n) => Number.isFinite(n) && n > 0)));
+      }
+      setLoadError(null);
+      return true;
+    } catch (err: any) {
+      if (!isMountedRef.current) return false;
+      setAvailable(null);
+      setLoadError(`Simulator unavailable: ${String(err?.message ?? err)}`);
+      return false;
+    } finally {
+      if (isMountedRef.current) setLoadingConfig(false);
+    }
   }, []);
 
-  // Listen to EV stream for START/DONE and count
+  const handleOpenPanel = React.useCallback(async () => {
+    if (panelOpen || loadingConfig) return;
+    const ok = await loadSimulatorConfig();
+    if (ok && isMountedRef.current) {
+      setPanelOpen(true);
+      setLast(null);
+      setLive({ ...LIVE_INITIAL });
+    }
+  }, [panelOpen, loadingConfig, loadSimulatorConfig]);
+
+  const handleClosePanel = React.useCallback(() => {
+    setPanelOpen(false);
+    setLast(null);
+    setLive({ ...LIVE_INITIAL });
+  }, []);
+
+  // Listen to EV stream for START/DONE and count when monitoring
   React.useEffect(() => {
+    if (!panelOpen) return;
     const ev: any = serial.lastEv;
     if (!ev || ev.type !== 'ev') return;
     if (ev.kind === 'START') setLive({ started: true, done: false, ok: undefined, evCount: 0 });
     else if (ev.kind === 'DONE') setLive((p) => ({ ...p, done: true, ok: !!ev.ok }));
     else setLive((p) => ({ ...p, evCount: (p.evCount || 0) + 1 }));
-  }, [serial.lastEvTick]);
+  }, [panelOpen, serial.lastEvTick]);
 
   // Load union pins and labels for current MAC
   React.useEffect(() => {
+    if (!panelOpen) {
+      setUnionPins([]);
+      setNames({});
+      return;
+    }
     let stop = false;
     const mm = (mac || '').toUpperCase().trim();
     const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
@@ -71,7 +119,7 @@ export default function SimulateCheckBar() {
       } catch {}
     })();
     return () => { stop = true; };
-  }, [mac]);
+  }, [panelOpen, mac]);
 
   // NOTE: Do not auto-post MAC changes — only update simulator MAC during Run Check.
 
@@ -179,12 +227,38 @@ export default function SimulateCheckBar() {
   const failAll = async () => { if (unionPins.length) await apply({ scenario: 'failure', failurePins: unionPins }); };
   const clearFails = async () => { await apply({ scenario: 'success', failurePins: [] }); };
 
-  if (!enabled) return null;
+  if (!panelOpen) {
+    if (available === false) return null;
+    return (
+      <div style={{ position: 'fixed', right: 12, bottom: 120, zIndex: 50 }}>
+        <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={handleOpenPanel}
+            disabled={loadingConfig}
+            style={{ padding: '6px 10px', borderRadius: 10, background: '#2563eb', color: '#fff' }}
+          >
+            {loadingConfig ? 'Opening…' : 'Monitor'}
+          </button>
+          {loadError && (
+            <span style={{ fontSize: 11, opacity: 0.8 }}>{loadError}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'fixed', right: 12, bottom: 120, zIndex: 50 }}>
-      <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 12, opacity: 0.8 }}>Sim Check</span>
+      <div style={{ padding: 8, borderRadius: 12, background: 'rgba(17,24,39,0.85)', color: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 360 }}>
+        <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+          <span style={{ fontSize: 12, opacity: 0.8, flex: 1 }}>Sim Check</span>
+          <button
+            onClick={handleClosePanel}
+            style={{ padding: '4px 8px', borderRadius: 8, background: '#1f2937', color: '#fff', fontSize: 11 }}
+          >
+            Close
+          </button>
+        </div>
         <input
           placeholder="AA:BB:CC:DD:EE:FF"
           value={mac}

@@ -174,6 +174,7 @@ export interface BranchDashboardMainContentProps {
   onHudDismiss?: () => void;
   branchesData: BranchDisplayData[];
   isScanning: boolean;
+  isChecking?: boolean;
   kfbNumber: string;
   kfbInfo: KfbInfo | null;
   allowManualInput?: boolean;
@@ -222,6 +223,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   onHudDismiss,
   branchesData,
   isScanning,
+  isChecking: isCheckingProp = false,
   kfbNumber,
   kfbInfo,
   allowManualInput = true,
@@ -244,6 +246,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   okSystemNote,
   scanResult,
 }) => {
+  const isChecking = Boolean(isCheckingProp);
   // Lifecycle logs for live-session enter/exit based on MAC binding
   const prevMacRef = useRef<string>("");
   useEffect(() => {
@@ -264,8 +267,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [isChecking, setIsChecking] = useState(false);
-  const [checkError, setCheckError] = useState<string | null>(null);
   const [localBranches, setLocalBranches] =
     useState<BranchDisplayData[]>(branchesData);
   const [recentMacs, setRecentMacs] = useState<string[]>([]);
@@ -284,6 +285,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   // ---- REALTIME PIN STATE (only for configured pins; do not track contactless) ----
   const pinStateRef = useRef<Map<number, number>>(new Map());
+  useEffect(() => {
+    pinStateRef.current.clear();
+  }, [macAddress]);
 
   const normalizedNormalPins = useMemo(() => {
     const s = new Set<number>();
@@ -316,6 +320,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       latchPins: normalizedLatchPins.length,
       activeKssks: Array.isArray(activeKssks) ? activeKssks.length : 0,
       scanning: isScanning,
+      checking: isChecking,
     };
     const snap = JSON.stringify(snapObj);
     if (snap === lastPropsSnapRef.current) return;
@@ -332,9 +337,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     normalizedLatchPins.length,
     activeKssks,
     isScanning,
+    isChecking,
   ]);
 
-  // Expected = normal ∪ latch (contactless pins NOT included)
+  // Expected pins combine normal + latch; latch still render as "not tested" when appropriate
   const expectedPins = useMemo(() => {
     const s = new Set<number>([
       ...normalizedNormalPins,
@@ -694,6 +700,36 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [normalizedLatchPins]
   );
 
+  const unionNameByPin = useMemo(() => {
+    const map: Record<number, string> = {};
+    if (Array.isArray(groupedBranches)) {
+      for (const grp of groupedBranches) {
+        for (const branch of grp?.branches || []) {
+          if (
+            typeof branch?.pinNumber === "number" &&
+            branch.branchName
+          ) {
+            map[branch.pinNumber] = branch.branchName;
+          }
+        }
+      }
+    }
+    for (const branch of localBranches) {
+      if (typeof branch?.pinNumber === "number" && branch.branchName) {
+        map[branch.pinNumber] = map[branch.pinNumber] || branch.branchName;
+      }
+    }
+    return map;
+  }, [groupedBranches, localBranches]);
+
+  const labelForPin = useCallback(
+    (pin: number) =>
+      (nameHints && nameHints[String(pin)]) ||
+      unionNameByPin[pin] ||
+      `PIN ${pin}`,
+    [nameHints, unionNameByPin]
+  );
+
   // All-OK gates
   const flatAllOk = useMemo(
     () =>
@@ -792,6 +828,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   // Reset pipeline
   const returnToScan = useCallback(() => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    pinStateRef.current.clear();
     setShowOkAnimation(false);
     setLocalBranches([]);
     if (typeof onResetKfb === "function") onResetKfb();
@@ -998,9 +1035,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           <h3 className="p-10 font-black text-red-500 uppercase tracking-widest text-6xl sm:text-7xl">
             SCANNING ERROR
           </h3>
-          {checkError && (
-            <p className="mt-2 text-red-600 font-semibold">{checkError}</p>
-          )}
         </div>
       );
     }
@@ -1054,6 +1088,45 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
 
     if (hasMounted && localBranches.length === 0) {
+      if (failurePins.length > 0) {
+        return (
+          <div className="flex flex-col items-center justify-center h-full min-h-[520px] px-4">
+            <div className="w-full max-w-5xl rounded-3xl border border-red-200 bg-white/95 shadow-2xl p-6">
+              <div className="text-[12px] font-bold uppercase text-slate-600 mb-3">
+                Missing items
+              </div>
+              <div className="flex flex-wrap gap-3">
+                {failurePins.map((pin) => {
+                  const name = labelForPin(pin);
+                  const latch = isLatchPin(pin);
+                  return (
+                    <div
+                      key={`empty-miss-${pin}`}
+                      className="group inline-flex items-center flex-wrap gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 shadow-sm"
+                      title={`PIN ${pin}${latch ? " (Contactless)" : ""}`}
+                    >
+                      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
+                        !
+                      </span>
+                      <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
+                        {name}
+                      </span>
+                      <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
+                        PIN {pin}
+                      </span>
+                      {latch && (
+                        <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]">
+                          Contactless
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      }
       if (isManualEntry) {
         return (
           <div className="flex flex-col items-center justify-center h-full min-h-[500px] w-full max-w-3xl p-0">
@@ -1252,7 +1325,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                         )}
                         {isScanningHud && (
                           <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
-                            <div className="animate-[shimmer_1.6s_infinite_linear] h-full w-1/2 bg-blue-400/60" />
+                            <div className="hud-shimmer h-full w-1/2" />
                           </div>
                         )}
                       </div>
@@ -1458,8 +1531,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             </div>
             <div className="flex flex-wrap gap-3">
               {failurePins.map((pin) => {
-                const nm =
-                  (nameHints && nameHints[String(pin)]) || `PIN ${pin}`;
+                const name = labelForPin(pin);
                 const latch = isLatchPin(pin);
                 return (
                   <div
@@ -1471,7 +1543,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       !
                     </span>
                     <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
-                      {nm}
+                      {name}
                     </span>
                     <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
                       PIN {pin}
@@ -1502,8 +1574,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
     if (busy) return "busy";
-    if (hasMounted && localBranches.length === 0)
+    if (hasMounted && localBranches.length === 0) {
+      if (failurePins.length > 0) return "flat";
       return isManualEntry ? "manual" : "scan";
+    }
     return Array.isArray(groupedBranches) && groupedBranches.length > 0
       ? "grouped"
       : "flat";
@@ -1515,10 +1589,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     localBranches.length,
     isManualEntry,
     groupedBranches,
+    failurePins.length,
   ]);
   useEffect(() => {
     try {
-      if (!DEBUG_LIVE) return;
       if (!DEBUG_LIVE) return;
       if (viewKey === "scan") console.log("[LIVE] OFF → scan view");
       else console.log("[LIVE][VIEW]", { viewKey });
@@ -1527,7 +1601,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const hasContent =
     (Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
-    (localBranches && localBranches.length > 0);
+    (localBranches && localBranches.length > 0) ||
+    failurePins.length > 0;
   return (
     <div
       className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
@@ -1536,7 +1611,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         {!scanResult &&
         (kfbInfo?.board ||
           kfbNumber ||
-          (macAddress && localBranches.length > 0)) ? (
+          (macAddress &&
+            (localBranches.length > 0 || failurePins.length > 0))) ? (
           <div className="flex flex-col items-center gap-2">
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">
@@ -1605,9 +1681,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         .animate-pulse-gray-background {
           animation: pulse-gray 2s cubic-bezier(.4,0,.6,1) infinite;
         }
+        .hud-shimmer {
+          animation: hud-shimmer 1.6s infinite linear;
+          background: linear-gradient(
+            90deg,
+            rgba(59, 130, 246, 0),
+            rgba(59, 130, 246, 0.45),
+            rgba(59, 130, 246, 0)
+          );
+          transform: translateX(-80%);
+          will-change: transform;
+        }
         @keyframes pulse-gray {
           0%,100% { opacity: .2 }
           50% { opacity: .05 }
+        }
+        @keyframes hud-shimmer {
+          0% { transform: translateX(-80%); }
+          100% { transform: translateX(200%); }
         }
       `}</style>
     </div>

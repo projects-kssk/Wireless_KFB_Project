@@ -1690,6 +1690,7 @@ const MainApplicationUI: React.FC = () => {
     START_SEEN_TTL_MS,
     setupScanActive,
     suppressLive,
+    ENTER_LIVE_ON_FAILURE,
   ]);
 
   const runCheck = useCallback(
@@ -1815,7 +1816,7 @@ const MainApplicationUI: React.FC = () => {
             result?.nameHints && typeof result.nameHints === "object"
               ? (result.nameHints as Record<string, string>)
               : undefined;
-          setNameHints(hints);
+          setNameHints((prev) => (hints ? hints : prev));
           try {
             const n = Array.isArray(result?.normalPins)
               ? (result.normalPins as number[])
@@ -2126,10 +2127,16 @@ const MainApplicationUI: React.FC = () => {
             }
             return;
           } else {
-            // Failure path: stay OUT of live; just show MAC + missing CLs
-            setSuppressLive(true);
-            okFlashAllowedRef.current = false;
-            setIsChecking(false);
+            if (ENTER_LIVE_ON_FAILURE) {
+              // Legacy behavior: keep live updates flowing so operators can react immediately.
+              setSuppressLive(false);
+              okFlashAllowedRef.current = true;
+            } else {
+              // Failure path: stay OUT of live; just show MAC + missing CLs
+              setSuppressLive(true);
+              okFlashAllowedRef.current = false;
+              setIsChecking(false);
+            }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
@@ -3362,7 +3369,7 @@ const MainApplicationUI: React.FC = () => {
             ksk: string;
             branches: BranchDisplayData[];
           }>),
-      effFailures: hasMac ? checkFailures : null,
+      effFailures: checkFailures,
       effActiveKssks: hasMac ? activeKssks : (EMPTY_IDS as string[]),
       effNormalPins: hasMac ? normalPins : undefined,
       effLatchPins: hasMac ? latchPins : undefined,
@@ -3421,6 +3428,7 @@ const MainApplicationUI: React.FC = () => {
                 kfbNumber={kfbNumber}
                 kfbInfo={kfbInfo}
                 isScanning={isScanning && showScanUi}
+                isChecking={isChecking}
                 macAddress={macAddress}
                 activeKssks={derived.effActiveKssks}
                 // Always pass EVs so live pin toggles react immediately, even during sim suppressLive

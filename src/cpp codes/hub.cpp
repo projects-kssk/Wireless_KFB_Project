@@ -1,3 +1,14 @@
+#if defined(__has_include)
+#if __has_include(<Arduino.h>)
+#define GUI_HAS_ESP32_HEADERS 1
+#endif
+#else
+#define GUI_HAS_ESP32_HEADERS 1
+#endif
+
+#if !defined(GUI_HAS_ESP32_HEADERS)
+void hub_cpp_requires_esp32_headers() {} // host-side stub when ESP32 SDK headers are missing
+#else
 #include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
@@ -1158,3 +1169,5 @@ MONITOR LATCH 1 08:3A:8D:15:27:54
 CLEAN 08:3A:8D:15:27:54
 CHECK 08:3A:8D:15:27:54
 */
+
+#endif // GUI_HAS_ESP32_HEADERS

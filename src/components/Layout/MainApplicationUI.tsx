@@ -453,7 +453,7 @@ const MainApplicationUI: React.FC = () => {
   );
 
   // ===== Krosy checkpoint integration =====
-  const OFFLINE_MODE = (() => {
+  const { OFFLINE_MODE, CHECKPOINT_URL } = useMemo(() => {
     const online =
       String(process.env.NEXT_PUBLIC_KROSY_ONLINE || "")
         .trim()
@@ -465,14 +465,22 @@ const MainApplicationUI: React.FC = () => {
     const offlineUrl =
       process.env.NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE ||
       "/api/krosy-offline/checkpoint";
-    // pick actual url now (used below)
-    (window as any).__KROSY_CHECKPOINT_URL__ =
-      !online || sim ? offlineUrl : onlineUrl;
-    return (
-      (!online || sim) && offlineUrl.includes("/api/krosy-offline/checkpoint")
-    );
-  })();
-  const CHECKPOINT_URL = (window as any).__KROSY_CHECKPOINT_URL__ as string;
+
+    const selectedUrl = !online || sim ? offlineUrl : onlineUrl;
+    const offlineMode =
+      (!online || sim) && offlineUrl.includes("/api/krosy-offline/checkpoint");
+
+    return {
+      OFFLINE_MODE: offlineMode,
+      CHECKPOINT_URL: selectedUrl,
+    } as const;
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__KROSY_CHECKPOINT_URL__ = CHECKPOINT_URL;
+    }
+  }, [CHECKPOINT_URL]);
   const CLIENT_RESULT_URL = (
     process.env.NEXT_PUBLIC_KROSY_RESULT_URL || ""
   ).trim();

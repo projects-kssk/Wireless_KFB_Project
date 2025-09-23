@@ -6,18 +6,18 @@ STATION_ID=JETSON-01
 
 # =============================== Mode =============================
 # Select Krosy path: true=online, false=offline
-NEXT_PUBLIC_KROSY_ONLINE=false
-SIMULATE=1  # set to 1 to enable simulation mode
-NEXT_PUBLIC_KROSY_IP_OFFLINE=192.168.1.164
-NEXT_PUBLIC_KROSY_URL_OFFLINE=http://localhost:3000/api/krosy-offline
-NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE=/api/krosy-offline/checkpoint
-NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL=http://localhost:3001/api/visualcontrol
-
+NEXT_PUBLIC_KROSY_ONLINE=true
+SIMULATE=0
 # =========================== Krosy URLs ===========================
 # Main Krosy endpoints used by Setup for pin/alias extraction
-NEXT_PUBLIC_KROSY_URL_ONLINE=http://172.26.202.248:3000/api/krosy
+# In production, prefer same-origin API to avoid remote dependency
+NEXT_PUBLIC_KROSY_URL_ONLINE=/api/krosy
+NEXT_PUBLIC_KROSY_URL_OFFLINE=/api/krosy-offline
 # Checkpoint endpoints (send workingDataXml or intksk)
 NEXT_PUBLIC_KROSY_URL_CHECKPOINT_ONLINE=/api/krosy/checkpoint
+NEXT_PUBLIC_KROSY_URL_CHECKPOINT_OFFLINE=/api/krosy-offline/checkpoint
+# Server-side checkpoint absolute URL (optional). If omitted, server will use PORT and local base.
+KROSY_CHECKPOINT_URL=http://127.0.0.1:3003/api/krosy/checkpoint
 # Identity URL (GET) returning hostname/ip/mac for UI
 NEXT_PUBLIC_KROSY_IDENTITY_URL=/api/krosy
 # Target/source identifiers placed into payloads
@@ -25,22 +25,24 @@ NEXT_PUBLIC_KROSY_XML_TARGET=ksskkfb01
 NEXT_PUBLIC_KROSY_SOURCE_HOSTNAME=ksskkfb01
 # Network hints used to infer online/offline mode
 NEXT_PUBLIC_KROSY_IP_ONLINE=172.26.202.248
+NEXT_PUBLIC_KROSY_IP_OFFLINE=192.168.1.164
 # Offline forward target (proxy)
+NEXT_PUBLIC_KROSY_OFFLINE_TARGET_URL=http://localhost:3001/api/visualcontrol
 NEXT_PUBLIC_KROSY_HTTP_TIMEOUT_MS=30000   # client HTTP timeout for Krosy
 KROSY_XML_TARGET=ksskkfb01           
 # CORS (server-side only; declare once)
 KROSY_CLIENT_ORIGINS=http://172.26.202.248:3000,http://localhost:3000,http://localhost:3001,http://192.168.1.164:3001
 
-# Optional VisualControl page (debug) not needed 
+# Optional VisualControl page (debug)
 NEXT_PUBLIC_KROSY_VISUALCONTROL_URL=http://localhost:3001/visualcontrol
 
 
-
 ESP_TTY_PATH=/dev/ttyUSB0
+
 ESP_PING_CMD=PING {payload}
 KROSY_TRANSPORT=tcp
 KROSY_TCP_PORT=10080
-KROSY_TCP_TIMEOUT_MS=10000
+KROSY_TCP_TIMEOUT_MS=30000
 KROSY_LOG_DIR=.krosy-logs
 KROSY_CONNECT_HOST=172.26.192.1
 KROSY_TCP_TERMINATOR=newline
@@ -56,7 +58,7 @@ KROSY_OFFLINE_PATH=/api/visualcontrol
 NEXT_PUBLIC_KFB_REGEX=/^([0-9A-F]{2}([:\-]?)){5}[0-9A-F]{2}$/i
 # ============================ UI Behavior ============================
 NEXT_PUBLIC_SETUP_ALLOW_NO_ESP=0
-NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD=0
+NEXT_PUBLIC_KEEP_LOCKS_ON_UNLOAD=1
 REDIS_URL=redis://127.0.0.1:6379
 
 LOG_ENABLE=1
@@ -65,20 +67,18 @@ LOG_FILE_BASENAME=app
 LOG_LEVEL=info    # console log level (debug|info|warn|error)
 LOG_MONITOR_ONLY=0
 LOG_MONITOR_START_ONLY=0
-
 # Single switch for verbose logging across app log, aliases-XML reads, and monitor logs
 # 1 = enable verbose logs (dev); 0 = disable (prod)
-LOG_VERBOSE=1
-
-
-# Ensure scanner + APIs are visible
+LOG_VERBOSE=0
+# Optional per-tag overrides (e.g., redis=warn,ksk-lock=warn)
+# Ensure scanner + APIs are visible; quiet ksk-lock noise
 LOG_TAG_LEVELS=scanner=debug,scan:sink=info,scan:mem=info,api:serial/scanner=info,api:serial/events=info,ksk-lock=warn
 # Verbose scan diagnostics
 SCAN_LOG=1
 NEXT_PUBLIC_SCAN_LOG=1
 SCAN_MEM_LOG=1
 
-SCANNER_OPEN_TIMEOUT_MS=4000  # open watchdog (ms)
+SCANNER_OPEN_TIMEOUT_MS=4000  # open watchdog (ms)SIMULATE=0
 
 KSK_REQUIRE_REDIS=1
 KSK_DEFAULT_TTL_SEC=172800
@@ -116,12 +116,18 @@ NEXT_PUBLIC_KROSY_IP_OFFLINE=192.168.1.164
 REQUIRE_ALIAS_REDIS=1
 NEXT_PUBLIC_ALIAS_REQUIRE_REDIS=0
 NEXT_PUBLIC_ALIAS_PREFER_REDIS=0
-NEXT_PUBLIC_KSK_SLOTS=3
 
-NEXT_PUBLIC_APP_VERSION=0.8.1
+# Krosy checkpoint reporting target (IP-only; scheme/port inferred)
+KROSY_RESULT_IP=172.26.202.248
+NEXT_PUBLIC_KSK_SLOTS=3
+NEXT_PUBLIC_APP_VERSION=0.8.2-beta
 
 # ================= Electron / Chromium GPU (Jetson) ================
 # Prefer EGL + enable GPU acceleration features on Jetson
 WFKB_USE_EGL=1
 WFKB_IGNORE_GPU_BLOCKLIST=1
 WFKB_ENABLE_CANVAS_ACCEL=1
+
+NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS=1
+
+NEXT_PUBLIC_LIVE_ON_FAILURE=1

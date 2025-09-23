@@ -9,6 +9,8 @@ const levels: Level[] = ["debug","info","warn","error"];
 const ENABLED = ((process.env.LOG_ENABLE ?? "0") === "1") || ((process.env.LOG_VERBOSE ?? "0") === "1");
 const DIR     = process.env.LOG_DIR || "./logs";
 const BASE    = process.env.LOG_FILE_BASENAME || "app";
+const SINGLE_FILE = (process.env.LOG_SINGLE_FILE ?? "1") === "1";
+const FILE_NAME = process.env.LOG_FILE_NAME || (SINGLE_FILE ? `${BASE}.log` : "");
 const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
 
 // Monitor-only mode: show only tag=="monitor" (except allow errors always)
@@ -39,7 +41,8 @@ function minFor(tag?: string): Level {
   return MIN;
 }
 
-let day = ""; let stream: fs.WriteStream | null = null;
+let currentPath = "";
+let stream: fs.WriteStream | null = null;
 let errorStream: fs.WriteStream | null = null;
 
 function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
@@ -63,15 +66,21 @@ function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
   } catch {}
 }
 
+function resolveLogPath() {
+  if (SINGLE_FILE) return path.join(DIR, FILE_NAME);
+  const d = new Date().toISOString().slice(0, 10);
+  return path.join(DIR, `${BASE}-${d}.log`);
+}
+
 function ensureStream() {
   if (!ENABLED) return null;
-  const d = new Date().toISOString().slice(0,10);
-  if (d !== day || !stream) {
-    try { fs.mkdirSync(DIR, { recursive: true }); } catch {}
+  const target = resolveLogPath();
+  if (target !== currentPath || !stream) {
+    try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch {}
     try { stream?.end(); } catch {}
-    stream = fs.createWriteStream(path.join(DIR, `${BASE}-${d}.log`), { flags: "a" });
-    day = d;
-    // prune older than ~1 month
+    stream = fs.createWriteStream(target, { flags: "a" });
+    currentPath = target;
+    // prune older than ~1 month for legacy rotated logs
     pruneOldAppLogs(DIR, BASE, 31);
   }
   return stream;

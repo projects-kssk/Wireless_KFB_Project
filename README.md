@@ -52,11 +52,18 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 Részletes lista: [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md), [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md).
 
 ## Dokumentációs rövidítés
-- [docs/EN/PROCESS-FLOW.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md) – Setup → Check → Cleanup teljes menet (EN)
-- [docs/EN/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md) – hibaelhárítás
-- [docs/HU/MainApplicationUI-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) – Dashboard folyamat (HU)
-- [docs/HU/SetupPage-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md) – Setup folyamat (HU)
-- [docs/EN/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SCENARIOS.md) – tipikus forgatókönyvek
+- **Angol**
+  - [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) – Dashboard viselkedés
+  - [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md) – Setup részletek
+  - [docs/EN/PROCESS-FLOW.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md) – teljes folyamat
+  - [docs/EN/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md) – hibaelhárítás
+  - [docs/EN/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SCENARIOS.md) – tipikus forgatókönyvek
+- **Magyar**
+  - [docs/HU/MainApplicationUI-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) – Dashboard folyamat
+  - [docs/HU/SetupPage-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md) – Setup folyamat
+  - [docs/HU/PROCESS-FLOW-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/PROCESS-FLOW-HU.md) – összefoglaló a fő lépésekről
+  - [docs/HU/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/ERRORS.md) – hibakeresés
+  - [docs/HU/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SCENARIOS.md) – forgatókönyvek és javaslatok
 
 ## Naplózás és ellenőrzés
 - `LOG_VERBOSE=1` → fájl naplók (`logs/app-YYYY-MM-DD.log`, `monitor.logs/...`, `.krosy-logs/...`).

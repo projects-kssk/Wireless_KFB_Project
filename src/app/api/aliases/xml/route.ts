@@ -2,8 +2,6 @@
 import { NextResponse } from "next/server";
 import { getRedis } from "@/lib/redis";
 import { LOG } from "@/lib/logger";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,25 +19,15 @@ function keyForXml(mac: string, kssk: string) {
   return `kfb:aliases:xml:${mac.toUpperCase()}:${kssk}`;
 }
 
-// Dedicated read log (separate from app log stream) → write under /logs
-const READ_LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), "logs");
-const READ_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? '0') === '1';
-function ymdParts(d = new Date()) {
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  return { y, m, day };
-}
+const READ_LOGS_ENABLED = ((process.env.LOG_VERBOSE ?? process.env.LOG_ENABLE ?? "1") === "1");
 async function appendReadLog(mac: string, ksk: string, hit: boolean, bytes: number, note?: string) {
-  if (!READ_LOGS_ENABLED) return; // verbose read logging disabled
-  try {
-    const { y, m, day } = ymdParts();
-    const f = path.join(READ_LOG_DIR, `aliases-xml-reads-${y}-${m}-${day}.log`);
-    await fs.mkdir(READ_LOG_DIR, { recursive: true });
-    const ts = new Date().toISOString();
-    const line = JSON.stringify({ ts, mac, ksk, hit, bytes, note: note || null });
-    await fs.appendFile(f, line + "\n", "utf8");
-  } catch {}
+  if (!READ_LOGS_ENABLED) return;
+  const payload = { mac, ksk, hit, bytes, note: note ?? null };
+  if (hit) {
+    log.info("aliases xml read", payload);
+  } else {
+    log.warn(`aliases xml miss${note ? ` (${note})` : ""}`, payload);
+  }
 }
 
 async function connectIfNeeded(r: any, timeoutMs = 400): Promise<boolean> {

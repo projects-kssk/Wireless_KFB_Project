@@ -23,7 +23,7 @@ Ez a dokumentum a leggyakoribb hibaforrások gyors ellenőrzéséhez ad segíts�
   - Alkalmazás: `logs/app.log` (`LOG_ENABLE=1` vagy `LOG_VERBOSE=1`).
   - Hibák: `logs/errors.log` (mindig gyűjti a hiba szintű sorokat).
   - Monitor események: az `app.log` fájlban (`monitor` taggel, `LOG_VERBOSE=1`).
-  - Alias XML olvasások: `logs/aliases-xml-reads-YYYY-MM-DD.log` (`LOG_VERBOSE=1`).
+  - Alias XML olvasások: az `app.log` fájlban (`aliases:xml` taggel).
 
 ## Vonalkódolvasók
 - **Eszközútvonalak**: `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1`.

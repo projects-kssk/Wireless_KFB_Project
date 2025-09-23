@@ -21,7 +21,7 @@ This guide lists practical checks for common failure points: Krosy connectivity,
   - App log: `./logs/app.log` (when `LOG_ENABLE=1` or `LOG_VERBOSE=1`).
   - Errors: `./logs/errors.log` (error-level only; always on).
   - Monitor events share the app log under tag `monitor`.
-  - Aliases XML reads: `./logs/aliases-xml-reads-YYYY-MM-DD.log` (enabled by `LOG_VERBOSE=1`).
+  - Aliases XML reads share the app log under tag `aliases:xml`.
 
 ## Scanners (1 & 2)
 - Device paths: `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1`.

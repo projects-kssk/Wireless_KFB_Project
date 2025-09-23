@@ -82,7 +82,7 @@
   - App log: `logs/app.log`, pruned/rotated manually as needed. Controlled by `LOG_ENABLE=1` or `LOG_VERBOSE=1`.
   - Errors: `logs/errors.log` (error-level only; always on, independent of `LOG_ENABLE`).
   - Monitor events share the app log and are tagged `monitor` (respect `LOG_VERBOSE=1`).
-  - Aliases XML reads: `logs/aliases-xml-reads-YYYY-MM-DD.log` (guarded by `LOG_VERBOSE=1`).
+  - Aliases XML reads share the app log as tag `aliases:xml`.
   - Krosy logs (request/response and checkpoint): `.krosy-logs/YYYY-MM/<stamp>_<requestId>/...`, pruned after ~31 days.
 
 Environment quick refs for logging

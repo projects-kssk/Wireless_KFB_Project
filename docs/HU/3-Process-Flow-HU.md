@@ -144,7 +144,7 @@ Ez a dokumentum magyar nyelven foglalja össze a **Setup** és a **Main Applicat
 
 ## Kapcsolódó dokumentumok
 
-- `docs/SETUP.md` – részletes Setup konfiguráció
-- `docs/MAINAPPLICATION.md` – Dashboard viselkedés és env változók
-- `docs/PROCESS-FLOW.md` – angol nyelvű end-to-end leírás
-- `docs/ERRORS.md` – hibakódok és diagnosztika
+- `docs/EN/1-SETUP.md` – részletes Setup konfiguráció
+- `docs/EN/2-MAINAPPLICATION.md` – Dashboard viselkedés és env változók
+- `docs/EN/3-PROCESS-FLOW.md` – angol nyelvű end-to-end leírás
+- `docs/EN/4-ERRORS.md` – hibakódok és diagnosztika

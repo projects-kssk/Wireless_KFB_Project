@@ -133,7 +133,7 @@ Magyar összefoglaló a `src/app/setup/page.tsx` komponensről. A Setup modul v�
 
 ## Kapcsolódó referenciák
 
-- `docs/SETUP.md` – részletes env lista és konfigurációs tippek.
-- `docs/PROCESS-FLOW.md` – angol nyelvű, end-to-end folyamat.
+- `docs/EN/1-SETUP.md` – részletes env lista és konfigurációs tippek.
+- `docs/EN/3-PROCESS-FLOW.md` – angol nyelvű, end-to-end folyamat.
 - `@/lib/scanScope` – scope kezelés.
 - `@/lib/serial` – szerveroldali scanner + ESP logika (kliensként indirekt használat).

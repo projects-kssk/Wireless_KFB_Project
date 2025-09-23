@@ -13,6 +13,12 @@ const FILE_NAME = process.env.LOG_FILE_NAME || `${BASE}.log`;
 const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
 const CLEAN_MONITOR = (process.env.LOG_CLEAN_MONITOR ?? "1") === "1";
 const LEGACY_MONITOR_DIR = process.env.LEGACY_MONITOR_LOG_DIR || path.resolve(process.cwd(), "monitor.logs");
+const RAW_MAX_APP_MB = process.env.LOG_MAX_APP_MB ?? "50";
+const MAX_APP_BYTES = (() => {
+  const n = Number(RAW_MAX_APP_MB);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.floor(n * 1024 * 1024);
+})();
 
 // Monitor-only mode: show only tag=="monitor" (except allow errors always)
 const MONITOR_ONLY = (process.env.LOG_MONITOR_ONLY ?? "0") === "1";
@@ -61,9 +67,9 @@ function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
     for (const ent of files) {
       if (!ent.isFile()) continue;
       const name = ent.name;
-      // match base-YYYY-MM-DD.log
-      const m = name.match(new RegExp(`^${base}-\\d{4}-\\d{2}-\\d{2}\\.log$`));
-      if (!m) continue;
+      const legacyDaily = new RegExp(`^${base}-\\d{4}-\\d{2}-\\d{2}\\.log$`).test(name);
+      const rotated = name.startsWith(`${base}.`) && name.endsWith(`.log`);
+      if (!legacyDaily && !rotated) continue;
       const p = path.join(dir, name);
       try {
         const st = fs.statSync(p);
@@ -78,11 +84,28 @@ function resolveLogPath() {
   return path.join(DIR, FILE_NAME);
 }
 
+function rotateIfTooLarge(target: string) {
+  if (!MAX_APP_BYTES) return;
+  try {
+    const st = fs.statSync(target);
+    if (!st.isFile()) return;
+    if (st.size < MAX_APP_BYTES) return;
+    const parsed = path.parse(target);
+    const stamp = new Date().toISOString().replace(/[:T]/g, "-").replace(/\..*$/, "");
+    const rotatedName = parsed.name
+      ? `${parsed.name}.${stamp}${parsed.ext || ""}`
+      : `${FILE_NAME}.${stamp}`;
+    const dest = path.join(parsed.dir, rotatedName);
+    fs.renameSync(target, dest);
+  } catch {}
+}
+
 function ensureStream() {
   if (!ENABLED) return null;
   const target = resolveLogPath();
   if (target !== currentPath || !stream) {
     try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch {}
+    rotateIfTooLarge(target);
     try { stream?.end(); } catch {}
     stream = fs.createWriteStream(target, { flags: "a" });
     currentPath = target;

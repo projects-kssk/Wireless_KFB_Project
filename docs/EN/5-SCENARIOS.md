@@ -60,33 +60,27 @@ This document enumerates key scenarios across Setup, Check, Electron, Scanners, 
 - Online/offline mismatch:
   - Krosy can error; saved logs help. Suggest: connectivity probe button on Setup.
 - Redis URL wrong:
-  - Locks and aliases fail; UI shows errors. Suggest: health endpoint `/api/health` that checks Redis + Krosy + Serial.
+  - Locks and aliases fail; UI shows errors. Note: `/api/health` already reports Redis + Krosy + Serial status; consider surfacing it in the UI.
 
 ## Known Gaps / Not Implemented
 - Testing:
-  - No automated test suite; only type‑check and lint. Suggest: add minimal Jest for helpers + API smoke in CI.
-- Lint config:
-  - ESLint v9 requires new config; script `npm run lint` warns. Suggest: migrate to eslint.config.js.
+  - Still no automated smoke tests; `npm run type-check` currently prints "Skipping type-check". Suggest: re-enable strict type checks and cover core helpers with Jest.
 - UI naming:
-  - Setup code still uses `kssk` in some variable names/panel IDs (cosmetic). Suggest: rename to `ksk` for consistency.
-- Legacy folder:
-  - Empty `src/app/api/kssk-lock/` remains. Suggest: delete directory in repo.
+  - Setup code continues to use `kssk` in several variable names/panel IDs. Suggest: rename to `ksk` for consistency.
 - Operational UI tools:
   - No UI for lock management or aliases inspection; only endpoints. Suggest: admin page with lock list and clear actions.
-- Observability:
-  - No metrics/health endpoint; logs only. Suggest: `/api/health` and `/api/metrics` with counters (locks, scans, checks, failures).
 - Log noise control:
-  - Per‑tag levels supported; no live toggle. Suggest: expose in Settings.
+  - Per-tag levels exist, but there is no runtime toggle. Suggest: surface switches in Settings.
 - Security:
-  - No auth; assumed local operator. Suggest: role‑gated endpoints if network‑exposed.
+  - No auth; assumed local operator. Suggest: role-gated endpoints if the app is network-exposed.
 - Packaging:
-  - No macOS/Windows packaging defined. Suggest: extend electron‑builder targets if needed.
-- Config editability:
-  - Env‑driven; no UI to edit/preview. Suggest: a read‑only config page to reduce drift.
+  - Only Linux AppImage build target is configured. Suggest: add macOS/Windows targets in electron-builder if required.
+- Config visibility:
+  - Env-driven; no read-only config view for operators. Suggest: add a configuration summary page to reduce drift.
 
 ## Quick Suggestions (High Value)
-- Add `/api/health` with:
-  - Redis ping, Krosy TCP probe (online mode), Serial presence, SSE status, and current station locks count.
+- Surface `/api/health` results in the UI:
+  - Redis ping, Krosy TCP probe (online mode), Serial presence, SSE status, and current station locks count are already reported.
 - Create Admin page (dev‑only), with:
   - Locks table (clear/force), Aliases list per MAC, SSE status, recent monitor lines.
 - Make retention days configurable:

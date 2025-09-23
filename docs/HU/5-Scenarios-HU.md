@@ -42,22 +42,19 @@ A dokumentum összegyűjti a legfontosabb Setup, Dashboard, Scanner, Electron é
 ## Környezeti / konfigurációs forgatókönyvek
 - **Hiányzó állomás azonosító**: lock funkciók nem működnek. Javaslat: induláskor ellenőrzés + banner, ha `NEXT_PUBLIC_STATION_ID` nincs beállítva.
 - **Online/offline mód eltérés**: Krosy hibát dobhat; a logok segítenek. Javaslat: Setup oldalon kapcsolódási teszt gomb.
-- **Hibás Redis URL**: lock/alias funkciók hibáznak. Javaslat: `/api/health` végpont, ami Redis + Krosy + Serial állapotot mutat.
+- **Hibás Redis URL**: lock/alias funkciók hibáznak. Megjegyzés: a `/api/health` végpont már elérhető, Redis + Krosy + Serial állapotot ad vissza; érdemes a Dashboardon is jelezni.
 
 ## Ismert hiányosságok / Nem implementált
-- **Tesztelés**: nincs automatizált tesztcsomag; csak type-check és lint. Javaslat: minimális Jest smoke tesztek.
-- **Lint konfiguráció**: ESLint v9 migráció szükséges (`eslint.config.js`).
-- **Elnevezések**: Setup kód helyenként `kssk` változónevet használ (`ksk` helyett). Javaslat: egységesítés.
-- **Legacy mappa**: `src/app/api/kssk-lock/` üres. Javaslat: törlés.
-- **Operátori admin eszközök**: nincs UI a lock/alias kezelésre. Javaslat: admin panel.
-- **Observability**: nincs `/api/health` vagy metrika. Javaslat: countok (locks, scans, checks) kiírása.
+- **Tesztelés**: nincs automatizált smoke teszt; az `npm run type-check` jelenleg csak egy "Skipping" üzenetet ad. Javaslat: reaktiválni a type-checket és hozzáadni minimális Jest teszteket.
+- **Elnevezések**: a Setup kód számos helyen továbbra is `kssk` változónevet használ (`ksk` helyett). Javaslat: egységesítés.
+- **Operátori admin eszközök**: nincs UI a lock/alias kezelésre. Javaslat: admin panel a Redis műveletekhez.
 - **Log zaj kezelése**: per-tag szint létezik, de nincs runtime váltás. Javaslat: Settings-ből vezérelni.
 - **Biztonság**: nincs auth; lokális használatra készült. Javaslat: szerep alapú védelem, ha hálózaton fut.
-- **Packaging**: nincs macOS/Windows build. Javaslat: electron-builder targetek bővítése.
-- **Konfiguráció UI**: env alapú; nincs vizuális nézet. Javaslat: read-only config oldal a drift csökkentéséhez.
+- **Packaging**: jelenleg csak Linux AppImage build készül. Javaslat: electron-builder targetek bővítése macOS/Windows irányba.
+- **Konfiguráció UI**: env alapú; nincs vizuális nézet vagy read-only config oldal a drift csökkentéséhez.
 
 ## Rövid javaslatlista (high value)
-- `/api/health` végpont: Redis ping, Krosy kapcsolat teszt, Serial jelenlét, SSE státusz, lock count.
+- `/api/health` végpont: már elérhető; Redis/Krosy/Serial állapotot ad, ezt érdemes a Dashboardon is vizuálisan jelezni.
 - Admin oldal (csak dev): lock lista (force clear), alias lista MAC szerint, SSE egészség, friss monitor sorok.
 - Retenció paraméterezése: `APP_LOG_RETENTION_DAYS`, `MONITOR_LOG_RETENTION_DAYS`, `KROSY_LOG_RETENTION_DAYS`.
 - Minimális Jest tesztek: XML feldolgozás, pin extractor, alias union builder, serial objPos parser.

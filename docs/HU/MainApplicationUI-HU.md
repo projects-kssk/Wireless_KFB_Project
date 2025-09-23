@@ -1,17 +1,37 @@
 # MainApplicationUI.tsx – Folyamatleírás (HU)
 
-Ez a dokumentum a `src/components/Layout/MainApplicationUI.tsx` komponens működését írja le magyarul. A cél, hogy a fejlesztők és az üzemeltetés pontosan lássa, honnan érkeznek a bemenetek, milyen API-kat hívunk, mi történik a felületen, és hogyan zárul le egy ellenőrzési ciklus.
+Magyar összefoglaló a `src/components/Layout/MainApplicationUI.tsx` komponens működéséről. A dokumentum célja, hogy gyorsan átlátható legyen:
+
+- *milyen bemenetekkel dolgozik* a dashboard,
+- *milyen API-kon keresztül kommunikál*,
+- *hogyan épül fel a folyamat*, és
+- *mi történik a ciklus végén*.
+
+> Angol részletekhoz lásd: [`docs/EN/MAINAPPLICATION.md`](../EN/MAINAPPLICATION.md)
+
+---
+
+## Tartalomjegyzék
+1. [Áttekintés](#áttekintés)
+2. [Inputs](#inputs)
+3. [API hívások](#api-hívások)
+4. [Folyamat](#folyamat)
+5. [Finalize / Kimenet](#finalize--kimenet)
+6. [Segédfüggvények](#segédfüggvények)
+7. [Hibakezelés](#hibakezelés)
+8. [Kapcsolódó fájlok](#kapcsolódó-fájlok--komponensek)
 
 ---
 
 ## Áttekintés
 
-MainApplicationUI a dashboard nézet teljes vezérlése:
-- figyeli az ACM0 (default) olvasó jeleit,
-- kezeli a MAC → alias/pin betöltést Redisből,
+A MainApplicationUI vezérli a teljes dashboard nézetet:
+
+- figyeli az ACM0 (alapértelmezett) olvasó jeleit,
+- Redisből betölti a MAC → alias/pin kapcsolatot,
 - elindítja a CHECK folyamatot az ESP felé,
-- valós időben reagál SSE eseményekre,
-- siker esetén lekezeli a checkpoint + takarítás lépéseit.
+- valós időben kezeli az SSE eseményeket,
+- siker után checkpoint + tisztítás (aliases + lock) lépéseket futtat.
 
 ---
 
@@ -46,7 +66,7 @@ MainApplicationUI a dashboard nézet teljes vezérlése:
 
 ---
 
-## Folyamat (lépésről lépésre)
+## Folyamat
 
 ### 1. Inicializálás
 - React state-ek előkészítése (hud, pins, aliasok).
@@ -102,7 +122,7 @@ MainApplicationUI a dashboard nézet teljes vezérlése:
 
 ---
 
-## Fontos belső segédfüggvények
+## Segédfüggvények
 
 - `handleResetKfb` – teljes UI állapot nullázása sikertelen/sikeres futás után.
 - `clearAliasesVerify` – POST `/api/aliases/clear` + ellenőrző GET.
@@ -126,4 +146,3 @@ MainApplicationUI a dashboard nézet teljes vezérlése:
 - `@/components/Program/BranchDashboardMainContent` – megjelenített fő panel.
 - `@/lib/scanScope` – Setup/Dashboard scanner exkluzivitás.
 - `@/lib/serial` – szerver oldali scanner/ESP kezelés (közvetett).
-

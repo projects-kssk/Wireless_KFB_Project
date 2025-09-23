@@ -1,6 +1,19 @@
 # setup/page.tsx – Folyamatleírás (HU)
 
-Magyar nyelvű útmutató a `src/app/setup/page.tsx` viselkedéséről. A Setup modul feladata a KSK előkészítése: lock szerzés, Krosy adatok kinyerése, alias/pin mentés Redisbe, valamint az ESP programozása. Az alábbi dokumentum bemutatja a bemeneteket, a kulcs API hívásokat, a komponens lépéseit és a lezárást.
+Magyar összefoglaló a `src/app/setup/page.tsx` komponensről. A Setup modul végzi a KSK előkészítését: lockolás, Krosy adatkinyerés, alias/pin mentés és ESP programozás. Az alábbiakban részletesen bemutatjuk a bemeneteket, az API kommunikációt, a lépéseket és a lezárás módját.
+
+> Angol részletekhoz lásd: [`docs/EN/SETUP.md`](../EN/SETUP.md)
+
+---
+
+## Tartalomjegyzék
+1. [Inputs](#inputs)
+2. [API hívások](#api-hívások)
+3. [Folyamat](#folyamat)
+4. [Finalize](#finalize)
+5. [Segédfüggvények](#fontos-helper-függvények)
+6. [Hibakezelés](#hibakezelés-és-tippek)
+7. [Kapcsolódó referenciák](#kapcsolódó-referenciák)
 
 ---
 
@@ -124,4 +137,3 @@ Magyar nyelvű útmutató a `src/app/setup/page.tsx` viselkedéséről. A Setup 
 - `docs/PROCESS-FLOW.md` – angol nyelvű, end-to-end folyamat.
 - `@/lib/scanScope` – scope kezelés.
 - `@/lib/serial` – szerveroldali scanner + ESP logika (kliensként indirekt használat).
-

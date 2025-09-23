@@ -18,9 +18,9 @@ This guide lists practical checks for common failure points: Krosy connectivity,
   - `GET /api/serial/devices` to list serial ports.
   - `GET /api/serial/events` (SSE) for scanner and ESP events.
 - Logs:
-  - App logs: `./logs/app-YYYY-MM-DD.log` (when `LOG_ENABLE=1` or `LOG_VERBOSE=1`).
+  - App log: `./logs/app.log` (when `LOG_ENABLE=1` or `LOG_VERBOSE=1`).
   - Errors: `./logs/errors.log` (error-level only; always on).
-  - Monitor logs: `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (enabled by `LOG_VERBOSE=1`).
+  - Monitor events share the app log under tag `monitor`.
   - Aliases XML reads: `./logs/aliases-xml-reads-YYYY-MM-DD.log` (enabled by `LOG_VERBOSE=1`).
 
 ## Scanners (1 & 2)
@@ -29,7 +29,7 @@ This guide lists practical checks for common failure points: Krosy connectivity,
 - Open policy: If `ALLOW_USB_SCANNER` is not set, the code avoids opening scanners on USB paths that collide with the ESP path.
 - Events: `GET /api/serial/events` – watch `scanner/open`, `scanner/error`, `scan` with `path` and `code`.
 - Poll fallback: `GET /api/serial/scanner` accepts `?path=` to target a specific device.
-- Logs: monitor logs in `./monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log`.
+- Logs: monitor events recorded in `./logs/app.log` (tag `monitor`).
 
 ## ESP
 - Port: `ESP_TTY` or `ESP_TTY_PATH` (prefer `/dev/ttyUSB*`).

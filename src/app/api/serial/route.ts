@@ -1,8 +1,6 @@
 // src/app/api/serial/route.ts
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import fs from "fs/promises";
-import path from "path";
 import { LOG } from '@/lib/logger';
 import { getRedis } from '@/lib/redis';
 import { ridFrom } from '@/lib/rid';
@@ -46,91 +44,63 @@ function json(data: unknown, status = 200) {
 const now = () => Date.now();
 
 /* ----------------- logging ----------------- */
-const LOG_DIR = path.join(process.cwd(), "monitor.logs");
-const MONITOR_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? '0') === '1';
-async function ensureLogDir(dir = LOG_DIR) { try { await fs.mkdir(dir, { recursive: true }); } catch {} }
-async function pruneOldMonitorLogs(root: string, maxAgeDays = 31) {
-  try {
-    const now = Date.now();
-    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
-    const entries = await fs.readdir(root, { withFileTypes: true });
-    for (const ent of entries) {
-      if (!ent.isDirectory()) continue;
-      const dirPath = path.join(root, ent.name);
-      let ts = 0;
-      const m = ent.name.match(/^(\d{4})-(\d{2})$/);
-      if (m) {
-        const y = Number(m[1]); const mon = Number(m[2]);
-        ts = new Date(Date.UTC(y, mon - 1, 1)).getTime();
-      } else {
-        const st = await fs.stat(dirPath as any);
-        ts = st.mtimeMs || st.ctimeMs || 0;
-      }
-      if (now - ts > maxAgeMs) {
-        try { await fs.rm(dirPath, { recursive: true, force: true }); } catch {}
-      }
-    }
-  } catch {}
-}
-function logFilePath() {
-  const d = new Date();
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  // Move logs under monthly directory
-  return path.join(LOG_DIR, `${yyyy}-${mm}`, `monitor-${yyyy}-${mm}-${dd}.log`);
-}
+const MONITOR_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? "0") === "1";
+const MONITOR_START_ONLY = (process.env.LOG_MONITOR_START_ONLY ?? "0") === "1";
 
 async function appendLog(entry: Record<string, unknown>) {
-  if (!MONITOR_LOGS_ENABLED) return; // verbose monitor logs disabled
-  try {
-    const p = logFilePath();
-    await ensureLogDir(path.dirname(p));
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
-    await fs.appendFile(p, line, "utf8");
-    // prune old monthly folders
-    await pruneOldMonitorLogs(LOG_DIR, 31);
-  } catch (err) {
-    log.error("[monitor.log] append failed", err);
-  }
+  const evt = String((entry as any)?.event || "");
+  const mac = (entry as any)?.mac as string | undefined;
+  const kssk = (entry as any)?.kssk as string | undefined;
 
-  // also emit a concise, human-friendly line to the global logger
-  try {
-    const startOnly = (process.env.LOG_MONITOR_START_ONLY ?? '0') === '1';
-    const evt = String((entry as any)?.event || '');
-    const mac = (entry as any)?.mac as string | undefined;
-    const kssk = (entry as any)?.kssk as string | undefined;
+  const severity: "info" | "warn" | "error" =
+    evt === "monitor.error" ? "error" :
+    evt === "monitor.nopins" ? "warn" :
+    "info";
 
-    if (evt === 'monitor.send') {
-      const payload = (entry as any)?.sent ?? (entry as any)?.built; // ← prefer 'sent'
-      const n = payload?.normalPins || [];
-      const l = payload?.latchPins || [];
-      if (l.length > 0) {
-        mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}] contactless(${l.length})=[${l.join(',')}]`);
+  if (!MONITOR_LOGS_ENABLED && severity !== "error") return;
+
+  try {
+    if (evt === "monitor.send") {
+      const payload = (entry as any)?.sent ?? (entry as any)?.built;
+      const normals: number[] = Array.isArray(payload?.normalPins) ? payload.normalPins : [];
+      const latch: number[] = Array.isArray(payload?.latchPins) ? payload.latchPins : [];
+      if (latch.length > 0) {
+        mon.info(
+          `MONITOR start mac=${mac ?? "-"} kssk=${kssk ?? "-"} normal(${normals.length})=[${normals.join(',')}] contactless(${latch.length})=[${latch.join(',')}]`,
+          entry,
+        );
       } else {
-        mon.info(`MONITOR start mac=${mac ?? '-'} kssk=${kssk ?? '-'} normal(${n.length})=[${n.join(',')}]`);
+        mon.info(
+          `MONITOR start mac=${mac ?? "-"} kssk=${kssk ?? "-"} normal(${normals.length})=[${normals.join(',')}]`,
+          entry,
+        );
       }
       return;
     }
-    if (evt === 'monitor.success') {
-      if (startOnly) return; // suppress OK lines in start-only mode
+
+    if (evt === "monitor.success") {
+      if (MONITOR_START_ONLY) return;
       const counts = (entry as any)?.counts as { builtNormal?: number; builtLatch?: number } | undefined;
       const total = (counts?.builtNormal || 0) + (counts?.builtLatch || 0);
-      mon.info(`MONITOR ok mac=${mac ?? '-'} kssk=${kssk ?? '-'} totalPins=${total}`);
+      mon.info(`MONITOR ok mac=${mac ?? "-"} kssk=${kssk ?? "-"} totalPins=${total}`, entry);
       return;
     }
-    if (evt === 'monitor.error') {
+
+    if (evt === "monitor.error") {
       const err = (entry as any)?.error as string | undefined;
-      mon.error(`MONITOR error mac=${mac ?? '-'} kssk=${kssk ?? '-'} err=${err ?? 'unknown'}`);
+      mon.error(`MONITOR error mac=${mac ?? "-"} kssk=${kssk ?? "-"} err=${err ?? "unknown"}`, entry);
       return;
     }
-    if (evt === 'monitor.nopins') {
-      mon.warn(`MONITOR skipped mac=${mac ?? '-'} kssk=${kssk ?? '-'} reason=no-pins`);
+
+    if (evt === "monitor.nopins") {
+      mon.warn(`MONITOR skipped mac=${mac ?? "-"} kssk=${kssk ?? "-"} reason=no-pins`, entry);
       return;
     }
-    // Fallback: keep very short
-    mon.info(`MONITOR event=${evt || 'unknown'} mac=${mac ?? '-'} kssk=${kssk ?? '-'}`);
-  } catch {}
+
+    mon.info(`MONITOR event=${evt || "unknown"} mac=${mac ?? "-"} kssk=${kssk ?? "-"}`, entry);
+  } catch (err) {
+    log.error("monitor logging failure", err);
+  }
 }
 
 function pinDiff(requested: number[] = [], built: number[] = []) {

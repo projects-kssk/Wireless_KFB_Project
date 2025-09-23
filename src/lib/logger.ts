@@ -55,7 +55,10 @@ let errorStream: fs.WriteStream | null = null;
 if (CLEAN_MONITOR) {
   // Drop the legacy monitor.logs directory so only logs/app.log remains active.
   try {
-    fs.rmSync(LEGACY_MONITOR_DIR, { recursive: true, force: true });
+    if (fs.existsSync(LEGACY_MONITOR_DIR)) {
+      fs.rmSync(LEGACY_MONITOR_DIR, { recursive: true, force: true });
+      console.info(`[logger] removed legacy monitor logs at ${LEGACY_MONITOR_DIR}`);
+    }
   } catch {}
 }
 
@@ -68,7 +71,7 @@ function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
       if (!ent.isFile()) continue;
       const name = ent.name;
       const legacyDaily = new RegExp(`^${base}-\\d{4}-\\d{2}-\\d{2}\\.log$`).test(name);
-      const rotated = name.startsWith(`${base}.`) && name.endsWith(`.log`);
+      const rotated = name.startsWith(`${base}.`) && name.endsWith(`.log`) && name.lastIndexOf(".") > (base.length + 1);
       if (!legacyDaily && !rotated) continue;
       const p = path.join(dir, name);
       try {

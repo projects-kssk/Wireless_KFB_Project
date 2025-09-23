@@ -11,6 +11,8 @@ const DIR     = process.env.LOG_DIR || "./logs";
 const BASE    = process.env.LOG_FILE_BASENAME || "app";
 const FILE_NAME = process.env.LOG_FILE_NAME || `${BASE}.log`;
 const MIN     = (process.env.LOG_LEVEL || "info").toLowerCase() as Level;
+const CLEAN_MONITOR = (process.env.LOG_CLEAN_MONITOR ?? "1") === "1";
+const LEGACY_MONITOR_DIR = process.env.LEGACY_MONITOR_LOG_DIR || path.resolve(process.cwd(), "monitor.logs");
 
 // Monitor-only mode: show only tag=="monitor" (except allow errors always)
 const MONITOR_ONLY = (process.env.LOG_MONITOR_ONLY ?? "0") === "1";
@@ -43,6 +45,13 @@ function minFor(tag?: string): Level {
 let currentPath = "";
 let stream: fs.WriteStream | null = null;
 let errorStream: fs.WriteStream | null = null;
+
+if (CLEAN_MONITOR) {
+  // Drop the legacy monitor.logs directory so only logs/app.log remains active.
+  try {
+    fs.rmSync(LEGACY_MONITOR_DIR, { recursive: true, force: true });
+  } catch {}
+}
 
 function pruneOldAppLogs(dir: string, base: string, maxAgeDays = 31) {
   try {

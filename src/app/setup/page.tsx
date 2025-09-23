@@ -1910,6 +1910,11 @@ export default function SetupPage() {
       if (fixed) return fixed;
     }
 
+    const acm1 = list.find((p) => /(^|\/)ttyACM1$/i.test(p));
+    if (acm1) return acm1;
+    const usb1 = list.find((p) => /(^|\/)ttyUSB1$/i.test(p));
+    if (usb1) return usb1;
+
     const acm0 = list.find((p) => /(^|\/)ttyACM0$/i.test(p));
     if (acm0) return acm0;
     const usb0 = list.find((p) => /(^|\/)ttyUSB0$/i.test(p));

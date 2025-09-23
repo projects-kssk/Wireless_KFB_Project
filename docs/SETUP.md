@@ -64,7 +64,7 @@ ESP / Serial & Scanners
 - ESP ping: `ESP_PING_CMD=PING {payload}`
 - Scanner paths: `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1`
 - Scanner index (Setup page): `NEXT_PUBLIC_SCANNER_INDEX_SETUP=1`
-- Force Setup to a specific port: `NEXT_PUBLIC_SCANNER_PATH_SETUP=/dev/ttyACM0`
+- Setup defaults to `/dev/ttyACM1`; override with `NEXT_PUBLIC_SCANNER_PATH_SETUP=/path/to/device`
 - Scanner tuning: `SCANNER_BAUD`, `SCANNER_OPEN_TIMEOUT_MS`
 
 Setup UX & Timeouts

@@ -13,8 +13,8 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 </div>
 
 > **Nyelvválasztó**  
-> 🇬🇧 Angol dokumentáció: [Main Application](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) · [Setup](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md)  
-> 🇭🇺 Magyar összefoglalók: [MainApplicationUI folyamat](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) · [Setup folyamat](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md)
+> 🇬🇧 Angol dokumentáció: [1. Setup](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md) → [2. Main Application](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) → [3. Process Flow](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md) → [4. Troubleshooting](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md)  
+> 🇭🇺 Magyar összefoglalók: [1. Setup](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md) → [2. MainApplicationUI](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) → [3. Folyamat összefoglaló](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/PROCESS-FLOW-HU.md) → [4. Hibakeresés](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/ERRORS.md)
 
 ---
 
@@ -51,19 +51,23 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 
 Részletes lista: [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md), [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md).
 
-## Dokumentációs rövidítés
-- **Angol**
-  - [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) – Dashboard viselkedés
-  - [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md) – Setup részletek
-  - [docs/EN/PROCESS-FLOW.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md) – teljes folyamat
-  - [docs/EN/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md) – hibaelhárítás
-  - [docs/EN/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SCENARIOS.md) – tipikus forgatókönyvek
-- **Magyar**
-  - [docs/HU/MainApplicationUI-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) – Dashboard folyamat
-  - [docs/HU/SetupPage-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md) – Setup folyamat
-  - [docs/HU/PROCESS-FLOW-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/PROCESS-FLOW-HU.md) – összefoglaló a fő lépésekről
-  - [docs/HU/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/ERRORS.md) – hibakeresés
-  - [docs/HU/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SCENARIOS.md) – forgatókönyvek és javaslatok
+## Ajánlott olvasási sorrend
+
+1. **Setup / Előkészítés**  
+   - 🇬🇧 [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md)  
+   - 🇭🇺 [docs/HU/SetupPage-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md)
+2. **Main Application / Dashboard**  
+   - 🇬🇧 [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md)  
+   - 🇭🇺 [docs/HU/MainApplicationUI-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md)
+3. **Teljes folyamat leírása**  
+   - 🇬🇧 [docs/EN/PROCESS-FLOW.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md)  
+   - 🇭🇺 [docs/HU/PROCESS-FLOW-HU.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/PROCESS-FLOW-HU.md)
+4. **Hibakeresés**  
+   - 🇬🇧 [docs/EN/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md)  
+   - 🇭🇺 [docs/HU/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/ERRORS.md)
+5. **További forgatókönyvek / javaslatok**  
+   - 🇬🇧 [docs/EN/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SCENARIOS.md)  
+   - 🇭🇺 [docs/HU/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SCENARIOS.md)
 
 ## Naplózás és ellenőrzés
 - `LOG_VERBOSE=1` → fájl naplók (`logs/app.log`, `.krosy-logs/...`).

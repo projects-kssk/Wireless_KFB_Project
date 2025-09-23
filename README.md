@@ -94,3 +94,5 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 
 ## Támogatás
 Kérdés esetén nézd át a [docs/EN/4-ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/4-ERRORS.md) útmutatót, vagy jelezd a csapatnak a konkrét hibát/napló részlettel.
+Telefonos elérhetőség: 621.
+The project was made by Nagy Viktor.

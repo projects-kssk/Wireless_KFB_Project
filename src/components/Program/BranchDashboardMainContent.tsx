@@ -8,6 +8,7 @@ import React, {
   startTransition,
 } from "react";
 import { BranchDisplayData, KfbInfo } from "@/types/types";
+import { maskSimMac } from "@/lib/macDisplay";
 import { m, AnimatePresence } from "framer-motion";
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
@@ -184,6 +185,7 @@ export interface BranchDashboardMainContentProps {
   // Ask parent to finalize OK (checkpoint + clear + OK overlay)
   onFinalizeOk?: (mac: string) => Promise<void> | void;
   macAddress?: string;
+  displayMac?: string;
   groupedBranches?: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   checkFailures?: number[] | null;
   nameHints?: Record<string, string> | undefined;
@@ -231,6 +233,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   onResetKfb,
   onFinalizeOk,
   macAddress,
+  displayMac,
   groupedBranches = [],
   checkFailures = null,
   nameHints,
@@ -247,6 +250,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   scanResult,
 }) => {
   const isChecking = Boolean(isCheckingProp);
+  const displayMacUpper = useMemo(
+    () => maskSimMac(displayMac ?? macAddress ?? ""),
+    [displayMac, macAddress]
+  );
+  const displayKfbNumber = useMemo(() => {
+    const masked = maskSimMac(kfbNumber);
+    return masked || kfbNumber;
+  }, [kfbNumber]);
   // Lifecycle logs for live-session enter/exit based on MAC binding
   const prevMacRef = useRef<string>("");
   useEffect(() => {
@@ -873,13 +884,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       flashInProgressRef.current = true;
       try {
-        const id =
-          macAddress && macAddress.trim()
-            ? macAddress.toUpperCase()
-            : (kfbInfo?.board || kfbNumber || "").toString().toUpperCase();
+        const fallback = (kfbInfo?.board || displayKfbNumber || "").toString().toUpperCase();
+        const id = displayMacUpper || fallback || (macAddress || "").toUpperCase();
         okBoardRef.current = id;
       } catch {
-        okBoardRef.current = (macAddress || "").toUpperCase();
+        okBoardRef.current =
+          displayMacUpper ||
+          (displayKfbNumber || "").toUpperCase() ||
+          (macAddress || "").toUpperCase();
       }
 
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -1629,9 +1641,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">
                 <h1 className="font-mono text-6xl md:text-7xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full text-center">
-                  {macAddress
-                    ? macAddress.toUpperCase()
-                    : (kfbInfo?.board ?? kfbNumber)}
+                  {displayMacUpper
+                    ? displayMacUpper
+                    : (kfbInfo?.board ?? displayKfbNumber)}
                 </h1>
               </div>
             ) : (

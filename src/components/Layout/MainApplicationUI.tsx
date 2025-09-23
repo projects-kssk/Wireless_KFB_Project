@@ -14,6 +14,7 @@ import { Header } from "@/components/Header/Header";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
+import { maskSimMac } from "@/lib/macDisplay";
 
 /* =================================================================================
  * Constants & helpers
@@ -147,10 +148,6 @@ const MainApplicationUI: React.FC = () => {
   const ALLOW_IDLE_SCANS =
     String(process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1") === "1";
 
-  const DASH_SCANNER_INDEX = Number(
-    process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? "0"
-  );
-
   /* -----------------------------------------------------------------------------
    * Basic UI state
    * ---------------------------------------------------------------------------*/
@@ -219,6 +216,7 @@ const MainApplicationUI: React.FC = () => {
   useEffect(() => {
     macRef.current = (macAddress || "").toUpperCase();
   }, [macAddress]);
+  const displayMacAddress = useMemo(() => maskSimMac(macAddress), [macAddress]);
 
   const [isScanning, setIsScanning] = useState(false);
   const [showScanUi, setShowScanUi] = useState(false);
@@ -250,6 +248,18 @@ const MainApplicationUI: React.FC = () => {
       latchPins?: number[];
     }>
   >([]);
+
+  /* -------------------------------------------------------------------------- */
+  /* Live mode gating
+   * EN: Live mode is only permitted when we actually have setup data for this MAC.
+   * HU: Csak akkor engedjük a live módot (unió/ellenőrzés/finalize), ha van aktív KSK vagy alias/setup adat Redisben.
+   */
+  /* -------------------------------------------------------------------------- */
+  const hasSetupForCurrentMac = useCallback(() => {
+    const active = (activeKssks?.length ?? 0) > 0;
+    const anyItems = (itemsAllFromAliasesRef.current?.length ?? 0) > 0;
+    return active || anyItems;
+  }, [activeKssks]);
   const lastGroupsRef = useRef<
     Array<{ ksk: string; branches: BranchDisplayData[] }>
   >([]);
@@ -285,6 +295,9 @@ const MainApplicationUI: React.FC = () => {
   const lastRunHadFailuresRef = useRef<boolean>(false);
   const pendingScansRef = useRef<string[]>([]);
   const lastScanTokenRef = useRef<string>("");
+  const lastSimulateCheckTickRef = useRef<number>(0);
+  const simulateCooldownUntilRef = useRef<number>(0);
+  const pendingSimulateRef = useRef<{ target: string; tick: number } | null>(null);
 
   const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(
     null
@@ -657,6 +670,11 @@ const MainApplicationUI: React.FC = () => {
     setNameHints(undefined);
     setNormalPins(undefined);
     setLatchPins(undefined);
+    itemsAllFromAliasesRef.current = [];
+    lastGroupsRef.current = [];
+    lastActiveIdsRef.current = [];
+    pendingSimulateRef.current = null;
+    simulateCooldownUntilRef.current = 0;
 
     setMacAddress("");
     setSuppressLive(false);
@@ -709,11 +727,14 @@ const MainApplicationUI: React.FC = () => {
       ok = await verify();
     }
   }, []);
-  // [HU] finalizeOkForMac(mac):
-  //      - Csak akkor fut, ha az utolsó futásban NINCS hiba (guard a dupla hívások elkerülésére).
-  //      - Küldi a "checkpoint"-ot (ha van KSK id), majd törli az aliasokat és a lockokat.
-  //      - Ideiglenesen blokkolja az ugyanarra a MAC-re érkező gyors újrascan-t (phantom olvasások ellen).
-  //      - Végén reseteli a lokális UI állapotot (mac, kfb, csoportok, stb.).
+  /* -------------------------------------------------------------------------- */
+  /* [HU] finalizeOkForMac(mac)
+   *   - Csak akkor fut, ha az utolsó futásban NINCS hiba (guard a dupla hívások elkerülésére).
+   *   - Küldi a "checkpoint"-ot (ha van KSK id), majd törli az aliasokat és a lockokat.
+   *   - Ideiglenesen blokkolja az ugyanarra a MAC-re érkező gyors újrascan-t (phantom olvasások ellen).
+   *   - A végén reseteli a lokális UI állapotot (mac, kfb, csoportok, stb.).
+   */
+  /* -------------------------------------------------------------------------- */
   const finalizeOkForMac = useCallback(
     async (rawMac: string) => {
       const mac = String(rawMac || "")
@@ -882,12 +903,15 @@ const MainApplicationUI: React.FC = () => {
       sendCheckpointForMac,
     ]
   );
-  // [HU] runCheck(mac, attempt, pins):
-  //      - A teszt kliens meghívása a megadott MAC-re (opcionálisan megadott pinekkel).
-  //      - Watchdoggal védi a folyamatot (timeout esetén hiba).
-  //      - Eredmény alapján: nameHints, normal/latch pin frissítés, hibás pinek jelölése.
-  //      - Ha nincs hiba (0 failure), automatikusan finalize -> cleanup -> új scan jöhet.
-  //      - 429/504/státusz kódoknál visszatérő próbálkozás (CFG.RETRIES, cooldown).
+  /* -------------------------------------------------------------------------- */
+  /* [HU] runCheck(mac, attempt, pins)
+   *   - A teszt kliens meghívása a megadott MAC-re (opcionálisan megadott pinekkel).
+   *   - Watchdoggal védi a folyamatot (timeout esetén hiba).
+   *   - Eredmény alapján: nameHints, normal/latch pin frissítés, hibás pinek jelölése.
+   *   - Ha nincs hiba (0 failure), automatikusan finalize -> cleanup -> új scan jöhet.
+   *   - 429/504/státusz kódoknál visszatérő próbálkozás (CFG.RETRIES, cooldown).
+   */
+  /* -------------------------------------------------------------------------- */
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
@@ -943,7 +967,11 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
 
         if (res.ok) {
-          const failures: number[] = result.failures || [];
+          const failures: number[] = Array.isArray(result?.failures)
+            ? (result.failures as number[])
+                .map((n) => Number(n))
+                .filter((n) => Number.isFinite(n))
+            : [];
           const unknown = result?.unknownFailure === true;
           lastRunHadFailuresRef.current = unknown || failures.length > 0;
 
@@ -964,7 +992,20 @@ const MainApplicationUI: React.FC = () => {
             setLatchPins(l);
           } catch {}
 
-          setCheckFailures(failures);
+          const hasAliasesFromResult =
+            (Array.isArray((result as any)?.itemsActive) &&
+              ((result as any).itemsActive as any[]).length > 0) ||
+            (Array.isArray((result as any)?.items) &&
+              ((result as any).items as any[]).length > 0) ||
+            (result?.aliases &&
+              typeof result.aliases === "object" &&
+              Object.keys(result.aliases).length > 0);
+
+          const setupReadyRef =
+            hasSetupForCurrentMac() || hasAliasesFromResult;
+
+          const shouldExposeFailures = setupReadyRef || failures.length > 0;
+          setCheckFailures(shouldExposeFailures ? failures : []);
 
           // build branches (flat + grouped) from items
           startTransition(() =>
@@ -1008,6 +1049,9 @@ const MainApplicationUI: React.FC = () => {
                 ).filter((n: number) => Number.isFinite(n)) as number[]
               );
 
+              const setupReadyWithAliases =
+                setupReadyRef || Object.keys(aliases).length > 0;
+
               const flat = pinsAll.map((pin) => ({
                 id: String(pin),
                 branchName: aliases[String(pin)] || `PIN ${pin}`,
@@ -1020,6 +1064,12 @@ const MainApplicationUI: React.FC = () => {
                 kfbInfoValue: undefined,
                 isLatch: contactless.has(pin),
               }));
+
+              if (!setupReadyWithAliases) {
+                setGroupedBranches([]);
+                lastActiveIdsRef.current = [];
+                return flat;
+              }
 
               const itemsActiveArr = Array.isArray((result as any)?.itemsActive)
                 ? ((result as any).itemsActive as Array<{
@@ -1160,7 +1210,11 @@ const MainApplicationUI: React.FC = () => {
                   .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
                   .map(([k, branches]) => ({ ksk: k, branches }));
                 setGroupedBranches(groups);
-                setActiveKssks(groups.map((g) => g.ksk).filter(Boolean));
+                if (activeSet.size)
+                  setActiveKssks(groups.map((g) => g.ksk).filter(Boolean));
+                lastActiveIdsRef.current = groups
+                  .map((g) => g.ksk)
+                  .filter(Boolean);
 
                 const knownPinsSet = new Set<number>();
                 for (const g of groups)
@@ -1188,13 +1242,15 @@ const MainApplicationUI: React.FC = () => {
                 }
               } else {
                 setGroupedBranches([]);
-                setActiveKssks([]);
+                if (!activeSet.size) setActiveKssks([]);
+                if (!activeSet.size) lastActiveIdsRef.current = [];
               }
 
               const knownFlat = new Set<number>(pinsAll);
               const extras = failures.filter(
                 (p: number) => Number.isFinite(p) && !knownFlat.has(p)
               );
+              if (!setupReadyWithAliases) return flat;
               return extras.length
                 ? [
                     ...flat,
@@ -1213,7 +1269,7 @@ const MainApplicationUI: React.FC = () => {
             })
           );
 
-          if (!unknown && failures.length === 0) {
+          if (!unknown && failures.length === 0 && setupReadyRef) {
             clearScanOverlayTimeout();
             setSuppressLive(true);
             cancel("checkWatchdog");
@@ -1224,6 +1280,11 @@ const MainApplicationUI: React.FC = () => {
             }
             return;
           } else {
+            if (!setupReadyRef) {
+              setGroupedBranches([]);
+              setScanResult(null);
+              return;
+            }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
@@ -1296,8 +1357,17 @@ const MainApplicationUI: React.FC = () => {
         cancel("checkWatchdog");
       } finally {
         cancel("checkWatchdog");
-        if (!lastRunHadFailuresRef.current) setIsChecking(false);
-        else idleCooldownUntilRef.current = 0; // allow immediate re-scan on failure
+        const now = Date.now();
+        if (!lastRunHadFailuresRef.current) {
+          setIsChecking(false);
+          idleCooldownUntilRef.current = now + 2500;
+        } else {
+          idleCooldownUntilRef.current = 0; // allow immediate re-scan on failure
+        }
+        simulateCooldownUntilRef.current = Math.max(
+          simulateCooldownUntilRef.current,
+          now + 2500
+        );
       }
     },
     [
@@ -1309,11 +1379,17 @@ const MainApplicationUI: React.FC = () => {
       handleResetKfb,
       latchPins,
       schedule,
+      hasSetupForCurrentMac,
     ]
   );
 
-  // HU: resolveDesiredPath először az ACM0, majd az USB0 portot preferálja,
-  // HU: végül a dashboard index alapján választ fallback útvonalat; bizonytalan esetben null-t ad vissza.
+  /* -------------------------------------------------------------------------- */
+  /* HU: resolveDesiredPath leírás
+   *   - Először az ACM0, majd az USB0 portot részesíti előnyben.
+   *   - Végül a dashboard index alapján választ fallback útvonalat.
+   *   - Bizonytalan esetben null-t ad vissza.
+   */
+  /* -------------------------------------------------------------------------- */
   const resolveDesiredPath = useCallback((): string | null => {
     const list: string[] = (serial as any).scannerPaths || [];
     if (Array.isArray(list) && list.length) {
@@ -1321,18 +1397,11 @@ const MainApplicationUI: React.FC = () => {
         (p) => /(^|\/)ttyACM0$/.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p)
       );
       if (acm0) return acm0;
-      const usb0 = list.find(
-        (p) => /(^|\/)ttyUSB0$/.test(p) || /(\/|^)(USB)0(?!\d)/i.test(p)
-      );
-      if (usb0) return usb0;
-      const fallback = list[DASH_SCANNER_INDEX] || null;
-      if (fallback) {
-        const tail = fallback.split("/").pop() || fallback;
-        if (/(ACM|USB)0(?!\d)/i.test(tail)) return fallback;
-      }
+      const fallback = list.find((p) => /(^|\/)ttyACM\d+$/i.test(p));
+      if (fallback) return fallback;
     }
     return null;
-  }, [serial, DASH_SCANNER_INDEX]);
+  }, [serial]);
 
   const pathsEqual = useCallback((a?: string | null, b?: string | null) => {
     if (!a || !b) return false;
@@ -1399,7 +1468,13 @@ const MainApplicationUI: React.FC = () => {
         } catch {}
       }
       if (activeIds.length > 3) activeIds = activeIds.slice(0, 3);
-      if (activeIds.length) setActiveKssks(activeIds);
+      if (activeIds.length) {
+        setActiveKssks(activeIds);
+        lastActiveIdsRef.current = [...activeIds];
+      } else {
+        setActiveKssks([]);
+        lastActiveIdsRef.current = [];
+      }
 
       try {
         if (FLAGS.REHYDRATE_ON_LOAD) {
@@ -1431,22 +1506,6 @@ const MainApplicationUI: React.FC = () => {
                 activeIds.includes(String((it.ksk ?? it.kssk) || "").trim())
               )
             : items;
-
-          // derive ids if locks empty
-          if (!activeIds.length && items.length) {
-            const derived = Array.from(
-              new Set(
-                items
-                  .map((it: any) => String((it.ksk ?? it.kssk) || "").trim())
-                  .filter(Boolean)
-              )
-            );
-            if (derived.length) {
-              const chosen = derived.slice(0, 3);
-              setActiveKssks(chosen);
-              activeIds = chosen;
-            }
-          }
 
           const pinSet = new Set<number>();
           for (const it of itemsFiltered) {
@@ -1503,6 +1562,7 @@ const MainApplicationUI: React.FC = () => {
             ).sort((a, b) => a - b);
             if (mergedPins.length) pins = mergedPins;
           } catch {}
+
         }
       } catch {}
 
@@ -1537,13 +1597,17 @@ const MainApplicationUI: React.FC = () => {
       const macFromAny = extractMac(trimmed);
       const normalized = (macFromAny || trimmed).toUpperCase();
 
-      // HU: Token ablak (~1.5s) megakadályozza, hogy ugyanaz a kód duplán fusson (SSE vs. poll).
-      // coalesce within ~1.5s to avoid duplicate runs (SSE+poll)
+      /* ---------------------------------------------------------------------- */
+      /* HU: Token ablak (~1.5s) megakadályozza, hogy ugyanaz a kód duplán fusson (SSE vs. poll). */
+      /* EN: Coalesce within ~1.5s to avoid duplicate runs (SSE + poll). */
+      /* ---------------------------------------------------------------------- */
       const token = `${normalized}:${Math.floor(now / 1500)}`;
       if (lastScanTokenRef.current === token) return;
       lastScanTokenRef.current = token;
 
-      // HU: finalize utáni blokkolt MAC-et átugorjuk, amíg a guard le nem jár.
+      /* ---------------------------------------------------------------------- */
+      /* HU: Finalize után blokkolt MAC-et átugorjuk, amíg a guard le nem jár. */
+      /* ---------------------------------------------------------------------- */
       if (blockedMacRef.current.has(normalized)) return;
       try {
         const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
@@ -1557,7 +1621,9 @@ const MainApplicationUI: React.FC = () => {
           return;
       } catch {}
 
-      // HU: Csak szabályos MAC vagy engedélyezett KFB kód mehet tovább; minden más elutasítva logolódik.
+      /* ---------------------------------------------------------------------- */
+      /* HU: Csak szabályos MAC vagy engedélyezett KFB kód mehet tovább; minden más elutasítva logolódik. */
+      /* ---------------------------------------------------------------------- */
       if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
         console.warn("[SCAN] invalid code format", { code: trimmed });
         return;
@@ -1575,14 +1641,50 @@ const MainApplicationUI: React.FC = () => {
     handleScanRef.current = handleScan;
   }, [handleScan]);
 
+  const tryRunPendingSimulate = useCallback(() => {
+    const pending = pendingSimulateRef.current;
+    if (!pending) return;
+    if (isCheckingRef.current) return;
+    if (Date.now() < simulateCooldownUntilRef.current) return;
+
+    pendingSimulateRef.current = null;
+    simulateCooldownUntilRef.current = Date.now() + 2500;
+    if (setupGateActive) enableSimOverride();
+    void handleScanRef.current?.(pending.target, "sse");
+  }, [enableSimOverride, setupGateActive]);
+
+  useEffect(() => {
+    const tick = Number(serial.simulateCheckTick || 0);
+    if (!tick || tick === lastSimulateCheckTickRef.current) return;
+    lastSimulateCheckTickRef.current = tick;
+
+    const macFromEvent = String(serial.simulateCheckMac || "").trim();
+    const fallback = (macRef.current || "").trim();
+    const target = (macFromEvent || fallback).toUpperCase();
+    if (!target) {
+      pendingSimulateRef.current = null;
+      return;
+    }
+
+    pendingSimulateRef.current = { target, tick };
+    tryRunPendingSimulate();
+  }, [serial.simulateCheckTick, serial.simulateCheckMac, tryRunPendingSimulate]);
+
+  useEffect(() => {
+    tryRunPendingSimulate();
+  }, [tryRunPendingSimulate, isScanning]);
+
   /* =================================================================================
    * Effect Components (modularized side-effects)
    * ================================================================================= */
 
-  // [HU] UnionEffect:
-  //      - Élő union (nevek + pin lista) feldolgozása CSAK aktív MAC esetén.
-  //      - Redis "degraded" módban az üres/uninformációs uniont ignorálja.
-  //      - Az aktív KSK-k alapján korlátozza a pineket (computeActivePins).
+  /* -------------------------------------------------------------------------- */
+  /* [HU] UnionEffect
+   *   - Élő union (nevek + pin lista) feldolgozása CSAK aktív MAC esetén.
+   *   - Redis "degraded" módban az üres/uninformációs uniont ignorálja.
+   *   - Az aktív KSK-k alapján korlátozza a pineket (computeActivePins).
+   */
+  /* -------------------------------------------------------------------------- */
   /** LIVE union updates (names/pins), skip empty when redis degraded */
   const UnionEffect: React.FC = () => {
     useEffect(() => {
@@ -1594,6 +1696,7 @@ const MainApplicationUI: React.FC = () => {
       } | null;
       if (!u) return;
       if (suppressLive) return;
+      if (!hasSetupForCurrentMac()) return;
 
       // If a MAC is active, we accept union for that MAC only.
       const cur = (macRef.current || "").toUpperCase();
@@ -1628,13 +1731,17 @@ const MainApplicationUI: React.FC = () => {
       activeKssks,
       computeActivePins,
       redisDegraded,
+      hasSetupForCurrentMac,
     ]);
     return null;
   };
-  // [HU] RedisHealthEffect:
-  //      - Figyeli a redisReady flaget, drop esetén "degraded" állapot.
-  //      - Helyreállás után (opcionális) rehydrate, ha épp fut check/scan aktív MAC-re.
-  //      - Rövid debouncolás, hogy a villanásokat/ingadozásokat kiszűrje.
+  /* -------------------------------------------------------------------------- */
+  /* [HU] RedisHealthEffect
+   *   - Figyeli a redisReady flaget, drop esetén "degraded" állapotot kapcsol.
+   *   - Helyreállás után (opcionális) rehydrate, ha épp fut check/scan aktív MAC-re.
+   *   - Rövid debouncolás, hogy a villanásokat/ingadozásokat kiszűrje.
+   */
+  /* -------------------------------------------------------------------------- */
   /** Redis health monitor + optional rehydrate on recovery */
   const RedisHealthEffect: React.FC = () => {
     useEffect(() => {
@@ -1714,9 +1821,12 @@ const MainApplicationUI: React.FC = () => {
     return null;
   };
 
-  // [HU] AutoFinalizeEffect:
-  //      - Ha minden megjelenített ág OK és nincs épp check/scanning,
-  //        a jelenlegi MAC-re meghívja a finalize-t (felhasználó nélkül is).
+  /* -------------------------------------------------------------------------- */
+  /* [HU] AutoFinalizeEffect
+   *   - Ha minden megjelenített ág OK és nincs épp check/scanning,
+   *     a jelenlegi MAC-re meghívja a finalize-t (felhasználó nélkül is).
+   */
+  /* -------------------------------------------------------------------------- */
   /** Auto-success if everything in view is OK (no failures) */
   const AutoFinalizeEffect: React.FC = () => {
     useEffect(() => {
@@ -1753,12 +1863,15 @@ const MainApplicationUI: React.FC = () => {
    *  - If we have an active scanned MAC, treat events as for that MAC even if device mac is ZERO or mismatched.
    *  - ZERO_MAC is substituted with the active MAC; ignored only if there's no active MAC.
    */
-  // [HU] DeviceEventsEffect:
-  //      - START: ha van ev.mac és még nincs aktív MAC, beállítja; mindig "checking" állapotba lép.
-  //      - RESULT/DONE + OK: ha van AKTÍV MAC, minden ágat OK-ra állít és finalize-t kér.
-  //      - FONTOS: a "00:00:00:00:00:00" (ZERO_MAC) esetén az aktív MAC-re helyettesítünk.
-  //                Ha nincs aktív MAC, a ZERO_MAC-et figyelmen kívül hagyjuk.
-  //      - Ha FAIL érkezik és épp nem checkelünk, belép "checking"
+  /* -------------------------------------------------------------------------- */
+  /* [HU] DeviceEventsEffect
+   *   - START: ha van ev.mac és még nincs aktív MAC, beállítja; mindig "checking" állapotba lép.
+   *   - RESULT/DONE + OK: ha van AKTÍV MAC, minden ágat OK-ra állít és finalize-t kér.
+   *   - FONTOS: a "00:00:00:00:00:00" (ZERO_MAC) esetén az aktív MAC-re helyettesítünk;
+   *             ha nincs aktív MAC, a ZERO_MAC-et figyelmen kívül hagyjuk.
+   *   - FAIL eseménynél, ha épp nem checkelünk, belép "checking" módba.
+   */
+  /* -------------------------------------------------------------------------- */
   const DeviceEventsEffect: React.FC = () => {
     // OK path
     useEffect(() => {
@@ -1778,15 +1891,21 @@ const MainApplicationUI: React.FC = () => {
       const kind = String(ev.kind || "").toUpperCase();
 
       const current = (macRef.current || "").toUpperCase();
+      const setupReady = hasSetupForCurrentMac();
 
       if (kind === "START") {
-        let evMac = String(ev.mac || "").toUpperCase();
-        // substitute ZERO → current if any
-        if (!current && evMac && evMac !== ZERO_MAC) {
+        if (isCheckingRef.current) return;
+        const evMac = String(ev.mac || "").toUpperCase();
+        if (!evMac || evMac === ZERO_MAC) return;
+        const lastFinalizedAgo = Date.now() - (lastFinalizedAtRef.current || 0);
+        if (blockedMacRef.current.has(evMac)) return;
+        if (lastFinalizedAgo >= 0 && lastFinalizedAgo < CFG.RETRY_COOLDOWN_MS)
+          return;
+        if (!setupReady && !current) return;
+        if (!current) {
           setMacAddress(evMac);
           setKfbNumber(evMac);
         }
-        // enter checking for our current session
         setIsChecking(true);
         okFlashAllowedRef.current = true;
       }
@@ -1799,6 +1918,7 @@ const MainApplicationUI: React.FC = () => {
       if (!current) return;
 
       if ((kind === "RESULT" || kind === "DONE") && ok) {
+        if (!setupReady) return;
         // Mark all OK, finalize
         setBranchesData((prev) =>
           prev.map((b) => ({ ...b, testStatus: "ok" as const }))
@@ -1817,11 +1937,13 @@ const MainApplicationUI: React.FC = () => {
       setupGateActive,
       suppressLive,
       finalizeOkForMac,
+      hasSetupForCurrentMac,
     ]);
 
     // Failure fallback (enter checking if a failure arrives while not checking)
     useEffect(() => {
       if (suppressLive) return;
+      if (!hasSetupForCurrentMac()) return;
       const ev = (serial as any).lastEv as {
         kind?: string;
         mac?: string | null;
@@ -1866,7 +1988,7 @@ const MainApplicationUI: React.FC = () => {
           }
         } catch {}
       }
-    }, [(serial as any).lastEvTick, suppressLive]);
+    }, [(serial as any).lastEvTick, suppressLive, hasSetupForCurrentMac]);
 
     return null;
   };
@@ -2074,9 +2196,12 @@ const MainApplicationUI: React.FC = () => {
     ]);
     return null;
   };
-  // [HU] PostResetSanityEffect:
-  //      - finalize után (amikor már nincs aktív MAC) még egyszer óvatosan törli az aliasokat/lockokat,
-  //        így elkerülhető bármilyen "szennyezett" állapot következő scan előtt.
+  /* -------------------------------------------------------------------------- */
+  /* [HU] PostResetSanityEffect
+   *   - Finalize után (amikor már nincs aktív MAC) még egyszer óvatosan törli az aliasokat/lockokat,
+   *     így elkerülhető bármilyen "szennyezett" állapot a következő scan előtt.
+   */
+  /* -------------------------------------------------------------------------- */
   /** Post-reset sanity cleanup for last finalized mac */
   const PostResetSanityEffect: React.FC = () => {
     useEffect(() => {
@@ -2106,11 +2231,13 @@ const MainApplicationUI: React.FC = () => {
   /* -----------------------------------------------------------------------------
    * HUD derived info
    * ---------------------------------------------------------------------------*/
-  // [HU] HUD (hudMode/hudMessage/hudSubMessage):
-  //      - "idle" -> vár a scannelésre (scannerDetected alapján kieg. üzenet).
-  //      - "scanning" -> rövid várakozás.
-  //      - "info"/"error" -> átmeneti státuszok (pl. részleges hibalista, timeout).
-
+  /* -------------------------------------------------------------------------- */
+  /* [HU] HUD (hudMode/hudMessage/hudSubMessage)
+   *   - "idle" -> vár a scannelésre (scannerDetected alapján kieg. üzenet).
+   *   - "scanning" -> rövid várakozás.
+   *   - "info"/"error" -> átmeneti státuszok (pl. részleges hibalista, timeout).
+   */
+  /* -------------------------------------------------------------------------- */
   const scannerDetected = useMemo(() => {
     try {
       return (
@@ -2221,6 +2348,8 @@ const MainApplicationUI: React.FC = () => {
       ? "settings"
       : "main";
 
+  const headerMac = useMemo(() => maskSimMac(macAddress), [macAddress]);
+
   const toggleLeftSidebar = () => setIsLeftSidebarOpen((v) => !v);
   const toggleSettingsSidebar = () => setIsSettingsSidebarOpen((v) => !v);
   const showDashboard = () => setMainView("dashboard");
@@ -2251,6 +2380,7 @@ const MainApplicationUI: React.FC = () => {
         {mainView === "dashboard" && (
           <Header
             serial={serial}
+            displayMac={headerMac}
             onSettingsClick={handleHeaderClick}
             currentView={appCurrentViewType}
             isSidebarOpen={isLeftSidebarOpen}
@@ -2282,6 +2412,7 @@ const MainApplicationUI: React.FC = () => {
                 kfbInfo={kfbInfo}
                 isScanning={isScanning && showScanUi}
                 macAddress={macAddress}
+                displayMac={displayMacAddress}
                 activeKssks={derived.effActiveKssks}
                 lastEv={(serial as any).lastEv}
                 lastEvTick={(serial as any).lastEvTick}

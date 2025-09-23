@@ -53,6 +53,7 @@ export async function POST(req: Request) {
 
     // Optional: inject scanner scan(s)
     const scans = Array.isArray(body.scan) ? body.scan : (body.scan ? [body.scan] : []);
+    const hadInjectedScan = scans.length > 0;
     for (const s of scans) {
       const code = String((s as any)?.code ?? '').trim();
       if (code) {
@@ -106,6 +107,18 @@ export async function POST(req: Request) {
       const line = `EV P ${ch} ${val} ${mac}`;
       try { (serial as any).getEspLineStream?.().emit?.(line); } catch {}
       return ok({ ok: true, config: updated, toggled: { ch, val } });
+    }
+
+    if (!hadInjectedScan) {
+      const macForCheck = String(
+        (update.macOverride ?? next?.macOverride ?? body.mac ?? process.env.ESP_EXPECT_MAC ?? '08:3A:8D:15:27:54')
+      )
+        .trim()
+        .toUpperCase();
+      if (macForCheck) {
+        try { broadcast({ type: 'simulate/check', mac: macForCheck }); } catch {}
+        try { setLastScan(macForCheck, null); } catch {}
+      }
     }
 
     return ok({ ok: true, config: next });

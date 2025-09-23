@@ -29,7 +29,9 @@ export type SerialEvent =
       ts?: number;
     }
   // Union aliases broadcast (after CHECK or manual rehydrate)
-  | { type: 'aliases/union'; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
+  | { type: 'aliases/union'; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }
+  // Simulate API can force UI checks without a physical scan event
+  | { type: 'simulate/check'; mac?: string | null };
 
 type Sub = (e: SerialEvent) => void;
 

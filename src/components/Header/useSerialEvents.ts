@@ -33,7 +33,8 @@ type SerialEvent =
       line?: string;
       ts?: number;
     }
-  | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] };
+  | { type: "aliases/union"; mac: string; names?: Record<string,string>; normalPins?: number[]; latchPins?: number[] }
+  | { type: "simulate/check"; mac?: string | null };
 
 export type ScannerPortState = {
   present: boolean;
@@ -77,6 +78,9 @@ export type SerialState = {
 
   lastUnion: { mac: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null;
 
+  simulateCheckMac: string | null;
+  simulateCheckTick: number;
+
   isUnloading: boolean;
 };
 
@@ -105,6 +109,8 @@ export function useSerialEvents(
   const [lastEvTick, setLastEvTick] = useState(0);
   const [evCount, setEvCount] = useState(0);
   const [lastUnion, setLastUnion] = useState<{ mac: string; normalPins?: number[]; latchPins?: number[]; names?: Record<string,string> } | null>(null);
+  const [simulateCheckMac, setSimulateCheckMac] = useState<string | null>(null);
+  const [simulateCheckTick, setSimulateCheckTick] = useState<number>(0);
 
   const [sseConnected, setSseConnected] = useState<boolean>(false);
 
@@ -151,6 +157,9 @@ export function useSerialEvents(
     evCount: 0,
 
     lastUnion: null,
+
+    simulateCheckMac: null,
+    simulateCheckTick: 0,
 
     isUnloading: false,
   });
@@ -352,6 +361,13 @@ export function useSerialEvents(
           setLastUnion({ mac: String(m.mac||'').toUpperCase(), normalPins: Array.isArray(m.normalPins)?m.normalPins:undefined, latchPins: Array.isArray(m.latchPins)?m.latchPins:undefined, names: (m.names&&typeof m.names==='object')?m.names:undefined });
           break;
         }
+        case "simulate/check": {
+          const macRaw = String((msg as any).mac || "").trim().toUpperCase();
+          setSimulateCheckMac(macRaw || null);
+          tickRef.current += 1;
+          setSimulateCheckTick(tickRef.current);
+          break;
+        }
         case "scan": {
           schedule((p) => { (p as any).scan = { code: String((msg as any).code), path: (msg as any).path ?? null }; });
           break;
@@ -419,6 +435,9 @@ export function useSerialEvents(
     evCount,
 
     lastUnion,
+
+    simulateCheckMac,
+    simulateCheckTick,
 
     // Indicates the browser/tab is unloading (closing/reloading)
     isUnloading,

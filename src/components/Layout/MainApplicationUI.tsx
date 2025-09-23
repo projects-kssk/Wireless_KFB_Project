@@ -170,6 +170,40 @@ const MainApplicationUI: React.FC = () => {
     };
   }, []);
 
+  const [simSetupOverride, setSimSetupOverride] = useState(false);
+  const simOverrideTimerRef = useRef<number | null>(null);
+  const clearSimOverrideTimer = useCallback(() => {
+    if (simOverrideTimerRef.current != null) {
+      try {
+        if (typeof window !== "undefined")
+          window.clearTimeout(simOverrideTimerRef.current);
+      } catch {}
+      simOverrideTimerRef.current = null;
+    }
+  }, []);
+  const disableSimOverride = useCallback(() => {
+    clearSimOverrideTimer();
+    setSimSetupOverride(false);
+  }, [clearSimOverrideTimer]);
+  const enableSimOverride = useCallback(
+    (ms = 300_000) => {
+      setSimSetupOverride(true);
+      clearSimOverrideTimer();
+      if (typeof window !== "undefined") {
+        simOverrideTimerRef.current = window.setTimeout(() => {
+          setSimSetupOverride(false);
+          simOverrideTimerRef.current = null;
+        }, ms);
+      }
+    },
+    [clearSimOverrideTimer]
+  );
+  useEffect(() => {
+    if (!setupScanActive) disableSimOverride();
+  }, [setupScanActive, disableSimOverride]);
+  useEffect(() => () => disableSimOverride(), [disableSimOverride]);
+  const setupGateActive = setupScanActive && !simSetupOverride;
+
   /* -----------------------------------------------------------------------------
    * Process state
    * ---------------------------------------------------------------------------*/
@@ -369,15 +403,15 @@ const MainApplicationUI: React.FC = () => {
    * ---------------------------------------------------------------------------*/
   const serial = useSerialEvents(
     // In simulation, keep SSE active even while suppressLive so pin toggles reflect immediately.
-    setupScanActive || (suppressLive && !FLAGS.SIMULATE)
+    setupGateActive || (suppressLive && !FLAGS.SIMULATE)
       ? undefined
       : (macAddress || "").toUpperCase(),
     {
       disabled:
-        setupScanActive ||
+        setupGateActive ||
         (suppressLive && !FLAGS.SIMULATE) ||
         mainView !== "dashboard",
-      base: !setupScanActive,
+      base: !setupGateActive,
     }
   );
   useEffect(() => {
@@ -626,6 +660,7 @@ const MainApplicationUI: React.FC = () => {
 
     setMacAddress("");
     setSuppressLive(false);
+    disableSimOverride();
 
     okShownOnceRef.current = false;
     okFlashAllowedRef.current = false;
@@ -640,7 +675,7 @@ const MainApplicationUI: React.FC = () => {
         if (!until || until <= now) finalizeOkGuardRef.current.delete(mac);
       }
     } catch {}
-  }, [cancel, clearScanOverlayTimeout]);
+  }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
 
   const clearAliasesVerify = useCallback(async (mac: string) => {
     await fetch("/api/aliases/clear", {
@@ -1277,6 +1312,8 @@ const MainApplicationUI: React.FC = () => {
     ]
   );
 
+  // HU: resolveDesiredPath először az ACM0, majd az USB0 portot preferálja,
+  // HU: végül a dashboard index alapján választ fallback útvonalat; bizonytalan esetben null-t ad vissza.
   const resolveDesiredPath = useCallback((): string | null => {
     const list: string[] = (serial as any).scannerPaths || [];
     if (Array.isArray(list) && list.length) {
@@ -1500,11 +1537,13 @@ const MainApplicationUI: React.FC = () => {
       const macFromAny = extractMac(trimmed);
       const normalized = (macFromAny || trimmed).toUpperCase();
 
+      // HU: Token ablak (~1.5s) megakadályozza, hogy ugyanaz a kód duplán fusson (SSE vs. poll).
       // coalesce within ~1.5s to avoid duplicate runs (SSE+poll)
       const token = `${normalized}:${Math.floor(now / 1500)}`;
       if (lastScanTokenRef.current === token) return;
       lastScanTokenRef.current = token;
 
+      // HU: finalize utáni blokkolt MAC-et átugorjuk, amíg a guard le nem jár.
       if (blockedMacRef.current.has(normalized)) return;
       try {
         const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
@@ -1518,6 +1557,7 @@ const MainApplicationUI: React.FC = () => {
           return;
       } catch {}
 
+      // HU: Csak szabályos MAC vagy engedélyezett KFB kód mehet tovább; minden más elutasítva logolódik.
       if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
         console.warn("[SCAN] invalid code format", { code: trimmed });
         return;
@@ -1527,6 +1567,13 @@ const MainApplicationUI: React.FC = () => {
     },
     [CFG.FINALIZED_RESCAN_BLOCK_MS, loadBranchesData]
   );
+
+  const handleScanRef = useRef<
+    ((raw: string, trig?: ScanTrigger) => Promise<void>) | null
+  >(null);
+  useEffect(() => {
+    handleScanRef.current = handleScan;
+  }, [handleScan]);
 
   /* =================================================================================
    * Effect Components (modularized side-effects)
@@ -1715,7 +1762,7 @@ const MainApplicationUI: React.FC = () => {
   const DeviceEventsEffect: React.FC = () => {
     // OK path
     useEffect(() => {
-      if (setupScanActive) return;
+      if (setupGateActive) return;
       if (suppressLive) return;
 
       const ev = (serial as any).lastEv as {
@@ -1767,7 +1814,7 @@ const MainApplicationUI: React.FC = () => {
       }
     }, [
       (serial as any).lastEvTick,
-      setupScanActive,
+      setupGateActive,
       suppressLive,
       finalizeOkForMac,
     ]);
@@ -1824,28 +1871,37 @@ const MainApplicationUI: React.FC = () => {
     return null;
   };
 
-  // [HU] ScannerEffect:
-  //      - SSE-n érkező "lastScan" feldolgozása, preferált eszköz úton (ACM0/USB0 vagy index).
-  //      - Ha épp check vagy scanning fut, nem indít új folyamatot.
-  //      - Dupla olvasás elkerülésére tokenizált koaleszcencia (~1.5s ablak).
+  /* ========================================================================== */
+  /* [HU] ScannerEffect lépései
+   *   1. SSE esemény szűrése: preferált olvasó útvonal (ACM0/USB0/index) ellenőrzése.
+   *   2. Ütközésvédelem: aktív check/scanning és throttling blokkolja a feldolgozást.
+   *   3. Koaleszcencia: token ablak (~1.5s) megakadályozza a dupla olvasást.
+   */
+  /* ========================================================================== */
 
-  // [HU] PollingEffect:
-  //      - Fallback mód, ha az SSE régen adott utoljára jelet (stale).
-  //      - Csak akkor poll-ol, ha nincs aktív MAC és nem fut check.
-  //      - Útvonal (path) ellenőrzés, reentrancia és hibatűrés.
+  /* ========================================================================== */
+  /* [HU] PollingEffect lépései
+   *   1. SSE inaktivitás figyelése: stale időküszöb elérésekor lép működésbe.
+   *   2. Feltételes poll: csak tétlen állapotban (nincs MAC, nincs check) indít kérést.
+   *   3. Stabilizáció: útvonal-ellenőrzés és reentrancia gátak biztosítják a hibatűrést.
+   */
+  /* ========================================================================== */
 
   /** Consume SSE scanner events (no manual). Enforces scanner path preference. */
   const ScannerEffect: React.FC = () => {
     useEffect(() => {
+      // 1. Csak dashboard nézetben, nyitott beállítások hiányában reagálunk az SSE-re.
       if (mainView !== "dashboard") return;
       if (isSettingsSidebarOpen) return;
       if (!(serial as any).lastScanTick) return;
 
+      // 1. Preferált olvasó útvonal érvényesítése (ACM/USB vagy index).
       const want = resolveDesiredPath();
       const seen = (serial as any).lastScanPath as string | null | undefined;
       const pathMismatch = want && seen && !pathsEqual(seen, want);
       if (pathMismatch) return;
 
+      // 2. Feldolgozás letiltása ütközés, throttling vagy blokkolt MAC esetén.
       const code = (serial as any).lastScan;
       if (!code) return;
       if (isCheckingRef.current || isScanning) return;
@@ -1855,6 +1911,7 @@ const MainApplicationUI: React.FC = () => {
       if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
       if (blockedMacRef.current.has(norm)) return;
 
+      // 3. Token-koaleszcencia után elfogadott kód feldolgozása.
       void handleScan(norm, "sse");
     }, [
       (serial as any).lastScanTick,
@@ -1869,9 +1926,44 @@ const MainApplicationUI: React.FC = () => {
     return null;
   };
 
+  // Allow Dev simulator "Run Check" events to behave like physical scans.
+  useEffect(() => {
+    const onSimScan = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail as
+        | { code?: string; allowDuringSetup?: boolean }
+        | undefined;
+      const code = String(detail?.code || "").trim();
+      if (!code) return;
+      const allowDuringSetup = detail?.allowDuringSetup === true;
+      if (setupScanActive && allowDuringSetup) enableSimOverride();
+      if (setupGateActive && !allowDuringSetup) return;
+      if (mainView !== "dashboard") return;
+      if (isSettingsSidebarOpen) return;
+      if (isScanning) return;
+      if (isCheckingRef.current) return;
+      void handleScanRef.current?.(code, "sse");
+    };
+    try {
+      window.addEventListener("kfb:sim-scan", onSimScan as EventListener);
+    } catch {}
+    return () => {
+      try {
+        window.removeEventListener("kfb:sim-scan", onSimScan as EventListener);
+      } catch {}
+    };
+  }, [
+    setupGateActive,
+    setupScanActive,
+    mainView,
+    isSettingsSidebarOpen,
+    isScanning,
+    enableSimOverride,
+  ]);
+
   /** Polling fallback to consume scans when SSE is stale/idle */
   const PollingEffect: React.FC = () => {
     useEffect(() => {
+      // 1. SSE inaktivitási küszöb és poll engedélyezés ellenőrzése.
       if (!FLAGS.SCANNER_POLL) return;
       if (mainView !== "dashboard") return;
       if (isSettingsSidebarOpen) return;
@@ -1880,6 +1972,7 @@ const MainApplicationUI: React.FC = () => {
       if (isCheckingRef.current) return;
       if (isScanning) return;
 
+      // 1. Stale időkeret validálása.
       const STALE_MS = Number(
         process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000"
       );
@@ -1895,6 +1988,7 @@ const MainApplicationUI: React.FC = () => {
 
       const tick = async () => {
         try {
+          // 2. SSE állapotának újraellenőrzése, amíg ténylegesen szükség van pollra.
           const lastAtNow = (serial as any).lastScanAt as
             | number
             | null
@@ -1917,6 +2011,7 @@ const MainApplicationUI: React.FC = () => {
             timer = window.setTimeout(tick, 1200);
             return;
           }
+          // 3. Poll végrehajtása validált útvonalon, hibatűréssel.
           const url = `/api/serial/scanner?path=${encodeURIComponent(
             want
           )}&consume=1`;
@@ -2168,10 +2263,6 @@ const MainApplicationUI: React.FC = () => {
             <>
               <BranchDashboardMainContent
                 appHeaderHeight={actualHeaderHeight}
-                /* Manual input completely disabled; keep prop as no-op to satisfy types */
-                onManualSubmit={() => {
-                  /* manual entry removed */
-                }}
                 /* allow child to re-trigger a scan if it calls this; we simply re-run last scanned code if any */
                 onScanAgainRequest={(val?: string) => {
                   const code = (val || lastScanRef.current || "").trim();

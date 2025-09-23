@@ -166,7 +166,7 @@ const BranchCard = React.memo(BranchCardBase, (prev, next) => {
 // --- PROPS ---
 export interface BranchDashboardMainContentProps {
   onScanAgainRequest: () => void;
-  onManualSubmit: (kfbNumber: string) => void;
+  onManualSubmit?: (kfbNumber: string) => void;
   appHeaderHeight: string;
   hudMode?: "idle" | "scanning" | "error" | "info" | null;
   hudMessage?: string;
@@ -226,7 +226,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   isChecking: isCheckingProp = false,
   kfbNumber,
   kfbInfo,
-  allowManualInput = true,
+  allowManualInput = Boolean(onManualSubmit),
   // showRemoveCable intentionally ignored
   onResetKfb,
   onFinalizeOk,
@@ -969,7 +969,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputValue.trim()) onManualSubmit(inputValue.trim());
+    if (inputValue.trim() && onManualSubmit) {
+      onManualSubmit(inputValue.trim());
+    }
   };
 
   // --- MAC input helpers ---

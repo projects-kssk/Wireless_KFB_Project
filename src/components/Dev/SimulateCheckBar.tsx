@@ -30,7 +30,6 @@ export default function SimulateCheckBar() {
   const [unionPins, setUnionPins] = React.useState<number[]>([]);
   const [names, setNames] = React.useState<Record<string,string>>({});
   const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
-  const [useFallbackCheck, setUseFallbackCheck] = React.useState(true);
 
   const isMountedRef = React.useRef(true);
   React.useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -159,12 +158,12 @@ export default function SimulateCheckBar() {
       if (fixed) return fixed;
     }
 
-    const preferAcm1 = list.find((p) => /(^|\/)ttyACM1$/i.test(p) || /(\/|^)(ACM)1(?!\d)/i.test(p));
-    if (preferAcm1) return preferAcm1;
-    const preferUsb1 = list.find((p) => /(^|\/)ttyUSB1$/i.test(p) || /(\/|^)(USB)1(?!\d)/i.test(p));
-    if (preferUsb1) return preferUsb1;
+    const preferAcm0 = list.find((p) => /(^|\/)ttyACM0$/i.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p));
+    if (preferAcm0) return preferAcm0;
+    const preferUsb0 = list.find((p) => /(^|\/)ttyUSB0$/i.test(p) || /(\/|^)(USB)0(?!\d)/i.test(p));
+    if (preferUsb0) return preferUsb0;
 
-    const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '1'));
+    const idx = Math.max(0, Number(process.env.NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD ?? '0'));
     if (list[idx]) return list[idx];
 
     return list[0];
@@ -191,26 +190,6 @@ export default function SimulateCheckBar() {
         const detail = { code: mac.toUpperCase(), trigger: 'simulate', allowDuringSetup: true };
         window.dispatchEvent(new CustomEvent('kfb:sim-scan', { detail }));
       } catch {}
-      // Optional fallback: only if the toggle is enabled and no START was seen soon after the single scan
-      if (useFallbackCheck) {
-        setTimeout(async () => {
-          try {
-            if (liveRef.current.started) return; // main app already reacting via SSE
-            const res = await fetch('/api/serial/check', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mac: mac.toUpperCase() }),
-            });
-            const j = await res.json().catch(() => null);
-            if (res.ok)
-              setLast({
-                ok: (Array.isArray(j?.failures) ? j.failures.length : 0) === 0,
-                failures: Array.isArray(j?.failures) ? j.failures.length : undefined,
-              });
-            else setLast({ ok: false, msg: j?.error || String(res.status) });
-          } catch {}
-        }, 600);
-      }
     } catch (e: any) {
       setLast({ ok: false, msg: String(e?.message || e) });
     } finally {
@@ -279,10 +258,6 @@ export default function SimulateCheckBar() {
           onChange={(e) => setMac(e.target.value.toUpperCase())}
           style={{ width: 195, textAlign: 'center', padding: '4px 8px', borderRadius: 8, background: '#111827', color: '#fff', border: '1px solid #374151' }}
         />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, opacity: 0.9 }}>
-          <input type="checkbox" checked={useFallbackCheck} onChange={(e) => setUseFallbackCheck(e.target.checked)} />
-          Fallback CHECK if no SSE
-        </label>
         <button onClick={runCheck} disabled={busy || !mac} style={{ padding: '6px 10px', borderRadius: 10, background: '#2563eb', color: '#fff' }}>Run Check</button>
         {last && (
           <span style={{ fontSize: 12, opacity: 0.9, paddingLeft: 6, color: last.ok ? '#10b981' : '#fca5a5' }}>

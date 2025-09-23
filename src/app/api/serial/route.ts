@@ -44,7 +44,7 @@ function json(data: unknown, status = 200) {
 const now = () => Date.now();
 
 /* ----------------- logging ----------------- */
-const MONITOR_LOGS_ENABLED = (process.env.LOG_VERBOSE ?? "0") === "1";
+const MONITOR_LOGS_ENABLED = ((process.env.LOG_VERBOSE ?? "0") === "1") || ((process.env.LOG_ENABLE ?? "0") === "1");
 const MONITOR_START_ONLY = (process.env.LOG_MONITOR_START_ONLY ?? "0") === "1";
 
 async function appendLog(entry: Record<string, unknown>) {

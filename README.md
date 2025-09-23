@@ -38,18 +38,16 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 - `npm run build:arm64` – AppImage ARM64
 - `npm run lint` · `npm run type-check` – kódellenőrzés
 
-## Kulcs környezeti változók
+## Kulcs környezeti változók (részletek a doksiban)
 
-| Téma | Változók |
-|------|----------|
-| **ESP** | `ESP_TTY_PATH=/dev/ttyUSB0`, `ESP_BAUD=115200`, `ESP_HEALTH_PROBE` |
-| **Scannerek** | `SCANNER_TTY_PATHS=/dev/ttyACM0,/dev/ttyACM1`, `NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD=0`, `NEXT_PUBLIC_SCANNER_INDEX_SETUP=1` |
-| **Setup/Krosy** | `NEXT_PUBLIC_KROSY_ONLINE`, `NEXT_PUBLIC_KROSY_IP_ONLINE`, `NEXT_PUBLIC_KROSY_URL_ONLINE`, `NEXT_PUBLIC_KSK_TTL_SEC` |
-| **Dashboard** | `NEXT_PUBLIC_KFB_REGEX`, `NEXT_PUBLIC_CHECK_RETRY_COUNT`, `NEXT_PUBLIC_OK_OVERLAY_MS`, `CHECK_SEND_MODE` |
-| **Redis** | `REDIS_URL`, `KSK_REQUIRE_REDIS`, `KSK_DEFAULT_TTL_SEC`, `NEXT_PUBLIC_ALIAS_REQUIRE_REDIS` |
-| **Naplózás** | `LOG_VERBOSE`, `LOG_ENABLE`, `LOG_TAG_LEVELS`, `LOG_MONITOR_ONLY` |
-
-Részletes lista: [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md), [docs/EN/MAINAPPLICATION.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md).
+| Téma | Példa változók | Részletes leírás |
+|------|----------------|------------------|
+| **ESP** | `ESP_TTY_PATH`, `ESP_BAUD`, `ESP_HEALTH_PROBE`, `ESP_PING_CMD` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) · [HU](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) |
+| **Scannerek** | `SCANNER_TTY_PATHS`, `NEXT_PUBLIC_SCANNER_INDEX_DASHBOARD`, `NEXT_PUBLIC_SCANNER_INDEX_SETUP` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/MAINAPPLICATION.md) · [HU](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/MainApplicationUI-HU.md) |
+| **Setup/Krosy** | `NEXT_PUBLIC_KROSY_ONLINE`, `NEXT_PUBLIC_KROSY_URL_ONLINE`, `NEXT_PUBLIC_KSK_TTL_SEC` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md) · [HU](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SetupPage-HU.md) |
+| **Redis / Lockok** | `REDIS_URL`, `KSK_REQUIRE_REDIS`, `KSK_DEFAULT_TTL_SEC`, `NEXT_PUBLIC_KSK_REQUIRE_REDIS` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/SETUP.md) |
+| **Workflow** | `CHECK_SEND_MODE`, `NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS`, `NEXT_PUBLIC_FINALIZED_RESCAN_BLOCK_MS` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/PROCESS-FLOW.md) |
+| **Naplózás** | `LOG_VERBOSE`, `LOG_ENABLE`, `LOG_TAG_LEVELS`, `LOG_MONITOR_ONLY` | [EN](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md) |
 
 ## Ajánlott olvasási sorrend
 

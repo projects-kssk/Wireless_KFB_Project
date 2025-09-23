@@ -55,4 +55,4 @@ Ez a dokumentum a leggyakoribb hibaforrások gyors ellenőrzéséhez ad segíts�
 
 ---
 
-További tippekért lásd az angol változatot: [`docs/EN/ERRORS.md`](../EN/ERRORS.md).
+További tippekért lásd az angol változatot: [`docs/EN/4-ERRORS.md`](../EN/4-ERRORS.md).

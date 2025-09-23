@@ -6,7 +6,7 @@ type Level = "debug" | "info" | "warn" | "error";
 const levels: Level[] = ["debug","info","warn","error"];
 
 // Global enable: honor either LOG_ENABLE or LOG_VERBOSE (single switch requested)
-const ENABLED = ((process.env.LOG_ENABLE ?? "0") === "1") || ((process.env.LOG_VERBOSE ?? "0") === "1");
+const ENABLED = ((process.env.LOG_ENABLE ?? process.env.LOG_VERBOSE ?? "1") === "1");
 const DIR     = process.env.LOG_DIR || "./logs";
 const BASE    = process.env.LOG_FILE_BASENAME || "app";
 const FILE_NAME = process.env.LOG_FILE_NAME || `${BASE}.log`;

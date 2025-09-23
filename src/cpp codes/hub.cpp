@@ -82,10 +82,13 @@ static uint8_t lastSender[6];
 static volatile bool haveSender = false;
 static portMUX_TYPE g_senderMux = portMUX_INITIALIZER_UNLOCKED;
 
+static inline bool isZeroMac(const uint8_t *addr);
+static bool resolveTarget(const uint8_t *dest, uint8_t out[6]);
+
 static inline bool getTarget(uint8_t out[6]) {
   bool ok;
   portENTER_CRITICAL(&g_senderMux);
-  ok = haveSender;
+  ok = haveSender && !isZeroMac(lastSender);
   if (ok) memcpy(out, lastSender, 6);
   portEXIT_CRITICAL(&g_senderMux);
   return ok;
@@ -148,10 +151,11 @@ static void cleanAll();
 struct PendingCmd {
   enum Kind { None, Blink, Chase, MonitorBaseline } kind;
   int n;
+  bool hasMac;
   uint8_t mac[6];
 };
 static volatile bool havePending = false;
-static PendingCmd pending = {PendingCmd::None, 0, {0}};
+static PendingCmd pending = {PendingCmd::None, 0, false, {0}};
 static portMUX_TYPE pendingMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ==== Helpers ====
@@ -173,6 +177,21 @@ static inline bool readSwRaw(int ch) {
   return v == HIGH; // pull-up
 }
 static inline bool isPressedRaw(int ch) { return !readSwRaw(ch); }
+
+static inline bool isZeroMac(const uint8_t *addr) {
+  static const uint8_t zero[6] = {0,0,0,0,0,0};
+  return !addr || memcmp(addr, zero, sizeof(zero)) == 0;
+}
+
+static bool resolveTarget(const uint8_t *dest, uint8_t out[6]) {
+  if (dest) {
+    if (isZeroMac(dest)) return false;
+    memcpy(out, dest, 6);
+    return true;
+  }
+  if (!getTarget(out)) return false;
+  return true;
+}
 
 static void buildPins() {
   for (int ch = 0; ch < CHANNEL_COUNT; ++ch) {
@@ -243,7 +262,8 @@ static inline void sendSuccessAndIdle() {
   char out[64];
   snprintf(out, sizeof(out), "RESULT SUCCESS %s", BOARD_MAC);
   uint8_t dest[6]; bool ok = getTarget(dest);
-  sendCmd(out, ok ? dest : nullptr);
+  if (ok) sendCmd(out, dest);
+  else Serial.println("WARN: success without session target");
   goDarkAndIdle();   // goDarkAndIdle already stops streaming
 }
 
@@ -652,7 +672,7 @@ static void doMonitoring() {
     if (!liveOkSince) liveOkSince = now;
     if (now - liveOkSince >= AUTO_FINAL_HOLD_MS) {
       // emit AUTO-FINAL as RAW to avoid competing with RESULT ACK state
-      sendCmdRaw("AUTO-FINAL", haveSender ? lastSender : nullptr);
+      { uint8_t dest[6]; if (getTarget(dest)) sendCmdRaw("AUTO-FINAL", dest); }
       sendSuccessAndIdle();   // RESULT SUCCESS + stopStreaming + goDarkAndIdle()
       return;
     }
@@ -685,7 +705,7 @@ static void doFinalCheck() {
     Serial.println(">> SUCCESS (no-work)");
     char out[64];
     snprintf(out, sizeof(out), "RESULT SUCCESS %s", BOARD_MAC);
-    sendCmd(out, haveSender ? lastSender : nullptr);
+    { uint8_t dest[6]; if (getTarget(dest)) sendCmd(out, dest); }
     stopStreaming();
     goDarkAndIdle();            // <<< was: state = State::SELF_CHECK;
     return;
@@ -713,7 +733,7 @@ static void doFinalCheck() {
     Serial.println(">> SUCCESS");
     char out[64];
     snprintf(out, sizeof(out), "RESULT SUCCESS %s", BOARD_MAC);
-    sendCmd(out, haveSender ? lastSender : nullptr);
+    { uint8_t dest[6]; if (getTarget(dest)) sendCmd(out, dest); }
     stopStreaming();
     goDarkAndIdle();            // <<< was: state = State::SELF_CHECK;
   } else {
@@ -731,7 +751,7 @@ static void doFinalCheck() {
     if (extraLen)   { app(missingLen ? ";EXTRA " : " EXTRA "); app(extraBuf); }
     char pkt[MAX_MSG_LEN * 2 + 16];
     snprintf(pkt, sizeof(pkt), "RESULT %s %s", core, BOARD_MAC);
-    sendCmd(pkt, haveSender ? lastSender : nullptr);
+    { uint8_t dest[6]; if (getTarget(dest)) sendCmd(pkt, dest); }
     state = State::MONITORING;
   }
 }
@@ -741,6 +761,10 @@ static void doFinalCheck() {
 // === RX ===
 static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   if (!info || !data || len <= 0) return;
+  if (isZeroMac(info->src_addr)) {
+    Serial.println("WARN: ignoring frame from zero-MAC sender");
+    return;
+  }
   // update sender atomically
   portENTER_CRITICAL(&g_senderMux);
   memcpy(lastSender, info->src_addr, 6);
@@ -801,9 +825,12 @@ static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len
     int times = 3;
     const char* sp = strchr(rx, ' ');
     if (sp && *(sp+1)) times = max(1, atoi(sp+1));
+    uint8_t dest[6]; bool haveDest = getTarget(dest);
     portENTER_CRITICAL(&pendingMux);
-    pending = {PendingCmd::Blink, times, {0}};
-    memcpy(pending.mac, lastSender, 6);
+    pending.kind = PendingCmd::Blink;
+    pending.n = times;
+    pending.hasMac = haveDest;
+    if (haveDest) memcpy(pending.mac, dest, 6); else memset(pending.mac, 0, sizeof(pending.mac));
     havePending = true;
     portEXIT_CRITICAL(&pendingMux);
     { uint8_t dest[6]; bool ok = getTarget(dest); if (ok) sendCmd("BLINK-OK", dest); }
@@ -814,9 +841,12 @@ static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len
     int rounds = 1;
     const char* sp = strchr(rx, ' ');
     if (sp && *(sp+1)) rounds = max(1, atoi(sp+1));
+    uint8_t dest[6]; bool haveDest = getTarget(dest);
     portENTER_CRITICAL(&pendingMux);
-    pending = {PendingCmd::Chase, rounds, {0}};
-    memcpy(pending.mac, lastSender, 6);
+    pending.kind = PendingCmd::Chase;
+    pending.n = rounds;
+    pending.hasMac = haveDest;
+    if (haveDest) memcpy(pending.mac, dest, 6); else memset(pending.mac, 0, sizeof(pending.mac));
     havePending = true;
     portEXIT_CRITICAL(&pendingMux);
     { uint8_t dest[6]; bool ok = getTarget(dest); if (ok) sendCmd("CHASE-OK", dest); }
@@ -829,9 +859,12 @@ static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len
     { uint8_t dest[6]; bool ok = getTarget(dest); if (ok) { ensurePeer(dest); sendCmd("MONITOR-OK", dest); } }
 
     // Defer MONITOR-START and baseline snapshot to loop()
+    uint8_t dest[6]; bool haveDest = getTarget(dest);
     portENTER_CRITICAL(&pendingMux);
-    pending = {PendingCmd::MonitorBaseline, 0, {0}};
-    memcpy(pending.mac, lastSender, 6);
+    pending.kind = PendingCmd::MonitorBaseline;
+    pending.n = 0;
+    pending.hasMac = haveDest;
+    if (haveDest) memcpy(pending.mac, dest, 6); else memset(pending.mac, 0, sizeof(pending.mac));
     havePending = true;
     portEXIT_CRITICAL(&pendingMux);
 
@@ -845,8 +878,7 @@ static void onRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len
     if (!hasWorkToCheck(restrict)) {
       char out[64];
       snprintf(out, sizeof(out), "RESULT SUCCESS %s", BOARD_MAC);
-      uint8_t dest[6]; bool ok = getTarget(dest);
-      sendCmd(out, ok ? dest : nullptr);
+      uint8_t dest[6]; if (getTarget(dest)) sendCmd(out, dest);
       goDarkAndIdle();              // <<< keep LEDs dark
       return;
     }
@@ -886,8 +918,11 @@ static void cleanAll() {
 static uint8_t lastTxMac[6]; static bool lastTxMacValid=false;
 
 static bool sendCmdRaw(const char* msg, const uint8_t* dest) {
-  static const uint8_t bcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-  const uint8_t* target = dest ? dest : (haveSender ? lastSender : bcast);
+  uint8_t target[6];
+  if (!resolveTarget(dest, target)) {
+    Serial.println("WARN: sendCmdRaw: no valid target");
+    return false;
+  }
   if (!ensurePeer(target)) return false;
   memcpy(lastTxMac, target, 6); lastTxMacValid = true;
   return esp_now_send(target, (const uint8_t*)msg, strlen(msg)+1) == ESP_OK;
@@ -895,10 +930,14 @@ static bool sendCmdRaw(const char* msg, const uint8_t* dest) {
 
 static bool sendCmd(const char* msg, const uint8_t* dest) {
   static const uint8_t bcast[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-  const uint8_t* target = dest ? dest : (haveSender ? lastSender : bcast);
+  uint8_t target[6];
+  if (!resolveTarget(dest, target)) {
+    Serial.println("WARN: sendCmd: no valid target");
+    return false;
+  }
   if (memcmp(target, bcast, 6) == 0) {
     // Don't require ACK for broadcast
-    return sendCmdRaw(msg, dest);
+    return sendCmdRaw(msg, target);
   }
   // Frame with ID and schedule resend
   // Cancel any in-flight ACK to avoid mixing transactions
@@ -1031,7 +1070,14 @@ void loop() {
 
   switch (state) {
     case State::SELF_CHECK:    doSelfCheck();    break;
-      case State::WAIT_FOR_TARGET: /* LEDs already off */ break;
+    case State::WAIT_FOR_TARGET: {
+      // Surface any switches held during idle by blinking stuck channels.
+      for (int ch = 0; ch < CHANNEL_COUNT; ++ch) {
+        bool pressed = isPressedRaw(ch);
+        setLed(ch, pressed ? blinkState : false);
+      }
+      break;
+    }
     case State::MONITORING:    doMonitoring();   break;
     case State::FINAL_CHECK:   doFinalCheck();   break;
     case State::WELCOME:       break;
@@ -1043,7 +1089,7 @@ void loop() {
   if (havePending) {
     PendingCmd pc;
     portENTER_CRITICAL(&pendingMux);
-    pc = pending; havePending = false; pending.kind = PendingCmd::None;
+    pc = pending; havePending = false; pending.kind = PendingCmd::None; pending.hasMac = false; pending.n = 0; memset(pending.mac, 0, sizeof(pending.mac));
     portEXIT_CRITICAL(&pendingMux);
     switch (pc.kind) {
       case PendingCmd::Blink: {
@@ -1068,21 +1114,26 @@ void loop() {
         startStreaming();
         char startPkt[48];
         snprintf(startPkt, sizeof(startPkt), "MONITOR-START %s", BOARD_MAC);
-        sendCmdRaw(startPkt, pc.mac); 
-      for (int ch = 0; ch < CHANNEL_COUNT; ++ch) {
-        if (monNormal[ch] || monLatch[ch]) {
-          bool p = isPressedRaw(ch);
-          char pkt[48]; snprintf(pkt, sizeof(pkt), "EV P %d %d %s", ch+1, p?1:0, BOARD_MAC);
-          sendCmdRaw(pkt, pc.mac);
-          // small yield to avoid bursting 80 frames back-to-back
-          vTaskDelay(pdMS_TO_TICKS(1));
-          if (monLatch[ch]) {
-            char pkt2[48]; snprintf(pkt2, sizeof(pkt2), "EV L %d %d %s", ch+1, latched[ch]?1:0, BOARD_MAC);
-            sendCmdRaw(pkt2, pc.mac);
+        uint8_t destBuf[6];
+        bool haveDest = false;
+        if (pc.hasMac) { memcpy(destBuf, pc.mac, sizeof(destBuf)); haveDest = true; }
+        else haveDest = getTarget(destBuf);
+        if (!haveDest) break;
+        sendCmdRaw(startPkt, destBuf);
+        for (int ch = 0; ch < CHANNEL_COUNT; ++ch) {
+          if (monNormal[ch] || monLatch[ch]) {
+            bool p = isPressedRaw(ch);
+            char pkt[48]; snprintf(pkt, sizeof(pkt), "EV P %d %d %s", ch+1, p?1:0, BOARD_MAC);
+            sendCmdRaw(pkt, destBuf);
+            // small yield to avoid bursting 80 frames back-to-back
             vTaskDelay(pdMS_TO_TICKS(1));
+            if (monLatch[ch]) {
+              char pkt2[48]; snprintf(pkt2, sizeof(pkt2), "EV L %d %d %s", ch+1, latched[ch]?1:0, BOARD_MAC);
+              sendCmdRaw(pkt2, destBuf);
+              vTaskDelay(pdMS_TO_TICKS(1));
+            }
           }
         }
-      }
         // Mirror baseline into prev* so first deltas are consistent
         for (int i = 0; i < CHANNEL_COUNT; ++i) {
           if (monNormal[i] || monLatch[i]) {

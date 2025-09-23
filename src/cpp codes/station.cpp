@@ -24,6 +24,12 @@ static uint8_t sessionMac[6];
 static volatile bool haveSessionMac = false;
 static portMUX_TYPE sessionMux = portMUX_INITIALIZER_UNLOCKED;
 
+static inline bool isZeroMac(const uint8_t mac[6]) {
+  if (!mac) return true;
+  for (int i = 0; i < 6; ++i) if (mac[i] != 0) return false;
+  return true;
+}
+
 // ===== Last TX context =====
 static uint8_t expectedMac[6];
 static volatile bool haveExpectedMac = false;
@@ -173,7 +179,7 @@ static bool parseLineForCommand(const String &lineIn, String &payloadOut, uint8_
     if (!tail.isEmpty()) continue;
 
     String macStr = up.substring(i, i + 17);
-    if (!parseMac(macStr, macOut)) continue;
+    if (!parseMac(macStr, macOut) || isZeroMac(macOut)) continue;
 
     payloadOut = s.substring(0, i);
     payloadOut.trim();
@@ -208,6 +214,7 @@ static void onEspNowRecv(const uint8_t *mac, const uint8_t *data, int len) {
   if (!mac || !data || len <= 0) return;
   const uint8_t *src = mac;
 #endif
+  if (isZeroMac(src)) return;
   // safe RX copy
   char rxb[256];
   int n = min(len, (int)sizeof(rxb) - 1);
@@ -366,6 +373,7 @@ static void onEspNowRecv(const uint8_t *mac, const uint8_t *data, int len) {
 }
 
 static bool sendToPeerRaw(const String &payload, const uint8_t mac[6]) {
+  if (isZeroMac(mac)) { Serial.println("ERROR: refusing to send to zero MAC"); return false; }
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, mac, 6);
   peer.channel = ESPNOW_CHANNEL;
@@ -403,6 +411,7 @@ static volatile bool txInFlight = false;
 
 static bool sendWithAck(const String &payload, const uint8_t mac[6], unsigned timeoutMs = STA_ACK_TIMEOUT_MS, int maxRetries = STA_ACK_MAX_RETRIES) {
   if (txInFlight) { Serial.println("WARN: tx in flight"); return false; }
+  if (isZeroMac(mac)) { Serial.println("ERROR: zero MAC target"); return false; }
   txInFlight = true;
   uint32_t id = nextSeqId();
   String framed = payload + " ID=" + String(id);
@@ -490,6 +499,11 @@ void loop() {
   uint8_t macTmp[6] = {0};
   if (!parseLineForCommand(line, payload, macTmp)) {
     Serial.printf("ERROR: invalid command or MAC in line: '%s'\n", line.c_str());
+    clearExpectedMac();
+    return;
+  }
+  if (isZeroMac(macTmp)) {
+    Serial.println("ERROR: target MAC is all zeroes");
     clearExpectedMac();
     return;
   }

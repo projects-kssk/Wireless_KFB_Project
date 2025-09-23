@@ -65,4 +65,4 @@ A dokumentum összegyűjti a legfontosabb Setup, Dashboard, Scanner, Electron é
 
 ---
 
-Az angol eredeti a [`docs/EN/SCENARIOS.md`](../EN/SCENARIOS.md) fájlban érhető el.
+Az angol eredeti a [`docs/EN/5-SCENARIOS.md`](../EN/5-SCENARIOS.md) fájlban érhető el.

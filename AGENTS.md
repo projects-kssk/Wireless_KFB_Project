@@ -91,4 +91,4 @@ Environment quick refs for logging
 - `LOG_MONITOR_ONLY=1` restricts console/file to the monitor tag (errors still always print).
 
 
-See also: `docs/EN/PROCESS-FLOW.md` (full details) and `docs/EN/ERRORS.md` (detailed checks & troubleshooting).
+See also: `docs/EN/3-PROCESS-FLOW.md` (full details) and `docs/EN/4-ERRORS.md` (detailed checks & troubleshooting).

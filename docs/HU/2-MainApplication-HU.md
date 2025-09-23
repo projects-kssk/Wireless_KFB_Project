@@ -7,7 +7,7 @@ Magyar összefoglaló a `src/components/Layout/MainApplicationUI.tsx` komponens 
 - *hogyan épül fel a folyamat*, és
 - *mi történik a ciklus végén*.
 
-> Angol részletekhoz lásd: [`docs/EN/MAINAPPLICATION.md`](../EN/MAINAPPLICATION.md)
+> Angol részletekhoz lásd: [`docs/EN/2-MAINAPPLICATION.md`](../EN/2-MAINAPPLICATION.md)
 
 ---
 

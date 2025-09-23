@@ -2,7 +2,7 @@
 
 Magyar összefoglaló a `src/app/setup/page.tsx` komponensről. A Setup modul végzi a KSK előkészítését: lockolás, Krosy adatkinyerés, alias/pin mentés és ESP programozás. Az alábbiakban részletesen bemutatjuk a bemeneteket, az API kommunikációt, a lépéseket és a lezárás módját.
 
-> Angol részletekhoz lásd: [`docs/EN/SETUP.md`](../EN/SETUP.md)
+> Angol részletekhoz lásd: [`docs/EN/1-SETUP.md`](../EN/1-SETUP.md)
 
 ---
 

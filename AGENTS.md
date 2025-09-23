@@ -8,7 +8,7 @@
 - `server.ts` + `dist-server/`: Node server entry and its build output.
 - `public/` and `assets/`: Static assets; `assets/icon.png` used for packaging.
 - `scripts/`: Dev helpers (Redis/locks). Env files: `.env`, `.env.production`, `.env.example`.
-- Logs: `logs/` (app logs + errors.log), `.krosy-logs/` (Krosy XML/result), `monitor.logs/` (monitor JSON lines).
+- Logs: `logs/` (e.g. `app.log`, `errors.log`), `.krosy-logs/` (Krosy XML/result).
 
 ## Build, Test, and Development Commands
 - `npm run predev`: Start Redis container and wait for it (required for locks).
@@ -79,14 +79,14 @@
   - API accepts `ksk` (preferred) and legacy `kssk` fields for compatibility.
 
 - Logging & retention
-  - App logs: `logs/app-YYYY-MM-DD.log`, pruned after ~31 days. Controlled by `LOG_ENABLE=1` or `LOG_VERBOSE=1`.
+  - App log: `logs/app.log`, pruned/rotated manually as needed. Controlled by `LOG_ENABLE=1` or `LOG_VERBOSE=1`.
   - Errors: `logs/errors.log` (error-level only; always on, independent of `LOG_ENABLE`).
-  - Monitor logs: `monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (guarded by `LOG_VERBOSE=1`).
+  - Monitor events share the app log and are tagged `monitor` (respect `LOG_VERBOSE=1`).
   - Aliases XML reads: `logs/aliases-xml-reads-YYYY-MM-DD.log` (guarded by `LOG_VERBOSE=1`).
   - Krosy logs (request/response and checkpoint): `.krosy-logs/YYYY-MM/<stamp>_<requestId>/...`, pruned after ~31 days.
 
 Environment quick refs for logging
-- `LOG_VERBOSE=1` enables app file logging, monitor logs, and aliases-XML read logs.
+- `LOG_VERBOSE=1` enables app file logging (including monitor events) and aliases-XML read logs.
 - `LOG_ENABLE=1` also enables app file logging (used if you want app logs without monitor/XML extras).
 - `LOG_MONITOR_ONLY=1` restricts console/file to the monitor tag (errors still always print).
 

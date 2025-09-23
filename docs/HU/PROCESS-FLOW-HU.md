@@ -129,7 +129,7 @@ Ez a dokumentum magyar nyelven foglalja össze a **Setup** és a **Main Applicat
 - **Stateless kliens**: minden kritikus adat (alias, pin, lock) a szerveren/Redisben tárolódik, így több kliens vagy böngészőfül is biztonságosan használható.
 - **Graceful degrade**: SSE kiesés esetén a dashboard HTTP pollra vált (`/api/serial/scanner`).
 - **Karbantarthatóság**: API-k mindenhol a `ksk` mezőt preferálják, de a régi `kssk` mező még elfogadott, amíg minden kliens át nem áll.
-- **Audit & naplózás**: `LOG_VERBOSE` engedélyezi a `.krosy-logs/`, `monitor.logs/` és `logs/app-YYYY-MM-DD.log` naplókat, hibák mindig a `logs/errors.log` fájlba kerülnek.
+- **Audit & naplózás**: `LOG_VERBOSE` engedélyezi a `.krosy-logs/`, `logs/app.log` naplókat (monitor események `monitor` taggel), hibák mindig a `logs/errors.log` fájlba kerülnek.
 
 ---
 
@@ -148,4 +148,3 @@ Ez a dokumentum magyar nyelven foglalja össze a **Setup** és a **Main Applicat
 - `docs/MAINAPPLICATION.md` – Dashboard viselkedés és env változók
 - `docs/PROCESS-FLOW.md` – angol nyelvű end-to-end leírás
 - `docs/ERRORS.md` – hibakódok és diagnosztika
-

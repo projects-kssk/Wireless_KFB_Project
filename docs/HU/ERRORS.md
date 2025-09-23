@@ -20,9 +20,9 @@ Ez a dokumentum a leggyakoribb hibaforrások gyors ellenőrzéséhez ad segíts�
   - `GET /api/serial/devices` – elérhető soros eszközök.
   - `GET /api/serial/events` – SSE stream a scanner/ESP eseményekkel.
 - **Logok**:
-  - Alkalmazás: `logs/app-YYYY-MM-DD.log` (`LOG_ENABLE=1` vagy `LOG_VERBOSE=1`).
+  - Alkalmazás: `logs/app.log` (`LOG_ENABLE=1` vagy `LOG_VERBOSE=1`).
   - Hibák: `logs/errors.log` (mindig gyűjti a hiba szintű sorokat).
-  - Monitor: `monitor.logs/YYYY-MM/monitor-YYYY-MM-DD.log` (`LOG_VERBOSE=1`).
+  - Monitor események: az `app.log` fájlban (`monitor` taggel, `LOG_VERBOSE=1`).
   - Alias XML olvasások: `logs/aliases-xml-reads-YYYY-MM-DD.log` (`LOG_VERBOSE=1`).
 
 ## Vonalkódolvasók
@@ -31,7 +31,7 @@ Ez a dokumentum a leggyakoribb hibaforrások gyors ellenőrzéséhez ad segíts�
 - **Megnyitási szabály**: Ha `ALLOW_USB_SCANNER` nincs beállítva, a kód nem nyit USB-s eszközt, ami ütközhet az ESP-vel.
 - **Események figyelése**: `GET /api/serial/events` → `scanner/open`, `scanner/error`, `scan` (path + code).
 - **Poll fallback**: `GET /api/serial/scanner?path=<eszköz>` – adott port legutóbbi olvasata.
-- **Logok**: monitor log könyvtár (`monitor.logs/YYYY-MM/...`).
+- **Logok**: monitor események az `app.log` fájlban (`monitor` taggel).
 
 ## ESP
 - **Port**: `ESP_TTY` vagy `ESP_TTY_PATH` (általában `/dev/ttyUSB*`).

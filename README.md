@@ -66,7 +66,7 @@ Részletes lista: [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_K
   - [docs/HU/SCENARIOS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/HU/SCENARIOS.md) – forgatókönyvek és javaslatok
 
 ## Naplózás és ellenőrzés
-- `LOG_VERBOSE=1` → fájl naplók (`logs/app-YYYY-MM-DD.log`, `monitor.logs/...`, `.krosy-logs/...`).
+- `LOG_VERBOSE=1` → fájl naplók (`logs/app.log`, `.krosy-logs/...`).
 - Hibák mindig bekerülnek a `logs/errors.log` fájlba.
 - Konzol üzenetek: `MONITOR start/ok`, `CHECK fail`, Redis figyelmeztetések.
 
@@ -84,7 +84,7 @@ Részletes lista: [docs/EN/SETUP.md](https://github.com/projects-kssk/Wireless_K
 - `src/lib/` – osztott segédfüggvények (serial, redis, logger)
 - `main/` – Electron főfolyamat
 - `server.ts`, `dist-server/` – Node szerver belépési pont + build
-- `logs/`, `.krosy-logs/`, `monitor.logs/` – naplók
+- `logs/` (pl. `app.log`, `errors.log`), `.krosy-logs/` – naplók
 
 ## Támogatás
 Kérdés esetén nézd át a [docs/EN/ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/ERRORS.md) útmutatót, vagy jelezd a csapatnak a konkrét hibát/napló részlettel.

@@ -63,8 +63,8 @@ Krosy (for checkpoint and identity)
   - Host hints: `NEXT_PUBLIC_KROSY_IP_ONLINE`, `NEXT_PUBLIC_KROSY_IP_OFFLINE`
 
 Logging
-- `LOG_VERBOSE=1` – enable verbose logging (app file logs, monitor logs, aliases‑XML read logs)
-- `LOG_ENABLE=1` – enable app file logs (without monitor/XML extras)
+- `LOG_VERBOSE=1` – enable verbose logging (app file log with monitor events, aliases‑XML read logs)
+- `LOG_ENABLE=1` – enable the app file log without extra verbose data
 - Errors always append to `logs/errors.log` (independent of flags)
 
 Repo Structure (base overview)
@@ -73,7 +73,7 @@ Repo Structure (base overview)
 - `src/lib/` – Shared utilities.
 - `main/` – Electron main process.
 - `server.ts` + `dist-server/` – Node server and build output.
-- Logs: `logs/` (app + errors.log), `monitor.logs/`, `.krosy-logs/`.
+- Logs: `logs/` (includes `app.log`, `errors.log`), `.krosy-logs/`.
 
 Redis
 - `REDIS_URL`

@@ -14,6 +14,7 @@ import { Header } from "@/components/Header/Header";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
+import { UnionEffect } from "./components/UnionEffect";
 import { maskSimMac } from "@/lib/macDisplay";
 
 /* =================================================================================
@@ -72,7 +73,7 @@ const isAcmPath = (p?: string | null) =>
   /(^|\/)ttyACM\d+$/.test(p) ||
   /(^|\/)ttyUSB\d+$/.test(p) ||
   /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
-  /\/by-id\/.*(ACM|USB)\d+/i.test(p);
+  /\/by-id\/.*(ACM|USB)/i.test(p);
 
 function mergeAliasesFromItems(
   items?: Array<{ aliases?: Record<string, string> }> | null
@@ -297,7 +298,11 @@ const MainApplicationUI: React.FC = () => {
   const lastScanTokenRef = useRef<string>("");
   const lastSimulateCheckTickRef = useRef<number>(0);
   const simulateCooldownUntilRef = useRef<number>(0);
-  const pendingSimulateRef = useRef<{ target: string; tick: number } | null>(null);
+  const pendingSimulateRef = useRef<{ target: string; tick: number } | null>(
+    null
+  );
+  const tryRunPendingSimulateRef = useRef<() => void>(() => {});
+  const simulateRetryTimerRef = useRef<number | null>(null);
 
   const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(
     null
@@ -675,6 +680,12 @@ const MainApplicationUI: React.FC = () => {
     lastActiveIdsRef.current = [];
     pendingSimulateRef.current = null;
     simulateCooldownUntilRef.current = 0;
+    if (simulateRetryTimerRef.current != null) {
+      try {
+        window.clearTimeout(simulateRetryTimerRef.current);
+      } catch {}
+      simulateRetryTimerRef.current = null;
+    }
 
     setMacAddress("");
     setSuppressLive(false);
@@ -791,6 +802,11 @@ const MainApplicationUI: React.FC = () => {
           lastActiveIdsRef.current && lastActiveIdsRef.current.length
             ? [...lastActiveIdsRef.current]
             : [...(activeKssks || [])];
+        let hadAliases = false;
+        let hadLocksForMac = false;
+        if (ids.length) {
+          hadLocksForMac = true;
+        }
 
         if (!ids.length) {
           try {
@@ -810,6 +826,7 @@ const MainApplicationUI: React.FC = () => {
                     .filter(Boolean)
                 )
               );
+              if (items.length) hadAliases = true;
             }
           } catch {}
           if (!ids.length) {
@@ -824,61 +841,80 @@ const MainApplicationUI: React.FC = () => {
                   .filter(
                     (row: any) => String(row?.mac || "").toUpperCase() === mac
                   )
-                  .map((row: any) =>
-                    String((row?.ksk ?? row?.kssk) || "").trim()
+                .map((row: any) =>
+                  String((row?.ksk ?? row?.kssk) || "").trim()
+                )
+                .filter(Boolean);
+              if (fromLocks.length) {
+                ids = Array.from(new Set(fromLocks));
+                hadLocksForMac = true;
+              }
+            }
+          } catch {}
+          if (!ids.length) {
+            try {
+              const snapshot = itemsAllFromAliasesRef.current || [];
+              if (snapshot.length) {
+                const fromSnap = Array.from(
+                  new Set(
+                    snapshot
+                      .map((it: any) =>
+                        String((it.ksk ?? (it as any).kssk) || "").trim()
+                      )
+                      .filter(Boolean)
                   )
-                  .filter(Boolean);
-                if (fromLocks.length) ids = Array.from(new Set(fromLocks));
+                );
+                if (fromSnap.length) {
+                  ids = fromSnap;
+                  hadAliases = true;
+                }
               }
             } catch {}
-            if (!ids.length) {
-              try {
-                const snapshot = itemsAllFromAliasesRef.current || [];
-                if (snapshot.length) {
-                  const fromSnap = Array.from(
-                    new Set(
-                      snapshot
-                        .map((it: any) =>
-                          String((it.ksk ?? (it as any).kssk) || "").trim()
-                        )
-                        .filter(Boolean)
-                    )
-                  );
-                  if (fromSnap.length) ids = fromSnap;
-                }
-              } catch {}
-            }
           }
+        }
         }
 
         // Send checkpoint per KSK id (best-effort)
         let hasSetup = ids.length > 0;
+        let okNote = "";
         if (hasSetup) {
           const sent = await sendCheckpointForMac(mac, ids).catch(() => false);
-          setOkSystemNote(
-            sent ? "Checkpoint sent; cache cleared" : "Cache cleared"
-          );
+          okNote = sent ? "Checkpoint sent; cache cleared" : "Cache cleared";
         } else {
-          setOkSystemNote("Cache cleared");
+          okNote = "Cache cleared";
         }
 
         // Clear aliases + locks
-        await clearAliasesVerify(mac);
-        let locksCleared = await clearKskLocksFully(mac);
-        for (let i = 0; !locksCleared && i < 2; i++) {
-          await new Promise((res) => setTimeout(res, 250));
-          locksCleared = await clearKskLocksFully(mac);
-        }
-        try {
-          const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
-          if (sid) {
-            await fetch("/api/ksk-lock", {
-              method: "DELETE",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ stationId: sid, mac, force: 1 }),
-            }).catch(() => {});
+        const snapshotCount = Array.isArray(itemsAllFromAliasesRef.current)
+          ? itemsAllFromAliasesRef.current.length
+          : 0;
+        const shouldClearAliases = hadAliases || snapshotCount > 0;
+        if (shouldClearAliases) await clearAliasesVerify(mac);
+
+        const shouldClearLocks =
+          hadLocksForMac || (activeKssks?.length ?? 0) > 0 || hasSetup;
+        if (shouldClearLocks) {
+          let locksCleared = await clearKskLocksFully(mac);
+          for (let i = 0; !locksCleared && i < 2; i++) {
+            await new Promise((res) => setTimeout(res, 250));
+            locksCleared = await clearKskLocksFully(mac);
           }
-        } catch {}
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
+            if (sid) {
+              await fetch("/api/ksk-lock", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ stationId: sid, mac, force: 1 }),
+              }).catch(() => {});
+            }
+          } catch {}
+        }
+
+        if (!hasSetup && !shouldClearAliases && !shouldClearLocks) {
+          okNote = "Nothing to clear";
+        }
+        setOkSystemNote(okNote);
       } finally {
         try {
           checkpointSentRef.current.clear();
@@ -1368,6 +1404,8 @@ const MainApplicationUI: React.FC = () => {
           simulateCooldownUntilRef.current,
           now + 2500
         );
+        if (pendingSimulateRef.current)
+          tryRunPendingSimulateRef.current();
       }
     },
     [
@@ -1644,14 +1682,38 @@ const MainApplicationUI: React.FC = () => {
   const tryRunPendingSimulate = useCallback(() => {
     const pending = pendingSimulateRef.current;
     if (!pending) return;
-    if (isCheckingRef.current) return;
-    if (Date.now() < simulateCooldownUntilRef.current) return;
+    const now = Date.now();
+    const scheduleRetry = (delay = 250) => {
+      if (simulateRetryTimerRef.current != null) return;
+      simulateRetryTimerRef.current = window.setTimeout(() => {
+        simulateRetryTimerRef.current = null;
+        tryRunPendingSimulate();
+      }, Math.max(0, delay));
+    };
 
+    if (isCheckingRef.current || isScanning) {
+      scheduleRetry();
+      return;
+    }
+    if (now < simulateCooldownUntilRef.current) {
+      scheduleRetry(simulateCooldownUntilRef.current - now + 10);
+      return;
+    }
+    if (simulateRetryTimerRef.current != null) {
+      try {
+        window.clearTimeout(simulateRetryTimerRef.current);
+      } catch {}
+      simulateRetryTimerRef.current = null;
+    }
     pendingSimulateRef.current = null;
-    simulateCooldownUntilRef.current = Date.now() + 2500;
+    simulateCooldownUntilRef.current = now + 2500;
     if (setupGateActive) enableSimOverride();
     void handleScanRef.current?.(pending.target, "sse");
-  }, [enableSimOverride, setupGateActive]);
+  }, [enableSimOverride, isScanning, setupGateActive]);
+
+  useEffect(() => {
+    tryRunPendingSimulateRef.current = tryRunPendingSimulate;
+  }, [tryRunPendingSimulate]);
 
   useEffect(() => {
     const tick = Number(serial.simulateCheckTick || 0);
@@ -1672,7 +1734,19 @@ const MainApplicationUI: React.FC = () => {
 
   useEffect(() => {
     tryRunPendingSimulate();
-  }, [tryRunPendingSimulate, isScanning]);
+  }, [tryRunPendingSimulate, isScanning, isChecking]);
+
+  useEffect(
+    () => () => {
+      if (simulateRetryTimerRef.current != null) {
+        try {
+          window.clearTimeout(simulateRetryTimerRef.current);
+        } catch {}
+        simulateRetryTimerRef.current = null;
+      }
+    },
+    []
+  );
 
   /* =================================================================================
    * Effect Components (modularized side-effects)
@@ -1684,58 +1758,6 @@ const MainApplicationUI: React.FC = () => {
    *   - Redis "degraded" módban az üres/uninformációs uniont ignorálja.
    *   - Az aktív KSK-k alapján korlátozza a pineket (computeActivePins).
    */
-  /* -------------------------------------------------------------------------- */
-  /** LIVE union updates (names/pins), skip empty when redis degraded */
-  const UnionEffect: React.FC = () => {
-    useEffect(() => {
-      const u = (serial as any).lastUnion as {
-        mac?: string;
-        normalPins?: number[];
-        latchPins?: number[];
-        names?: Record<string, string>;
-      } | null;
-      if (!u) return;
-      if (suppressLive) return;
-      if (!hasSetupForCurrentMac()) return;
-
-      // If a MAC is active, we accept union for that MAC only.
-      const cur = (macRef.current || "").toUpperCase();
-      const evMac = String(u.mac || "").toUpperCase();
-      if (!cur) return;
-      if (redisDegraded) {
-        const np = Array.isArray(u.normalPins) ? u.normalPins.length : 0;
-        const lp = Array.isArray(u.latchPins) ? u.latchPins.length : 0;
-        const nm =
-          u.names && typeof u.names === "object"
-            ? Object.keys(u.names).length
-            : 0;
-        if (np === 0 && lp === 0 && nm === 0) return; // ignore empty in degraded mode
-      }
-
-      // Restrict pins to active KSKs snapshot
-      const actIds =
-        lastActiveIdsRef.current && lastActiveIdsRef.current.length
-          ? lastActiveIdsRef.current
-          : activeKssks;
-
-      const fromItems = computeActivePins(
-        itemsAllFromAliasesRef.current as any,
-        actIds
-      );
-      setNormalPins(fromItems.normal);
-      setLatchPins(fromItems.latch);
-      if (u.names && typeof u.names === "object") setNameHints(u.names as any);
-    }, [
-      (serial as any).lastUnion,
-      suppressLive,
-      activeKssks,
-      computeActivePins,
-      redisDegraded,
-      hasSetupForCurrentMac,
-    ]);
-    return null;
-  };
-  /* -------------------------------------------------------------------------- */
   /* [HU] RedisHealthEffect
    *   - Figyeli a redisReady flaget, drop esetén "degraded" állapotot kapcsol.
    *   - Helyreállás után (opcionális) rehydrate, ha épp fut check/scan aktív MAC-re.
@@ -1895,13 +1917,16 @@ const MainApplicationUI: React.FC = () => {
 
       if (kind === "START") {
         if (isCheckingRef.current) return;
-        const evMac = String(ev.mac || "").toUpperCase();
-        if (!evMac || evMac === ZERO_MAC) return;
+        let evMac = String(ev.mac || "").toUpperCase();
+        const current = (macRef.current || "").toUpperCase();
+        if (!evMac || evMac === ZERO_MAC) {
+          evMac = current || (lastScanRef.current || "").toUpperCase();
+        }
+        if (!evMac) return;
         const lastFinalizedAgo = Date.now() - (lastFinalizedAtRef.current || 0);
         if (blockedMacRef.current.has(evMac)) return;
         if (lastFinalizedAgo >= 0 && lastFinalizedAgo < CFG.RETRY_COOLDOWN_MS)
           return;
-        if (!setupReady && !current) return;
         if (!current) {
           setMacAddress(evMac);
           setKfbNumber(evMac);
@@ -2020,8 +2045,11 @@ const MainApplicationUI: React.FC = () => {
       // 1. Preferált olvasó útvonal érvényesítése (ACM/USB vagy index).
       const want = resolveDesiredPath();
       const seen = (serial as any).lastScanPath as string | null | undefined;
-      const pathMismatch = want && seen && !pathsEqual(seen, want);
-      if (pathMismatch) return;
+      const pathOk =
+        !want ||
+        !seen ||
+        ((isAcmPath(seen) && isAcmPath(want)) || pathsEqual(seen, want));
+      if (!pathOk) return;
 
       // 2. Feldolgozás letiltása ütközés, throttling vagy blokkolt MAC esetén.
       const code = (serial as any).lastScan;
@@ -2147,7 +2175,13 @@ const MainApplicationUI: React.FC = () => {
             if (raw) {
               const norm = raw.toUpperCase();
               if (path && !isAcmPath(path)) return;
-              if (want && path && !pathsEqual(path, want)) return;
+              if (
+                want &&
+                path &&
+                !(isAcmPath(path) && isAcmPath(want)) &&
+                !pathsEqual(path, want)
+              )
+                return;
               if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
               if (blockedMacRef.current.has(norm)) return;
               await handleScan(norm, "poll");
@@ -2365,7 +2399,20 @@ const MainApplicationUI: React.FC = () => {
   return (
     <div className="relative flex min-h-screen bg-white">
       {/* --- Effect components (side-effect orchestration) --- */}
-      <UnionEffect />
+      <UnionEffect
+        serial={serial}
+        suppressLive={suppressLive}
+        hasSetupForCurrentMac={hasSetupForCurrentMac}
+        macRef={macRef}
+        redisDegraded={redisDegraded}
+        lastActiveIdsRef={lastActiveIdsRef}
+        activeKssks={activeKssks}
+        computeActivePins={computeActivePins}
+        itemsAllFromAliasesRef={itemsAllFromAliasesRef}
+        setNormalPins={setNormalPins}
+        setLatchPins={setLatchPins}
+        setNameHints={setNameHints}
+      />
       <RedisHealthEffect />
       <DeviceEventsEffect />
       <ScannerEffect />

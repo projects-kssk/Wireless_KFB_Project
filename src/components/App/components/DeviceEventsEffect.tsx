@@ -23,7 +23,7 @@ export type DeviceEventsEffectProps = {
   isCheckingRef: RefLike<boolean>;
   okFlashAllowedRef: RefLike<boolean>;
   okShownOnceRef: RefLike<boolean>;
-  clearFailureFlag?: () => void;
+  lastRunHadFailuresRef: RefLike<boolean>;
 
   // Setters
   setOkFlashTick: Dispatch<SetStateAction<number>>;
@@ -35,6 +35,7 @@ export type DeviceEventsEffectProps = {
   setCheckFailures: Dispatch<SetStateAction<number[] | null>>;
 
   finalizeOkForMac: (mac: string) => Promise<void>;
+  clearFailureFlag?: () => void;
 };
 
 export function DeviceEventsEffect({
@@ -51,6 +52,7 @@ export function DeviceEventsEffect({
   isCheckingRef,
   okFlashAllowedRef,
   okShownOnceRef,
+  lastRunHadFailuresRef,
   clearFailureFlag,
   setOkFlashTick,
   setMacAddress,
@@ -113,6 +115,7 @@ export function DeviceEventsEffect({
       setCheckFailures([]);
       setIsChecking(false);
       setIsScanning(false);
+      lastRunHadFailuresRef.current = false;
       clearFailureFlag?.();
       if (okFlashAllowedRef.current && !okShownOnceRef.current) {
         okShownOnceRef.current = true;

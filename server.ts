@@ -9,6 +9,7 @@ import type { WebSocket } from 'ws'
 
 // ⬇️ keep real file imports with .js for NodeNext ESM
 import { getEspLineStream, sendAndReceive } from './src/lib/serial.js'
+import { getRedis } from './src/lib/redis.js'
 import { LOG } from './src/lib/logger.js'
 
 // Determine runtime context: packaged Electron vs local dev
@@ -26,6 +27,9 @@ const handle = app.getRequestHandler()
 const PORT = parseInt(process.env.PORT || '3003', 10)
 
 app.prepare().then(() => {
+  const redis = getRedis();
+  void redis;
+
   const server = createServer((req: IncomingMessage, res: ServerResponse) => handle(req, res))
   const wss = new WebSocketServer({ noServer: true })
   const log = LOG.tag('ws-server')

@@ -535,6 +535,7 @@ const MainApplicationUI: React.FC = () => {
     setShowScanUi,
     setKfbNumber,
     setMacAddress,
+    setShouldShowHeader,
     setOkFlashTick,
     setOkSystemNote,
     setErrorMsg,
@@ -962,6 +963,7 @@ const MainApplicationUI: React.FC = () => {
         isCheckingRef={isCheckingRef}
         okFlashAllowedRef={okFlashAllowedRef}
         okShownOnceRef={okShownOnceRef}
+        lastRunHadFailuresRef={lastRunHadFailuresRef}
         clearFailureFlag={() => {
           lastRunHadFailuresRef.current = false;
         }}
@@ -1094,6 +1096,7 @@ const MainApplicationUI: React.FC = () => {
               okSystemNote={okSystemNote}
               disableOkAnimation={disableOkAnimation}
               scanResult={scanResult}
+              shouldShowHeader={shouldShowHeader}
             />
           ) : (
             <div className="p-6 text-slate-600">Settings view is disabled.</div>

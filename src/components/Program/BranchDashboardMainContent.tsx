@@ -254,6 +254,7 @@ export interface BranchDashboardMainContentProps {
   flashOkTick?: number;
   okSystemNote?: string | null;
   scanResult?: { text: string; kind: "info" | "error" } | null;
+  shouldShowHeader?: boolean;
 }
 
 /* =================================================================================
@@ -291,6 +292,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   flashOkTick,
   okSystemNote,
   scanResult,
+  shouldShowHeader = true,
 }) => {
   const { resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === "dark";
@@ -1454,7 +1456,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
     >
       <header className="w-full mb-1 min-h-[56px]">
-        {!scanResult &&
+        {shouldShowHeader && !scanResult &&
         (kfbInfo?.board ||
           kfbNumber ||
           (macAddress &&

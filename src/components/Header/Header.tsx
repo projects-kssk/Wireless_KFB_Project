@@ -75,19 +75,19 @@ const SupportIcon: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 const VersionBadge: React.FC<{ value: string }> = ({ value }) => (
-  <span className="inline-flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300">
-    <span className="tracking-[0.28em] uppercase text-[10px] text-slate-500 dark:text-slate-400">
+  <span className="flex items-center gap-2 text-[14px] font-medium text-slate-600 dark:text-slate-300">
+    <span className="tracking-[0.28em] uppercase text-[12px] text-slate-500 dark:text-slate-400">
       Version
     </span>
-    <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100">
+    <span className="text-[16px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
       {value}
     </span>
   </span>
 );
 
 const ThemeSwitcher: React.FC = () => (
-  <span className="inline-flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300">
-    <span className="tracking-[0.28em] uppercase text-[10px] text-slate-500 dark:text-slate-400">
+  <span className="flex items-center gap-2 text-[14px] font-medium text-slate-600 dark:text-slate-300">
+    <span className="tracking-[0.28em] uppercase text-[12px] text-slate-500 dark:text-slate-400">
       Theme
     </span>
     <ThemeToggle />
@@ -111,54 +111,35 @@ const SupportPillSM: React.FC<{
 
   return (
     <m.div
-      initial={{ opacity: 0, y: 6 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       className={[
-        "relative inline-flex items-center w-full h-full px-7 py-4 text-left group rounded-2xl",
-        "bg-transparent",
+        "inline-flex items-center gap-4 px-4 py-2 text-left",
         className ?? "",
       ].join(" ")}
-      style={{ overflow: "hidden", willChange: "transform,opacity" }}
+      style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      <div className="mr-4 shrink-0">
-        <div
-          className={[
-            "relative flex items-center justify-center rounded-full",
-            "h-12 w-12 2xl:h-14 2xl:w-14",
-            "text-white",
-            "bg-gradient-to-br from-violet-500 via-fuchsia-500 to-indigo-500",
-          ].join(" ")}
-        >
-          <SupportIcon className="h-6 w-6 2xl:h-7 2xl:w-7 opacity-95" />
-          {!reduce && (
-            <m.span
-              className="pointer-events-none absolute inset-0 rounded-full"
-              style={{ border: "2px solid rgba(168,85,247,.35)" }}
-              initial={{ scale: 1, opacity: 0.7 }}
-              animate={{ scale: [1, 1.35], opacity: [0.7, 0] }}
-              transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
-            />
-          )}
-        </div>
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-200">
+        <SupportIcon className="h-8 w-8" />
       </div>
 
       {labelsHidden ? (
-        <span className="text-[20px] 2xl:text-[22px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
+        <span className="text-[32px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
           {number}
         </span>
       ) : (
         <div className="min-w-0">
-          <div className="text-[12px] font-extrabold text-slate-600 dark:text-slate-300 leading-tight uppercase">
+          <div className="text-[14px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
             Support
           </div>
-          <div className="flex items-center gap-3 mt-0.5">
-            <span className="truncate text-[22px] 2xl:text-[24px] font-black tracking-tight text-slate-900 dark:text-white leading-none">
+          <div className="flex items-center gap-3 mt-1">
+            <span className="truncate text-[32px] font-black tracking-tight text-slate-900 dark:text-white leading-none">
               {number}
             </span>
             <a
               href={`tel:${number}`}
-              className="px-3 py-1 rounded-full text-[11px] font-bold bg-violet-600 text-white hover:bg-violet-700"
+              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-slate-900 text-white hover:bg-slate-700 dark:bg-white/15 dark:text-white"
             >
               Call
             </a>
@@ -263,7 +244,7 @@ const StatusRow: React.FC<{
   labelsHidden?: boolean;
 }> = ({ cells, className, labelsHidden }) => (
   <div className={["w-full h-full p-0 min-w-0", className ?? ""].join(" ")}>
-    <div className="flex h-full gap-4 xl:gap-6">
+    <div className="flex h-full gap-3 xl:gap-4">
       {cells.map((c, i) => (
         <div
           key={i}
@@ -1485,16 +1466,16 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <div
-            className="grid w-full h-full items-center gap-6 md:gap-8 xl:gap-12 2xl:gap-14 px-4 sm:px-6 2xl:px-10"
+            className="grid w-full h-full items-center gap-5 md:gap-7 xl:gap-10 2xl:gap-12 px-4 sm:px-6 2xl:px-10"
             style={{
               paddingTop: "env(safe-area-inset-top)",
               gridTemplateColumns: labelsHidden
-                ? "minmax(240px,1fr) 1fr minmax(240px,320px)"
-                : "minmax(340px,480px) 1fr minmax(260px,320px)",
+                ? "minmax(240px,1fr) 1fr auto"
+                : "minmax(320px,420px) 1fr auto",
             }}
           >
             {/* 1) Support + Version */}
-            <div className="h-full flex items-center gap-3 pr-2 md:pr-4">
+            <div className="h-full flex flex-col justify-center gap-1 pr-2 md:pr-3">
               {(() => {
                 const raw = String(
                   process.env.NEXT_PUBLIC_APP_VERSION ||
@@ -1503,14 +1484,14 @@ export const Header: React.FC<HeaderProps> = ({
                 ).trim();
                 const clean = raw.replace(/^v/i, "");
                 return (
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <VersionBadge value={clean} />
                     <ThemeSwitcher />
                   </div>
                 );
               })()}
               <SupportPillSM
-                className="h-full"
+                className="mt-1"
                 supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}
                 onCall={(appConfig as any).callSupportInfo?.onCta}
                 labelsHidden={labelsHidden}

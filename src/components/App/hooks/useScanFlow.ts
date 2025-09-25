@@ -58,6 +58,7 @@ export type UseScanFlowParams = {
   setShowScanUi: Dispatch<SetStateAction<boolean>>;
   setKfbNumber: Dispatch<SetStateAction<string>>;
   setMacAddress: Dispatch<SetStateAction<string>>;
+  setShouldShowHeader?: Dispatch<SetStateAction<boolean>>;
   setOkFlashTick: Dispatch<SetStateAction<number>>;
   setOkSystemNote: Dispatch<SetStateAction<string | null>>;
   setErrorMsg: Dispatch<SetStateAction<string | null>>;
@@ -117,6 +118,7 @@ export const useScanFlow = ({
   setShowScanUi,
   setKfbNumber,
   setMacAddress,
+  setShouldShowHeader,
   setOkFlashTick,
   setOkSystemNote,
   setErrorMsg,
@@ -141,6 +143,7 @@ export const useScanFlow = ({
   activeKssks,
   latchPinsValue,
 }: UseScanFlowParams): UseScanFlowResult => {
+  const updateHeaderVisibility = setShouldShowHeader ?? (() => {});
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[]) => {
       if (!mac) return;
@@ -681,6 +684,8 @@ export const useScanFlow = ({
         }
       }
 
+      updateHeaderVisibility(false);
+
       let aliases: Record<string, string> = {};
       let pins: number[] = [];
       let activeIds: string[] = [];
@@ -853,6 +858,7 @@ export const useScanFlow = ({
 
       noSetupCooldownRef.current = null;
       okFlashAllowedRef.current = true;
+      updateHeaderVisibility(true);
 
       await runCheck(pendingMac, 0, pins);
       setIsScanning(false);
@@ -877,6 +883,7 @@ export const useScanFlow = ({
       setDisableOkAnimation,
       setOkSystemNote,
       setShowScanUi,
+      setShouldShowHeader,
     ]
   );
 

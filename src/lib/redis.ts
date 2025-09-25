@@ -44,6 +44,33 @@ function attachEventLogging(r: any, urlShown: string) {
   });
 }
 
+function ensureKeepAlive(r: any) {
+  const raw = process.env.REDIS_KEEPALIVE_MS ?? process.env.REDIS_KEEPALIVE_INTERVAL_MS;
+  const keepAliveMs = Number(raw ?? '30000');
+  if (!Number.isFinite(keepAliveMs) || keepAliveMs <= 0) return;
+  if ((r as any).__keepAliveInterval) return;
+
+  let inFlight = false;
+  const interval = setInterval(() => {
+    if (inFlight) return;
+    if (!client || client.status !== 'ready') return;
+    inFlight = true;
+    client
+      .ping()
+      .catch((err: any) => {
+        if ((process.env.REDIS_KEEPALIVE_LOG ?? '0') === '1') {
+          const msg = err?.message || String(err);
+          log.warn(`keepalive ping failed: ${msg}`);
+        }
+      })
+      .finally(() => {
+        inFlight = false;
+      });
+  }, keepAliveMs);
+  interval.unref?.();
+  (r as any).__keepAliveInterval = interval;
+}
+
 export function getRedis() {
   if (client) return client;
 
@@ -60,6 +87,7 @@ export function getRedis() {
 
   log.info(`init url=${shown} lazyConnect=false offlineQueue=false timeout=${connectTimeout}ms`);
   attachEventLogging(client, shown);
+  ensureKeepAlive(client);
 
   // Also log unhandled error events at process level (useful in prod)
   // Install once to avoid MaxListenersExceededWarning under hot-reload

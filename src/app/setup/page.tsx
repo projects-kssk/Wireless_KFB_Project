@@ -3282,9 +3282,11 @@ function CodePill({
 function ToastStack({
   items,
   onDismiss,
+  darkMode = false,
 }: {
   items: FlashEvent[];
   onDismiss: (id: number) => void;
+  darkMode?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   const latest = items[items.length - 1] ?? null;

@@ -25,7 +25,7 @@ import useHud, { ScanResultState } from "./hooks/useHud";
 import useSerialLive from "./hooks/useSerialLive";
 import useFinalize from "./hooks/useFinalize";
 import useScanFlow, { ScanTrigger } from "./hooks/useScanFlow";
-import { canonicalMac, MAC_ONLY_REGEX } from "./utils/mac";
+import { canonicalMac, macKey, MAC_ONLY_REGEX } from "./utils/mac";
 import {
   isAcmPath,
   pathsEqual as pathsEqualUtil,
@@ -598,11 +598,47 @@ const MainApplicationUI: React.FC = () => {
       } catch {}
       simulateRetryTimerRef.current = null;
     }
+    const target = pending.target.toUpperCase();
+    const lastFinalized = (lastFinalizedMacRef.current || "").toUpperCase();
+    const lastFinalizedAt = lastFinalizedAtRef.current || 0;
+    if (
+      lastFinalized &&
+      target === lastFinalized &&
+      CFG.FINALIZED_RESCAN_BLOCK_MS > 0 &&
+      Date.now() - lastFinalizedAt < CFG.FINALIZED_RESCAN_BLOCK_MS
+    ) {
+      pendingSimulateRef.current = null;
+      return;
+    }
+    const lastScanned = (lastScanRef.current || "").toUpperCase();
+    if (lastScanned && target === lastScanned) {
+      pendingSimulateRef.current = null;
+      return;
+    }
+    const noSetupCooldown = noSetupCooldownRef.current;
+    if (
+      noSetupCooldown &&
+      noSetupCooldown.mac === macKey(target) &&
+      Date.now() < noSetupCooldown.until
+    ) {
+      pendingSimulateRef.current = null;
+      return;
+    }
     pendingSimulateRef.current = null;
-    simulateCooldownUntilRef.current = now + 2500;
+    simulateCooldownUntilRef.current = now + Math.max(3000, CFG.RETRY_COOLDOWN_MS);
     if (setupGateActive) enableSimOverride();
     void handleScanRef.current?.(pending.target, "sse");
-  }, [enableSimOverride, isScanning, setupGateActive]);
+  }, [
+    CFG.FINALIZED_RESCAN_BLOCK_MS,
+    CFG.RETRY_COOLDOWN_MS,
+    enableSimOverride,
+    isScanning,
+    lastFinalizedAtRef,
+    lastFinalizedMacRef,
+    lastScanRef,
+    noSetupCooldownRef,
+    setupGateActive,
+  ]);
 
   useEffect(() => {
     tryRunPendingSimulateRef.current = tryRunPendingSimulate;
@@ -621,9 +657,36 @@ const MainApplicationUI: React.FC = () => {
       return;
     }
 
+    const blockKey = macKey(target);
+    const cooldown = noSetupCooldownRef.current;
+    if (cooldown && cooldown.mac === blockKey && Date.now() < cooldown.until) {
+      return;
+    }
+
+    const lastFinalized = (lastFinalizedMacRef.current || "").toUpperCase();
+    const lastFinalizedAt = lastFinalizedAtRef.current || 0;
+    if (
+      lastFinalized &&
+      target === lastFinalized &&
+      CFG.FINALIZED_RESCAN_BLOCK_MS > 0 &&
+      Date.now() - lastFinalizedAt < CFG.FINALIZED_RESCAN_BLOCK_MS
+    ) {
+      return;
+    }
+
+    const lastScanned = (lastScanRef.current || "").toUpperCase();
+    if (lastScanned && lastScanned === target) {
+      return;
+    }
+
     pendingSimulateRef.current = { target, tick };
     tryRunPendingSimulate();
   }, [
+    CFG.FINALIZED_RESCAN_BLOCK_MS,
+    lastFinalizedAtRef,
+    lastFinalizedMacRef,
+    lastScanRef,
+    noSetupCooldownRef,
     serial.simulateCheckTick,
     serial.simulateCheckMac,
     tryRunPendingSimulate,
@@ -814,24 +877,22 @@ const MainApplicationUI: React.FC = () => {
   /** Compute the animated banner to display (idle + info only). */
   const banner: BannerState | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
-
-    if (scanResult && scanResult.kind === "info") {
+    if (scanResult?.kind === "info" && hudMode !== "info") {
       return {
         key: `info-${scanResult.text}`,
         kind: "info",
         title: scanResult.text,
       };
     }
-
     return null;
-  }, [scanResult, mainView]);
+  }, [scanResult, mainView, hudMode]);
 
   return (
     <div
       className={[
         "relative flex min-h-screen w-full",
-        "bg-[radial-gradient(160%_160%_at_0%_-30%,rgba(148,163,184,0.16)_0%,rgba(248,250,252,0.95)_55%,rgba(255,255,255,1)_100%)]",
-        "dark:bg-[radial-gradient(150%_150%_at_0%_-25%,rgba(15,23,42,0.78)_0%,rgba(15,23,42,0.92)_55%,rgba(2,6,23,1)_100%)]",
+        "bg-[radial-gradient(175%_175%_at_0%_-45%,rgba(148,163,184,0.14)_0%,rgba(237,242,255,0.92)_58%,rgba(255,255,255,0.98)_100%)]",
+        "dark:bg-[radial-gradient(170%_170%_at_0%_-30%,rgba(15,23,42,0.78)_0%,rgba(15,23,42,0.92)_58%,rgba(2,6,23,1)_100%)]",
         "transition-colors",
       ].join(" ")}
     >
@@ -957,7 +1018,7 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="relative flex-1 overflow-auto bg-white/90 dark:bg-slate-900/80 backdrop-blur-sm transition-colors">
+        <main className="relative flex-1 overflow-auto bg-white/85 dark:bg-slate-900/75 backdrop-blur-sm transition-colors">
           {/* Animated banner overlay for idle + transient info */}
           <HudBanner banner={banner} />
 

@@ -555,13 +555,15 @@ export default function SetupPage() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useTheme();
-  const [themeReady, setThemeReady] = useState(false);
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return document.documentElement.classList.contains("dark");
+  });
 
   useEffect(() => {
-    setThemeReady(true);
-  }, []);
-
-  const isDark = themeReady && resolvedTheme === "dark";
+    if (!resolvedTheme) return;
+    setIsDark(resolvedTheme === "dark");
+  }, [resolvedTheme]);
 
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>(() =>
@@ -2358,6 +2360,7 @@ export default function SetupPage() {
               {ksskOkCount >= 1 && (
                 <StepBadge
                   label="SCAN NEW BOARD TO START OVER"
+                  darkMode={isDark}
                   onClick={resetAll}
                 />
               )}
@@ -2464,6 +2467,7 @@ export default function SetupPage() {
                       index={idx}
                       code={code}
                       status={status}
+                      darkMode={isDark}
                       allowManual={allowManual}
                       onManualToggle={() =>
                         setShowManualFor((s) => ({
@@ -2780,15 +2784,63 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   const isErr = status === "error";
   const isPending = status === "pending";
 
-  const cardBg = isOk ? "#f0fdf4" : isErr ? "#fef2f2" : "#fbfdff";
-  const ring = isOk
-    ? "0 0 0 6px rgba(16,185,129,0.22)"
+  const baseBg = darkMode ? "rgba(30,41,59,0.82)" : "#fbfdff";
+  const cardBg = isOk
+    ? darkMode
+      ? "rgba(34,197,94,0.16)"
+      : "#f0fdf4"
     : isErr
-      ? "0 0 0 6px rgba(239,68,68,0.22)"
+      ? darkMode
+        ? "rgba(248,113,113,0.18)"
+        : "#fef2f2"
+      : baseBg;
+  const ring = isOk
+    ? darkMode
+      ? "0 0 0 6px rgba(74,222,128,0.22)"
+      : "0 0 0 6px rgba(16,185,129,0.22)"
+    : isErr
+      ? darkMode
+        ? "0 0 0 6px rgba(248,113,113,0.22)"
+        : "0 0 0 6px rgba(239,68,68,0.22)"
       : isPending
-        ? "0 0 0 6px rgba(37,99,235,0.18)"
-        : "none";
-  const border = isOk ? "#a7f3d0" : isErr ? "#fecaca" : "#edf2f7";
+        ? darkMode
+          ? "0 0 0 6px rgba(96,165,250,0.22)"
+          : "0 0 0 6px rgba(37,99,235,0.18)"
+        : darkMode
+          ? "0 0 0 1px rgba(148,163,184,0.28)"
+          : "none";
+  const border = isOk
+    ? darkMode
+      ? "rgba(74,222,128,0.45)"
+      : "#a7f3d0"
+    : isErr
+      ? darkMode
+        ? "rgba(248,113,113,0.45)"
+        : "#fecaca"
+      : darkMode
+        ? "rgba(148,163,184,0.32)"
+        : "#edf2f7";
+  const numberBg = darkMode ? "rgba(148,163,184,0.2)" : "#eef6ff";
+  const numberBorder = darkMode ? "rgba(148,163,184,0.36)" : "#d9e7ff";
+  const numberColor = darkMode ? "#e2e8f0" : "#0b1220";
+  const stripeSurface = darkMode ? "rgba(15,23,42,0.7)" : "#fbfdff";
+  const stripeBorder = darkMode ? "rgba(148,163,184,0.3)" : "#d6e3f0";
+  const stripePattern = darkMode
+    ? "repeating-linear-gradient(90deg,rgba(148,163,184,0.55) 0 6px,transparent 6px 14px)"
+    : "repeating-linear-gradient(90deg,#8aa0b8 0 6px,transparent 6px 14px)";
+  const slotInputStyle: CSSProperties = {
+    width: "100%",
+    height: 46,
+    borderRadius: 10,
+    border: `1px solid ${darkMode ? "rgba(148,163,184,0.35)" : "#cbd5e1"}`,
+    padding: "0 12px",
+    fontSize: 18,
+    outline: "none",
+    background: darkMode ? "rgba(15,23,42,0.75)" : "#ffffff",
+    color: darkMode ? "#e2e8f0" : "#0f172a",
+    caretColor: darkMode ? "#e2e8f0" : "#0f172a",
+    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
+  };
 
   return (
     <m.div
@@ -2822,13 +2874,21 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
             width: 56,
             height: 56,
             borderRadius: 14,
-            background: "#eef6ff",
-            border: "1px solid #d9e7ff",
+            background: numberBg,
+            border: `1px solid ${numberBorder}`,
             display: "grid",
             placeItems: "center",
+            transition: "background 160ms ease, border-color 160ms ease",
           }}
         >
-          <span style={{ fontSize: 24, fontWeight: 1000, color: "#0b1220" }}>
+          <span
+            style={{
+              fontSize: 24,
+              fontWeight: 1000,
+              color: numberColor,
+              transition: "color 160ms ease",
+            }}
+          >
             {index + 1}
           </span>
         </div>
@@ -2849,7 +2909,15 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
 
       {/* pending hint */}
       {isPending && (
-        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.7 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            opacity: 0.7,
+            color: darkMode ? "rgba(191,219,254,0.9)" : "#1d4ed8",
+            transition: "color 160ms ease",
+          }}
+        >
           Processing…
         </div>
       )}
@@ -2861,11 +2929,12 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
           width: "100%",
           height: 112,
           borderRadius: 12,
-          background: "#fbfdff",
-          border: "1px dashed #d6e3f0",
+          background: stripeSurface,
+          border: `1px dashed ${stripeBorder}`,
           display: "grid",
           placeItems: "center",
           overflow: "hidden",
+          transition: "background 160ms ease, border-color 160ms ease",
         }}
       >
         <div
@@ -2873,8 +2942,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
             width: "min(100%, 520px)",
             height: 64,
             borderRadius: 8,
-            background:
-              "repeating-linear-gradient(90deg,#8aa0b8 0 6px,transparent 6px 14px)",
+            background: stripePattern,
             opacity: 0.9,
           }}
         />
@@ -2930,18 +2998,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
             <ManualInput
               placeholder={`Type KSK for slot ${index + 1}`}
               onSubmit={onSubmit}
-              inputStyle={{
-                width: "100%",
-                height: 46,
-                borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                padding: "0 12px",
-                fontSize: 18,
-                outline: "none",
-                background: "#fff",
-                color: "#0f172a",
-                caretColor: "#0f172a",
-              }}
+              inputStyle={slotInputStyle}
             />
           </m.div>
         )}
@@ -3045,9 +3102,11 @@ function StateIcon({ state, size = 36 }: { state: ScanState; size?: number }) {
 function StepBadge({
   label,
   onClick,
+  darkMode = false,
 }: {
   label: string;
   onClick?: () => void;
+  darkMode?: boolean;
 }) {
   const base: CSSProperties = {
     display: "flex",
@@ -3055,18 +3114,25 @@ function StepBadge({
     gap: 10,
     padding: "10px 14px",
     borderRadius: 999,
-    background: "#fff",
-    border: "1px solid #e6eef7",
-    boxShadow: "0 2px 6px rgba(15,23,42,0.04)",
+    background: darkMode ? "rgba(15,23,42,0.88)" : "#fff",
+    border: darkMode
+      ? "1px solid rgba(148,163,184,0.32)"
+      : "1px solid #e6eef7",
+    boxShadow: darkMode
+      ? "0 12px 30px -20px rgba(15,23,42,0.9)"
+      : "0 2px 6px rgba(15,23,42,0.04)",
     cursor: onClick ? "pointer" : "default",
     userSelect: "none",
+    transition:
+      "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
   };
   const text: CSSProperties = {
     fontSize: 14,
     fontWeight: 900,
-    color: "#0f172a",
+    color: darkMode ? "#e2e8f0" : "#0f172a",
     whiteSpace: "nowrap",
     letterSpacing: "0.02em",
+    transition: "color 160ms ease",
   };
   return (
     <div

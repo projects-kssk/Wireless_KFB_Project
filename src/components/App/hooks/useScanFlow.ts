@@ -10,6 +10,8 @@ export type RefLike<T> = { current: T };
 
 export type ScanTrigger = "sse" | "poll";
 
+const NO_SETUP_MSG = "No setup data available for this MAC";
+
 export type UseScanFlowParams = {
   CFG: {
     CHECK_CLIENT_MS: number;
@@ -507,13 +509,10 @@ export const useScanFlow = ({
             }
             return;
           } else {
-            if (!setupReadyRef) {
-              setGroupedBranches([]);
-              // Keep a brief, clear info message instead of tearing down UI abruptly.
-              setScanResult({ text: "No setup data available for this MAC", kind: "info" });
-              // Let Main UI fade it; it will fall back to the idle banner afterwards.
-              return;
-            }
+          if (!setupReadyRef) {
+            setGroupedBranches([]);
+            return;
+          }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
@@ -659,8 +658,8 @@ export const useScanFlow = ({
           noSetupCooldownRef.current = null;
         } else {
           okFlashAllowedRef.current = false;
-          if (!scanResult || scanResult.text !== "No setup data available for this MAC") {
-            setScanResult({ text: "No setup data available for this MAC", kind: "info" });
+          if (!scanResultTimerRef.current) {
+            setScanResult({ text: NO_SETUP_MSG, kind: "info" });
           }
           setIsScanning(false);
           setShowScanUi(false);
@@ -799,7 +798,7 @@ export const useScanFlow = ({
       const hasActive = activeIds.length > 0;
       if (!hasPins && !hasAliases && !hasActive) {
         okFlashAllowedRef.current = false;
-        setScanResult({ text: "No setup data available for this MAC", kind: "info" });
+        setScanResult({ text: NO_SETUP_MSG, kind: "info" });
         setIsScanning(false);
         setShowScanUi(false);
         setKfbNumber("");
@@ -813,14 +812,26 @@ export const useScanFlow = ({
           }, 5000);
         } catch {}
         const cooldownMs = Math.max(4000, CFG.RETRY_COOLDOWN_MS);
-        idleCooldownUntilRef.current = Date.now() + cooldownMs;
-        noSetupCooldownRef.current = { mac: blockKey, until: Date.now() + cooldownMs };
+        const until = Date.now() + cooldownMs;
+        idleCooldownUntilRef.current = until;
+        noSetupCooldownRef.current = { mac: blockKey, until };
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
         scanResultTimerRef.current = window.setTimeout(() => {
           setScanResult(null);
           scanResultTimerRef.current = null;
-        }, Math.min(cooldownMs, 5000));
+        }, Math.min(cooldownMs, 3000));
+        if (typeof window !== "undefined") {
+          window.setTimeout(() => {
+            if (
+              noSetupCooldownRef.current &&
+              noSetupCooldownRef.current.mac === blockKey &&
+              Date.now() >= noSetupCooldownRef.current.until
+            ) {
+              noSetupCooldownRef.current = null;
+            }
+          }, cooldownMs + 50);
+        }
         return;
       }
 

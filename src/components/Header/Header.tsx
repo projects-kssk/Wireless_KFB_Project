@@ -46,7 +46,7 @@ type TestState = "idle" | "calling" | "ok" | "error";
    Header chrome
    ──────────────────────────────────────────────────────────────────────────── */
 const StrictHeaderBg = [
-  "bg-[radial-gradient(160%_160%_at_0%_-35%,#eef3ff_0%,#f6f9ff_52%,#ffffff_100%)]",
+  "bg-[radial-gradient(170%_170%_at_0%_-42%,#f1f4ff_0%,#f8faff_56%,#ffffff_100%)]",
   "dark:bg-[radial-gradient(160%_160%_at_0%_-30%,#0b1220_0%,#0b1220_70%,#070d19_100%)]",
   "border-b border-slate-200/70 dark:border-slate-800",
 ].join(" ");
@@ -1404,7 +1404,7 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <div
-            className="grid w-full h-full items-center gap-4 md:gap-6 px-4 sm:px-6 2xl:px-10"
+            className="grid w-full h-full items-center gap-5 xl:gap-8 px-4 sm:px-6 2xl:px-10"
             style={{
               paddingTop: "env(safe-area-inset-top)",
               gridTemplateColumns:

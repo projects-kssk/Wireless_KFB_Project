@@ -12,7 +12,7 @@ type ThemeKey = (typeof THEMES)[number]["key"];
 
 const resolveTheme = (
   theme: string | undefined,
-  resolvedTheme: string | undefined,
+  resolvedTheme: string | undefined
 ): ThemeKey => {
   const value = (resolvedTheme || theme || "light").toLowerCase();
   return value === "dark" ? "dark" : "light";
@@ -30,7 +30,34 @@ export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {})
     setMounted(true);
   }, []);
 
-  const active = mounted ? resolveTheme(theme, resolvedTheme) : undefined;
+  const active = resolveTheme(theme, resolvedTheme);
+  const displayActive = mounted ? active : "light";
+
+  useEffect(() => {
+    if (!mounted) return;
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    if (active === "dark") {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    } else {
+      root.classList.remove("dark");
+      root.classList.add("light");
+    }
+  }, [active, mounted]);
+
+  const applyTheme = (next: ThemeKey) => {
+    setTheme(next);
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    if (next === "dark") {
+      root.classList.add("dark");
+      root.classList.remove("light");
+    } else {
+      root.classList.remove("dark");
+      root.classList.add("light");
+    }
+  };
 
   const containerClass =
     tone === "card"
@@ -50,12 +77,12 @@ export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {})
   return (
     <div className={containerClass} role="group" aria-label="Theme toggle">
       {THEMES.map(({ key, label }) => {
-        const isActive = key === active;
+        const isActive = key === displayActive;
         return (
           <button
             key={key}
             type="button"
-            onClick={() => setTheme(key)}
+            onClick={() => applyTheme(key)}
             className={[
               "px-3 py-1.5 rounded-full transition-all",
               isActive ? activeClass : inactiveClass,

@@ -70,19 +70,35 @@ The app automatically retries transient failures (e.g., 429/504/pending) and saf
 
 ## End-to-End Flow (Mermaid)
 
-> **As requested:** keeping your first flow **exactly as provided previously**.
-
-```mermaid
 flowchart LR
-    A[IDLE: Scan Prompt] -->|Scan/Run Check| B{Setup data present?}
-    B -- No --> B1[UI: "No setup data for this MAC"\n• Clear scanned code\n• Briefly block retries] --> A
+A[IDLE: Scan Prompt] -->|Scan/Run Check| B{Setup data present?}
+B -- No --> B1[UI: No setup data for this MAC<br/>- Clear scanned code<br/>- Briefly block retries] --> A
 
     B -- Yes --> C{Any failures or unknown pins?}
     C -- Yes --> D[Enter LIVE MODE]
-    C -- No  --> E[Finalize (Live suppressed)\n• Send checkpoints for active KSKs\n• Clear Redis alias cache & KSK locks\n• Flash OK SVG] --> A
+    C -- No  --> E[Finalize (live suppressed)<br/>- Send checkpoints for active KSKs<br/>- Clear Redis alias cache & KSK locks<br/>- Flash OK SVG] --> A
 
     %% Error path
     A -.->|Errors 429/504/Pending during scan| F[Auto-Retry Loop]
     F -->|Retry success| C
-    F -->|Retries exhausted| G[Reset KFB context\nClear branch data\nPrompt another attempt] --> A
-```
+    F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Prompt another attempt] --> A
+
+flowchart TB
+L0[BranchDashboardMainContent enters LIVE MODE<br/>with active MAC] --> L1[Render status pill: SCANNING / CHECKING]
+L1 --> L2[Build branch cards<br/>Badges: OK / NOK / Not Tested]
+L2 --> L3[Show contact label names<br/>Show pin statuses in real time]
+L3 --> L4[Highlight Pending Failures list]
+
+    %% Recovery
+    L4 -->|All pins recover| L5[Flash large OK SVG]
+    L5 --> L6[Push checkpoints for active KSKs]
+    L6 --> L7[Bulk-delete Redis alias cache entries for MAC]
+    L7 --> L8[Clear KSK locks]
+    L8 --> L9[Return to Scan Prompt IDLE]
+
+flowchart TB
+R0[Scan / Run Check] --> R1{Result}
+R1 -- 429 / 504 / Pending --> R2[Backoff & Auto-Retry]
+R2 -->|Retry OK| R3[Continue normal flow<br/>(Live mode or Finalize)]
+R2 -->|Retries exhausted| R4[Reset KFB context<br/>Clear branch data]
+R4 --> R5[Prompt user for another attempt] --> R6[IDLE]

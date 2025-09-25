@@ -1,9 +1,10 @@
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
 
 :root {
-  --foreground-rgb: 0, 0, 0; /* Default to black text for light scheme (if ever used) */
+  --foreground-rgb:
+    0, 0, 0; /* Default to black text for light scheme (if ever used) */
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
 }
@@ -11,8 +12,9 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --foreground-rgb: 255, 255, 255; /* White text for dark scheme */
-    --background-start-rgb: 0, 0, 0; /* Black background start for dark scheme */
-    --background-end-rgb: 0, 0, 0;   /* Black background end for dark scheme */
+    --background-start-rgb:
+      0, 0, 0; /* Black background start for dark scheme */
+    --background-end-rgb: 0, 0, 0; /* Black background end for dark scheme */
   }
 }
 
@@ -28,7 +30,8 @@ main {
      You can add specific dark mode background to main if needed, e.g., bg-gray-800 dark:bg-slate-900 */
 }
 
-.button{ /* Your existing button styles, check dark mode text color for contrast */
+.button {
+  /* Your existing button styles, check dark mode text color for contrast */
   @apply p-2 font-semibold rounded-lg border-solid border-2 transition ease-in-out
    border-slate-800 dark:border-gray-700 /* Slightly lighter border for dark */
    text-slate-800 dark:text-slate-100 /* Light text on dark for buttons */
@@ -42,4 +45,122 @@ html[data-tv="1"] body > div:first-child main {
 }
 
 /* Optional: letterbox background for TV */
-html[data-tv="1"] body { background: #000; }
+html[data-tv="1"] body {
+  background: #000;
+}
+
+/* HUD styles */
+.hud-enter {
+  transform: translateY(-6px);
+  opacity: 0;
+  animation: hudIn 220ms ease-out forwards;
+}
+@keyframes hudIn {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.hud-pulse-circle {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, white 75%, transparent 76%);
+  overflow: visible;
+}
+.hud-pulse-circle::before,
+.hud-pulse-circle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid rgba(15, 23, 42, 0.15);
+  transform: scale(1);
+  opacity: 1;
+  animation: hudPulse 1500ms ease-out infinite;
+}
+.hud-pulse-circle::after {
+  animation-delay: 300ms;
+}
+.hud-pulse-blue::before,
+.hud-pulse-blue::after {
+  border-color: rgba(29, 78, 216, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-pulse-circle::before,
+  .hud-pulse-circle::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+@keyframes hudPulse {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+.hud-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0) 0%,
+    rgba(59, 130, 246, 0.35) 50%,
+    rgba(59, 130, 246, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: hudShimmer 1.25s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-shimmer {
+    animation: none;
+  }
+}
+@keyframes hudShimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+.hud-icon-wrap {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: white;
+}
+.hud-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.75;
+  animation: hudDots 900ms ease-in-out infinite;
+}
+.hud-dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+.hud-dot:nth-child(3) {
+  animation-delay: 300ms;
+}
+@keyframes hudDots {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}

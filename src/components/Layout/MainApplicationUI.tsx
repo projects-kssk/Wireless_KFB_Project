@@ -22,6 +22,20 @@ import { PostResetSanityEffect } from "./components/PostResetSanityEffect";
 import { RedisHealthEffect } from "./components/RedisHealthEffect";
 import { ScannerEffect } from "./components/ScannerEffect";
 import { maskSimMac } from "@/lib/macDisplay";
+import useConfig from "./hooks/useConfig";
+import useTimers from "./hooks/useTimers";
+import useHud, { HudMode, ScanResultState } from "./hooks/useHud";
+import { canonicalMac, extractMac, MAC_ONLY_REGEX } from "./utils/mac";
+import { KFB_REGEX } from "./utils/regex";
+import {
+  isAcmPath,
+  pathsEqual as pathsEqualUtil,
+  resolveDesiredPath as resolveDesiredPathUtil,
+} from "./utils/paths";
+import {
+  mergeAliasesFromItems,
+  computeActivePins as computeActivePinsUtil,
+} from "./utils/merge";
 
 /* =================================================================================
  * Constants & helpers
@@ -30,130 +44,15 @@ import { maskSimMac } from "@/lib/macDisplay";
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
 
-type HudMode = "idle" | "scanning" | "info" | "error";
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type ScanTrigger = "sse" | "poll";
-
-const MAC_ONLY_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
-
-const compileRegex = (src: string | undefined, fallback: RegExp): RegExp => {
-  if (!src) return fallback;
-  try {
-    if (src.startsWith("/") && src.lastIndexOf("/") > 0) {
-      const i = src.lastIndexOf("/");
-      return new RegExp(src.slice(1, i), src.slice(i + 1));
-    }
-    return new RegExp(src);
-  } catch {
-    console.warn("Invalid NEXT_PUBLIC_KFB_REGEX. Using fallback.");
-    return fallback;
-  }
-};
-const KFB_REGEX = compileRegex(process.env.NEXT_PUBLIC_KFB_REGEX, /^KFB$/);
-
-const canonicalMac = (raw: string): string | null => {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-  const hex = s.replace(/[^0-9a-fA-F]/g, "").toUpperCase();
-  if (hex.length !== 12) return null;
-  const mac = hex.match(/.{1,2}/g)?.join(":") || "";
-  return MAC_ONLY_REGEX.test(mac) ? mac : null;
-};
-
-// Extract a MAC anywhere in the string. Prefer colon-form; fall back to contiguous 12-hex.
-const extractMac = (raw: string): string | null => {
-  const s = String(raw || "").toUpperCase();
-  const m1 = s.match(/([0-9A-F]{2}(?::[0-9A-F]{2}){5})/);
-  if (m1 && m1[1]) return m1[1];
-  const m2 = s.match(/\b([0-9A-F]{12})\b/);
-  if (m2 && m2[1]) {
-    const parts = m2[1].match(/.{1,2}/g) || [];
-    const mac = parts.join(":");
-    return MAC_ONLY_REGEX.test(mac) ? mac : null;
-  }
-  return null;
-};
-
-const isAcmPath = (p?: string | null) =>
-  !p ||
-  /(^|\/)ttyACM\d+$/.test(p) ||
-  /(^|\/)ttyUSB\d+$/.test(p) ||
-  /(^|\/)(ACM|USB)\d+($|[^0-9])/.test(p) ||
-  /\/by-id\/.*(ACM|USB)/i.test(p);
-
-function mergeAliasesFromItems(
-  items?: Array<{ aliases?: Record<string, string> }> | null
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!Array.isArray(items)) return out;
-  for (const it of items) {
-    const a = (it && typeof it.aliases === "object" && it.aliases) || {};
-    for (const [pin, name] of Object.entries(a)) {
-      out[pin] = out[pin] && out[pin] !== name ? `${out[pin]} / ${name}` : name;
-    }
-  }
-  return out;
-}
 
 /* =================================================================================
  * Main Component
  * ================================================================================= */
 
 const MainApplicationUI: React.FC = () => {
-  /* -----------------------------------------------------------------------------
-   * Config & flags
-   * ---------------------------------------------------------------------------*/
-  const CFG = {
-    OVERLAY_MS: Math.max(
-      1000,
-      Number(process.env.NEXT_PUBLIC_SCAN_OVERLAY_MS ?? 3000)
-    ),
-    STUCK_MS: Math.max(
-      4000,
-      Number(process.env.NEXT_PUBLIC_SCAN_STUCK_MS ?? 7000)
-    ),
-    OK_MS: Math.max(400, Number(process.env.NEXT_PUBLIC_OK_OVERLAY_MS ?? 1200)),
-    CHECK_CLIENT_MS: Math.max(
-      1000,
-      Number(process.env.NEXT_PUBLIC_CHECK_CLIENT_TIMEOUT_MS ?? 5000)
-    ),
-    RETRIES: Math.max(
-      0,
-      Number(process.env.NEXT_PUBLIC_CHECK_RETRY_COUNT ?? 1)
-    ),
-    RETRY_COOLDOWN_MS: Math.max(
-      2000,
-      Number(process.env.NEXT_PUBLIC_RETRY_COOLDOWN_MS ?? 5000)
-    ),
-    FINALIZED_RESCAN_BLOCK_MS: Math.max(
-      0,
-      Number(process.env.NEXT_PUBLIC_FINALIZED_RESCAN_BLOCK_MS ?? 0)
-    ),
-  } as const;
-
-  const FLAGS = {
-    USE_LOCKS: String(process.env.NEXT_PUBLIC_USE_LOCKS || "").trim() === "1",
-    REHYDRATE_ON_LOAD:
-      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_LOAD || "").trim() === "1",
-    REHYDRATE_ON_RECOVERY:
-      String(process.env.NEXT_PUBLIC_REHYDRATE_ON_RECOVERY || "").trim() ===
-      "1",
-    STATION_WARMUP:
-      String(process.env.NEXT_PUBLIC_STATION_WARMUP || "").trim() === "1",
-    SCANNER_POLL:
-      String(process.env.NEXT_PUBLIC_SCANNER_POLL_ENABLED || "").trim() === "1",
-    HINT_ON_EMPTY:
-      String(process.env.NEXT_PUBLIC_HINT_ON_EMPTY || "").trim() === "1",
-    CHECK_ON_EMPTY:
-      String(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY || "").trim() === "1",
-    SIMULATE: String(process.env.NEXT_PUBLIC_SIMULATE || "").trim() === "1",
-  } as const;
-
-  const ASSUME_REDIS_READY =
-    String(process.env.NEXT_PUBLIC_ASSUME_REDIS_READY ?? "1").trim() === "1";
-
-  const ALLOW_IDLE_SCANS =
-    String(process.env.NEXT_PUBLIC_DASHBOARD_ALLOW_IDLE_SCANS ?? "1") === "1";
+  const { CFG, FLAGS, ASSUME_REDIS_READY, ALLOW_IDLE_SCANS } = useConfig();
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -227,10 +126,7 @@ const MainApplicationUI: React.FC = () => {
 
   const [isScanning, setIsScanning] = useState(false);
   const [showScanUi, setShowScanUi] = useState(false);
-  const [scanResult, setScanResult] = useState<{
-    text: string;
-    kind: "info" | "error";
-  } | null>(null);
+  const [scanResult, setScanResult] = useState<ScanResultState>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [nameHints, setNameHints] = useState<
@@ -315,50 +211,10 @@ const MainApplicationUI: React.FC = () => {
   );
   const [infoHideAt, setInfoHideAt] = useState<number | null>(null);
 
-  // central timer registry
-  const timers = useRef<Map<string, ReturnType<typeof window.setTimeout>>>(
-    new Map()
-  );
-  const schedule = useCallback((key: string, fn: () => void, ms: number) => {
-    const prev = timers.current.get(key);
-    if (prev) {
-      try {
-        window.clearTimeout(prev as any);
-      } catch {}
-      timers.current.delete(key);
-    }
-    const id = window.setTimeout(
-      () => {
-        try {
-          timers.current.delete(key);
-        } catch {}
-        try {
-          fn();
-        } catch {}
-      },
-      Math.max(0, ms)
-    );
-    timers.current.set(
-      key,
-      id as unknown as ReturnType<typeof window.setTimeout>
-    );
-  }, []);
-  const cancel = useCallback((key: string) => {
-    const prev = timers.current.get(key);
-    if (prev) {
-      try {
-        window.clearTimeout(prev as any);
-      } catch {}
-      timers.current.delete(key);
-    }
-  }, []);
+  const { schedule, cancel } = useTimers();
+
   useEffect(
     () => () => {
-      try {
-        for (const id of timers.current.values())
-          window.clearTimeout(id as any);
-        timers.current.clear();
-      } catch {}
       try {
         if (scanResultTimerRef.current) {
           clearTimeout(scanResultTimerRef.current);
@@ -453,35 +309,11 @@ const MainApplicationUI: React.FC = () => {
             kssk?: string;
             normalPins?: number[];
             latchPins?: number[];
-          }>
+          } | null>
         | undefined,
       activeIds: string[] | undefined
-    ): { normal: number[]; latch: number[] } => {
-      const ids = new Set((activeIds || []).map((s) => String(s).trim()));
-      const n = new Set<number>();
-      const l = new Set<number>();
-      if (Array.isArray(items) && ids.size) {
-        for (const it of items) {
-          const id = String(
-            ((it as any)?.ksk ?? (it as any)?.kssk) || ""
-          ).trim();
-          if (!id || !ids.has(id)) continue;
-          if (Array.isArray(it.normalPins))
-            for (const p of it.normalPins) {
-              const x = Number(p);
-              if (Number.isFinite(x) && x > 0) n.add(x);
-            }
-          if (Array.isArray(it.latchPins))
-            for (const p of it.latchPins) {
-              const x = Number(p);
-              if (Number.isFinite(x) && x > 0) l.add(x);
-            }
-        }
-      }
-      const norm = Array.from(n).sort((a, b) => a - b);
-      const lat = Array.from(l).sort((a, b) => a - b);
-      return { normal: norm, latch: lat };
-    },
+    ): { normal: number[]; latch: number[] } =>
+      computeActivePinsUtil(items, activeIds),
     []
   );
 
@@ -843,20 +675,23 @@ const MainApplicationUI: React.FC = () => {
               if (rLocks && rLocks.ok) {
                 const jL = await rLocks.json().catch(() => null);
                 const locks: any[] = Array.isArray(jL?.locks) ? jL.locks : [];
+                const wantMac = (mac || "").toUpperCase();
                 const fromLocks = locks
                   .filter(
-                    (row: any) => String(row?.mac || "").toUpperCase() === mac
+                    (row: any) =>
+                      String(row?.mac || "").toUpperCase() === wantMac
                   )
-                .map((row: any) =>
-                  String((row?.ksk ?? row?.kssk) || "").trim()
-                )
-                .filter(Boolean);
-              if (fromLocks.length) {
-                ids = Array.from(new Set(fromLocks));
-                hadLocksForMac = true;
+                  .map((row: any) =>
+                    String((row?.ksk ?? row?.kssk) || "").trim()
+                  )
+                  .filter(Boolean);
+                if (fromLocks.length) {
+                  ids = Array.from(new Set(fromLocks));
+                  hadLocksForMac = true;
+                }
               }
-            }
-          } catch {}
+            } catch {}
+          }
           if (!ids.length) {
             try {
               const snapshot = itemsAllFromAliasesRef.current || [];
@@ -877,7 +712,6 @@ const MainApplicationUI: React.FC = () => {
               }
             } catch {}
           }
-        }
         }
 
         // Send checkpoint per KSK id (best-effort)
@@ -1043,8 +877,7 @@ const MainApplicationUI: React.FC = () => {
               typeof result.aliases === "object" &&
               Object.keys(result.aliases).length > 0);
 
-          const setupReadyRef =
-            hasSetupForCurrentMac() || hasAliasesFromResult;
+          const setupReadyRef = hasSetupForCurrentMac() || hasAliasesFromResult;
 
           const shouldExposeFailures = setupReadyRef || failures.length > 0;
           setCheckFailures(shouldExposeFailures ? failures : []);
@@ -1410,8 +1243,7 @@ const MainApplicationUI: React.FC = () => {
           simulateCooldownUntilRef.current,
           now + 2500
         );
-        if (pendingSimulateRef.current)
-          tryRunPendingSimulateRef.current();
+        if (pendingSimulateRef.current) tryRunPendingSimulateRef.current();
       }
     },
     [
@@ -1434,33 +1266,16 @@ const MainApplicationUI: React.FC = () => {
    *   - Bizonytalan esetben null-t ad vissza.
    */
   /* -------------------------------------------------------------------------- */
-  const resolveDesiredPath = useCallback((): string | null => {
-    const list: string[] = (serial as any).scannerPaths || [];
-    if (Array.isArray(list) && list.length) {
-      const acm0 = list.find(
-        (p) => /(^|\/)ttyACM0$/.test(p) || /(\/|^)(ACM)0(?!\d)/i.test(p)
-      );
-      if (acm0) return acm0;
-      const fallback = list.find((p) => /(^|\/)ttyACM\d+$/i.test(p));
-      if (fallback) return fallback;
-    }
-    return null;
-  }, [serial]);
+  const resolveDesiredPath = useCallback(
+    (): string | null =>
+      resolveDesiredPathUtil((serial as any).scannerPaths || []),
+    [serial]
+  );
 
-  const pathsEqual = useCallback((a?: string | null, b?: string | null) => {
-    if (!a || !b) return false;
-    if (a === b) return true;
-    const ta = a.split("/").pop() || a;
-    const tb = b.split("/").pop() || b;
-    if (ta === tb || a.endsWith(tb) || b.endsWith(ta)) return true;
-    const num = (s: string) => {
-      const m = s.match(/(ACM|USB)(\d+)/i);
-      return m ? `${m[1].toUpperCase()}${m[2]}` : null;
-    };
-    const na = num(a) || num(ta);
-    const nb = num(b) || num(tb);
-    return !!(na && nb && na === nb);
-  }, []);
+  const pathsEqual = useCallback(
+    (a?: string | null, b?: string | null) => pathsEqualUtil(a, b),
+    []
+  );
 
   /* -----------------------------------------------------------------------------
    * Load + Check on SCAN (no manual)
@@ -1606,7 +1421,6 @@ const MainApplicationUI: React.FC = () => {
             ).sort((a, b) => a - b);
             if (mergedPins.length) pins = mergedPins;
           } catch {}
-
         }
       } catch {}
 
@@ -1691,10 +1505,13 @@ const MainApplicationUI: React.FC = () => {
     const now = Date.now();
     const scheduleRetry = (delay = 250) => {
       if (simulateRetryTimerRef.current != null) return;
-      simulateRetryTimerRef.current = window.setTimeout(() => {
-        simulateRetryTimerRef.current = null;
-        tryRunPendingSimulate();
-      }, Math.max(0, delay));
+      simulateRetryTimerRef.current = window.setTimeout(
+        () => {
+          simulateRetryTimerRef.current = null;
+          tryRunPendingSimulate();
+        },
+        Math.max(0, delay)
+      );
     };
 
     if (isCheckingRef.current || isScanning) {
@@ -1736,7 +1553,11 @@ const MainApplicationUI: React.FC = () => {
 
     pendingSimulateRef.current = { target, tick };
     tryRunPendingSimulate();
-  }, [serial.simulateCheckTick, serial.simulateCheckMac, tryRunPendingSimulate]);
+  }, [
+    serial.simulateCheckTick,
+    serial.simulateCheckMac,
+    tryRunPendingSimulate,
+  ]);
 
   useEffect(() => {
     tryRunPendingSimulate();
@@ -1858,55 +1679,22 @@ const MainApplicationUI: React.FC = () => {
    *   - "info"/"error" -> átmeneti státuszok (pl. részleges hibalista, timeout).
    */
   /* -------------------------------------------------------------------------- */
-  const scannerDetected = useMemo(() => {
-    try {
-      return (
-        (serial as any).scannersDetected > 0 || !!(serial as any).sseConnected
-      );
-    } catch {
-      return false;
-    }
-  }, [(serial as any).scannersDetected, (serial as any).sseConnected]);
+  const handleHudIdle = useCallback(() => {
+    idleCooldownUntilRef.current = 0;
+    blockedMacRef.current.clear();
+  }, []);
 
-  const hudMode: HudMode | null = useMemo(() => {
-    if (mainView !== "dashboard") return null;
-    if (isScanning && showScanUi) return "scanning";
-    if (scanResult) return scanResult.kind;
-    const hasMac = !!(macAddress && macAddress.trim());
-    if (!hasMac) return "idle";
-    return null;
-  }, [mainView, isScanning, showScanUi, scanResult, macAddress]);
-
-  useEffect(() => {
-    if (hudMode === "idle") {
-      idleCooldownUntilRef.current = 0;
-      blockedMacRef.current.clear();
-    }
-  }, [hudMode]);
-
-  const hudMessage = useMemo(() => {
-    if (hudMode === "scanning") return "Scanning…";
-    if (hudMode === "error") return scanResult?.text || "Error";
-    if (hudMode === "info") return scanResult?.text || "Notice";
-    if (hudMode === "idle") return "Scan a barcode to begin";
-    return undefined;
-  }, [hudMode, scanResult?.text]);
-
-  const hudSubMessage = useMemo(() => {
-    if (hudMode === "scanning") return "Hold steady for a moment";
-    if (hudMode === "idle")
-      return scannerDetected ? "" : "Scanner not detected.";
-    if (hudMode === "info") {
-      if (infoHideAt) {
-        const remMs = Math.max(0, infoHideAt - Date.now());
-        const secs = Math.ceil(remMs / 1000);
-        return secs > 0 ? String(secs) : undefined;
-      }
-      if (redisDegraded) return "Live cache recently degraded—retry if needed.";
-      return undefined;
-    }
-    return undefined;
-  }, [hudMode, scannerDetected, redisDegraded, infoHideAt]);
+  const { hudMode, hudMessage, hudSubMessage, scannerDetected } = useHud({
+    mainView,
+    isScanning,
+    showScanUi,
+    scanResult,
+    macAddress,
+    serial,
+    redisDegraded,
+    infoHideAt,
+    onIdle: handleHudIdle,
+  });
 
   // stable empties
   const EMPTY_BRANCHES: ReadonlyArray<BranchDisplayData> = useMemo(
@@ -2161,77 +1949,6 @@ const MainApplicationUI: React.FC = () => {
           )}
         </main>
       </div>
-
-      <style>{`
-        .hud-enter {
-          transform: translateY(-6px);
-          opacity: 0;
-          animation: hudIn 220ms ease-out forwards;
-        }
-        @keyframes hudIn {
-          to { transform: translateY(0); opacity: 1; }
-        }
-        .hud-pulse-circle {
-          position: relative;
-          width: 40px;
-          height: 40px;
-          display: grid;
-          place-items: center;
-          border-radius: 9999px;
-          background: radial-gradient(closest-side, white 75%, transparent 76%);
-          overflow: visible;
-        }
-        .hud-pulse-circle::before, .hud-pulse-circle::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          border-radius: 9999px;
-          border: 2px solid rgba(15, 23, 42, 0.15);
-          transform: scale(1);
-          opacity: 1;
-          animation: hudPulse 1500ms ease-out infinite;
-        }
-        .hud-pulse-circle::after { animation-delay: 300ms; }
-        .hud-pulse-blue::before,
-        .hud-pulse-blue::after {
-          border-color: rgba(29, 78, 216, 0.25);
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .hud-pulse-circle::before,
-          .hud-pulse-circle::after { animation: none; opacity: .6; }
-        }
-        @keyframes hudPulse {
-          from { transform: scale(1); opacity: .9; }
-          to   { transform: scale(1.5); opacity: 0; }
-        }
-        .hud-shimmer {
-          background: linear-gradient(90deg, rgba(59,130,246,.0) 0%, rgba(59,130,246,.35) 50%, rgba(59,130,246,.0) 100%);
-          background-size: 200% 100%;
-          animation: hudShimmer 1.25s linear infinite;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .hud-shimmer { animation: none; }
-        }
-        @keyframes hudShimmer {
-          from { background-position: -200% 0; }
-          to   { background-position: 200% 0; }
-        }
-        .hud-icon-wrap {
-          width: 40px; height: 40px; display: grid; place-items: center;
-          border-radius: 9999px; background: white;
-        }
-        .hud-dot {
-          display: inline-block; width: 6px; height: 6px; margin-right: 6px;
-          border-radius: 9999px; background: currentColor; opacity: .75;
-          animation: hudDots 900ms ease-in-out infinite;
-        }
-        .hud-dot:nth-child(2) { animation-delay: 150ms; }
-        .hud-dot:nth-child(3) { animation-delay: 300ms; }
-        @keyframes hudDots {
-          0%, 100% { transform: translateY(0); opacity: .6; }
-          50% { transform: translateY(-2px); opacity: 1; }
-        }
-      `}</style>
     </div>
   );
 };

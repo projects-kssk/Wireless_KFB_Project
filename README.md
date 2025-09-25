@@ -38,6 +38,10 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 - `npm run build:arm64` – AppImage ARM64
 - `npm run lint` · `npm run type-check` – kódellenőrzés
 
+## Contributor Onboarding
+Új fejlesztőknek ajánlott áttekinteni a [AGENTS.md](./AGENTS.md) "Repository Guidelines" dokumentumot.
+Összefoglalja a könyvtárstruktúrát, fő parancsokat, kódstílust és PR elvárásokat, így gyorsítja a belépést és az ellenőrzési folyamatot.
+
 ## Kulcs környezeti változók (részletek a doksiban)
 
 | Téma | Példa változók | Részletes leírás |

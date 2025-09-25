@@ -203,6 +203,7 @@ const MainApplicationUI: React.FC = () => {
   >([]);
   const [kfbNumber, setKfbNumber] = useState(""); // last scanned code (MAC or KFB)
   const [kfbInfo, setKfbInfo] = useState<KfbInfo | null>(null);
+  const [shouldShowHeader, setShouldShowHeader] = useState(false);
 
   const [macAddress, setMacAddress] = useState("");
   const macRef = useRef<string>("");
@@ -436,6 +437,7 @@ const MainApplicationUI: React.FC = () => {
     setErrorMsg(null);
     setKfbNumber("");
     setKfbInfo(null);
+    setShouldShowHeader(false);
     setBranchesData([]);
     setGroupedBranches([]);
     setActiveKssks([]);

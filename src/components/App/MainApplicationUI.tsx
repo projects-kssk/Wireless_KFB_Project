@@ -130,27 +130,35 @@ const HudBanner: React.FC<{ banner: BannerState | null }> = ({ banner }) => {
 
 const MainApplicationUI: React.FC = () => {
   const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
-  const { resolvedTheme, setTheme } = useTheme();
-  const isDarkMode = resolvedTheme === "dark";
+  const { resolvedTheme, theme, setTheme } = useTheme();
+  const effectiveTheme = (() => {
+    if (resolvedTheme) return resolvedTheme;
+    if (theme === "dark" || theme === "light") return theme;
+    return undefined;
+  })();
+  const isDarkMode = effectiveTheme === "dark";
   const gradientLight =
     "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
   const gradientDark = "#222222";
   const appBackground = isDarkMode ? gradientDark : gradientLight;
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!resolvedTheme) {
+    const nextTheme =
+      resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined);
+    if (!nextTheme) {
       setTheme("light");
       return;
     }
+    const normalized = nextTheme === "dark" ? "dark" : "light";
     const root = document.documentElement;
-    if (resolvedTheme === "dark") {
+    if (normalized === "dark") {
       root.classList.add("dark");
       root.classList.remove("light");
     } else {
       root.classList.remove("dark");
       root.classList.add("light");
     }
-  }, [resolvedTheme, setTheme]);
+  }, [resolvedTheme, theme, setTheme]);
   const mainSurfaceBg = "transparent";
   const mainSurfaceBorder = isDarkMode
     ? "rgba(255,255,255,0.06)"

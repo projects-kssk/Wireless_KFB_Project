@@ -1471,7 +1471,8 @@ export default function SetupPage() {
         // Policy: only persist when we extracted at least one pin
         try {
           const hasSomePins =
-            !!out && ((out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0);
+            !!out &&
+            (out.normalPins?.length ?? 0) + (out.latchPins?.length ?? 0) > 0;
           if (!hasSomePins) {
             // Skip persistence if extraction yielded no pins
             throw new Error("skip_persist_no_pins");
@@ -1606,9 +1607,14 @@ export default function SetupPage() {
           } catch {}
         } catch (e) {
           // Only suppress the local persist if we intentionally skipped due to no pins
-          if ((e as any)?.message !== 'skip_persist_no_pins') {
+          if ((e as any)?.message !== "skip_persist_no_pins") {
             // Log a soft warning; UI already shows KSK status
-            try { console.warn('[SETUP] persist skipped or failed', (e as any)?.message || e); } catch {}
+            try {
+              console.warn(
+                "[SETUP] persist skipped or failed",
+                (e as any)?.message || e
+              );
+            } catch {}
           }
         }
 
@@ -1896,8 +1902,9 @@ export default function SetupPage() {
   const SETUP_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_SETUP ?? "1"
   );
-  const SETUP_SCANNER_PATH = (process.env.NEXT_PUBLIC_SCANNER_PATH_SETUP || "")
-    .trim();
+  const SETUP_SCANNER_PATH = (
+    process.env.NEXT_PUBLIC_SCANNER_PATH_SETUP || ""
+  ).trim();
   const pathsEqual = (a?: string | null, b?: string | null) => {
     if (!a || !b) return false;
     if (a === b) return true;
@@ -2073,7 +2080,8 @@ export default function SetupPage() {
     boxShadow: isDark
       ? "0 30px 60px -40px rgba(15,23,42,0.9)"
       : "0 20px 45px -35px rgba(15,23,42,0.22)",
-    transition: "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
+    transition:
+      "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
   };
   const heroTopRow: CSSProperties = {
     display: "flex",
@@ -2143,9 +2151,10 @@ export default function SetupPage() {
     display: "grid",
     gap: 12,
     boxShadow: isDark
-      ? "0 25px 50px -35px rgba(15,23,42,0.9)"
+      ? "0 25px 50px -35px rgba(0,0,0,0.55)"
       : "0 18px 40px -30px rgba(15,23,42,0.15)",
-    transition: "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
+    transition:
+      "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
   };
   const eyebrow: CSSProperties = {
     fontSize: 11,
@@ -2187,7 +2196,8 @@ export default function SetupPage() {
     background: inputBg,
     color: primaryText,
     caretColor: primaryText,
-    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
+    transition:
+      "background 160ms ease, border-color 160ms ease, color 160ms ease",
   };
 
   // ✅ progress counts only OK slots
@@ -2839,7 +2849,8 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
     background: darkMode ? "rgba(15,23,42,0.75)" : "#ffffff",
     color: darkMode ? "#e2e8f0" : "#0f172a",
     caretColor: darkMode ? "#e2e8f0" : "#0f172a",
-    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
+    transition:
+      "background 160ms ease, border-color 160ms ease, color 160ms ease",
   };
 
   return (
@@ -3114,12 +3125,12 @@ function StepBadge({
     gap: 10,
     padding: "10px 14px",
     borderRadius: 999,
-    background: darkMode ? "rgba(15,23,42,0.88)" : "#fff",
+    background: darkMode ? "#3a3a3a" : "#fff",
     border: darkMode
-      ? "1px solid rgba(148,163,184,0.32)"
+      ? "1px solid rgba(255,255,255,0.12)"
       : "1px solid #e6eef7",
     boxShadow: darkMode
-      ? "0 12px 30px -20px rgba(15,23,42,0.9)"
+      ? "0 12px 30px -20px rgba(0,0,0,0.55)"
       : "0 2px 6px rgba(15,23,42,0.04)",
     cursor: onClick ? "pointer" : "default",
     userSelect: "none",

@@ -461,7 +461,6 @@ const MainApplicationUI: React.FC = () => {
         if (!until || until <= now) finalizeOkGuardRef.current.delete(mac);
       }
     } catch {}
-
   }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
 
   const { finalizeOkForMac, clearKskLocksFully } = useFinalize({
@@ -625,7 +624,8 @@ const MainApplicationUI: React.FC = () => {
       return;
     }
     pendingSimulateRef.current = null;
-    simulateCooldownUntilRef.current = now + Math.max(3000, CFG.RETRY_COOLDOWN_MS);
+    simulateCooldownUntilRef.current =
+      now + Math.max(3000, CFG.RETRY_COOLDOWN_MS);
     if (setupGateActive) enableSimOverride();
     void handleScanRef.current?.(pending.target, "sse");
   }, [
@@ -877,7 +877,7 @@ const MainApplicationUI: React.FC = () => {
   /** Compute the animated banner to display (idle + info only). */
   const banner: BannerState | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
-    if (scanResult?.kind === "info" && hudMode !== "info") {
+    if (scanResult?.kind === "info") {
       return {
         key: `info-${scanResult.text}`,
         kind: "info",
@@ -885,7 +885,7 @@ const MainApplicationUI: React.FC = () => {
       };
     }
     return null;
-  }, [scanResult, mainView, hudMode]);
+  }, [scanResult, mainView]);
 
   return (
     <div

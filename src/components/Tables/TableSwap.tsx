@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { m, AnimatePresence } from "framer-motion";
+import { useTheme } from "next-themes";
 
 /* ---------- types ---------- */
 
@@ -57,15 +58,29 @@ function CornerBarcodeHint({
   top = 52,
   widthPx,
   heightPx,
+  darkMode = false,
 }: {
   top?: number;
   widthPx: number;
   heightPx: number;
+  darkMode?: boolean;
 }) {
   const rOuter = 0;
   const inset = 8; // inner slab margin
   const slabH = Math.max(18, Math.round(heightPx * 0.6));
   const rInner = 4;
+  const frameColor = darkMode ? "#1f1f1f" : "#0b1220";
+  const bracketColor = darkMode ? "rgba(229,231,235,0.3)" : "#e5e7eb";
+  const gridColor = darkMode
+    ? "rgba(255,255,255,0.12)"
+    : "rgba(148,163,184,.28)";
+  const slabFill = darkMode
+    ? "repeating-linear-gradient(90deg, rgba(255,255,255,0.88) 0 7px, transparent 7px 15px)"
+    : "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)";
+  const slabEdge = darkMode
+    ? "linear-gradient(90deg, rgba(0,0,0,0.95) 0, rgba(0,0,0,0) 12%, rgba(0,0,0,0) 88%, rgba(0,0,0,0.95) 100%)"
+    : "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 12%, rgba(11,18,32,0) 88%, rgba(11,18,32,1) 100%)";
+  const tagColor = darkMode ? "#f5f5f5" : "#0f172a";
 
   return (
     <div
@@ -81,29 +96,29 @@ function CornerBarcodeHint({
       }}
     >
       {/* outer frame */}
-      <div
-        style={{
-          position: "relative",
-          width: widthPx,
-          height: heightPx,
-          borderRadius: rOuter,
-          background: "#0b1220",
-          overflow: "hidden",
-          boxShadow:
-            "inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px rgba(15,23,42,.15)",
-        }}
+        <div
+          style={{
+            position: "relative",
+            width: widthPx,
+            height: heightPx,
+            borderRadius: rOuter,
+            background: frameColor,
+            overflow: "hidden",
+            boxShadow:
+              "inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px rgba(15,23,42,.15)",
+          }}
       >
         {/* subtle vertical grid like the big box */}
         <div
           aria-hidden
-          style={{
-            position: "absolute",
-            inset: 0,
-            opacity: 0.22,
-            backgroundImage:
-              "repeating-linear-gradient(90deg, rgba(148,163,184,.28) 0 1px, transparent 1px 12px)",
-            backgroundSize: "120px 100%",
-          }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0.22,
+              backgroundImage:
+                `repeating-linear-gradient(90deg, ${gridColor} 0 1px, transparent 1px 12px)`,
+              backgroundSize: "120px 100%",
+            }}
         />
 
         {/* centered barcode slab */}
@@ -116,8 +131,7 @@ function CornerBarcodeHint({
             transform: "translateY(-50%)",
             height: slabH,
             borderRadius: rInner,
-            background:
-              "repeating-linear-gradient(90deg, rgba(255,255,255,.96) 0 7px, transparent 7px 15px)",
+            background: slabFill,
             boxShadow:
               "inset 0 1px 0 rgba(255,255,255,.25), inset 0 -1px 0 rgba(255,255,255,.18)",
           }}
@@ -133,8 +147,7 @@ function CornerBarcodeHint({
             transform: "translateY(-50%)",
             height: slabH,
             borderRadius: rInner,
-            background:
-              "linear-gradient(90deg, rgba(11,18,32,1) 0, rgba(11,18,32,0) 12%, rgba(11,18,32,0) 88%, rgba(11,18,32,1) 100%)",
+            background: slabEdge,
           }}
         />
         {/* corner brackets like big box */}
@@ -149,26 +162,26 @@ function CornerBarcodeHint({
               ...(pos === "tl" && {
                 left: 10,
                 top: 10,
-                borderLeft: "2px solid #e5e7eb",
-                borderTop: "2px solid #e5e7eb",
+                borderLeft: `2px solid ${bracketColor}`,
+                borderTop: `2px solid ${bracketColor}`,
               }),
               ...(pos === "tr" && {
                 right: 10,
                 top: 10,
-                borderRight: "2px solid #e5e7eb",
-                borderTop: "2px solid #e5e7eb",
+                borderRight: `2px solid ${bracketColor}`,
+                borderTop: `2px solid ${bracketColor}`,
               }),
               ...(pos === "bl" && {
                 left: 10,
                 bottom: 10,
-                borderLeft: "2px solid #e5e7eb",
-                borderBottom: "2px solid #e5e7eb",
+                borderLeft: `2px solid ${bracketColor}`,
+                borderBottom: `2px solid ${bracketColor}`,
               }),
               ...(pos === "br" && {
                 right: 10,
                 bottom: 10,
-                borderRight: "2px solid #e5e7eb",
-                borderBottom: "2px solid #e5e7eb",
+                borderRight: `2px solid ${bracketColor}`,
+                borderBottom: `2px solid ${bracketColor}`,
               }),
             }}
           />
@@ -184,7 +197,7 @@ function CornerBarcodeHint({
           letterSpacing: 2.5,
           fontWeight: 900,
           fontSize: 12,
-          color: "#0f172a",
+          color: tagColor,
           opacity: 0.8,
 
           padding: "3px 8px",
@@ -214,6 +227,17 @@ export default function TableSwap({
   flashKind,
   flashSeq,
 }: TableSwapProps) {
+  const { resolvedTheme } = useTheme();
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return document.documentElement.classList.contains("dark");
+  });
+
+  useEffect(() => {
+    if (!resolvedTheme) return;
+    setIsDark(resolvedTheme === "dark");
+  }, [resolvedTheme]);
+
   /* title from boardName/queues/map */
   const incomingTitle = useMemo(() => {
     const mapped = boardName && boardMap?.[boardName];

@@ -46,9 +46,9 @@ type TestState = "idle" | "calling" | "ok" | "error";
    Header chrome
    ──────────────────────────────────────────────────────────────────────────── */
 const StrictHeaderBg = [
-  "bg-[radial-gradient(170%_170%_at_0%_-42%,#f1f4ff_0%,#f8faff_56%,#ffffff_100%)]",
+  "bg-[radial-gradient(180%_180%_at_0%_-55%,#b3c2ff_0%,#d4ddff_54%,#f4f6ff_100%)]",
   "dark:bg-[radial-gradient(160%_160%_at_0%_-30%,#0b1220_0%,#0b1220_70%,#070d19_100%)]",
-  "border-b border-slate-200/70 dark:border-slate-800",
+  "border-b border-[#c0ccf5] dark:border-slate-800",
 ].join(" ");
 
 /* ────────────────────────────────────────────────────────────────────────────

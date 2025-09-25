@@ -462,8 +462,6 @@ const MainApplicationUI: React.FC = () => {
       }
     } catch {}
 
-    // local banner bookkeeping resets
-    noSetupShownForRef.current = null;
   }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
 
   const { finalizeOkForMac, clearKskLocksFully } = useFinalize({
@@ -781,31 +779,6 @@ const MainApplicationUI: React.FC = () => {
     },
     []
   );
-
-  // Avoid repeating the same info message per MAC.
-  const noSetupShownForRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    // Only consider after scan/check cycle settles
-    if (!macAddress) return;
-    if (isScanning || isChecking) return;
-
-    // If we have no setup for this MAC and nothing else is already being shown
-    const norm = canonicalMac(macAddress || "");
-    if (!hasSetupForCurrentMac() && scanResult == null) {
-      if (noSetupShownForRef.current !== norm) {
-        noSetupShownForRef.current = norm;
-        showInfo("No setup data available for this MAC");
-      }
-    }
-  }, [
-    macAddress,
-    isScanning,
-    isChecking,
-    hasSetupForCurrentMac,
-    scanResult,
-    showInfo,
-  ]);
 
   /* =================================================================================
    * Render

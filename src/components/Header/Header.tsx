@@ -899,15 +899,26 @@ function StatusBanner({
   mac: string | null;
   error: string | null;
 }) {
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const base =
-    "mx-6 mt-4 rounded-2xl backdrop-blur-xl ring-1 shadow-[0_10px_30px_rgba(2,6,23,.06)] px-5 py-4 text-center";
+    "mx-6 mt-4 rounded-2xl backdrop-blur-xl ring-1 shadow-[0_14px_44px_rgba(2,6,23,.08)] px-5 py-4 text-center transition-colors";
+  const sharedStyle: React.CSSProperties = isDark
+    ? { background: "rgba(17,17,17,0.85)", color: "#f8fafc" }
+    : { background: "rgba(255,255,255,0.92)", color: "#0f172a" };
   if (status === "success") {
     return (
-      <div className={`${base} bg-white/80 ring-emerald-200`}>
-        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-emerald-600">
+      <div
+        className={`${base} ring-emerald-200/70`}
+        style={{
+          ...sharedStyle,
+          background: isDark ? "rgba(34,197,94,0.24)" : "rgba(209,250,229,0.94)",
+        }}
+      >
+        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-emerald-500 dark:text-emerald-200">
           Connected
         </div>
-        <div className="mt-1 text-2xl md:text-[28px] font-semibold text-slate-800">
+        <div className="mt-1 text-2xl md:text-[28px] font-semibold text-slate-800 dark:text-emerald-50">
           {mac}
         </div>
       </div>
@@ -915,29 +926,42 @@ function StatusBanner({
   }
   if (status === "error") {
     return (
-      <div className={`${base} bg-white/80 ring-red-200`}>
-        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-red-600">
+      <div
+        className={`${base} ring-red-300/70`}
+        style={{
+          ...sharedStyle,
+          background: isDark ? "rgba(239,68,68,0.26)" : "rgba(254,226,226,0.94)",
+        }}
+      >
+        <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-red-600 dark:text-rose-200">
           Error
         </div>
-        <div className="mt-1 text-[17px] text-red-700">
+        <div className="mt-1 text-[17px] text-red-700 dark:text-rose-100">
           {error || "Discovery failed."}
         </div>
       </div>
     );
   }
   return (
-    <div className={`${base} bg-white/80 ring-slate-200`}>
+    <div className={`${base} ring-slate-200/60`} style={sharedStyle}>
       <div className="grid gap-2 place-items-center">
-        <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-extrabold text-slate-800">
+        <div className="mx-auto inline-flex items-center gap-2 text-[20px] md:text-[24px] font-extrabold text-slate-800 dark:text-slate-100">
           <span className="h-2.5 w-2.5 rounded-full bg-sky-500 animate-pulse" />
           <span>Waiting for ESP</span>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 px-3 py-1 text-[12px] font-semibold text-slate-600 ring-1 ring-slate-200">
+        <div
+          className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold ring-1"
+          style={{
+            background: isDark ? "rgba(30,41,59,0.45)" : "rgba(241,245,249,0.96)",
+            borderColor: isDark ? "rgba(148,163,184,0.35)" : "#cbd5f5",
+            color: isDark ? "#e2e8f0" : "#475569",
+          }}
+        >
           <span className="inline-block h-2 w-2 rounded-full bg-indigo-500" />
           <span>Press the BUTTON on the ESP to connect</span>
         </div>
         {mac && (
-          <div className="text-xs font-bold text-slate-500">
+          <div className="text-xs font-bold text-slate-500 dark:text-slate-300">
             Last MAC: {mac}
           </div>
         )}
@@ -975,6 +999,8 @@ function DiscoverEspModal({
     damping: 42,
     mass: 0.9,
   };
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const showSuccess = status === "success" && testStatus === "ok";
   const stripText =
     status === "searching"
@@ -1018,23 +1044,43 @@ function DiscoverEspModal({
             transition={SHEET}
             className="fixed inset-0 z-[100] flex items-center justify-center p-3"
           >
-            <div className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5">
-              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-                <h3 className="text-[18px] font-semibold text-slate-900">
+            <div
+              className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl shadow-2xl ring-1"
+              style={{
+                background: isDark ? "rgba(17,17,17,0.96)" : "#ffffff",
+                borderColor: isDark ? "rgba(148,163,184,0.25)" : "rgba(15,23,42,0.06)",
+              }}
+            >
+              <div
+                className="flex items-center justify-between px-6 py-4 border-b"
+                style={{
+                  borderColor: isDark ? "rgba(148,163,184,0.25)" : "#e2e8f0",
+                }}
+              >
+                <h3 className="text-[18px] font-semibold text-slate-900 dark:text-slate-100">
                   Discover ESP
                 </h3>
                 <div className="flex items-center gap-3">
                   {status !== "searching" && (
                     <button
                       onClick={onRetry}
-                      className="rounded-full bg-indigo-600 px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700 active:scale-[0.99]"
+                      className="rounded-full px-6 py-2.5 text-[14px] font-semibold text-white ring-1 ring-indigo-700/30 hover:bg-indigo-700/90 active:scale-[0.99]"
+                      style={{
+                        background: "linear-gradient(135deg,#4f46e5,#4338ca)",
+                        boxShadow: "0 12px 30px -18px rgba(79,70,229,0.55)",
+                      }}
                     >
                       Retry
                     </button>
                   )}
                   <button
                     onClick={onClose}
-                    className="rounded-full bg-white px-5 py-2.5 text-[14px] font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 active:scale-95"
+                    className="rounded-full px-5 py-2.5 text-[14px] font-semibold ring-1 hover:bg-slate-50/70 active:scale-95"
+                    style={{
+                      background: isDark ? "rgba(30,41,59,0.42)" : "#f8fafc",
+                      color: isDark ? "#e2e8f0" : "#1f2937",
+                      borderColor: isDark ? "rgba(148,163,184,0.3)" : "#e2e8f0",
+                    }}
                   >
                     Close
                   </button>
@@ -1044,7 +1090,13 @@ function DiscoverEspModal({
               <StatusBanner status={status} mac={mac} error={error} />
 
               <div className="px-6 pb-6">
-                <div className="relative mt-4 overflow-hidden rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200">
+                <div
+                  className="relative mt-4 overflow-hidden rounded-3xl p-4 ring-1"
+                  style={{
+                    background: isDark ? "rgba(15,23,42,0.45)" : "#f1f5f9",
+                    borderColor: isDark ? "rgba(148,163,184,0.25)" : "#e2e8f0",
+                  }}
+                >
                   <SimpleLinkAnimation
                     searching={status === "searching"}
                     success={status === "success"}
@@ -1074,7 +1126,7 @@ function DiscoverEspModal({
                           PIN TEST
                         </button>
                       </div>
-                      <div className="flex items-center gap-6 text-[12px] font-semibold text-slate-600">
+                      <div className="flex items-center gap-6 text-[12px] font-semibold text-slate-600 dark:text-slate-200">
                         <span className="inline-flex items-center gap-1">
                           <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
                           TEST: Send handshake + test
@@ -1088,10 +1140,10 @@ function DiscoverEspModal({
                         <div
                           className={`rounded-full px-4 py-1.5 text-sm font-semibold ring-1 ${
                             testStatus === "ok"
-                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                              ? "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-200 dark:ring-emerald-400/40"
                               : testStatus === "error"
-                                ? "bg-red-50 text-red-700 ring-red-200"
-                                : "bg-white text-slate-600 ring-slate-200"
+                                ? "bg-red-50 text-red-700 ring-red-200 dark:bg-red-500/15 dark:text-rose-200 dark:ring-red-400/40"
+                                : "bg-white text-slate-600 ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-600/50"
                           }`}
                         >
                           {testMsg}

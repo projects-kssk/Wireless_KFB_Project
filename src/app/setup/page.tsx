@@ -2052,6 +2052,52 @@ export default function SetupPage() {
   const inputBg = isDark ? "#2b2b2b" : "#ffffff";
   const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "#cbd5e1";
 
+  const badgePalette = (ok: boolean): {
+    container: React.CSSProperties;
+    value: string;
+  } =>
+    ok
+      ? isDark
+        ? {
+            container: {
+              border: "1px solid rgba(34,197,94,0.45)",
+              background:
+                "linear-gradient(135deg, rgba(34,197,94,0.32), rgba(14,165,233,0.16))",
+              color: "#ecfdf5",
+              boxShadow: "0 20px 36px -28px rgba(16,185,129,0.6)",
+            },
+            value: "#bbf7d0",
+          }
+        : {
+            container: {
+              border: "1px solid #6ee7b7",
+              background: "#ecfdf5",
+              color: "#047857",
+              boxShadow: "0 14px 32px -24px rgba(16,185,129,0.45)",
+            },
+            value: "#047857",
+          }
+      : isDark
+        ? {
+            container: {
+              border: "1px solid rgba(248,113,113,0.55)",
+              background:
+                "linear-gradient(135deg, rgba(239,68,68,0.32), rgba(148,71,255,0.14))",
+              color: "#fee2e2",
+              boxShadow: "0 20px 36px -28px rgba(239,68,68,0.55)",
+            },
+            value: "#fecdd3",
+          }
+        : {
+            container: {
+              border: "1px solid #fca5a5",
+              background: "#fef2f2",
+              color: "#7f1d1d",
+              boxShadow: "0 14px 32px -24px rgba(239,68,68,0.30)",
+            },
+            value: "#b91c1c",
+          };
+
   const page: CSSProperties = {
     minHeight: "100vh",
     display: "grid",
@@ -2298,39 +2344,17 @@ export default function SetupPage() {
                   (() => {
                     const present = !!desiredState?.present;
                     const badgeBase =
-                      "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-colors"
-                        + " shadow-sm";
-                    const badgeStyle: React.CSSProperties = present
-                      ? {
-                          border: "1px solid #6ee7b7",
-                          background: "rgba(16,185,129,0.18)",
-                          color: "#064e3b",
-                        }
-                      : {
-                          border: "1px solid #fca5a5",
-                          background: "rgba(239,68,68,0.18)",
-                          color: "#7f1d1d",
-                        };
-                    if (!present) {
-                      badgeStyle.background = "rgba(239,68,68,0.14)";
-                    }
+                      "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-all shadow-sm";
+
+                    const paletteScanner = badgePalette(present);
                     return (
                       <span
                         className={badgeBase}
-                        style={{
-                          ...badgeStyle,
-                          boxShadow: present
-                            ? "0 10px 24px -18px rgba(16,185,129,0.6)"
-                            : "0 10px 24px -18px rgba(239,68,68,0.55)",
-                        }}
+                        style={paletteScanner.container}
                         title={desiredPath || undefined}
                       >
                         Scanner: {desiredTail}
-                        <span
-                          className={
-                            present ? "text-emerald-700" : "text-red-700"
-                          }
-                        >
+                        <span style={{ color: paletteScanner.value }}>
                           {present ? "detected" : "not detected"}
                         </span>
                       </span>
@@ -2339,33 +2363,16 @@ export default function SetupPage() {
                 {(() => {
                   const ready = !!serial.redisReady;
                   const badgeBase =
-                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-colors shadow-sm";
-                  const badgeStyle: React.CSSProperties = ready
-                    ? {
-                        border: "1px solid #6ee7b7",
-                        background: "rgba(16,185,129,0.18)",
-                        color: "#064e3b",
-                      }
-                    : {
-                        border: "1px solid #fca5a5",
-                        background: "rgba(239,68,68,0.18)",
-                        color: "#7f1d1d",
-                      };
+                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-all shadow-sm";
+                  const paletteRedis = badgePalette(ready);
                   return (
                     <span
                       className={badgeBase}
-                      style={{
-                        ...badgeStyle,
-                        boxShadow: ready
-                          ? "0 10px 24px -18px rgba(16,185,129,0.6)"
-                          : "0 10px 24px -18px rgba(239,68,68,0.55)",
-                      }}
+                      style={paletteRedis.container}
                       title={ready ? "Redis connected" : "Redis offline"}
                     >
                       Redis:
-                      <span
-                        className={ready ? "text-emerald-700" : "text-red-700"}
-                      >
+                      <span style={{ color: paletteRedis.value }}>
                         {ready ? "connected" : "offline"}
                       </span>
                     </span>

@@ -24,7 +24,7 @@ import useTimers from "./hooks/useTimers";
 import useHud, { ScanResultState } from "./hooks/useHud";
 import useSerialLive from "./hooks/useSerialLive";
 import useFinalize from "./hooks/useFinalize";
-import useScanFlow, { ScanTrigger } from "./hooks/useScanFlow";
+import useScanFlow, { ScanTrigger, NO_SETUP_MSG } from "./hooks/useScanFlow";
 import { canonicalMac, macKey, MAC_ONLY_REGEX } from "./utils/mac";
 import {
   isAcmPath,
@@ -892,7 +892,7 @@ const MainApplicationUI: React.FC = () => {
   /** Compute the animated banner to display (idle + info only). */
   const banner: BannerState | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
-    if (scanResult?.kind === "info") {
+    if (scanResult?.kind === "info" && scanResult.text !== NO_SETUP_MSG) {
       return {
         key: `info-${scanResult.text}`,
         kind: "info",
@@ -1040,9 +1040,6 @@ const MainApplicationUI: React.FC = () => {
           style={{
             background: mainSurfaceBg,
             borderTop: `1px solid ${mainSurfaceBorder}`,
-            boxShadow: isDarkMode
-              ? "0 18px 40px -30px rgba(0,0,0,0.45)"
-              : "0 18px 40px -35px rgba(15,23,42,0.08)",
           }}
         >
           {/* Animated banner overlay for idle + transient info */}

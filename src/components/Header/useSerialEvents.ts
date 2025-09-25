@@ -320,25 +320,20 @@ export function useSerialEvents(
           const status = statusFull.split("(")[0] ?? statusFull;
           const event = eventFull.split("(")[0] ?? eventFull;
 
+          const hardOffline =
+            !readyFlag &&
+            (["close", "end", "disconnect"].includes(status) ||
+              ["close", "end", "disconnect"].includes(event));
+
           let nextReady = redisOkRef.current;
           if (readyFlag || status === "ready" || status === "connect") {
             nextReady = true;
-          } else if (
-            ["close", "end", "disconnect"].includes(status) ||
-            ["close", "end", "disconnect"].includes(event)
-          ) {
+          } else if (hardOffline) {
             nextReady = false;
-          } else if (
-            status === "error" ||
-            event === "error" ||
-            status === "wait" ||
-            status === "connecting" ||
-            status === "reconnecting" ||
-            event.startsWith("reconnecting")
-          ) {
-            nextReady = redisOkRef.current;
+          } else if (redisOkRef.current) {
+            nextReady = true;
           } else {
-            nextReady = readyFlag;
+            nextReady = false;
           }
 
           redisOkRef.current = nextReady;

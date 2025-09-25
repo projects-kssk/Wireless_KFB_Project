@@ -45,28 +45,44 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 ## MainApplicationUI Scan Scenarios
 
 ```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 140}, 'themeVariables': {'fontSize': '18px'}}}%%
 flowchart LR
     A[IDLE: Scan Prompt] -->|Scan or Run Check| B{Setup data present?}
-    B -- No --> B1[No setup data for this MAC<br/>Clear scanned code<br/>Allow immediate retry] --> A
+    B -- No --> B1[Show "No setup data" banner\nClear scanned code\nReady for immediate retry] --> A
 
-    B -- Yes --> C{Any failures or unknown pins?}
-    C -- Yes --> D[Enter LIVE MODE]
-    D --> D1[Live monitoring: status pill and branch cards]
-    D1 --> D2{All pins recovered?}
-    D2 -- No --> D1
-    D2 -- Yes --> E[Finalize live suppressed]
-    E --> E1[Send checkpoints for active KSKs]
-    E1 --> E2[Clear Redis alias cache]
-    E2 --> E3[Clear KSK locks]
-    E3 --> E4[Flash OK SVG]
-    E4 --> E5[Reset UI to IDLE]
-    E5 --> A
+    B -- Yes --> C{Failures or unknown pins?}
+
+    C -- Yes --> LM0
+    subgraph Live_Mode [LIVE MODE]
+        direction TB
+        LM0[Enter live view]
+        LM1[Render status pill]
+        LM2[Display branch cards]
+        LM3[Highlight pending failures]
+        LM4[Stream serial edges]
+        LM0 --> LM1 --> LM2 --> LM3 --> LM4
+        LM4 -->|Pins still failing| LM2
+    end
+    LM4 -->|All pins recovered| F0
+
+    C -- No --> F0
+
+    subgraph Finalize_Cleanup [FINALIZE & CLEANUP]
+        direction LR
+        F0[Begin finalize sequence] --> F1[Send checkpoints for active KSKs]
+        F1 --> F2[Clear Redis alias cache]
+        F2 --> F3[Clear KSK locks]
+        F3 --> F4[Flash OK SVG]
+        F4 --> F5[Reset UI to IDLE]
+    end
+    F5 --> A
 
     %% Error path
-    A -.->|Errors 429 504 Pending during scan| F[Auto-Retry Loop]
-    F -->|Retry success| H[Re-run check with updated attempts]
-    H --> C
-    F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Show retry prompt] --> A
+    A -.->|Errors 429 504 Pending during scan| R0[Auto-retry loop]
+    R0 -->|Retry success| R1[Re-run check]
+    R1 --> C
+    R0 -->|Retries exhausted| R2[Reset KFB context\nClear branch data\nShow retry prompt]
+    R2 --> A
 ```
 
 1. INPUT: Scan or run check for a MAC/KFB without any setup aliases/pins -> OUTPUT: UI shows `No setup data available for this MAC`, clears the scanned code, and returns to IDLE so the operator can retry immediately.

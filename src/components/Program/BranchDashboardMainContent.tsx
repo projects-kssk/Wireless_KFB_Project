@@ -10,6 +10,7 @@ import React, {
 import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { maskSimMac } from "@/lib/macDisplay";
 import { m, AnimatePresence } from "framer-motion";
+import { useTheme } from "next-themes";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
@@ -96,22 +97,22 @@ const getStatusInfo = (status: BranchDisplayData["testStatus"]) => {
       return {
         Icon: CheckCircleIcon,
         text: "OK",
-        color: "text-emerald-600",
-        bgColor: "bg-emerald-500/10",
+        badgeClass:
+          "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300 dark:bg-emerald-500/15",
       };
     case "nok":
       return {
         Icon: XCircleIcon,
         text: "NOK",
-        color: "text-red-600",
-        bgColor: "bg-red-500/10",
+        badgeClass:
+          "text-red-600 bg-red-500/10 dark:text-red-300 dark:bg-red-500/20",
       };
     default:
       return {
         Icon: HelpCircleIcon,
         text: "Not Tested",
-        color: "text-slate-600",
-        bgColor: "bg-slate-500/10",
+        badgeClass:
+          "text-slate-600 bg-slate-500/10 dark:text-slate-200 dark:bg-slate-500/15",
       };
   }
 };
@@ -119,7 +120,13 @@ const getStatusInfo = (status: BranchDisplayData["testStatus"]) => {
 /* =================================================================================
  * Branch Card
  * ================================================================================= */
-const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
+const BranchCardBase = ({
+  branch,
+  isDark,
+}: {
+  branch: BranchDisplayData;
+  isDark: boolean;
+}) => {
   const statusInfo = useMemo(
     () => getStatusInfo(branch.testStatus),
     [branch.testStatus]
@@ -128,29 +135,56 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
   const isBig =
     branch.testStatus === "nok" || branch.testStatus === "not_tested";
 
+  const cardStyle: React.CSSProperties = {
+    background: isDark ? "#2f2f2f" : "rgba(255,255,255,0.98)",
+    border: `1px solid ${isDark ? "#3a3a3a" : "#e2e8f0"}`,
+    boxShadow: isDark
+      ? "0 26px 55px -28px rgba(0,0,0,0.65)"
+      : "0 22px 45px -26px rgba(15,23,42,0.16)",
+    color: isDark ? "#f1f5f9" : undefined,
+  };
+
   return (
-    <div className="group relative w-full rounded-2xl bg-white backdrop-blur-sm shadow-lg hover:shadow-xl border-2 border-transparent transition-all duration-300 flex flex-col overflow-hidden">
+    <div
+      className="group relative w-full rounded-2xl backdrop-blur-sm transition-all duration-300 flex flex-col overflow-hidden"
+      style={cardStyle}
+    >
       {isNok && <div className="h-[8px] w-full bg-red-600 flex-shrink-0" />}
       <div className="p-3 flex-grow flex flex-col justify-between">
         <div className="flex justify-between items-center mb-3">
           <div
-            className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.bgColor} ${statusInfo.color} ${isBig ? "px-2.5 py-1.5 text-xl" : "px-2 py-1 text-sm"}`}
+            className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.badgeClass} ${isBig ? "px-2.5 py-1.5 text-xl" : "px-2 py-1 text-sm"}`}
+            style={{
+              boxShadow: isDark
+                ? "0 12px 22px -18px rgba(16,185,129,0.85)"
+                : undefined,
+            }}
           >
             <statusInfo.Icon className={isBig ? "w-7 h-7" : "w-5 h-5"} />
             <span>{statusInfo.text}</span>
           </div>
           {branch.pinNumber != null && (
             <div className="flex items-center gap-2 text-right">
-              <span className="text-sm md:text-base font-semibold text-slate-400">
+              <span className="text-sm md:text-base font-semibold text-slate-400 dark:text-slate-300">
                 PIN
               </span>
-              <span className="bg-slate-100 text-slate-800 font-mono rounded-full w-14 h-14 flex items-center justify-center text-3xl font-bold">
+              <span
+                className="font-mono rounded-full w-14 h-14 flex items-center justify-center text-3xl font-bold border"
+                style={{
+                  background: isDark ? "#3d3d3d" : "#f1f5f9",
+                  color: isDark ? "#f8fafc" : "#111827",
+                  borderColor: isDark ? "#4b4b4b" : "#cbd5e1",
+                  boxShadow: isDark
+                    ? "0 12px 30px -20px rgba(0,0,0,0.6)"
+                    : "inset 0 1px 0 rgba(255,255,255,0.8)",
+                }}
+              >
                 {branch.pinNumber}
               </span>
             </div>
           )}
         </div>
-        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 mt-3 text-center whitespace-normal break-words leading-tight">
+        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 dark:text-slate-100 mt-3 text-center whitespace-normal break-words leading-tight">
           {branch.branchName}
         </h3>
       </div>
@@ -158,16 +192,23 @@ const BranchCardBase = ({ branch }: { branch: BranchDisplayData }) => {
   );
 };
 
-const BranchCard = React.memo(BranchCardBase, (prev, next) => {
-  const a = prev.branch;
-  const b = next.branch;
+const BranchCard = React.memo(
+  BranchCardBase,
+  (
+    prev: { branch: BranchDisplayData; isDark: boolean },
+    next: { branch: BranchDisplayData; isDark: boolean }
+  ) => {
+    const a = prev.branch;
+    const b = next.branch;
   return (
     a.id === b.id &&
     a.testStatus === b.testStatus &&
     a.branchName === b.branchName &&
-    a.pinNumber === b.pinNumber
+    a.pinNumber === b.pinNumber &&
+    prev.isDark === next.isDark
   );
-});
+  }
+);
 
 /* =================================================================================
  * Props
@@ -251,6 +292,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   okSystemNote,
   scanResult,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
+  const surfaceBg = isDarkMode ? "#2f2f2f" : "#ffffff";
+  const surfaceBorder = isDarkMode ? "rgba(255,255,255,0.08)" : "#e2e8f0";
+  const primaryText = isDarkMode ? "#f5f5f5" : "#0f172a";
+  const mutedText = isDarkMode ? "#d1d5db" : "#64748b";
+
   const isChecking = Boolean(isCheckingProp);
 
   /* ---------------------------------- Basics --------------------------------- */
@@ -730,6 +778,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   /* --------------------------- Finalize / OK flash --------------------------- */
   const lastClearedMacRef = useRef<string | null>(null);
+  const currentFailureCount = Array.isArray(checkFailures)
+    ? checkFailures.length
+    : 0;
+  useEffect(() => {
+    if (currentFailureCount > 0) {
+      lastClearedMacRef.current = null;
+    }
+  }, [currentFailureCount]);
   useEffect(() => {
     const mac = (macAddress || "").toUpperCase();
     if (!settled || !allOk || !mac) return;
@@ -913,7 +969,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (isChecking) {
       return (
         <m.span
-          className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 text-amber-700 px-3 py-1 text-xs font-bold"
+          className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 text-amber-700 px-3 py-1 text-xs font-bold dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200"
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
@@ -931,7 +987,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (isScanning) {
       return (
         <m.span
-          className="inline-flex items-center gap-2 rounded-full border border-blue-300 bg-blue-50 text-blue-700 px-3 py-1 text-xs font-bold"
+          className="inline-flex items-center gap-2 rounded-full border border-blue-300 bg-blue-50 text-blue-700 px-3 py-1 text-xs font-bold dark:border-sky-400/40 dark:bg-sky-500/15 dark:text-sky-200"
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
@@ -966,8 +1022,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
     const tone =
       scanResult && scanResult.kind === "error" && !nothingToCheck
-        ? "text-red-600"
-        : "text-slate-700";
+        ? "text-red-600 dark:text-red-300"
+        : "text-slate-700 dark:text-slate-100";
 
     return (
       <div
@@ -988,12 +1044,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               className={[
                 "rounded-xl border shadow-sm backdrop-blur-md px-4 py-3 text-center",
                 hudMode === "error"
-                  ? "border-red-200 bg-red-50/90 text-red-900"
+                  ? "border-red-200 bg-red-50/90 text-red-900 dark:border-red-600/50 dark:bg-red-600/15 dark:text-red-200"
                   : hudMode === "scanning"
-                    ? "border-blue-200 bg-blue-50/90 text-blue-900"
+                    ? "border-blue-200 bg-blue-50/90 text-blue-900 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200"
                     : hudMode === "info"
-                      ? "border-blue-200 bg-blue-50/90 text-blue-900"
-                      : "border-slate-200 bg-white/90 text-slate-900",
+                      ? "border-blue-200 bg-blue-50/90 text-blue-900 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200"
+                      : "border-slate-200 bg-white/90 text-slate-900 dark:border-[#3a3a3a] dark:bg-[#2a2a2a]/90 dark:text-slate-100",
               ].join(" ")}
             >
               <div className="font-semibold leading-6 truncate">
@@ -1005,7 +1061,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 </div>
               )}
               {hudMode === "scanning" && (
-                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100 dark:bg-sky-500/20">
                   <div className="hud-shimmer h-full w-1/2" />
                 </div>
               )}
@@ -1044,7 +1100,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       aria-busy="true"
       aria-live="polite"
     >
-      <h2 className="text-7xl text-slate-600 font-bold uppercase tracking-wider animate-pulse">
+      <h2 className="text-7xl text-slate-600 dark:text-slate-200 font-bold uppercase tracking-wider animate-pulse">
         {isChecking ? "CHECKING" : "SCANNING"}...
       </h2>
     </div>
@@ -1077,8 +1133,20 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const emptyFailureList = (pins: number[], keyPrefix = "flat") => (
     <div className="flex flex-col items-center justify-center h-full min-h-[520px] px-4">
-      <div className="w-full max-w-5xl rounded-3xl border border-red-200 bg-white/95 shadow-2xl p-6">
-        <div className="text-[12px] font-bold uppercase text-slate-600 mb-3">
+      <div
+        className="w-full max-w-5xl rounded-3xl shadow-2xl p-6"
+        style={{
+          background: isDarkMode ? "#2b1f1f" : "rgba(255,255,255,0.96)",
+          border: `1px solid ${isDarkMode ? "#7f1d1d" : "#fecaca"}`,
+          boxShadow: isDarkMode
+            ? "0 36px 70px -35px rgba(0,0,0,0.65)"
+            : "0 26px 50px -30px rgba(239,68,68,0.25)",
+        }}
+      >
+        <div
+          className="text-[12px] font-bold uppercase mb-3"
+          style={{ color: mutedText }}
+        >
           Missing items
         </div>
         <div className="flex flex-wrap gap-3">
@@ -1088,20 +1156,39 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             return (
               <div
                 key={`${keyPrefix}-miss-${pin}`}
-                className="group inline-flex items-center flex-wrap gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 shadow-sm"
+                className="group inline-flex items-center flex-wrap gap-3 rounded-xl px-4 py-3 shadow-sm"
                 title={`PIN ${pin}${latch ? " (Contactless)" : ""}`}
+                style={{
+                  background: isDarkMode ? "#2a1f1f" : "#ffffff",
+                  border: `1px solid ${isDarkMode ? "#5f1f1f" : "#fecaca"}`,
+                  color: isDarkMode ? "#fee2e2" : undefined,
+                }}
               >
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
                   !
                 </span>
-                <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
+                <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-slate-100 tracking-tight">
                   {name}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
+                <span
+                  className="inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-semibold"
+                  style={{
+                    background: isDarkMode ? "#3c3c3c" : "#f1f5f9",
+                    color: isDarkMode ? "#e2e8f0" : "#1f2937",
+                    border: `1px solid ${isDarkMode ? "#4a4a4a" : "#cbd5e1"}`,
+                  }}
+                >
                   PIN {pin}
                 </span>
                 {latch && (
-                  <span className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]">
+                  <span
+                    className="inline-flex items-center rounded-full px-2 py-[3px] text-[11px]"
+                    style={{
+                      background: isDarkMode ? "rgba(253,230,138,0.16)" : "#fef3c7",
+                      color: isDarkMode ? "#fcd34d" : "#92400e",
+                      border: `1px solid ${isDarkMode ? "rgba(253,230,138,0.35)" : "#fcd34d"}`,
+                    }}
+                  >
                     Contactless
                   </span>
                 )}
@@ -1172,12 +1259,30 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return (
         <section
           key={(grp as any).ksk}
-          className="rounded-2xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow"
+          className="rounded-2xl transition-shadow"
+          style={{
+            background: surfaceBg,
+            border: `1px solid ${surfaceBorder}`,
+            boxShadow: isDarkMode
+              ? "0 26px 55px -32px rgba(0,0,0,0.6)"
+              : "0 20px 45px -28px rgba(15,23,42,0.16)",
+          }}
         >
-          <header className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
+          <header
+            className="px-4 py-3"
+            style={{
+              borderBottom: `1px solid ${surfaceBorder}`,
+              background: isDarkMode
+                ? "linear-gradient(90deg,#242424 0%,#1f1f1f 100%)"
+                : "linear-gradient(90deg,#f7f9fc 0%,#ffffff 100%)",
+            }}
+          >
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
-                <div className="text-2xl md:text-3xl font-black text-slate-800 leading-tight">
+                <div
+                  className="text-2xl md:text-3xl font-black leading-tight"
+                  style={{ color: primaryText }}
+                >
                   KSK: {(grp as any).ksk}
                 </div>
                 {failedItems.length > 0 ? (
@@ -1195,14 +1300,22 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           <div className="p-4 grid gap-4">
             {failedItems.length > 0 && (
               <div>
-                <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">
+                <div
+                  className="text-[12px] font-bold uppercase mb-2"
+                  style={{ color: mutedText }}
+                >
                   Missing items
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {failedItems.map((f) => (
                     <div
                       key={`f-${(grp as any).ksk}-${f.pin}`}
-                      className="group relative inline-flex items-center flex-wrap gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 shadow-sm"
+                      className="group relative inline-flex items-center flex-wrap gap-3 rounded-xl px-4 py-3 shadow-sm"
+                      style={{
+                        background: isDarkMode ? "#2a1f1f" : "#ffffff",
+                        border: `1px solid ${isDarkMode ? "#5f1f1f" : "#fecaca"}`,
+                        color: isDarkMode ? "#fee2e2" : undefined,
+                      }}
                       title={`PIN ${f.pin}${f.isLatch ? " (Contactless)" : ""}`}
                     >
                       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
@@ -1211,12 +1324,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
                         {f.name}
                       </span>
-                      <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-700 border border-slate-300 px-2.5 py-1 text-[12px] font-semibold">
+                      <span
+                        className="inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-semibold"
+                        style={{
+                          background: isDarkMode ? "#3c3c3c" : "#f1f5f9",
+                          color: isDarkMode ? "#e2e8f0" : "#1f2937",
+                          border: `1px solid ${isDarkMode ? "#4a4a4a" : "#cbd5e1"}`,
+                        }}
+                      >
                         PIN {f.pin}
                       </span>
                       {f.isLatch && (
                         <span
-                          className="inline-flex items-center rounded-full bg-amber-50 text-amber-800 border border-amber-200 px-2 py-[3px] text-[11px]"
+                          className="inline-flex items-center rounded-full px-2 py-[3px] text-[11px]"
+                          style={{
+                            background: isDarkMode ? "rgba(253,230,138,0.16)" : "#fef3c7",
+                            color: isDarkMode ? "#fcd34d" : "#92400e",
+                            border: `1px solid ${isDarkMode ? "rgba(253,230,138,0.35)" : "#fcd34d"}`,
+                          }}
                           title="Contactless pin"
                         >
                           Contactless
@@ -1229,20 +1354,28 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             )}
             {okNames.length > 0 && (
               <div>
-                <div className="text-[12px] font-bold uppercase text-slate-600 mb-2">
+                <div
+                  className="text-[12px] font-bold uppercase mb-2"
+                  style={{ color: mutedText }}
+                >
                   Passed
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {okNames.slice(0, 24).map((nm, i) => (
                     <span
                       key={`ok-${(grp as any).ksk}-${i}`}
-                      className="inline-flex items-center rounded-full bg-slate-50 text-slate-500 border border-slate-200 px-2 py-[5px] text-[12px] font-semibold"
+                      className="inline-flex items-center rounded-full px-2 py-[5px] text-[12px] font-semibold"
+                      style={{
+                        background: isDarkMode ? "rgba(148,163,184,0.12)" : "#f8fafc",
+                        color: isDarkMode ? "#cbd5f5" : "#475569",
+                        border: `1px solid ${isDarkMode ? "rgba(148,163,184,0.25)" : "#e2e8f0"}`,
+                      }}
                     >
                       {nm}
                     </span>
                   ))}
                   {okNames.length > 24 && (
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-300">
                       +{okNames.length - 24} more
                     </span>
                   )}
@@ -1268,7 +1401,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
         {pending.map((branch) => (
-          <BranchCard key={branch.id} branch={branch} />
+          <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
         ))}
       </div>
     </div>
@@ -1322,7 +1455,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           <div className="flex flex-col items-center gap-2">
             {macAddress || kfbInfo?.board || kfbNumber ? (
               <div className="flex items-center gap-3">
-                <h1 className="font-mono text-6xl md:text-7xl font-extrabold uppercase tracking-wider text-slate-700 whitespace-normal break-words leading-tight max-w-full text-center">
+                <h1 className="font-mono text-6xl md:text-7xl font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-100 whitespace-normal break-words leading-tight max-w-full text-center">
                   {displayMacUpper
                     ? displayMacUpper
                     : (kfbInfo?.board ?? displayKfbNumber)}
@@ -1331,33 +1464,45 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             ) : (
               <div />
             )}
-            {macAddress && localBranches.length > 0 && (
+            {macAddress &&
+            localBranches.length > 0 &&
+            !(Array.isArray(groupedBranches) && groupedBranches.length > 0) &&
+            activeKssks &&
+            activeKssks.length > 0 ? (
               <div className="flex items-center justify-center gap-4 w-full">
-                {!(
-                  Array.isArray(groupedBranches) && groupedBranches.length > 0
-                ) && (
-                  <div className="flex flex-col items-center leading-tight mt-2 pt-2 border-t border-slate-200/70 w-full max-w-4xl">
-                    <div className="text-sm md:text-base uppercase tracking-wide text-slate-600 text-center w-full">
-                      Active KSKs
-                    </div>
-                    <div className="flex flex-wrap gap-2 mt-1 justify-center">
-                      {activeKssks && activeKssks.length > 0 ? (
-                        activeKssks.map((id) => (
-                          <span
-                            key={id}
-                            className="inline-flex items-center rounded-lg border border-slate-400 bg-white text-slate-800 px-4 py-2 text-lg md:text-xl font-extrabold shadow"
-                          >
-                            {id}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-slate-400 text-xs">—</span>
-                      )}
-                    </div>
+                <div
+                  className="flex flex-col items-center leading-tight mt-2 pt-2 w-full max-w-4xl"
+                  style={{
+                    borderTop: `1px solid ${surfaceBorder}`,
+                  }}
+                >
+                  <div
+                    className="text-sm md:text-base uppercase tracking-wide text-center w-full"
+                    style={{ color: mutedText }}
+                  >
+                    Active KSKs
                   </div>
-                )}
+                  <div className="flex flex-wrap gap-2 mt-1 justify-center">
+                    {activeKssks.map((id) => (
+                      <span
+                        key={id}
+                        className="inline-flex items-center rounded-lg px-4 py-2 text-lg md:text-xl font-extrabold shadow"
+                        style={{
+                          background: isDarkMode ? "#2a2a2a" : "#ffffff",
+                          color: isDarkMode ? "#f1f5f9" : "#1f2937",
+                          border: `1px solid ${isDarkMode ? "#3f3f3f" : "#cbd5f5"}`,
+                          boxShadow: isDarkMode
+                            ? "0 12px 30px -22px rgba(0,0,0,0.6)"
+                            : "0 4px 12px rgba(15,23,42,0.08)",
+                        }}
+                      >
+                        {id}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
-            )}
+            ) : null}
           </div>
         ) : null}
       </header>

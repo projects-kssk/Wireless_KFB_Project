@@ -1,15 +1,13 @@
-import {
-  MutableRefObject,
-  Dispatch,
-  SetStateAction,
-  useCallback,
-  startTransition,
-} from "react";
+// useScanFlow.ts
+import { Dispatch, SetStateAction, useCallback, startTransition } from "react";
 import { BranchDisplayData, TestStatus, KfbInfo } from "@/types/types";
 import { canonicalMac, extractMac } from "../utils/mac";
 import { KFB_REGEX } from "../utils/regex";
 import { mergeAliasesFromItems } from "../utils/merge";
 import { ScanResultState } from "./useHud";
+
+/** React 19-friendly ref shape */
+export type RefLike<T> = { current: T };
 
 export type ScanTrigger = "sse" | "poll";
 
@@ -40,6 +38,7 @@ export type UseScanFlowParams = {
   handleResetKfb: () => void;
   clearScanOverlayTimeout: () => void;
   hasSetupForCurrentMac: () => boolean;
+
   setIsChecking: Dispatch<SetStateAction<boolean>>;
   setSuppressLive: Dispatch<SetStateAction<boolean>>;
   setScanResult: Dispatch<SetStateAction<ScanResultState>>;
@@ -61,22 +60,25 @@ export type UseScanFlowParams = {
   setOkSystemNote: Dispatch<SetStateAction<string | null>>;
   setErrorMsg: Dispatch<SetStateAction<string | null>>;
   setKfbInfo: Dispatch<SetStateAction<KfbInfo | null>>;
-  isCheckingRef: MutableRefObject<boolean>;
-  scanResultTimerRef: MutableRefObject<number | null>;
-  lastRunHadFailuresRef: MutableRefObject<boolean>;
-  lastActiveIdsRef: MutableRefObject<string[]>;
-  itemsAllFromAliasesRef: MutableRefObject<any[]>;
-  lastScanRef: MutableRefObject<string>;
-  blockedMacRef: MutableRefObject<Set<string>>;
-  lastFinalizedMacRef: MutableRefObject<string | null>;
-  lastFinalizedAtRef: MutableRefObject<number>;
-  idleCooldownUntilRef: MutableRefObject<number>;
-  simulateCooldownUntilRef: MutableRefObject<number>;
-  pendingSimulateRef: MutableRefObject<{ target: string; tick: number } | null>;
-  tryRunPendingSimulateRef: MutableRefObject<() => void>;
-  okFlashAllowedRef: MutableRefObject<boolean>;
-  okShownOnceRef: MutableRefObject<boolean>;
-  lastScanTokenRef: MutableRefObject<string>;
+
+  // Refs (use RefLike instead of MutableRefObject)
+  isCheckingRef: RefLike<boolean>;
+  scanResultTimerRef: RefLike<number | null>;
+  lastRunHadFailuresRef: RefLike<boolean>;
+  lastActiveIdsRef: RefLike<string[]>;
+  itemsAllFromAliasesRef: RefLike<any[]>;
+  lastScanRef: RefLike<string>;
+  blockedMacRef: RefLike<Set<string>>;
+  lastFinalizedMacRef: RefLike<string | null>;
+  lastFinalizedAtRef: RefLike<number>;
+  idleCooldownUntilRef: RefLike<number>;
+  simulateCooldownUntilRef: RefLike<number>;
+  pendingSimulateRef: RefLike<{ target: string; tick: number } | null>;
+  tryRunPendingSimulateRef: RefLike<() => void>;
+  okFlashAllowedRef: RefLike<boolean>;
+  okShownOnceRef: RefLike<boolean>;
+  lastScanTokenRef: RefLike<string>;
+
   activeKssks: string[];
   latchPinsValue: number[] | undefined;
 };
@@ -591,8 +593,7 @@ export const useScanFlow = ({
           simulateCooldownUntilRef.current,
           now + 2500
         );
-        if (pendingSimulateRef.current)
-          tryRunPendingSimulateRef.current();
+        if (pendingSimulateRef.current) tryRunPendingSimulateRef.current();
       }
     },
     [

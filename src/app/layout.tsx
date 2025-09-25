@@ -1,24 +1,28 @@
 // app/layout.tsx
-import './globals.css'
-import ClientProviders from './client-providers'
+import "@/app/globals.css";
+import ClientProviders from "./client-providers";
 
 export const viewport = {
-  width: 'device-width',
+  width: "device-width",
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
-} as const
+} as const;
 
 export const metadata = {
-  title: 'Wireless KFB',
+  title: "Wireless KFB",
   description:
-    'This is a simple coming soon template built with NextJS and TailwindCSS. ' +
-    'It is a lightweight and responsive template that can be used for various ' +
+    "This is a simple coming soon template built with NextJS and TailwindCSS. " +
+    "It is a lightweight and responsive template that can be used for various " +
     'projects that require a "coming soon" page.',
-  icons: { icon: '/favicon.ico' },
-}
+  icons: { icon: "/favicon.ico" },
+};
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="font-sans bg-white min-h-screen">
@@ -27,5 +31,5 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </ClientProviders>
       </body>
     </html>
-  )
+  );
 }

@@ -70,39 +70,23 @@ Transient failures such as 429, 504, or pending are retried automatically. If a 
 
 ## End-to-End Flow (Mermaid)
 
-> The logic is unchanged from your original first flow; labels are simplified for GitHub Mermaid compatibility.  
-> Improvements: subgraphs for error handling and finalize steps, consistent classes, safe line breaks.
+> Same logic as your original first flow. Labels simplified for GitHub compatibility.
 
 ```mermaid
 flowchart LR
-    classDef idle fill:#eef6ff,stroke:#5b9cf0,stroke-width:1px,color:#0d2b6b
-    classDef action fill:#f8f9fa,stroke:#999,stroke-width:1px
-    classDef decision fill:#fff7e6,stroke:#f0a500,stroke-width:1px
-    classDef live fill:#fff0f0,stroke:#e06666
-    classDef ok fill:#e9f7ef,stroke:#28a745
-    classDef error fill:#fdecea,stroke:#e55353
+  A[IDLE: Scan Prompt] -->|Scan or Run Check| B{Setup data present?}
+  B -- No --> B1[No setup data for this MAC<br/>- Clear scanned code<br/>- Briefly block retries] --> A
 
-    A[IDLE: Scan Prompt]:::idle -->|Scan or Run Check| B{Setup data present?}:::decision
+  B -- Yes --> C{Any failures or unknown pins?}
+  C -- Yes --> D[Enter LIVE MODE]
+  C -- No  --> E[Finalize (live suppressed)]
+  E --> E1[Send checkpoints for active KSKs]
+  E1 --> E2[Clear Redis alias cache and KSK locks]
+  E2 --> E3[Flash OK SVG]
+  E3 --> A
 
-    B -- No --> B1[UI: No setup data for this MAC<br/>- Clear scanned code<br/>- Briefly block retries]:::action --> A
-
-    B -- Yes --> C{Any failures or unknown pins?}:::decision
-    C -- Yes --> D[Enter LIVE MODE]:::live
-
-    C -- No  --> E[Finalize (live suppressed)]:::ok
-
-    subgraph Finalize Steps
-      E1[Send checkpoints for active KSKs]:::action --> E2[Clear Redis alias cache and KSK locks]:::action --> E3[Flash OK SVG]:::ok --> A
-    end
-
-    E --> E1
-
-    %% Error path
-    subgraph Errors and Retries
-      F[Auto-Retry Loop]:::error
-    end
-
-    A -.->|429 or 504 or Pending during scan| F
-    F -->|Retry success| C
-    F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Prompt another attempt]:::action --> A
+  %% Error path
+  A -.->|429 or 504 or Pending during scan| F[Auto-Retry Loop]
+  F -->|Retry success| C
+  F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Prompt another attempt] --> A
 ```

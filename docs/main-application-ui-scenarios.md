@@ -3,18 +3,18 @@
 ```mermaid
 flowchart LR
     A[IDLE: Scan Prompt] -->|Scan or Run Check| B{Setup data present?}
-    B -- No --> B1[No setup data for this MAC<br/>- Clear scanned code<br/>- Briefly block retries] --> A
+    B -- No --> B1[No setup data for this MAC<br/>Clear scanned code<br/>Briefly block retries] --> A
 
     B -- Yes --> C{Any failures or unknown pins?}
     C -- Yes --> D[Enter LIVE MODE]
-    C -- No  --> E[Finalize (live suppressed)]
-    E --> E1[Send checkpoints for active KSKs]
+    C -- No  --> E[Finalize live suppressed]<br/>E
+    E --> E1[Send checkpoints]
     E1 --> E2[Clear Redis alias cache and KSK locks]
     E2 --> E3[Flash OK SVG]
     E3 --> A
 
     %% Error path
-    A -.->|429 or 504 or Pending during scan| F[Auto-Retry Loop]
+    A -.->|Errors 429/504/Pending during scan| F[Auto-Retry Loop]
     F -->|Retry success| C
     F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Prompt another attempt] --> A
 ```

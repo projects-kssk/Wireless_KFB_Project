@@ -1367,7 +1367,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       className="inline-flex items-center rounded-full px-2 py-[5px] text-[12px] font-semibold"
                       style={{
                         background: isDarkMode ? "rgba(148,163,184,0.12)" : "#f8fafc",
-                        color: isDarkMode ? "#cbd5f5" : "#475569",
+                        color: isDarkMode ? "#f8fafc" : "#475569",
                         border: `1px solid ${isDarkMode ? "rgba(148,163,184,0.25)" : "#e2e8f0"}`,
                       }}
                     >

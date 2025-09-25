@@ -30,7 +30,7 @@ type DeviceInfo = {
   serialNumber: string | null;
 };
 
-type LedColor = "green" | "amber" | "red";
+type LedColor = "green" | "amber" | "red" | "blue";
 
 type Row = {
   title: string;
@@ -111,11 +111,13 @@ const VersionBadge: React.FC<{
 const ThemeSwitcher: React.FC<{
   align?: "start" | "end";
   variant?: "default" | "card";
-}> = ({ align = "start", variant = "default" }) => (
+  justifySelf?: "auto" | "end";
+}> = ({ align = "start", variant = "default", justifySelf = "auto" }) => (
   <div
     className={[
       "flex flex-col gap-1.5",
       align === "end" ? "items-end text-right" : "items-start text-left",
+      justifySelf === "end" ? "justify-self-end" : "",
     ].join(" ")}
   >
     <span
@@ -134,61 +136,53 @@ const ThemeSwitcher: React.FC<{
 
 const SupportPillSM: React.FC<{
   supportNumber?: string | number;
-  onCall?: () => void;
   className?: string;
   labelsHidden?: boolean;
-}> = ({ supportNumber = 621, onCall, className, labelsHidden }) => {
+  align?: "start" | "end";
+  justifySelf?: "auto" | "end";
+}> = ({
+  supportNumber = 621,
+  className,
+  labelsHidden,
+  align = "start",
+  justifySelf = "auto",
+}) => {
   const reduce = useReducedMotion();
   const number = String(supportNumber ?? 621);
-  const call = () => {
-    if (onCall) return onCall();
-    try {
-      window.location.href = `tel:${number}`;
-    } catch {}
-  };
+
+  const rootClasses = [
+    "group relative flex w-full flex-col px-1.5 py-1",
+    labelsHidden
+      ? "items-center text-center gap-1.25"
+      : `items-${align} gap-1.5 ${justifySelf === "end" ? "justify-self-end" : ""}`,
+    className ?? "",
+  ].join(" ");
 
   return (
     <m.div
       initial={{ opacity: 0, y: reduce ? 0 : 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className={[
-        "group relative flex w-full items-center justify-center gap-1.5 px-1.5 py-1",
-        labelsHidden ? "flex-col text-center" : "",
-        className ?? "",
-      ].join(" ")}
+      className={rootClasses}
       style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      <div className="flex items-center gap-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
+        Support
+      </span>
+      <div
+        className={[
+          "flex items-center gap-1.5",
+          labelsHidden ? "justify-center" : "",
+        ].join(" ")}
+      >
         <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
           <SupportIcon className="h-7 w-7" />
         </div>
-        <div className="min-w-0 text-left">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
-            Support
-          </div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-[18px] font-black tracking-tight text-slate-900 dark:text-white">
-              {number}
-            </span>
-          </div>
-        </div>
+        <span className="text-[24px] font-black tracking-tight text-slate-900 dark:text-white">
+          {number}
+        </span>
       </div>
-      <a
-        href={`tel:${number}`}
-        onClick={event => {
-          event.preventDefault();
-          call();
-        }}
-        className={[
-          "text-[11px] font-semibold text-emerald-600 underline-offset-4 hover:underline dark:text-emerald-300",
-          labelsHidden ? "text-center" : "",
-        ].join(" ")}
-        aria-label={`Call support ${number}`}
-      >
-        Call
-      </a>
     </m.div>
   );
 };
@@ -196,34 +190,31 @@ const SupportPillSM: React.FC<{
 const HeaderMetaCard: React.FC<{
   version: string;
   supportNumber?: string | number;
-  onCall?: () => void;
   labelsHidden?: boolean;
-}> = ({ version, supportNumber = 621, onCall, labelsHidden }) => (
+}> = ({ version, supportNumber = 621, labelsHidden }) => (
   <div className="relative flex h-full">
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-white text-slate-900 dark:bg-[#222222] dark:text-slate-100">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-12 right-[-24px] h-24 w-24 bg-emerald-200/45 blur-3xl dark:bg-emerald-500/18" />
-      </div>
-      <div className="relative flex h-full flex-col items-center gap-1.5 p-2 sm:p-2.5">
-        <div className="w-full max-w-sm">
-          <VersionBadge
-            value={version}
-            align={labelsHidden ? "center" : "start"}
-            variant="card"
-          />
-        </div>
-        <div className="w-full max-w-sm">
-          <ThemeSwitcher
-            align={labelsHidden ? "start" : "end"}
-            variant="card"
-          />
-        </div>
-        <SupportPillSM
-          supportNumber={supportNumber}
-          onCall={onCall}
-          labelsHidden={labelsHidden}
-        />
-      </div>
+    <div
+      className={[
+        "relative grid w-full grid-cols-1 gap-1.5 p-2 sm:p-2.5 text-slate-900 dark:text-slate-100",
+        labelsHidden ? "" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,auto)]",
+      ].join(" ")}
+    >
+      <VersionBadge
+        value={version}
+        align={labelsHidden ? "center" : "start"}
+        variant="card"
+      />
+      <ThemeSwitcher
+        align={labelsHidden ? "start" : "end"}
+        variant="card"
+        justifySelf={labelsHidden ? "auto" : "end"}
+      />
+      <SupportPillSM
+        supportNumber={supportNumber}
+        labelsHidden={labelsHidden}
+        align={labelsHidden ? "center" : "start"}
+        justifySelf={labelsHidden ? "auto" : "end"}
+      />
     </div>
   </div>
 );
@@ -231,12 +222,18 @@ const HeaderMetaCard: React.FC<{
 /* ────────────────────────────────────────────────────────────────────────────
    LEDs
    ──────────────────────────────────────────────────────────────────────────── */
-const ledCfg = (c: LedColor) =>
-  c === "green"
-    ? { a: "#34d399", b: "#10b981", rim: "rgba(16,185,129,.45)" }
-    : c === "amber"
-      ? { a: "#fbbf24", b: "#f59e0b", rim: "rgba(245,158,11,.45)" }
-      : { a: "#fb7185", b: "#ef4444", rim: "rgba(244,63,94,.45)" };
+const ledCfg = (c: LedColor) => {
+  switch (c) {
+    case "green":
+      return { a: "#34d399", b: "#10b981", rim: "rgba(16,185,129,.45)" };
+    case "amber":
+      return { a: "#fbbf24", b: "#f59e0b", rim: "rgba(245,158,11,.45)" };
+    case "blue":
+      return { a: "#60a5fa", b: "#3b82f6", rim: "rgba(59,130,246,.45)" };
+    default:
+      return { a: "#fb7185", b: "#ef4444", rim: "rgba(244,63,94,.45)" };
+  }
+};
 
 const LedBallBase: React.FC<{
   color: LedColor;
@@ -991,7 +988,9 @@ function StatusBanner({
         className={`${base} ring-emerald-200/70`}
         style={{
           ...sharedStyle,
-          background: isDark ? "rgba(34,197,94,0.24)" : "rgba(209,250,229,0.94)",
+          background: isDark
+            ? "rgba(34,197,94,0.24)"
+            : "rgba(209,250,229,0.94)",
         }}
       >
         <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-emerald-500 dark:text-emerald-200">
@@ -1009,7 +1008,9 @@ function StatusBanner({
         className={`${base} ring-red-300/70`}
         style={{
           ...sharedStyle,
-          background: isDark ? "rgba(239,68,68,0.26)" : "rgba(254,226,226,0.94)",
+          background: isDark
+            ? "rgba(239,68,68,0.26)"
+            : "rgba(254,226,226,0.94)",
         }}
       >
         <div className="text-[12px] font-semibold uppercase tracking-[0.18em] text-red-600 dark:text-rose-200">
@@ -1031,7 +1032,9 @@ function StatusBanner({
         <div
           className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold ring-1"
           style={{
-            background: isDark ? "rgba(30,41,59,0.45)" : "rgba(241,245,249,0.96)",
+            background: isDark
+              ? "rgba(30,41,59,0.45)"
+              : "rgba(241,245,249,0.96)",
             borderColor: isDark ? "rgba(148,163,184,0.35)" : "#cbd5f5",
             color: isDark ? "#e2e8f0" : "#475569",
           }}
@@ -1127,7 +1130,9 @@ function DiscoverEspModal({
               className="relative h-[min(92vh,860px)] w-[min(98vw,1600px)] overflow-hidden rounded-3xl shadow-2xl ring-1"
               style={{
                 background: isDark ? "rgba(17,17,17,0.96)" : "#ffffff",
-                borderColor: isDark ? "rgba(148,163,184,0.25)" : "rgba(15,23,42,0.06)",
+                borderColor: isDark
+                  ? "rgba(148,163,184,0.25)"
+                  : "rgba(15,23,42,0.06)",
               }}
             >
               <div
@@ -1352,7 +1357,7 @@ export const Header: React.FC<HeaderProps> = ({
   const s2Sub = subFor(s2);
 
   const serverColor: LedColor = server === "connected" ? "green" : "red";
-  const serverSub = server === "connected" ? "Redis connected" : "Redis offline";
+  const serverSub = server === "connected" ? "Redis ready" : "Redis offline";
 
   // KROSY: consider live/online when on eth* with ONLINE IP; otherwise offline/no-conn
   const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -1522,7 +1527,6 @@ export const Header: React.FC<HeaderProps> = ({
   const versionClean = versionRaw.replace(/^v/i, "");
   const supportInfo = (appConfig as any).callSupportInfo ?? {};
   const supportNumber = supportInfo?.count ?? 621;
-  const supportOnCall = supportInfo?.onCta;
 
   const barVariants: Variants = {
     shown: {
@@ -1567,7 +1571,6 @@ export const Header: React.FC<HeaderProps> = ({
               <HeaderMetaCard
                 version={versionClean}
                 supportNumber={supportNumber}
-                onCall={supportOnCall}
                 labelsHidden={labelsHidden}
               />
             </div>

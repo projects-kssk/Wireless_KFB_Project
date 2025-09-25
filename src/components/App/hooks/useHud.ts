@@ -72,7 +72,7 @@ export const useHud = ({
 
   const hudSubMessage = useMemo(() => {
     if (hudMode === "scanning") return "Hold steady for a moment";
-    if (hudMode === "idle") return scannerDetected ? "" : "Scanner not detected.";
+    if (hudMode === "idle") return undefined;
     if (hudMode === "info") {
       if (infoHideAt) {
         const remMs = Math.max(0, infoHideAt - Date.now());

@@ -203,8 +203,12 @@ export function useSerialEvents(
     rafRef.current = requestAnimationFrame(flush);
   };
 
+  const updateServer = () => {
+    setServer(redisOkRef.current ? "connected" : "offline");
+  };
+
   useEffect(() => {
-    setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
+    updateServer();
   }, []);
 
   const up = (p: string, patch: Partial<ScannerPortState>) =>
@@ -294,7 +298,6 @@ export function useSerialEvents(
         case "esp": {
           const ok = Boolean((msg as any).ok) || Boolean((msg as any).present);
           espOkRef.current = ok;
-          setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
           break;
         }
         case "net": {
@@ -309,7 +312,7 @@ export function useSerialEvents(
         case "redis": {
           const ready = Boolean((msg as any).ready);
           redisOkRef.current = ready;
-          setServer(espOkRef.current && redisOkRef.current ? "connected" : "offline");
+          updateServer();
           setRedisReady(ready);
           try { setRedisDetail((msg as any).detail ?? { status: (msg as any).status }); } catch {}
           break;

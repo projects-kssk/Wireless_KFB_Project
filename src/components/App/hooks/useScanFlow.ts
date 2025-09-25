@@ -213,14 +213,25 @@ export const useScanFlow = ({
           setNameHints(hints);
 
           try {
-            const n = Array.isArray(result?.normalPins)
-              ? (result.normalPins as number[])
-              : undefined;
-            const l = Array.isArray(result?.latchPins)
-              ? (result.latchPins as number[])
-              : undefined;
-            setNormalPins(n);
-            setLatchPins(l);
+            const toPinArray = (value: unknown): number[] | undefined => {
+              if (!Array.isArray(value)) return undefined;
+              const pins = (value as Array<number | string>)
+                .map((n) => Number(n))
+                .filter((n) => Number.isFinite(n) && n > 0);
+              return pins.length ? pins : undefined;
+            };
+
+            const pinsUsed = toPinArray((result as any)?.pinsUsed);
+            const normalPinsFromResult = toPinArray(result?.normalPins);
+            const latchPinsFromResult = toPinArray(result?.latchPins);
+
+            const resolvedNormalPins =
+              (normalPinsFromResult && normalPinsFromResult.length
+                ? normalPinsFromResult
+                : pinsUsed) || undefined;
+
+            setNormalPins(resolvedNormalPins);
+            setLatchPins(latchPinsFromResult);
           } catch {}
 
           const hasAliasesFromResult =
@@ -269,10 +280,14 @@ export const useScanFlow = ({
                 }
                 aliases = merged;
               }
-              const pinsAll = Object.keys(aliases)
+              const aliasPins = Object.keys(aliases)
                 .map((n) => Number(n))
-                .filter((n) => Number.isFinite(n))
-                .sort((a, b) => a - b);
+                .filter((n) => Number.isFinite(n) && n > 0);
+              const pinsCombined = new Set<number>(aliasPins);
+              for (const pin of pinsUsed || []) pinsCombined.add(pin);
+              for (const pin of failures)
+                if (Number.isFinite(pin) && pin > 0) pinsCombined.add(pin);
+              const pinsAll = Array.from(pinsCombined).sort((a, b) => a - b);
 
               const contactless = new Set<number>(
                 (Array.isArray(result?.latchPins)
@@ -516,31 +531,32 @@ export const useScanFlow = ({
               console.warn("[FLOW][CHECK] finalizeOkForMac failed", err);
             }
             return;
+          }
+
+          if (!setupReadyRef) {
+            setGroupedBranches([]);
+          }
+
+          if (unknown) {
+            const text = "CHECK ERROR (no pin list)";
+            setScanResult({ text, kind: "error" });
+            if (scanResultTimerRef.current)
+              clearTimeout(scanResultTimerRef.current);
+            scanResultTimerRef.current = window.setTimeout(() => {
+              setScanResult(null);
+              scanResultTimerRef.current = null;
+            }, 2200);
           } else {
-            if (!setupReadyRef) {
-              setGroupedBranches([]);
-              return;
-            }
-            if (unknown) {
-              const text = "CHECK ERROR (no pin list)";
-              setScanResult({ text, kind: "error" });
-              if (scanResultTimerRef.current)
-                clearTimeout(scanResultTimerRef.current);
-              scanResultTimerRef.current = window.setTimeout(() => {
-                setScanResult(null);
-                scanResultTimerRef.current = null;
-              }, 2200);
-              return;
-            }
             if (scanResultTimerRef.current) {
               clearTimeout(scanResultTimerRef.current);
               scanResultTimerRef.current = null;
             }
             setScanResult(null);
-            setIsChecking(false);
-            setSuppressLive(false);
-            okFlashAllowedRef.current = false;
           }
+
+          setIsChecking(false);
+          setSuppressLive(false);
+          okFlashAllowedRef.current = false;
         } else {
           if (res.status === 429 && attempt < CFG.RETRIES) {
             schedule(

@@ -74,24 +74,62 @@ const SupportIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const VersionBadge: React.FC<{ value: string }> = ({ value }) => (
-  <span className="flex items-center gap-2 text-[14px] font-medium text-slate-600 dark:text-slate-300">
-    <span className="tracking-[0.28em] uppercase text-[12px] text-slate-500 dark:text-slate-400">
+const VersionBadge: React.FC<{
+  value: string;
+  align?: "start" | "center";
+  variant?: "default" | "card";
+}> = ({ value, align = "start", variant = "default" }) => (
+  <div
+    className={[
+      "flex flex-col gap-1",
+      align === "center" ? "items-center text-center" : "items-start text-left",
+    ].join(" ")}
+  >
+    <span
+      className={[
+        "text-[12px] font-semibold uppercase tracking-[0.24em]",
+        variant === "card"
+          ? "text-slate-600 dark:text-slate-400"
+          : "text-slate-500 dark:text-slate-400",
+      ].join(" ")}
+    >
       Version
     </span>
-    <span className="text-[16px] font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+    <span
+      className={[
+        "text-[26px] font-black tracking-tight",
+        variant === "card"
+          ? "text-slate-900 dark:text-white"
+          : "text-slate-900 dark:text-slate-50",
+      ].join(" ")}
+    >
       {value}
     </span>
-  </span>
+  </div>
 );
 
-const ThemeSwitcher: React.FC = () => (
-  <span className="flex items-center gap-2 text-[14px] font-medium text-slate-600 dark:text-slate-300">
-    <span className="tracking-[0.28em] uppercase text-[12px] text-slate-500 dark:text-slate-400">
+const ThemeSwitcher: React.FC<{
+  align?: "start" | "end";
+  variant?: "default" | "card";
+}> = ({ align = "start", variant = "default" }) => (
+  <div
+    className={[
+      "flex flex-col gap-2",
+      align === "end" ? "items-end text-right" : "items-start text-left",
+    ].join(" ")}
+  >
+    <span
+      className={[
+        "text-[12px] font-semibold uppercase tracking-[0.24em]",
+        variant === "card"
+          ? "text-slate-600 dark:text-slate-400"
+          : "text-slate-500 dark:text-slate-400",
+      ].join(" ")}
+    >
       Theme
     </span>
-    <ThemeToggle />
-  </span>
+    <ThemeToggle tone={variant === "card" ? "card" : "default"} />
+  </div>
 );
 
 const SupportPillSM: React.FC<{
@@ -111,44 +149,103 @@ const SupportPillSM: React.FC<{
 
   return (
     <m.div
-      initial={{ opacity: 0, y: 4 }}
+      initial={{ opacity: 0, y: reduce ? 0 : 6 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
       className={[
-        "inline-flex items-center gap-4 px-4 py-2 text-left",
+        "group relative flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2",
+        labelsHidden ? "flex-col items-center gap-2.5 text-center" : "",
         className ?? "",
       ].join(" ")}
       style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-200">
-        <SupportIcon className="h-8 w-8" />
-      </div>
-
-      {labelsHidden ? (
-        <span className="text-[32px] font-extrabold tracking-tight text-slate-900 dark:text-white leading-none">
-          {number}
-        </span>
-      ) : (
-        <div className="min-w-0">
-          <div className="text-[14px] font-semibold uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
-            Support
-          </div>
-          <div className="flex items-center gap-3 mt-1">
-            <span className="truncate text-[32px] font-black tracking-tight text-slate-900 dark:text-white leading-none">
-              {number}
-            </span>
-            <a
-              href={`tel:${number}`}
-              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-slate-900 text-white hover:bg-slate-700 dark:bg-white/15 dark:text-white"
-            >
-              Call
-            </a>
-          </div>
+      <div
+        className={[
+          labelsHidden
+            ? "flex flex-col items-center gap-1.5 text-center"
+            : "flex items-center gap-2.5",
+        ].join(" ")}
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-200">
+          <SupportIcon className="h-7 w-7" />
         </div>
-      )}
+
+        {labelsHidden ? (
+          <span className="text-[22px] font-black tracking-tight text-slate-900 dark:text-white">
+            {number}
+          </span>
+        ) : (
+          <div className="min-w-0">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
+              Support
+            </div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <span className="text-[20px] font-black tracking-tight text-slate-900 dark:text-white">
+                {number}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={call}
+        className={[
+          "inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white shadow-[0_12px_24px_-16px_rgba(16,185,129,0.55)] transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:bg-emerald-500/90 dark:hover:bg-emerald-400/90",
+          labelsHidden ? "w-full justify-center" : "",
+        ].join(" ")}
+        aria-label={`Call support ${number}`}
+      >
+        Call
+      </button>
     </m.div>
   );
 };
+
+const HeaderMetaCard: React.FC<{
+  version: string;
+  supportNumber?: string | number;
+  onCall?: () => void;
+  labelsHidden?: boolean;
+}> = ({ version, supportNumber = 621, onCall, labelsHidden }) => (
+  <div className="relative flex h-full">
+    <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[22px] border border-slate-200/70 bg-white/95 text-slate-900 shadow-[0_24px_48px_-36px_rgba(15,23,42,0.4)] backdrop-blur-sm dark:border-black/60 dark:bg-[#222222] dark:text-slate-100">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-16 right-[-32px] h-32 w-32 rounded-full bg-emerald-300/35 blur-3xl dark:bg-emerald-500/18" />
+        <div className="absolute inset-0 rounded-[22px] ring-1 ring-white/40 dark:ring-white/10" />
+      </div>
+      <div className="relative flex h-full flex-col gap-2.5 p-3 sm:p-3.5">
+        <div
+          className={[
+            "gap-2.5",
+            labelsHidden
+              ? "flex flex-col"
+              : "grid grid-cols-[minmax(0,1fr)_minmax(0,auto)] items-start",
+          ].join(" ")}
+        >
+          <VersionBadge
+            value={version}
+            align={labelsHidden ? "center" : "start"}
+            variant="card"
+          />
+          <div className={labelsHidden ? "" : "justify-self-end"}>
+            <ThemeSwitcher
+              align={labelsHidden ? "start" : "end"}
+              variant="card"
+            />
+          </div>
+        </div>
+        <SupportPillSM
+          supportNumber={supportNumber}
+          onCall={onCall}
+          labelsHidden={labelsHidden}
+          className="border border-slate-200 bg-white text-slate-800 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.35)] dark:border-white/10 dark:bg-[#1a1a1a] dark:text-slate-100"
+        />
+      </div>
+    </div>
+  </div>
+);
 
 /* ────────────────────────────────────────────────────────────────────────────
    LEDs
@@ -1274,7 +1371,7 @@ export const Header: React.FC<HeaderProps> = ({
   const s2Sub = subFor(s2);
 
   const serverColor: LedColor = server === "connected" ? "green" : "red";
-  const serverSub = server === "connected" ? "ESP + Redis" : "Needs ESP+Redis";
+  const serverSub = server === "connected" ? "Redis connected" : "Redis offline";
 
   // KROSY: consider live/online when on eth* with ONLINE IP; otherwise offline/no-conn
   const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -1436,6 +1533,16 @@ export const Header: React.FC<HeaderProps> = ({
 
   if ((appConfig as any).hideHeader) return null;
 
+  const versionRaw = String(
+    process.env.NEXT_PUBLIC_APP_VERSION ||
+      process.env.NEXT_PUBLIC_VERSION ||
+      "0.8.0"
+  ).trim();
+  const versionClean = versionRaw.replace(/^v/i, "");
+  const supportInfo = (appConfig as any).callSupportInfo ?? {};
+  const supportNumber = supportInfo?.count ?? 621;
+  const supportOnCall = supportInfo?.onCta;
+
   const barVariants: Variants = {
     shown: {
       y: 0,
@@ -1474,26 +1581,12 @@ export const Header: React.FC<HeaderProps> = ({
                 : "minmax(320px,420px) 1fr auto",
             }}
           >
-            {/* 1) Support + Version */}
-            <div className="h-full flex flex-col justify-center gap-1 pr-2 md:pr-3">
-              {(() => {
-                const raw = String(
-                  process.env.NEXT_PUBLIC_APP_VERSION ||
-                    process.env.NEXT_PUBLIC_VERSION ||
-                    "0.8.0"
-                ).trim();
-                const clean = raw.replace(/^v/i, "");
-                return (
-                  <div className="flex items-center gap-2">
-                    <VersionBadge value={clean} />
-                    <ThemeSwitcher />
-                  </div>
-                );
-              })()}
-              <SupportPillSM
-                className="mt-1"
-                supportNumber={(appConfig as any).callSupportInfo?.count ?? 621}
-                onCall={(appConfig as any).callSupportInfo?.onCta}
+            {/* 1) Meta */}
+            <div className="h-full pr-2 md:pr-3">
+              <HeaderMetaCard
+                version={versionClean}
+                supportNumber={supportNumber}
+                onCall={supportOnCall}
                 labelsHidden={labelsHidden}
               />
             </div>

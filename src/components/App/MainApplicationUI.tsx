@@ -244,8 +244,11 @@ const MainApplicationUI: React.FC = () => {
   const hasSetupForCurrentMac = useCallback(() => {
     const active = (activeKssks?.length ?? 0) > 0;
     const anyItems = (itemsAllFromAliasesRef.current?.length ?? 0) > 0;
-    return active || anyItems;
-  }, [activeKssks]);
+    const havePins =
+      (Array.isArray(normalPins) ? normalPins.length : 0) > 0 ||
+      (Array.isArray(latchPins) ? latchPins.length : 0) > 0;
+    return active || anyItems || havePins;
+  }, [activeKssks, normalPins, latchPins]);
 
   const lastGroupsRef = useRef<
     Array<{ ksk: string; branches: BranchDisplayData[] }>

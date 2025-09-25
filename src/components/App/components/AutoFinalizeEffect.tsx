@@ -12,7 +12,7 @@ export type AutoFinalizeEffectProps = {
   branchesData: BranchDisplayData[];
   groupedBranches: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   macRef: RefLike<string>;
-  lastRunHadFailuresRef?: RefLike<boolean>;
+  finalizeGuardRef?: RefLike<boolean>;
   finalizeOkForMac: (mac: string) => Promise<void>;
 };
 
@@ -24,7 +24,7 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
   branchesData,
   groupedBranches,
   macRef,
-  lastRunHadFailuresRef,
+  finalizeGuardRef,
   finalizeOkForMac,
 }) => {
   useEffect(() => {
@@ -35,7 +35,7 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
     const anyFailures =
       Array.isArray(checkFailures) && checkFailures.length > 0;
     if (anyFailures) return;
-    if (lastRunHadFailuresRef?.current) {
+    if (finalizeGuardRef?.current) {
       okFlashAllowedRef.current = false;
       return;
     }
@@ -66,7 +66,7 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
     isChecking,
     isScanning,
     macRef,
-    lastRunHadFailuresRef,
+    finalizeGuardRef,
     okFlashAllowedRef,
   ]);
 

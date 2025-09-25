@@ -81,7 +81,7 @@ const VersionBadge: React.FC<{
 }> = ({ value, align = "start", variant = "default" }) => (
   <div
     className={[
-      "flex items-baseline gap-2",
+      "flex items-baseline gap-1",
       align === "center" ? "justify-center" : "justify-start",
     ].join(" ")}
   >
@@ -109,27 +109,25 @@ const VersionBadge: React.FC<{
 );
 
 const ThemeSwitcher: React.FC<{
-  align?: "start" | "end";
+  align?: "start" | "center" | "end";
   variant?: "default" | "card";
   justifySelf?: "auto" | "end";
 }> = ({ align = "start", variant = "default", justifySelf = "auto" }) => (
   <div
     className={[
       "flex flex-col gap-1.5",
-      align === "end" ? "items-end text-right" : "items-start text-left",
-      justifySelf === "end" ? "justify-self-end" : "",
+      align === "end"
+        ? "items-end text-right"
+        : align === "center"
+          ? "items-center text-center"
+          : "items-start text-left",
+      align === "center"
+        ? "justify-self-center"
+        : justifySelf === "end"
+          ? "justify-self-end"
+          : "",
     ].join(" ")}
   >
-    <span
-      className={[
-        "text-[12px] font-semibold uppercase tracking-[0.24em]",
-        variant === "card"
-          ? "text-slate-600 dark:text-slate-400"
-          : "text-slate-500 dark:text-slate-400",
-      ].join(" ")}
-    >
-      Theme
-    </span>
     <ThemeToggle tone={variant === "card" ? "card" : "default"} />
   </div>
 );
@@ -143,14 +141,16 @@ const SupportPillSM: React.FC<{
   const reduce = useReducedMotion();
   const number = String(supportNumber ?? 621);
 
-  const resolvedOrientation =
-    orientation ?? (labelsHidden ? "vertical" : "horizontal");
+  const resolvedOrientation = orientation ?? "vertical";
+  const isVertical = resolvedOrientation === "vertical";
 
   const rootClasses = [
     "group relative flex w-full px-1.5 py-1",
-    resolvedOrientation === "horizontal"
-      ? "flex-row items-center justify-end gap-2"
-      : "flex-col items-center text-center gap-1.25",
+    isVertical
+      ? labelsHidden
+        ? "flex-col items-center gap-1 text-center"
+        : "flex-col items-start gap-0.75 text-left"
+      : "flex-row items-center gap-1",
     className ?? "",
   ].join(" ");
 
@@ -163,12 +163,12 @@ const SupportPillSM: React.FC<{
       style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      {resolvedOrientation === "horizontal" ? (
-        <div className="flex items-center gap-2">
+      {!isVertical ? (
+        <div className="flex items-center gap-1">
           <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
             Support
           </span>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-0.5">
             <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
               <SupportIcon className="h-7 w-7" />
             </div>
@@ -178,11 +178,21 @@ const SupportPillSM: React.FC<{
           </div>
         </div>
       ) : (
-        <>
+        <div
+          className={[
+            "flex flex-col gap-0.75",
+            labelsHidden ? "items-center text-center" : "items-start text-left",
+          ].join(" ")}
+        >
           <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
             Support
           </span>
-          <div className="flex items-center gap-1.5 justify-center">
+          <div
+            className={[
+              "flex items-center gap-1",
+              labelsHidden ? "justify-center" : "",
+            ].join(" ")}
+          >
             <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
               <SupportIcon className="h-7 w-7" />
             </div>
@@ -190,7 +200,7 @@ const SupportPillSM: React.FC<{
               {number}
             </span>
           </div>
-        </>
+        </div>
       )}
     </m.div>
   );
@@ -202,13 +212,13 @@ const HeaderMetaCard: React.FC<{
   labelsHidden?: boolean;
 }> = ({ version, supportNumber = 621, labelsHidden }) => (
   <div className="relative flex h-full">
-    <div className="relative flex h-full w-full flex-col gap-1.5 p-2 sm:p-2.5 text-slate-900 dark:text-slate-100">
+    <div className="relative flex h-full w-full flex-col gap-1 px-2 pt-10 pb-2 sm:px-2.5 sm:pt-10 sm:pb-2 text-slate-900 dark:text-slate-100">
       <div
         className={[
           "w-full",
           labelsHidden
-            ? "flex flex-col items-center gap-1.5"
-            : "flex flex-wrap items-center justify-between gap-2",
+            ? "flex flex-col items-center gap-1"
+            : "flex items-center justify-between gap-2",
         ].join(" ")}
       >
         <VersionBadge
@@ -216,23 +226,31 @@ const HeaderMetaCard: React.FC<{
           align={labelsHidden ? "center" : "start"}
           variant="card"
         />
-        <div
-          className={[
-            "flex items-center gap-3",
-            labelsHidden ? "flex-col" : "flex-row",
-          ].join(" ")}
-        >
-          <SupportPillSM
-            supportNumber={supportNumber}
-            labelsHidden={labelsHidden}
-            orientation={labelsHidden ? "vertical" : "horizontal"}
-            className={labelsHidden ? "" : "order-1"}
+        <SupportPillSM
+          supportNumber={supportNumber}
+          labelsHidden={labelsHidden}
+          orientation="horizontal"
+          className={labelsHidden ? "" : "min-w-[160px]"}
+        />
+        <ThemeSwitcher align={labelsHidden ? "center" : "end"} variant="card" />
+      </div>
+      <div
+        className={[
+          "flex flex-1 items-center justify-center",
+          "text-slate-600 dark:text-slate-200",
+          labelsHidden ? "w-full max-w-sm mx-auto" : "",
+        ].join(" ")}
+      >
+        <div className="flex items-center gap-3">
+          <img
+            src="/tinder.png"
+            alt="KFB Wireless logo"
+            className="h-20 w-20 rounded-2xl  p-2 dark:bg-transparent"
+            draggable={false}
           />
-          <ThemeSwitcher
-            align={labelsHidden ? "start" : "end"}
-            variant="card"
-            justifySelf={labelsHidden ? "auto" : "end"}
-          />
+          <span className="text-xl font-extrabold tracking-[0.32em]">
+            KFB WIRELESS
+          </span>
         </div>
       </div>
     </div>

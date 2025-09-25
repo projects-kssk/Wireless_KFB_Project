@@ -1,0 +1,25 @@
+%%{init: {'flowchart': {'nodeSpacing': 85, 'rankSpacing': 130}, 'themeVariables': {'fontSize': '17px'}}}%%
+flowchart LR
+    S0[Setup idle] --> S1[Acquire scan scope setup]
+    S1 --> S2[Scanner ACM1 event or manual input]
+    S2 --> T{Classify code}
+
+    T -- KFB MAC --> K0[Set board MAC and setup name]
+    K0 --> K1[Reset KSK slots to idle]
+    K1 --> K2[Start 60s countdown update TableSwap header]
+    K2 --> S0
+
+    T -- KSK serial --> P0[Pre checks board scanned duplicates capacity]
+    P0 -- fail --> PF[Show panel error keep slot idle] --> S0
+    P0 -- ok --> P1[Mark slot pending]
+    P1 --> P2[POST ksk lock]
+    P2 -- failure --> P3[Revert slot show error] --> S0
+    P2 -- success --> P4[Add lock start heartbeat]
+    P4 --> P5[Load aliases prefer Redis fallback Krosy]
+    P5 -- failure --> P6[Mark slot error toast message] --> S0
+    P5 -- success --> P7[Persist pin map update slot OK]
+    P7 --> P8[Trigger TableSwap flash increment cycle]
+    P8 --> P9[If three OK schedule auto reset]
+    P9 --> S0
+
+    T -- Unknown --> U0[Show unrecognized code error] --> S0

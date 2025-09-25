@@ -1,0 +1,10 @@
+flowchart TB
+    R0[Scan or run check] --> R1{HTTP response}
+    R1 -- 200 OK --> R3[Process result payload]
+    R1 -- 429 Too Many Requests --> R2[Schedule retry 350ms]
+    R1 -- 504 Gateway Timeout --> R2
+    R1 -- Pending or No Result --> R2
+    R2 -->|Attempts remaining| R0
+    R2 -->|Attempts exhausted| R4[Disable OK animation & reset KFB]
+    R4 --> R5[Clear branch data and name hints]
+    R5 --> R6[Prompt operator to rescan] --> R7[IDLE]

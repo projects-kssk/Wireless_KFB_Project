@@ -1,0 +1,13 @@
+flowchart TB
+    L0[Live mode enter with active MAC] --> L1[Render status pill SCANNING or CHECKING]
+    L1 --> L2[Build branch cards with OK or NOK or Not Tested]
+    L2 --> L3[Show contact label names and pin states in real time]
+    L3 --> L4[Highlight pending failures list and pin numbers]
+    L4 --> L5[Stream live edges from serial events]
+    L5 -->|Pins still failing| L3
+    L5 -->|All pins recover| L6[Flash large OK SVG]
+    L6 --> L7[Push checkpoints for active KSKs]
+    L7 --> L8[Bulk delete Redis alias cache for MAC]
+    L8 --> L9[Clear KSK locks from Redis]
+    L9 --> L10[Display cleanup note checkpoint cache locks]
+    L10 --> L11[Return to scan prompt IDLE]

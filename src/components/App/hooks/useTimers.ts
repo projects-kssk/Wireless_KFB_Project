@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 
-type TimerId = ReturnType<typeof window.setTimeout>;
+type TimerId = number;
 
 export type UseTimersResult = {
   schedule: (key: string, fn: () => void, ms: number) => void;
@@ -26,7 +26,7 @@ export function useTimers(): UseTimersResult {
         fn();
       } catch {}
     }, Math.max(0, ms));
-    timers.current.set(key, id);
+    timers.current.set(key, Number(id));
   }, []);
 
   const cancel = useCallback((key: string) => {

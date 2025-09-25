@@ -2,9 +2,11 @@ import { useEffect, useMemo } from "react";
 
 export type HudMode = "idle" | "scanning" | "info" | "error";
 
+export type ScanResultKind = Extract<HudMode, "info" | "error">;
+
 export type ScanResultState = {
-  text?: string | null;
-  kind: HudMode;
+  text: string;
+  kind: ScanResultKind;
 } | null;
 
 export type UseHudParams = {

@@ -202,29 +202,21 @@ const HeaderMetaCard: React.FC<{
   <div className="relative flex h-full">
     <div className="relative flex h-full w-full flex-col overflow-hidden bg-white text-slate-900 dark:bg-[#222222] dark:text-slate-100">
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-16 right-[-32px] h-32 w-32 rounded-full bg-emerald-300/35 blur-3xl dark:bg-emerald-500/18" />
-        <div className="absolute inset-0 rounded-[22px] ring-1 ring-white/40 dark:ring-white/10" />
+        <div className="absolute -top-12 right-[-24px] h-24 w-24 bg-emerald-200/45 blur-3xl dark:bg-emerald-500/18" />
       </div>
-      <div className="relative flex h-full flex-col gap-2.5 p-3 sm:p-3.5">
-        <div
-          className={[
-            "gap-2.5",
-            labelsHidden
-              ? "flex flex-col"
-              : "grid grid-cols-[minmax(0,1fr)_minmax(0,auto)] items-start",
-          ].join(" ")}
-        >
+      <div className="relative flex h-full flex-col items-center gap-1.5 p-2 sm:p-2.5">
+        <div className="w-full max-w-sm">
           <VersionBadge
             value={version}
             align={labelsHidden ? "center" : "start"}
             variant="card"
           />
-          <div className={labelsHidden ? "" : "justify-self-end"}>
-            <ThemeSwitcher
-              align={labelsHidden ? "start" : "end"}
-              variant="card"
-            />
-          </div>
+        </div>
+        <div className="w-full max-w-sm">
+          <ThemeSwitcher
+            align={labelsHidden ? "start" : "end"}
+            variant="card"
+          />
         </div>
         <SupportPillSM
           supportNumber={supportNumber}

@@ -310,11 +310,43 @@ export function useSerialEvents(
           break;
         }
         case "redis": {
-          const ready = Boolean((msg as any).ready);
-          redisOkRef.current = ready;
+          const readyFlag = Boolean((msg as any).ready);
+          const detailRaw =
+            (msg as any).detail ?? ({ status: (msg as any).status } as any);
+          const statusFull = String(
+            detailRaw?.status ?? (msg as any).status ?? ""
+          ).toLowerCase();
+          const eventFull = String(detailRaw?.lastEvent ?? "").toLowerCase();
+          const status = statusFull.split("(")[0] ?? statusFull;
+          const event = eventFull.split("(")[0] ?? eventFull;
+
+          let nextReady = redisOkRef.current;
+          if (readyFlag || status === "ready" || status === "connect") {
+            nextReady = true;
+          } else if (
+            ["close", "end", "disconnect"].includes(status) ||
+            ["close", "end", "disconnect"].includes(event)
+          ) {
+            nextReady = false;
+          } else if (
+            status === "error" ||
+            event === "error" ||
+            status === "wait" ||
+            status === "connecting" ||
+            status === "reconnecting" ||
+            event.startsWith("reconnecting")
+          ) {
+            nextReady = redisOkRef.current;
+          } else {
+            nextReady = readyFlag;
+          }
+
+          redisOkRef.current = nextReady;
           updateServer();
-          setRedisReady(ready);
-          try { setRedisDetail((msg as any).detail ?? { status: (msg as any).status }); } catch {}
+          setRedisReady(nextReady);
+          try {
+            setRedisDetail(detailRaw);
+          } catch {}
           break;
         }
         case "scanner/paths": {

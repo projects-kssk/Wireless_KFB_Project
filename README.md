@@ -51,7 +51,7 @@ flowchart LR
 
     B -- Yes --> C{Any failures or unknown pins?}
     C -- Yes --> D[Enter LIVE MODE]
-    D --> D1[Live monitoring: status pill + branch cards]
+    D --> D1[Live monitoring: status pill and branch cards]
     D1 --> D2{All pins recovered?}
     D2 -- No --> D1
     D2 -- Yes --> E[Finalize live suppressed]

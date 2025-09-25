@@ -7,7 +7,7 @@ flowchart LR
 
     B -- Yes --> C{Any failures or unknown pins?}
     C -- Yes --> D[Enter LIVE MODE]
-    D --> D1[Live monitoring: status pill + branch cards]
+    D --> D1[Live monitoring: status pill and branch cards]
     D1 --> D2{All pins recovered?}
     D2 -- No --> D1
     D2 -- Yes --> E[Finalize live suppressed]
@@ -47,7 +47,7 @@ flowchart TB
     L6 --> L7[Push checkpoints for active KSKs]
     L7 --> L8[Bulk delete Redis alias cache for MAC]
     L8 --> L9[Clear KSK locks from Redis]
-    L9 --> L10[Show cleanup note (checkpoint/cache/locks)]
+    L9 --> L10[Show cleanup note checkpoint cache locks]
     L10 --> L11[Return to scan prompt IDLE]
 ```
 

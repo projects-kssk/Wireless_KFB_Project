@@ -47,7 +47,7 @@ flowchart TB
     L6 --> L7[Push checkpoints for active KSKs]
     L7 --> L8[Bulk delete Redis alias cache for MAC]
     L8 --> L9[Clear KSK locks from Redis]
-    L9 --> L10[Show cleanup note checkpoint cache locks]
+    L9 --> L10[Display cleanup note checkpoint cache locks]
     L10 --> L11[Return to scan prompt IDLE]
 ```
 

@@ -818,13 +818,11 @@ export const useScanFlow = ({
         noSetupCooldownRef.current = { mac: blockKey, until };
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
-        scanResultTimerRef.current = window.setTimeout(
-          () => {
-            setScanResult(null);
-            scanResultTimerRef.current = null;
-          },
-          Math.min(cooldownMs, 3000)
-        );
+        const hideDelay = Math.min(cooldownMs, 3000);
+        scanResultTimerRef.current = window.setTimeout(() => {
+          setScanResult(null);
+          scanResultTimerRef.current = null;
+        }, hideDelay);
         if (typeof window !== "undefined") {
           window.setTimeout(() => {
             if (
@@ -833,8 +831,9 @@ export const useScanFlow = ({
               Date.now() >= noSetupCooldownRef.current.until
             ) {
               noSetupCooldownRef.current = null;
+              handleResetKfb();
             }
-          }, cooldownMs + 50);
+          }, cooldownMs + 60);
         }
         return;
       }

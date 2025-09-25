@@ -355,7 +355,6 @@ export default function TableSwap({
     ? "1px solid rgba(255,255,255,0.08)"
     : "1px solid #e5e7eb";
   const panelText = isDark ? "#f5f5f5" : "#0f172a";
-  const headerMeter = isDark ? "rgba(255,255,255,0.18)" : "#e5e7eb";
   const calloutBg = isDark ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.78)";
   const calloutBorder = isDark
     ? "1px solid rgba(255,255,255,0.12)"

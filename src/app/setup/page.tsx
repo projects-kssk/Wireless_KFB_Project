@@ -3301,17 +3301,119 @@ function ToastStack({
     .reverse();
 
   const ok = latest.kind === "success";
-  const fg = ok ? "#065f46" : "#7f1d1d";
-  const bg = ok
-    ? "linear-gradient(180deg,#ecfdf5,#d1fae5)"
-    : "linear-gradient(180deg,#fef2f2,#fee2e2)";
-  const bd = ok ? "#a7f3d0" : "#fecaca";
+  const okPalette = darkMode
+    ? {
+        fg: "#dcfce7",
+        bg: "linear-gradient(180deg,rgba(34,197,94,0.22),rgba(22,163,74,0.12))",
+        border: "rgba(74,222,128,0.45)",
+        dot: "linear-gradient(180deg,#34d399,#10b981)",
+        dotRing: "0 0 0 2px rgba(34,197,94,0.25)",
+        badgeBg: "linear-gradient(180deg,rgba(34,197,94,0.32),rgba(22,163,74,0.18))",
+        badgeBorder: "rgba(74,222,128,0.45)",
+        badgeFg: "#dcfce7",
+      }
+    : {
+        fg: "#065f46",
+        bg: "linear-gradient(180deg,#ecfdf5,#d1fae5)",
+        border: "#a7f3d0",
+        dot: "linear-gradient(180deg,#34d399,#10b981)",
+        dotRing: "0 0 0 2px rgba(16,185,129,0.22)",
+        badgeBg: "linear-gradient(180deg,#bbf7d0,#99f6e4)",
+        badgeBorder: "#a7f3d0",
+        badgeFg: "#065f46",
+      };
+  const errPalette = darkMode
+    ? {
+        fg: "#fee2e2",
+        bg: "linear-gradient(180deg,rgba(248,113,113,0.22),rgba(239,68,68,0.12))",
+        border: "rgba(248,113,113,0.45)",
+        dot: "linear-gradient(180deg,#fb7185,#ef4444)",
+        dotRing: "0 0 0 2px rgba(248,113,113,0.25)",
+        badgeBg: "linear-gradient(180deg,rgba(248,113,113,0.28),rgba(239,68,68,0.18))",
+        badgeBorder: "rgba(248,113,113,0.45)",
+        badgeFg: "#fee2e2",
+      }
+    : {
+        fg: "#7f1d1d",
+        bg: "linear-gradient(180deg,#fef2f2,#fee2e2)",
+        border: "#fecaca",
+        dot: "linear-gradient(180deg,#fb7185,#ef4444)",
+        dotRing: "0 0 0 2px rgba(239,68,68,0.22)",
+        badgeBg: "linear-gradient(180deg,#fecaca,#fca5a5)",
+        badgeBorder: "#fecaca",
+        badgeFg: "#7f1d1d",
+      };
+  const fg = ok ? okPalette.fg : errPalette.fg;
+  const bg = ok ? okPalette.bg : errPalette.bg;
+  const bd = ok ? okPalette.border : errPalette.border;
+  const dotBg = ok ? okPalette.dot : errPalette.dot;
+  const dotRing = ok ? okPalette.dotRing : errPalette.dotRing;
 
   const cardW = 520;
   const reserveH = 72;
   const fmtTime = (ts: number) =>
     new Date(ts).toLocaleTimeString([], { hour12: false });
   const isOpen = hover && history.length > 0;
+
+  const toastShadow = darkMode
+    ? "0 10px 28px rgba(0,0,0,0.45)"
+    : "0 10px 28px rgba(15,23,42,0.22)";
+  const historyPalette = darkMode
+    ? {
+        border: "2px solid rgba(248,113,113,0.35)",
+        bg: "linear-gradient(180deg,rgba(248,113,113,0.14),rgba(239,68,68,0.08))",
+        shadow: "0 16px 36px rgba(0,0,0,0.45)",
+        headerBg: "rgba(0,0,0,0.55)",
+        headerBorder: "1px solid rgba(248,113,113,0.3)",
+        headerFg: "#fee2e2",
+        chipBg: "rgba(248,113,113,0.25)",
+        chipBorder: "rgba(248,113,113,0.45)",
+        chipFg: "#fee2e2",
+        buttonBorder: "rgba(248,113,113,0.45)",
+        buttonColor: "#fee2e2",
+        buttonBg: "rgba(0,0,0,0.2)",
+      }
+    : {
+        border: "2px solid #fecaca",
+        bg: "linear-gradient(180deg,#fff5f5,#fee2e2)",
+        shadow: "0 16px 36px rgba(15,23,42,0.18)",
+        headerBg: "rgba(255,255,255,0.65)",
+        headerBorder: "1px solid #ffdada",
+        headerFg: "#7f1d1d",
+        chipBg: "#ffe4e6",
+        chipBorder: "#fecaca",
+        chipFg: "#7f1d1d",
+        buttonBorder: "#fecaca",
+        buttonColor: "#7f1d1d",
+        buttonBg: "rgba(255,255,255,0.8)",
+      };
+  const historyItemPalette = darkMode
+    ? {
+        bg: "linear-gradient(180deg,rgba(0,0,0,0.55),rgba(0,0,0,0.4))",
+        border: "1px solid rgba(248,113,113,0.35)",
+        color: "#fee2e2",
+        dot: "linear-gradient(180deg,#fb7185,#ef4444)",
+        dotRing: "0 0 0 2px rgba(248,113,113,0.28)",
+        timeBg: "rgba(255,255,255,0.08)",
+        timeBorder: "rgba(248,113,113,0.35)",
+        shadow: "0 1px 0 rgba(255,255,255,0.08) inset",
+      }
+    : {
+        bg: "linear-gradient(180deg,#ffffff,rgba(255,255,255,0.75))",
+        border: "1px solid #ffe1e1",
+        color: "#7f1d1d",
+        dot: "linear-gradient(180deg,#fb7185,#ef4444)",
+        dotRing: "0 0 0 2px rgba(239,68,68,.18)",
+        timeBg: "#ffe8ea",
+        timeBorder: "#ffd2d6",
+        shadow: "0 1px 0 rgba(255,255,255,0.65) inset",
+      };
+  const historyFadeBg = darkMode
+    ? "linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,0.6))"
+    : "linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55))";
+  const historyFadeBorder = darkMode
+    ? "1px solid rgba(255,255,255,0.08)"
+    : "1px solid rgba(255,255,255,.4)";
 
   const clearAll = () => {
     items.forEach((t) => onDismiss(t.id));
@@ -3354,7 +3456,7 @@ function ToastStack({
               border: `3px solid ${bd}`,
               borderRadius: 14,
               padding: "16px 20px",
-              boxShadow: "0 10px 28px rgba(15,23,42,0.22)",
+              boxShadow: toastShadow,
               display: "flex",
               alignItems: "center",
               gap: 12,
@@ -3366,10 +3468,8 @@ function ToastStack({
                 width: 20,
                 height: 20,
                 borderRadius: 999,
-                background: ok
-                  ? "linear-gradient(180deg,#34d399,#10b981)"
-                  : "linear-gradient(180deg,#fb7185,#ef4444)",
-                boxShadow: `0 0 0 2px ${ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.22)"}`,
+                background: dotBg,
+                boxShadow: dotRing,
               }}
             />
             <div
@@ -3405,9 +3505,9 @@ function ToastStack({
                   marginLeft: 8,
                   padding: "4px 10px",
                   borderRadius: 999,
-                  background: "linear-gradient(180deg,#fecaca,#fca5a5)",
-                  border: "1px solid #fecaca",
-                  color: "#7f1d1d",
+                  background: errPalette.badgeBg,
+                  border: errPalette.badgeBorder,
+                  color: errPalette.badgeFg,
                   fontWeight: 900,
                   fontSize: 12,
                 }}
@@ -3448,9 +3548,9 @@ function ToastStack({
                 width: "100%",
                 overflow: "hidden",
                 borderRadius: 16,
-                border: "2px solid #fecaca",
-                background: "linear-gradient(180deg,#fff5f5,#fee2e2)",
-                boxShadow: "0 16px 36px rgba(15,23,42,0.18)",
+                border: historyPalette.border,
+                background: historyPalette.bg,
+                boxShadow: historyPalette.shadow,
               }}
             >
               <div
@@ -3462,11 +3562,11 @@ function ToastStack({
                   alignItems: "center",
                   gap: 10,
                   padding: "12px 14px",
-                  background: "rgba(255,255,255,0.65)",
+                  background: historyPalette.headerBg,
                   backdropFilter: "saturate(160%) blur(8px)",
                   WebkitBackdropFilter: "saturate(160%) blur(8px)",
-                  borderBottom: "1px solid #ffdada",
-                  color: "#7f1d1d",
+                  borderBottom: historyPalette.headerBorder,
+                  color: historyPalette.headerFg,
                   fontWeight: 900,
                 }}
               >
@@ -3483,8 +3583,8 @@ function ToastStack({
                       width: 10,
                       height: 10,
                       borderRadius: 999,
-                      background: "linear-gradient(180deg,#fb7185,#ef4444)",
-                      boxShadow: "0 0 0 2px rgba(239,68,68,.22)",
+                      background: errPalette.dot,
+                      boxShadow: errPalette.dotRing,
                     }}
                   />
                   Recent errors
@@ -3493,8 +3593,9 @@ function ToastStack({
                       marginLeft: 8,
                       padding: "2px 8px",
                       borderRadius: 999,
-                      background: "#ffe4e6",
-                      border: "1px solid #fecaca",
+                      background: historyPalette.chipBg,
+                      border: historyPalette.chipBorder,
+                      color: historyPalette.chipFg,
                       fontSize: 12,
                       fontWeight: 900,
                     }}
@@ -3509,11 +3610,12 @@ function ToastStack({
                     marginLeft: "auto",
                     padding: "6px 12px",
                     borderRadius: 999,
-                    border: "1px solid #fecaca",
-                    background: "linear-gradient(180deg,#ffe4e6,#ffd7db)",
-                    color: "#7f1d1d",
+                    border: historyPalette.buttonBorder,
+                    background: historyPalette.buttonBg,
+                    color: historyPalette.buttonColor,
                     fontWeight: 900,
                     cursor: "pointer",
+                    transition: "background 160ms ease, color 160ms ease, border-color 160ms ease",
                   }}
                 >
                   Clear all
@@ -3538,13 +3640,12 @@ function ToastStack({
                       alignItems: "center",
                       gap: 12,
                       padding: "12px 14px",
-                      background:
-                        "linear-gradient(180deg,#ffffff,rgba(255,255,255,0.75))",
-                      border: "1px solid #ffe1e1",
+                      background: historyItemPalette.bg,
+                      border: historyItemPalette.border,
                       borderRadius: 12,
-                      color: "#7f1d1d",
+                      color: historyItemPalette.color,
                       fontWeight: 800,
-                      boxShadow: "0 1px 0 rgba(255,255,255,0.65) inset",
+                      boxShadow: historyItemPalette.shadow,
                       marginBottom: 8,
                     }}
                   >
@@ -3554,8 +3655,8 @@ function ToastStack({
                         width: 12,
                         height: 12,
                         borderRadius: 999,
-                        background: "linear-gradient(180deg,#fb7185,#ef4444)",
-                        boxShadow: "0 0 0 2px rgba(239,68,68,.18)",
+                        background: historyItemPalette.dot,
+                        boxShadow: historyItemPalette.dotRing,
                       }}
                     />
                     <div
@@ -3578,8 +3679,8 @@ function ToastStack({
                         opacity: 0.75,
                         padding: "2px 8px",
                         borderRadius: 999,
-                        background: "#ffe8ea",
-                        border: "1px solid #ffd2d6",
+                        background: historyItemPalette.timeBg,
+                        border: historyItemPalette.timeBorder,
                       }}
                     >
                       {fmtTime(t.ts)}
@@ -3595,9 +3696,8 @@ function ToastStack({
                   bottom: 0,
                   height: 18,
                   pointerEvents: "none",
-                  background:
-                    "linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.55))",
-                  borderTop: "1px solid rgba(255,255,255,.4)",
+                  background: historyFadeBg,
+                  borderTop: historyFadeBorder,
                 }}
               />
             </m.div>

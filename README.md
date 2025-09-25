@@ -48,7 +48,7 @@ Kompakt állomásalkalmazás KFB panelek (MAC) szkenneléséhez, KSK előkészí
 %%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 140}, 'themeVariables': {'fontSize': '18px'}}}%%
 flowchart LR
     A[IDLE: Scan Prompt] -->|Scan or Run Check| B{Setup data present?}
-    B -- No --> B1[Show "No setup data" banner\nClear scanned code\nReady for immediate retry] --> A
+    B -- No --> B1[Show no setup data banner\nClear scanned code\nReady for immediate retry] --> A
 
     B -- Yes --> C{Failures or unknown pins?}
 

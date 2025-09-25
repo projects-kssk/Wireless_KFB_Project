@@ -15,6 +15,12 @@ import BranchDashboardMainContent from "@/components/Program/BranchDashboardMain
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
 import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 import { UnionEffect } from "./components/UnionEffect";
+import { AutoFinalizeEffect } from "./components/AutoFinalizeEffect";
+import { DeviceEventsEffect } from "./components/DeviceEventsEffect";
+import { PollingEffect } from "./components/PollingEffect";
+import { PostResetSanityEffect } from "./components/PostResetSanityEffect";
+import { RedisHealthEffect } from "./components/RedisHealthEffect";
+import { ScannerEffect } from "./components/ScannerEffect";
 import { maskSimMac } from "@/lib/macDisplay";
 
 /* =================================================================================
@@ -1764,85 +1770,6 @@ const MainApplicationUI: React.FC = () => {
    *   - Rövid debouncolás, hogy a villanásokat/ingadozásokat kiszűrje.
    */
   /* -------------------------------------------------------------------------- */
-  /** Redis health monitor + optional rehydrate on recovery */
-  const RedisHealthEffect: React.FC = () => {
-    useEffect(() => {
-      if (ASSUME_REDIS_READY) {
-        prevRedisReadyRef.current = !!(serial as any).redisReady;
-        if (redisDegraded) setRedisDegraded(false);
-        return;
-      }
-      const ready = !!(serial as any).redisReady;
-      const prev = prevRedisReadyRef.current;
-      prevRedisReadyRef.current = ready;
-      if (prev === null) return;
-
-      const DEBOUNCE_MS = Math.max(
-        300,
-        Number(process.env.NEXT_PUBLIC_REDIS_DROP_DEBOUNCE_MS ?? "900")
-      );
-
-      if (prev === true && ready === false) {
-        if (redisDropTimerRef.current == null) {
-          lastRedisDropAtRef.current = Date.now();
-          redisDropTimerRef.current = window.setTimeout(() => {
-            redisDropTimerRef.current = null;
-            if (!redisReadyRef.current) setRedisDegraded(true);
-          }, DEBOUNCE_MS);
-        }
-      }
-      if (prev === false && ready === true) {
-        if (redisDropTimerRef.current != null) {
-          try {
-            clearTimeout(redisDropTimerRef.current);
-          } catch {}
-          redisDropTimerRef.current = null;
-        }
-        lastRedisDropAtRef.current = null;
-        setRedisDegraded(false);
-      }
-    }, [(serial as any).redisReady]);
-
-    // optional rehydrate after recovery (rate-limited) while active
-    const rehydrateBlockUntilRef = useRef<number>(0);
-    useEffect(() => {
-      if (!FLAGS.REHYDRATE_ON_RECOVERY) return;
-      if (redisDegraded) return;
-      if (suppressLive) return;
-      const mac = (macRef.current || "").toUpperCase();
-      if (!mac || !MAC_ONLY_REGEX.test(mac)) return;
-      if (!isScanning && !isChecking) return;
-
-      const now = Date.now();
-      if (now < (rehydrateBlockUntilRef.current || 0)) return;
-      rehydrateBlockUntilRef.current = now + 30000; // 30s cooldown
-
-      (async () => {
-        try {
-          await fetch("/api/aliases/rehydrate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mac }),
-          }).catch(() => {});
-          const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mac)}`, {
-            cache: "no-store",
-          });
-          if (r.ok) {
-            const j = await r.json();
-            if (Array.isArray(j?.normalPins))
-              setNormalPins(j.normalPins as number[]);
-            if (Array.isArray(j?.latchPins))
-              setLatchPins(j.latchPins as number[]);
-            if (j?.aliases && typeof j.aliases === "object")
-              setNameHints(j.aliases as Record<string, string>);
-          }
-        } catch {}
-      })();
-    }, [redisDegraded, isScanning, isChecking, suppressLive]);
-
-    return null;
-  };
-
   /* -------------------------------------------------------------------------- */
   /* [HU] AutoFinalizeEffect
    *   - Ha minden megjelenített ág OK és nincs épp check/scanning,
@@ -1850,36 +1777,6 @@ const MainApplicationUI: React.FC = () => {
    */
   /* -------------------------------------------------------------------------- */
   /** Auto-success if everything in view is OK (no failures) */
-  const AutoFinalizeEffect: React.FC = () => {
-    useEffect(() => {
-      if (isScanning || isChecking) {
-        okFlashAllowedRef.current = false;
-        return;
-      }
-      const anyFailures =
-        Array.isArray(checkFailures) && checkFailures.length > 0;
-      if (anyFailures) return;
-
-      const flatOk =
-        Array.isArray(branchesData) &&
-        branchesData.length > 0 &&
-        branchesData.every((b) => b.testStatus === "ok");
-      const groupedOk =
-        Array.isArray(groupedBranches) &&
-        groupedBranches.length > 0 &&
-        groupedBranches.every(
-          (g) =>
-            g.branches.length > 0 &&
-            g.branches.every((b) => b.testStatus === "ok")
-        );
-      if (flatOk || groupedOk) {
-        const macUp = (macRef.current || "").toUpperCase();
-        if (macUp) void finalizeOkForMac(macUp);
-      }
-    }, [branchesData, groupedBranches, checkFailures, isScanning, isChecking]);
-    return null;
-  };
-
   /** START / RESULT / DONE device events
    *  IMPORTANT CHANGE:
    *  - If we have an active scanned MAC, treat events as for that MAC even if device mac is ZERO or mismatched.
@@ -1894,130 +1791,6 @@ const MainApplicationUI: React.FC = () => {
    *   - FAIL eseménynél, ha épp nem checkelünk, belép "checking" módba.
    */
   /* -------------------------------------------------------------------------- */
-  const DeviceEventsEffect: React.FC = () => {
-    // OK path
-    useEffect(() => {
-      if (setupGateActive) return;
-      if (suppressLive) return;
-
-      const ev = (serial as any).lastEv as {
-        kind?: string;
-        mac?: string | null;
-        line?: string;
-        raw?: string;
-        ok?: any;
-      } | null;
-      if (!ev) return;
-
-      const raw = String(ev.line ?? ev.raw ?? "");
-      const kind = String(ev.kind || "").toUpperCase();
-
-      const current = (macRef.current || "").toUpperCase();
-      const setupReady = hasSetupForCurrentMac();
-
-      if (kind === "START") {
-        if (isCheckingRef.current) return;
-        let evMac = String(ev.mac || "").toUpperCase();
-        const current = (macRef.current || "").toUpperCase();
-        if (!evMac || evMac === ZERO_MAC) {
-          evMac = current || (lastScanRef.current || "").toUpperCase();
-        }
-        if (!evMac) return;
-        const lastFinalizedAgo = Date.now() - (lastFinalizedAtRef.current || 0);
-        if (blockedMacRef.current.has(evMac)) return;
-        if (lastFinalizedAgo >= 0 && lastFinalizedAgo < CFG.RETRY_COOLDOWN_MS)
-          return;
-        if (!current) {
-          setMacAddress(evMac);
-          setKfbNumber(evMac);
-        }
-        setIsChecking(true);
-        okFlashAllowedRef.current = true;
-      }
-
-      const ok =
-        (/\bRESULT\b/i.test(raw) && /\b(SUCCESS|OK)\b/i.test(raw)) ||
-        String(ev.ok).toLowerCase() === "true";
-
-      // If we have a current MAC, we **accept** the event for it (do not drop on mismatch).
-      if (!current) return;
-
-      if ((kind === "RESULT" || kind === "DONE") && ok) {
-        if (!setupReady) return;
-        // Mark all OK, finalize
-        setBranchesData((prev) =>
-          prev.map((b) => ({ ...b, testStatus: "ok" as const }))
-        );
-        setCheckFailures([]);
-        setIsChecking(false);
-        setIsScanning(false);
-        if (okFlashAllowedRef.current && !okShownOnceRef.current) {
-          okShownOnceRef.current = true;
-          setOkFlashTick((t) => t + 1);
-        }
-        void finalizeOkForMac(current);
-      }
-    }, [
-      (serial as any).lastEvTick,
-      setupGateActive,
-      suppressLive,
-      finalizeOkForMac,
-      hasSetupForCurrentMac,
-    ]);
-
-    // Failure fallback (enter checking if a failure arrives while not checking)
-    useEffect(() => {
-      if (suppressLive) return;
-      if (!hasSetupForCurrentMac()) return;
-      const ev = (serial as any).lastEv as {
-        kind?: string;
-        mac?: string | null;
-        line?: string;
-        raw?: string;
-        ok?: any;
-      } | null;
-      if (!ev) return;
-
-      const raw = String(ev.line ?? ev.raw ?? "");
-      const kind = String(ev.kind || "").toUpperCase();
-      const current = (macRef.current || "").toUpperCase();
-      if (!current) return;
-
-      const isResultish =
-        kind === "DONE" || kind === "RESULT" || /\bRESULT\b/i.test(raw);
-      const isFailure =
-        String(ev.ok).toLowerCase() === "false" ||
-        /\bFAIL(?:URE)?\b/i.test(raw);
-
-      if (isResultish && isFailure && !isCheckingRef.current) {
-        setIsChecking(true);
-        okFlashAllowedRef.current = true;
-        // Parse "MISSING 1,10,..."
-        try {
-          const m = raw.match(/MISSING\s+([0-9 ,]+)/i);
-          if (m && m[1]) {
-            const pins = m[1]
-              .split(/[, ]+/)
-              .map((s) => Number(s))
-              .filter((n) => Number.isFinite(n));
-            if (pins.length) {
-              setCheckFailures(pins);
-              setBranchesData((prev) =>
-                prev.map((b) =>
-                  pins.includes(Number(b.pinNumber))
-                    ? { ...b, testStatus: "nok" as const }
-                    : b
-                )
-              );
-            }
-          }
-        } catch {}
-      }
-    }, [(serial as any).lastEvTick, suppressLive, hasSetupForCurrentMac]);
-
-    return null;
-  };
-
   /* ========================================================================== */
   /* [HU] ScannerEffect lépései
    *   1. SSE esemény szűrése: preferált olvasó útvonal (ACM0/USB0/index) ellenőrzése.
@@ -2033,48 +1806,6 @@ const MainApplicationUI: React.FC = () => {
    *   3. Stabilizáció: útvonal-ellenőrzés és reentrancia gátak biztosítják a hibatűrést.
    */
   /* ========================================================================== */
-
-  /** Consume SSE scanner events (no manual). Enforces scanner path preference. */
-  const ScannerEffect: React.FC = () => {
-    useEffect(() => {
-      // 1. Csak dashboard nézetben, nyitott beállítások hiányában reagálunk az SSE-re.
-      if (mainView !== "dashboard") return;
-      if (isSettingsSidebarOpen) return;
-      if (!(serial as any).lastScanTick) return;
-
-      // 1. Preferált olvasó útvonal érvényesítése (ACM/USB vagy index).
-      const want = resolveDesiredPath();
-      const seen = (serial as any).lastScanPath as string | null | undefined;
-      const pathOk =
-        !want ||
-        !seen ||
-        ((isAcmPath(seen) && isAcmPath(want)) || pathsEqual(seen, want));
-      if (!pathOk) return;
-
-      // 2. Feldolgozás letiltása ütközés, throttling vagy blokkolt MAC esetén.
-      const code = (serial as any).lastScan;
-      if (!code) return;
-      if (isCheckingRef.current || isScanning) return;
-
-      const norm = String(code).trim().toUpperCase();
-      if (!norm) return;
-      if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
-      if (blockedMacRef.current.has(norm)) return;
-
-      // 3. Token-koaleszcencia után elfogadott kód feldolgozása.
-      void handleScan(norm, "sse");
-    }, [
-      (serial as any).lastScanTick,
-      (serial as any).lastScanPath,
-      handleScan,
-      isScanning,
-      mainView,
-      isSettingsSidebarOpen,
-      resolveDesiredPath,
-      pathsEqual,
-    ]);
-    return null;
-  };
 
   // Allow Dev simulator "Run Check" events to behave like physical scans.
   useEffect(() => {
@@ -2110,126 +1841,6 @@ const MainApplicationUI: React.FC = () => {
     enableSimOverride,
   ]);
 
-  /** Polling fallback to consume scans when SSE is stale/idle */
-  const PollingEffect: React.FC = () => {
-    useEffect(() => {
-      // 1. SSE inaktivitási küszöb és poll engedélyezés ellenőrzése.
-      if (!FLAGS.SCANNER_POLL) return;
-      if (mainView !== "dashboard") return;
-      if (isSettingsSidebarOpen) return;
-      if (suppressLive) return;
-      if (macRef.current) return; // only when no active mac
-      if (isCheckingRef.current) return;
-      if (isScanning) return;
-
-      // 1. Stale időkeret validálása.
-      const STALE_MS = Number(
-        process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000"
-      );
-      if (
-        !(typeof STALE_MS === "number" && isFinite(STALE_MS)) ||
-        STALE_MS <= 0
-      )
-        return;
-
-      let stopped = false;
-      let timer: number | null = null;
-      let ctrl: AbortController | null = null;
-
-      const tick = async () => {
-        try {
-          // 2. SSE állapotának újraellenőrzése, amíg ténylegesen szükség van pollra.
-          const lastAtNow = (serial as any).lastScanAt as
-            | number
-            | null
-            | undefined;
-          const sseOkNow = !!(serial as any).sseConnected;
-          const staleNow =
-            !(typeof lastAtNow === "number" && isFinite(lastAtNow)) ||
-            Date.now() - (lastAtNow as number) > STALE_MS;
-          if (sseOkNow && !staleNow) {
-            stopped = true;
-            return;
-          }
-          if (isScanning) {
-            timer = window.setTimeout(tick, 500);
-            return;
-          }
-          ctrl = new AbortController();
-          const want = resolveDesiredPath();
-          if (!want) {
-            timer = window.setTimeout(tick, 1200);
-            return;
-          }
-          // 3. Poll végrehajtása validált útvonalon, hibatűréssel.
-          const url = `/api/serial/scanner?path=${encodeURIComponent(
-            want
-          )}&consume=1`;
-          const res = await fetch(url, {
-            cache: "no-store",
-            signal: ctrl.signal,
-          });
-          if (res.ok) {
-            const { code, path, error, retryInMs } = await res.json();
-            const raw = typeof code === "string" ? code.trim() : "";
-            if (raw) {
-              const norm = raw.toUpperCase();
-              if (path && !isAcmPath(path)) return;
-              if (
-                want &&
-                path &&
-                !(isAcmPath(path) && isAcmPath(want)) &&
-                !pathsEqual(path, want)
-              )
-                return;
-              if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
-              if (blockedMacRef.current.has(norm)) return;
-              await handleScan(norm, "poll");
-            } else if (error) {
-              const str = String(error);
-              const lower = str.toLowerCase();
-              const isNotPresent =
-                lower.includes("not present") || lower.includes("not_present");
-              if (!isNotPresent) {
-                setScanResult({ text: str, kind: "error" });
-                if (scanResultTimerRef.current)
-                  clearTimeout(scanResultTimerRef.current);
-                scanResultTimerRef.current = window.setTimeout(() => {
-                  setScanResult(null);
-                  scanResultTimerRef.current = null;
-                }, 2000);
-              }
-            }
-          }
-        } catch (e) {
-          if (!(e instanceof DOMException && e.name === "AbortError")) {
-            console.error("[SCANNER] poll error", e);
-          }
-        } finally {
-          if (!stopped) timer = window.setTimeout(tick, 1800);
-        }
-      };
-
-      tick();
-      return () => {
-        stopped = true;
-        if (timer) window.clearTimeout(timer);
-        if (ctrl) ctrl.abort();
-      };
-    }, [
-      FLAGS.SCANNER_POLL,
-      handleScan,
-      isScanning,
-      mainView,
-      isSettingsSidebarOpen,
-      suppressLive,
-      (serial as any).lastScanAt,
-      (serial as any).sseConnected,
-      resolveDesiredPath,
-      pathsEqual,
-    ]);
-    return null;
-  };
   /* -------------------------------------------------------------------------- */
   /* [HU] PostResetSanityEffect
    *   - Finalize után (amikor már nincs aktív MAC) még egyszer óvatosan törli az aliasokat/lockokat,
@@ -2237,31 +1848,6 @@ const MainApplicationUI: React.FC = () => {
    */
   /* -------------------------------------------------------------------------- */
   /** Post-reset sanity cleanup for last finalized mac */
-  const PostResetSanityEffect: React.FC = () => {
-    useEffect(() => {
-      const mac = lastFinalizedMacRef.current;
-      if (!mac) return;
-      const onScanView =
-        mainView === "dashboard" && !(macRef.current && macRef.current.trim());
-      if (!onScanView) return;
-      if (isScanning || isChecking) return;
-
-      (async () => {
-        try {
-          await fetch("/api/aliases/clear", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mac }),
-          }).catch(() => {});
-          await clearKskLocksFully(mac).catch(() => {});
-        } finally {
-          lastFinalizedMacRef.current = null;
-        }
-      })();
-    }, [mainView, isScanning, isChecking]);
-    return null;
-  };
-
   /* -----------------------------------------------------------------------------
    * HUD derived info
    * ---------------------------------------------------------------------------*/
@@ -2413,12 +1999,97 @@ const MainApplicationUI: React.FC = () => {
         setLatchPins={setLatchPins}
         setNameHints={setNameHints}
       />
-      <RedisHealthEffect />
-      <DeviceEventsEffect />
-      <ScannerEffect />
-      <PollingEffect />
-      <AutoFinalizeEffect />
-      <PostResetSanityEffect />
+      <RedisHealthEffect
+        serial={serial}
+        assumeRedisReady={ASSUME_REDIS_READY}
+        redisDegraded={redisDegraded}
+        setRedisDegraded={setRedisDegraded}
+        redisReadyRef={redisReadyRef}
+        prevRedisReadyRef={prevRedisReadyRef}
+        redisDropTimerRef={redisDropTimerRef}
+        lastRedisDropAtRef={lastRedisDropAtRef}
+        rehydrateOnRecovery={FLAGS.REHYDRATE_ON_RECOVERY}
+        suppressLive={suppressLive}
+        macRef={macRef}
+        macRegex={MAC_ONLY_REGEX}
+        isScanning={isScanning}
+        isChecking={isChecking}
+        setNormalPins={setNormalPins}
+        setLatchPins={setLatchPins}
+        setNameHints={setNameHints}
+      />
+      <DeviceEventsEffect
+        serial={serial}
+        setupGateActive={setupGateActive}
+        suppressLive={suppressLive}
+        zeroMac={ZERO_MAC}
+        retryCooldownMs={CFG.RETRY_COOLDOWN_MS}
+        hasSetupForCurrentMac={hasSetupForCurrentMac}
+        macRef={macRef}
+        lastScanRef={lastScanRef}
+        blockedMacRef={blockedMacRef}
+        lastFinalizedAtRef={lastFinalizedAtRef}
+        isCheckingRef={isCheckingRef}
+        okFlashAllowedRef={okFlashAllowedRef}
+        okShownOnceRef={okShownOnceRef}
+        setOkFlashTick={setOkFlashTick}
+        setMacAddress={setMacAddress}
+        setKfbNumber={setKfbNumber}
+        setIsChecking={setIsChecking}
+        setIsScanning={setIsScanning}
+        setBranchesData={setBranchesData}
+        setCheckFailures={setCheckFailures}
+        finalizeOkForMac={finalizeOkForMac}
+      />
+      <ScannerEffect
+        serial={serial}
+        mainView={mainView}
+        isSettingsSidebarOpen={isSettingsSidebarOpen}
+        isScanning={isScanning}
+        isCheckingRef={isCheckingRef}
+        idleCooldownUntilRef={idleCooldownUntilRef}
+        blockedMacRef={blockedMacRef}
+        resolveDesiredPath={resolveDesiredPath}
+        pathsEqual={pathsEqual}
+        isAcmPath={isAcmPath}
+        handleScan={handleScan}
+      />
+      <PollingEffect
+        serial={serial}
+        scannerPollEnabled={FLAGS.SCANNER_POLL}
+        mainView={mainView}
+        isSettingsSidebarOpen={isSettingsSidebarOpen}
+        suppressLive={suppressLive}
+        macRef={macRef}
+        isCheckingRef={isCheckingRef}
+        isScanning={isScanning}
+        idleCooldownUntilRef={idleCooldownUntilRef}
+        blockedMacRef={blockedMacRef}
+        scanResultTimerRef={scanResultTimerRef}
+        resolveDesiredPath={resolveDesiredPath}
+        pathsEqual={pathsEqual}
+        isAcmPath={isAcmPath}
+        handleScan={handleScan}
+        setScanResult={setScanResult}
+      />
+      <AutoFinalizeEffect
+        isScanning={isScanning}
+        isChecking={isChecking}
+        okFlashAllowedRef={okFlashAllowedRef}
+        checkFailures={checkFailures}
+        branchesData={branchesData}
+        groupedBranches={groupedBranches}
+        macRef={macRef}
+        finalizeOkForMac={finalizeOkForMac}
+      />
+      <PostResetSanityEffect
+        lastFinalizedMacRef={lastFinalizedMacRef}
+        mainView={mainView}
+        macRef={macRef}
+        isScanning={isScanning}
+        isChecking={isChecking}
+        clearKskLocksFully={clearKskLocksFully}
+      />
 
       <div
         className="flex flex-1 flex-col transition-all"

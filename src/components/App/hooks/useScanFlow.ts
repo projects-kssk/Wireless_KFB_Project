@@ -509,16 +509,17 @@ export const useScanFlow = ({
             }
             return;
           } else {
-          if (!setupReadyRef) {
-            setGroupedBranches([]);
-            return;
-          }
+            if (!setupReadyRef) {
+              setGroupedBranches([]);
+              return;
+            }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
             setScanResult({ text, kind: unknown ? "error" : "info" });
             // Allow the banner to animate out smoothly; no hard unmounts.
-            if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+            if (scanResultTimerRef.current)
+              clearTimeout(scanResultTimerRef.current);
             scanResultTimerRef.current = window.setTimeout(() => {
               setScanResult(null);
               scanResultTimerRef.current = null;
@@ -640,7 +641,7 @@ export const useScanFlow = ({
         console.warn("[FLOW][SCAN] rejected by patterns", { raw: rawCode });
         return;
       }
-      lastScanRef.current = rawCode.toUpperCase();
+      lastScanRef.current = macKey(rawCode);
 
       setIsScanning(true);
       setErrorMsg(null);
@@ -817,10 +818,13 @@ export const useScanFlow = ({
         noSetupCooldownRef.current = { mac: blockKey, until };
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
-        scanResultTimerRef.current = window.setTimeout(() => {
-          setScanResult(null);
-          scanResultTimerRef.current = null;
-        }, Math.min(cooldownMs, 3000));
+        scanResultTimerRef.current = window.setTimeout(
+          () => {
+            setScanResult(null);
+            scanResultTimerRef.current = null;
+          },
+          Math.min(cooldownMs, 3000)
+        );
         if (typeof window !== "undefined") {
           window.setTimeout(() => {
             if (
@@ -890,7 +894,13 @@ export const useScanFlow = ({
           return;
       } catch {}
 
-      if (!(canonicalMac(trimmed) || extractMac(trimmed) || KFB_REGEX.test(trimmed))) {
+      if (
+        !(
+          canonicalMac(trimmed) ||
+          extractMac(trimmed) ||
+          KFB_REGEX.test(trimmed)
+        )
+      ) {
         console.warn("[SCAN] invalid code format", { code: trimmed });
         return;
       }

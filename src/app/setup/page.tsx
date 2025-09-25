@@ -2044,14 +2044,13 @@ export default function SetupPage() {
 
   const gradientLight =
     "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
-  const gradientDark =
-    "radial-gradient(160% 160% at 0% -40%, #0b1220 0%, #0b1220 55%, #020617 100%)";
-  const surfaceBg = isDark ? "rgba(15,23,42,0.86)" : "#ffffff";
-  const surfaceBorder = isDark ? "rgba(148,163,184,0.24)" : "#edf2f7";
-  const primaryText = isDark ? "#e2e8f0" : "#0f172a";
-  const mutedText = isDark ? "#94a3b8" : "#64748b";
-  const inputBg = isDark ? "rgba(15,23,42,0.75)" : "#ffffff";
-  const inputBorder = isDark ? "rgba(148,163,184,0.35)" : "#cbd5e1";
+  const gradientDark = "#333333";
+  const surfaceBg = isDark ? "#3a3a3a" : "#ffffff";
+  const surfaceBorder = isDark ? "rgba(255,255,255,0.08)" : "#edf2f7";
+  const primaryText = isDark ? "#f5f5f5" : "#0f172a";
+  const mutedText = isDark ? "#d1d5db" : "#64748b";
+  const inputBg = isDark ? "#2b2b2b" : "#ffffff";
+  const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "#cbd5e1";
 
   const page: CSSProperties = {
     minHeight: "100vh",
@@ -2078,7 +2077,7 @@ export default function SetupPage() {
     display: "grid",
     gap: 6,
     boxShadow: isDark
-      ? "0 30px 60px -40px rgba(15,23,42,0.9)"
+      ? "0 30px 60px -40px rgba(0,0,0,0.55)"
       : "0 20px 45px -35px rgba(15,23,42,0.22)",
     transition:
       "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
@@ -2574,6 +2573,7 @@ export default function SetupPage() {
       <ToastStack
         items={toasts}
         onDismiss={(id) => setToasts((prev) => prev.filter((t) => t.id !== id))}
+        darkMode={isDark}
       />
 
       {/* Overlay */}
@@ -2794,7 +2794,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   const isErr = status === "error";
   const isPending = status === "pending";
 
-  const baseBg = darkMode ? "rgba(30,41,59,0.82)" : "#fbfdff";
+  const baseBg = darkMode ? "#3a3a3a" : "#fbfdff";
   const cardBg = isOk
     ? darkMode
       ? "rgba(34,197,94,0.16)"
@@ -2833,7 +2833,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   const numberBg = darkMode ? "rgba(148,163,184,0.2)" : "#eef6ff";
   const numberBorder = darkMode ? "rgba(148,163,184,0.36)" : "#d9e7ff";
   const numberColor = darkMode ? "#e2e8f0" : "#0b1220";
-  const stripeSurface = darkMode ? "rgba(15,23,42,0.7)" : "#fbfdff";
+  const stripeSurface = darkMode ? "#353535" : "#fbfdff";
   const stripeBorder = darkMode ? "rgba(148,163,184,0.3)" : "#d6e3f0";
   const stripePattern = darkMode
     ? "repeating-linear-gradient(90deg,rgba(148,163,184,0.55) 0 6px,transparent 6px 14px)"
@@ -2842,11 +2842,11 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
     width: "100%",
     height: 46,
     borderRadius: 10,
-    border: `1px solid ${darkMode ? "rgba(148,163,184,0.35)" : "#cbd5e1"}`,
+    border: `1px solid ${darkMode ? "rgba(255,255,255,0.12)" : "#cbd5e1"}`,
     padding: "0 12px",
     fontSize: 18,
     outline: "none",
-    background: darkMode ? "rgba(15,23,42,0.75)" : "#ffffff",
+    background: darkMode ? "#2b2b2b" : "#ffffff",
     color: darkMode ? "#e2e8f0" : "#0f172a",
     caretColor: darkMode ? "#e2e8f0" : "#0f172a",
     transition:

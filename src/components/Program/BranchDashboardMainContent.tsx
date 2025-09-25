@@ -962,26 +962,17 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         ? "text-red-600"
         : "text-slate-700";
 
-    const key = `${hudMode ?? "idle"}__${headline}`;
-
     return (
       <div
         className="w-full flex flex-col items-center gap-3"
         aria-live="polite"
         role="status"
       >
-        <AnimatePresence mode="wait">
-          <m.p
-            key={key}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18 }}
-            className={`text-6xl md:text-7xl ${tone} font-extrabold uppercase tracking-widest text-center select-none`}
-          >
-            {headline}
-          </m.p>
-        </AnimatePresence>
+        <p
+          className={`text-6xl md:text-7xl ${tone} font-extrabold uppercase tracking-widest text-center select-none`}
+        >
+          {headline}
+        </p>
 
         {/* Inline HUD card (secondary line) */}
         {hudMode && (

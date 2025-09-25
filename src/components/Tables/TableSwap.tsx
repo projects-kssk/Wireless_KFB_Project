@@ -105,7 +105,7 @@ function CornerBarcodeHint({
             background: frameColor,
             overflow: "hidden",
             boxShadow:
-              "inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px rgba(15,23,42,.15)",
+              `inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px ${darkMode ? "rgba(0,0,0,0.35)" : "rgba(15,23,42,.15)"}`,
           }}
       >
         {/* subtle vertical grid like the big box */}
@@ -364,6 +364,9 @@ export default function TableSwap({
   const calloutProgressBg = isDark
     ? "rgba(255,255,255,0.15)"
     : "rgba(15,23,42,0.06)";
+  const calloutShadow = isDark
+    ? "0 10px 26px rgba(0,0,0,0.45)"
+    : "0 10px 26px rgba(0,0,0,0.14)";
   const overlayShadow = isDark
     ? "inset 0 1px 0 rgba(255,255,255,0.12), 0 22px 44px rgba(0,0,0,0.45)"
     : "inset 0 1px 0 rgba(255,255,255,0.7), 0 22px 44px rgba(15,23,42,0.25)";
@@ -602,7 +605,7 @@ export default function TableSwap({
                 background: calloutBg,
                 backdropFilter: "saturate(180%) blur(12px)",
                 WebkitBackdropFilter: "saturate(180%) blur(12px)",
-                boxShadow: "0 10px 26px rgba(0,0,0,0.14)",
+                boxShadow: calloutShadow,
                 color: calloutColor,
                 fontWeight: 900,
                 letterSpacing: "0.04em",
@@ -624,6 +627,7 @@ export default function TableSwap({
                     padding: "2px 8px",
                     borderRadius: 999,
                     background: calloutProgressBg,
+                    color: calloutColor,
                     fontWeight: 700,
                     letterSpacing: 0,
                     textTransform: "none",
@@ -847,10 +851,10 @@ function ScanIcon() {
         width="18"
         height="12"
         rx="3"
-        stroke="#64748b"
+        stroke="currentColor"
         strokeWidth="2"
       />
-      <path d="M7 6V5a5 5 0 0 1 10 0v1" stroke="#64748b" strokeWidth="2" />
+      <path d="M7 6V5a5 5 0 0 1 10 0v1" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
@@ -865,7 +869,7 @@ function BarsIcon() {
           width="1.2"
           height={14 - (i % 2 ? 2 : 0)}
           rx="0.6"
-          fill="#64748b"
+          fill="currentColor"
         />
       ))}
     </svg>
@@ -876,7 +880,7 @@ function ChevronRight() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         d="M9 6l6 6-6 6"
-        stroke="#64748b"
+        stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"

@@ -597,27 +597,29 @@ const MainApplicationUI: React.FC = () => {
       } catch {}
       simulateRetryTimerRef.current = null;
     }
-    const target = pending.target.toUpperCase();
-    const lastFinalized = (lastFinalizedMacRef.current || "").toUpperCase();
+    const targetRaw = pending.target || "";
+    const targetKey = macKey(targetRaw);
+    const target = targetKey || targetRaw.toUpperCase();
+    const lastFinalizedKey = macKey(lastFinalizedMacRef.current || "");
     const lastFinalizedAt = lastFinalizedAtRef.current || 0;
     if (
-      lastFinalized &&
-      target === lastFinalized &&
+      lastFinalizedKey &&
+      targetKey === lastFinalizedKey &&
       CFG.FINALIZED_RESCAN_BLOCK_MS > 0 &&
       Date.now() - lastFinalizedAt < CFG.FINALIZED_RESCAN_BLOCK_MS
     ) {
       pendingSimulateRef.current = null;
       return;
     }
-    const lastScanned = (lastScanRef.current || "").toUpperCase();
-    if (lastScanned && target === lastScanned) {
+    const lastScannedKey = macKey(lastScanRef.current || "");
+    if (lastScannedKey && targetKey === lastScannedKey) {
       pendingSimulateRef.current = null;
       return;
     }
     const noSetupCooldown = noSetupCooldownRef.current;
     if (
       noSetupCooldown &&
-      noSetupCooldown.mac === macKey(target) &&
+      noSetupCooldown.mac === targetKey &&
       Date.now() < noSetupCooldown.until
     ) {
       pendingSimulateRef.current = null;
@@ -651,31 +653,33 @@ const MainApplicationUI: React.FC = () => {
 
     const macFromEvent = String(serial.simulateCheckMac || "").trim();
     const fallback = (macRef.current || "").trim();
-    const target = (macFromEvent || fallback).toUpperCase();
+    const targetRaw = macFromEvent || fallback;
+    const targetKey = macKey(targetRaw || "");
+    const target = targetKey || (targetRaw || "").toUpperCase();
     if (!target) {
       pendingSimulateRef.current = null;
       return;
     }
 
-    const blockKey = macKey(target);
+    const blockKey = targetKey;
     const cooldown = noSetupCooldownRef.current;
     if (cooldown && cooldown.mac === blockKey && Date.now() < cooldown.until) {
       return;
     }
 
-    const lastFinalized = (lastFinalizedMacRef.current || "").toUpperCase();
+    const lastFinalizedKey = macKey(lastFinalizedMacRef.current || "");
     const lastFinalizedAt = lastFinalizedAtRef.current || 0;
     if (
-      lastFinalized &&
-      target === lastFinalized &&
+      lastFinalizedKey &&
+      blockKey === lastFinalizedKey &&
       CFG.FINALIZED_RESCAN_BLOCK_MS > 0 &&
       Date.now() - lastFinalizedAt < CFG.FINALIZED_RESCAN_BLOCK_MS
     ) {
       return;
     }
 
-    const lastScanned = (lastScanRef.current || "").toUpperCase();
-    if (lastScanned && lastScanned === target) {
+    const lastScannedKey = macKey(lastScanRef.current || "");
+    if (lastScannedKey && lastScannedKey === blockKey) {
       return;
     }
 

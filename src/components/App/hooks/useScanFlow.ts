@@ -508,7 +508,6 @@ export const useScanFlow = ({
             if (!setupReadyRef) {
               setGroupedBranches([]);
               setScanResult(null);
-              await finalizeOkForMac(mac);
               return;
             }
             const text = unknown
@@ -772,6 +771,21 @@ export const useScanFlow = ({
 
       setKfbNumber(pendingMac);
       setMacAddress(pendingMac);
+
+      const hasPins = Array.isArray(pins) && pins.length > 0;
+      const hasAliases = Object.keys(aliases).length > 0;
+      const hasActive = activeIds.length > 0;
+      if (!hasPins && !hasAliases && !hasActive) {
+        okFlashAllowedRef.current = false;
+        setScanResult({
+          text: "No setup data available for this MAC",
+          kind: "info",
+        });
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
+      }
+
       okFlashAllowedRef.current = true;
 
       await runCheck(pendingMac, 0, pins);

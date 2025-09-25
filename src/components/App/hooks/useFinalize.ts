@@ -95,8 +95,8 @@ export const useFinalize = ({
   cfgRetryCooldownMs,
   activeKssks,
   setOkSystemNote,
-  setMacAddress,
-  setKfbNumber,
+  setMacAddress: _setMacAddress,
+  setKfbNumber: _setKfbNumber,
   setSuppressLive,
   handleResetKfb,
   lastRunHadFailuresRef,
@@ -116,6 +116,9 @@ export const useFinalize = ({
   checkpointUrl,
   clientResultUrl,
 }: UseFinalizeParams) => {
+  void _setMacAddress;
+  void _setKfbNumber;
+
   const clearAliasesVerify = useCallback(async (mac: string) => {
     const MAC = mac.toUpperCase();
     await fetch("/api/aliases/clear", {
@@ -352,9 +355,6 @@ export const useFinalize = ({
           }
         } catch {}
 
-        setMacAddress("");
-        setKfbNumber("");
-
         try {
           lastFinalizedMacRef.current = mac;
           lastFinalizedAtRef.current = Date.now();
@@ -443,19 +443,31 @@ export const useFinalize = ({
         }
 
         let hasSetup = ids.length > 0;
-        let okNote = "";
+
+        const mutableOps: {
+          checkpoint: boolean;
+          aliases: boolean;
+          locks: boolean;
+        } = {
+          checkpoint: false,
+          aliases: false,
+          locks: false,
+        };
+
         if (hasSetup) {
-          const sent = await sendCheckpointForMac(mac, ids).catch(() => false);
-          okNote = sent ? "Checkpoint sent; cache cleared" : "Cache cleared";
-        } else {
-          okNote = "Cache cleared";
+          mutableOps.checkpoint = await sendCheckpointForMac(mac, ids).catch(
+            () => false
+          );
         }
 
         const snapshotCount = Array.isArray(itemsAllFromAliasesRef.current)
           ? itemsAllFromAliasesRef.current.length
           : 0;
         const shouldClearAliases = hadAliases || snapshotCount > 0;
-        if (shouldClearAliases) await clearAliasesVerify(mac);
+        if (shouldClearAliases) {
+          await clearAliasesVerify(mac);
+          mutableOps.aliases = true;
+        }
 
         const shouldClearLocks =
           hadLocksForMac || (activeKssks?.length ?? 0) > 0 || hasSetup;
@@ -475,12 +487,22 @@ export const useFinalize = ({
               }).catch(() => {});
             }
           } catch {}
+          mutableOps.locks = locksCleared;
         }
 
-        if (!hasSetup && !shouldClearAliases && !shouldClearLocks) {
-          okNote = "Nothing to clear";
+        const messageParts: string[] = [];
+        if (mutableOps.checkpoint) messageParts.push("checkpoint sent");
+        if (mutableOps.aliases) messageParts.push("cache cleared");
+        if (mutableOps.locks) messageParts.push("locks cleared");
+
+        if (!messageParts.length) {
+          setOkSystemNote("Nothing to clear");
+        } else {
+          const first = messageParts.shift() as string;
+          const tail = messageParts.length ? `; ${messageParts.join("; ")}` : "";
+          const note = `${first}${tail}`;
+          setOkSystemNote(note.charAt(0).toUpperCase() + note.slice(1));
         }
-        setOkSystemNote(okNote);
       } finally {
         try {
           checkpointSentRef.current.clear();
@@ -512,8 +534,6 @@ export const useFinalize = ({
       lastScanRef,
       recentCleanupRef,
       sendCheckpointForMac,
-      setKfbNumber,
-      setMacAddress,
       setOkSystemNote,
       setSuppressLive,
       checkpointSentRef,

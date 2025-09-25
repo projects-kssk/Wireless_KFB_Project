@@ -40,10 +40,18 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
       return;
     }
 
+    const isBranchCleared = (branch: BranchDisplayData) => {
+      if (branch.testStatus === "ok") return true;
+      if (branch.testStatus === "not_tested") {
+        return (branch as any).isLatch === true;
+      }
+      return false;
+    };
+
     const flatOk =
       Array.isArray(branchesData) &&
       branchesData.length > 0 &&
-      branchesData.every((b) => b.testStatus === "ok");
+      branchesData.every((b) => isBranchCleared(b));
 
     const groupedOk =
       Array.isArray(groupedBranches) &&
@@ -51,7 +59,7 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
       groupedBranches.every(
         (g) =>
           g.branches.length > 0 &&
-          g.branches.every((b) => b.testStatus === "ok")
+          g.branches.every((b) => isBranchCleared(b))
       );
 
     if (flatOk || groupedOk) {

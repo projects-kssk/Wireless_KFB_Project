@@ -7,14 +7,14 @@ flowchart LR
 
     B -- Yes --> C{Any failures or unknown pins?}
     C -- Yes --> D[Enter LIVE MODE]
-    C -- No  --> E[Finalize live suppressed]<br/>E
+    C -- No --> E[Finalize live suppressed]
     E --> E1[Send checkpoints]
     E1 --> E2[Clear Redis alias cache and KSK locks]
     E2 --> E3[Flash OK SVG]
     E3 --> A
 
     %% Error path
-    A -.->|Errors 429/504/Pending during scan| F[Auto-Retry Loop]
+    A -.->|Errors 429 504 Pending during scan| F[Auto-Retry Loop]
     F -->|Retry success| C
     F -->|Retries exhausted| G[Reset KFB context<br/>Clear branch data<br/>Prompt another attempt] --> A
 ```
@@ -25,51 +25,30 @@ flowchart LR
 3. INPUT: Scan or run check finishes with no failures and setup data present -> OUTPUT: Live mode is suppressed, finalize sends checkpoints for the active KSKs, clears the Redis alias cache and KSK locks, flashes the OK SVG confirmation, and then resets the UI for the next device.
 4. INPUT: Scan or run check hits errors like 429/504/pending -> OUTPUT: Flow retries automatically; after retries are exhausted it resets the KFB context, clears branch data, and prompts another attempt.
 
-Got it—here are three clean flow diagrams (Mermaid) that match your scenarios, with **IDLE as the first box** and the flows branching as you described.
+## Additional Diagrams
 
-### 1) High-Level Flow (Idle → Live → Finalize/Reset + No-Setup + Errors)
-
-```mermaid
-flowchart LR
-    A[IDLE: Scan Prompt] -->|Scan/Run Check| B{Setup data present?}
-    B -- No --> B1[UI: "No setup data for this MAC"\n• Clear scanned code\n• Briefly block retries] --> A
-
-    B -- Yes --> C{Any failures or unknown pins?}
-    C -- Yes --> D[Enter LIVE MODE]
-    C -- No  --> E[Finalize (Live suppressed)\n• Send checkpoints for active KSKs\n• Clear Redis alias cache & KSK locks\n• Flash OK SVG] --> A
-
-    %% Error path
-    A -.->|Errors 429/504/Pending during scan| F[Auto-Retry Loop]
-    F -->|Retry success| C
-    F -->|Retries exhausted| G[Reset KFB context\nClear branch data\nPrompt another attempt] --> A
-```
-
-### 2) LIVE MODE Internals (Scenario 2 & 2.1)
+### LIVE Mode Internals (Scenario 2.1)
 
 ```mermaid
 flowchart TB
-    L0[BranchDashboardMainContent enters LIVE MODE\nwith active MAC] --> L1[Render status pill: SCANNING/CHECKING]
-    L1 --> L2[Build branch cards\nBadges: OK / NOK / Not Tested]
-    L2 --> L3[Show contact label names\nShow pin statuses in real time]
-    L3 --> L4[Highlight Pending Failures list]
-
-    %% Recovery
+    L0[Live mode enter with active MAC] --> L1[Render status pill SCANNING or CHECKING]
+    L1 --> L2[Build branch cards with OK or NOK or Not Tested]
+    L2 --> L3[Show contact label names and pin states]
+    L3 --> L4[Highlight pending failures list]
     L4 -->|All pins recover| L5[Flash large OK SVG]
     L5 --> L6[Push checkpoints for active KSKs]
-    L6 --> L7[Bulk-delete Redis alias cache entries for MAC]
+    L6 --> L7[Bulk delete Redis alias cache for MAC]
     L7 --> L8[Clear KSK locks]
-    L8 --> L9[Return to Scan Prompt IDLE]
+    L8 --> L9[Return to scan prompt IDLE]
 ```
 
-### 3) Error & Retry Handling (Scenario 4)
+### Error and Retry Handling (Scenario 4)
 
 ```mermaid
 flowchart TB
-    R0[Scan/Run Check] --> R1{Result}
-    R1 -- 429/504/Pending --> R2[Backoff & Auto-Retry]
-    R2 -->|Retry OK| R3[Continue normal flow\n(Live mode or Finalize)]
-    R2 -->|Retry fails & exhausted| R4[Reset KFB context\nClear branch data]
+    R0[Scan or run check] --> R1{Result}
+    R1 -- 429 or 504 or Pending --> R2[Backoff and auto retry]
+    R2 -->|Retry OK| R3[Continue normal flow<br/>Live mode or finalize]
+    R2 -->|Retry exhausted| R4[Reset KFB context<br/>Clear branch data]
     R4 --> R5[Prompt user for another attempt] --> R6[IDLE]
 ```
-
-If you want these exported as PNGs or a one-pager PDF, say the word and I’ll generate the files.

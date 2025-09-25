@@ -10,6 +10,7 @@ import {
 import type { Transition } from "framer-motion";
 import { appConfig } from "@/components/config/appConfig";
 import { useSerialEvents, type SerialState } from "./useSerialEvents";
+import ThemeToggle from "./ThemeToggle";
 
 /* ────────────────────────────────────────────────────────────────────────────
    Config
@@ -1421,12 +1422,15 @@ export const Header: React.FC<HeaderProps> = ({
                 const clean = raw.replace(/^v/i, "");
                 const label = `Version: ${clean}`;
                 return (
-                  <span
-                    className="inline-flex items-center rounded-xl border border-slate-300 bg-white text-slate-700 px-3 py-1 text-xs font-bold shadow-sm"
-                    title={label}
-                  >
-                    {label}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                      title={label}
+                    >
+                      {label}
+                    </span>
+                    <ThemeToggle />
+                  </div>
                 );
               })()}
               <SupportPillSM

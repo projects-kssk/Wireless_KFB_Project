@@ -22,6 +22,12 @@ body {
   color: rgb(var(--foreground-rgb));
   /* Make the application background pure white to match UI panels. */
   background-color: #ffffff;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+html.dark body {
+  color: rgb(226, 232, 240);
+  background-color: #020617;
 }
 
 /* Ensure your main content area also respects the dark theme */

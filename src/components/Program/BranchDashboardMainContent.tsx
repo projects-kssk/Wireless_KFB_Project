@@ -994,7 +994,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   : hudMode === "scanning"
                     ? "border-blue-200 bg-blue-50/90 text-blue-900"
                     : hudMode === "info"
-                      ? "border-emerald-200 bg-emerald-50/90 text-emerald-900"
+                      ? "border-blue-200 bg-blue-50/90 text-blue-900"
                       : "border-slate-200 bg-white/90 text-slate-900",
               ].join(" ")}
             >

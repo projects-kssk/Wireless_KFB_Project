@@ -686,6 +686,16 @@ const MainApplicationUI: React.FC = () => {
   /* -----------------------------------------------------------------------------
    * Post-reset cleanups
    * ---------------------------------------------------------------------------*/
+  const handleHudIdle = useCallback(() => {
+    const cooldown = noSetupCooldownRef.current;
+    if (cooldown) {
+      if (Date.now() < cooldown.until) return;
+      noSetupCooldownRef.current = null;
+    }
+    idleCooldownUntilRef.current = 0;
+    blockedMacRef.current.clear();
+  }, []);
+
   const { hudMode, hudMessage, hudSubMessage } = useHud({
     mainView,
     isScanning,
@@ -695,10 +705,7 @@ const MainApplicationUI: React.FC = () => {
     serial,
     redisDegraded,
     infoHideAt,
-    onIdle: () => {
-      idleCooldownUntilRef.current = 0;
-      blockedMacRef.current.clear();
-    },
+    onIdle: handleHudIdle,
   });
 
   // stable empties

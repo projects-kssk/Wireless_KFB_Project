@@ -2298,13 +2298,31 @@ export default function SetupPage() {
                   (() => {
                     const present = !!desiredState?.present;
                     const badgeBase =
-                      "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold";
-                    const badgeColor = present
-                      ? "border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
-                      : "border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200";
+                      "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-colors"
+                        + " shadow-sm";
+                    const badgeStyle: React.CSSProperties = present
+                      ? {
+                          border: "1px solid #6ee7b7",
+                          background: "rgba(16,185,129,0.18)",
+                          color: "#064e3b",
+                        }
+                      : {
+                          border: "1px solid #fca5a5",
+                          background: "rgba(239,68,68,0.18)",
+                          color: "#7f1d1d",
+                        };
+                    if (!present) {
+                      badgeStyle.background = "rgba(239,68,68,0.14)";
+                    }
                     return (
                       <span
-                        className={`${badgeBase} ${badgeColor}`}
+                        className={badgeBase}
+                        style={{
+                          ...badgeStyle,
+                          boxShadow: present
+                            ? "0 10px 24px -18px rgba(16,185,129,0.6)"
+                            : "0 10px 24px -18px rgba(239,68,68,0.55)",
+                        }}
                         title={desiredPath || undefined}
                       >
                         Scanner: {desiredTail}
@@ -2321,13 +2339,27 @@ export default function SetupPage() {
                 {(() => {
                   const ready = !!serial.redisReady;
                   const badgeBase =
-                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold";
-                  const badgeColor = ready
-                    ? "border border-emerald-300 bg-emerald-50 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200"
-                    : "border border-red-300 bg-red-50 text-red-900 dark:bg-red-900/20 dark:text-red-200";
+                    "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold transition-colors shadow-sm";
+                  const badgeStyle: React.CSSProperties = ready
+                    ? {
+                        border: "1px solid #6ee7b7",
+                        background: "rgba(16,185,129,0.18)",
+                        color: "#064e3b",
+                      }
+                    : {
+                        border: "1px solid #fca5a5",
+                        background: "rgba(239,68,68,0.18)",
+                        color: "#7f1d1d",
+                      };
                   return (
                     <span
-                      className={`${badgeBase} ${badgeColor}`}
+                      className={badgeBase}
+                      style={{
+                        ...badgeStyle,
+                        boxShadow: ready
+                          ? "0 10px 24px -18px rgba(16,185,129,0.6)"
+                          : "0 10px 24px -18px rgba(239,68,68,0.55)",
+                      }}
                       title={ready ? "Redis connected" : "Redis offline"}
                     >
                       Redis:

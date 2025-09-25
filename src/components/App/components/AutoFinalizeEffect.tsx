@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type FC } from "react";
 import type { BranchDisplayData } from "@/types/types";
 
 /** React 19–friendly structural ref shape */
@@ -16,7 +16,7 @@ export type AutoFinalizeEffectProps = {
   finalizeOkForMac: (mac: string) => Promise<void>;
 };
 
-export function AutoFinalizeEffect({
+export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
   isScanning,
   isChecking,
   okFlashAllowedRef,
@@ -26,7 +26,7 @@ export function AutoFinalizeEffect({
   macRef,
   lastRunHadFailuresRef,
   finalizeOkForMac,
-}: AutoFinalizeEffectProps): null {
+}) => {
   useEffect(() => {
     if (isScanning || isChecking) {
       okFlashAllowedRef.current = false;
@@ -71,6 +71,6 @@ export function AutoFinalizeEffect({
   ]);
 
   return null;
-}
+};
 
 export default AutoFinalizeEffect;

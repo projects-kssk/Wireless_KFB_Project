@@ -136,10 +136,10 @@ const MainApplicationUI: React.FC = () => {
     "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
   const gradientDark = "#222222";
   const appBackground = isDarkMode ? gradientDark : gradientLight;
-  const mainSurfaceBg = isDarkMode ? "#333333" : "#ffffff";
+  const mainSurfaceBg = "transparent";
   const mainSurfaceBorder = isDarkMode
-    ? "rgba(255,255,255,0.08)"
-    : "rgba(15,23,42,0.08)";
+    ? "rgba(255,255,255,0.06)"
+    : "rgba(15,23,42,0.06)";
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -1041,8 +1041,8 @@ const MainApplicationUI: React.FC = () => {
             background: mainSurfaceBg,
             borderTop: `1px solid ${mainSurfaceBorder}`,
             boxShadow: isDarkMode
-              ? "0 30px 60px -40px rgba(0,0,0,0.55)"
-              : "0 20px 45px -35px rgba(15,23,42,0.12)",
+              ? "0 18px 40px -30px rgba(0,0,0,0.45)"
+              : "0 18px 40px -35px rgba(15,23,42,0.08)",
           }}
         >
           {/* Animated banner overlay for idle + transient info */}

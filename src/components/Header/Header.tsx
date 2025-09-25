@@ -46,9 +46,10 @@ type TestState = "idle" | "calling" | "ok" | "error";
    Header chrome
    ──────────────────────────────────────────────────────────────────────────── */
 const StrictHeaderBg = [
-  "bg-[radial-gradient(180%_180%_at_0%_-55%,#b3c2ff_0%,#d4ddff_54%,#f4f6ff_100%)]",
-  "dark:bg-[#2a2a2a]",
-  "border-b border-[#c0ccf5] dark:border-[#3a3a3a]",
+  "bg-[linear-gradient(180deg,#ffffff_0%,#f2f4f7_100%)]",
+  "text-slate-900",
+  "dark:bg-[#222222] dark:text-slate-200",
+  "border-b border-[#e3e6ec] dark:border-[#1a1a1a]",
   "transition-colors",
 ].join(" ");
 
@@ -128,7 +129,7 @@ const SupportPillSM: React.FC<{
         </span>
       ) : (
         <div className="min-w-0">
-          <div className="text-[12px] font-extrabold text-slate-700 dark:text-slate-300 leading-tight uppercase">
+          <div className="text-[12px] font-extrabold text-slate-600 dark:text-slate-300 leading-tight uppercase">
             Support
           </div>
           <div className="flex items-center gap-3 mt-0.5">
@@ -1376,10 +1377,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   if ((appConfig as any).hideHeader) return null;
 
-  const columnTemplate = labelsHidden
-    ? "minmax(220px,1fr) 1fr minmax(220px,280px)"
-    : "minmax(300px,420px) 1fr minmax(260px,320px)";
-
   const barVariants: Variants = {
     shown: {
       y: 0,
@@ -1412,7 +1409,9 @@ export const Header: React.FC<HeaderProps> = ({
             className="grid w-full h-full items-center gap-6 md:gap-8 xl:gap-12 2xl:gap-14 px-4 sm:px-6 2xl:px-10"
             style={{
               paddingTop: "env(safe-area-inset-top)",
-              gridTemplateColumns: columnTemplate,
+              gridTemplateColumns: labelsHidden
+                ? "minmax(220px,1fr) 1fr minmax(220px,280px)"
+                : "minmax(300px,420px) 1fr minmax(260px,320px)",
             }}
           >
             {/* 1) Support + Version */}
@@ -1428,7 +1427,7 @@ export const Header: React.FC<HeaderProps> = ({
                 return (
                   <div className="flex items-center gap-2">
                     <span
-                      className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                      className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm dark:border-[#1f1f1f] dark:bg-[#090909] dark:text-slate-200"
                       title={label}
                     >
                       {label}

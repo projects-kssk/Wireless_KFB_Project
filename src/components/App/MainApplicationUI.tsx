@@ -33,6 +33,7 @@ import {
 } from "./utils/paths";
 import { computeActivePins as computeActivePinsUtil } from "./utils/merge";
 import { AnimatePresence, m } from "framer-motion";
+import { useTheme } from "next-themes";
 
 /* =================================================================================
  * Constants & helpers
@@ -129,6 +130,11 @@ const HudBanner: React.FC<{ banner: BannerState | null }> = ({ banner }) => {
 
 const MainApplicationUI: React.FC = () => {
   const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
+  const { resolvedTheme } = useTheme();
+  const isDarkMode = resolvedTheme === "dark";
+  const appBackground = isDarkMode
+    ? "#222222"
+    : "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -895,10 +901,11 @@ const MainApplicationUI: React.FC = () => {
     <div
       className={[
         "relative flex min-h-screen w-full",
-        "bg-[#f8fafc] text-[#1f2937]",
-        "dark:bg-[#222222] dark:text-[#f8fafc]",
+        "text-[#1f2937]",
+        "dark:text-[#f8fafc]",
         "transition-colors",
       ].join(" ")}
+      style={{ background: appBackground }}
     >
       {/* --- Effect components (side-effect orchestration) --- */}
       <UnionEffect
@@ -1022,7 +1029,7 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="relative flex-1 overflow-auto border-t border-transparent bg-white dark:border-[#2f2f2f] dark:bg-[#333333] backdrop-blur-sm transition-colors">
+        <main className="relative flex-1 overflow-auto border-t border-transparent bg-white dark:border-[#151515] dark:bg-[#222222] backdrop-blur-sm transition-colors">
           {/* Animated banner overlay for idle + transient info */}
           <HudBanner banner={banner} />
 

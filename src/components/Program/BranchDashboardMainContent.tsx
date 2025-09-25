@@ -729,12 +729,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
 
   /* --------------------------- Finalize / OK flash --------------------------- */
-  const clearedMacsRef = useRef<Set<string>>(new Set());
+  const lastClearedMacRef = useRef<string | null>(null);
   useEffect(() => {
     const mac = (macAddress || "").toUpperCase();
     if (!settled || !allOk || !mac) return;
-    if (clearedMacsRef.current.has(mac)) return;
-    clearedMacsRef.current.add(mac);
+    if (lastClearedMacRef.current === mac) return;
+    lastClearedMacRef.current = mac;
 
     (async () => {
       if (typeof onFinalizeOk === "function") {
@@ -766,6 +766,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       } catch {}
     })();
   }, [allOk, settled, macAddress, onFinalizeOk, onResetKfb]);
+
+  useEffect(() => {
+    const nextMac = (macAddress || "").trim();
+    if (!nextMac) {
+      lastClearedMacRef.current = null;
+    }
+  }, [macAddress]);
 
   const [showOkAnimation, setShowOkAnimation] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -862,9 +869,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       if (
         mac &&
         typeof onFinalizeOk === "function" &&
-        !clearedMacsRef.current.has(mac)
+        lastClearedMacRef.current !== mac
       ) {
-        clearedMacsRef.current.add(mac);
+        lastClearedMacRef.current = mac;
         void onFinalizeOk(mac);
       }
     } catch {}

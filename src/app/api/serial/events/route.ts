@@ -32,6 +32,30 @@ const __LAST_LOG = {
   }
 };
 
+const RECENT_EV_WINDOW_MS = 1200;
+const __RECENT_EV = new Map<string, number>();
+
+function shouldEmitSerialEvent(
+  kind: string,
+  mac?: string | null,
+  ok?: boolean | null,
+  windowMs = RECENT_EV_WINDOW_MS
+) {
+  const macKey = (mac || '').toUpperCase() || 'UNKNOWN';
+  const okKey = typeof ok === 'boolean' ? (ok ? '1' : '0') : '-';
+  const key = `${kind}:${okKey}:${macKey}`;
+  const now = Date.now();
+  const last = __RECENT_EV.get(key) || 0;
+  if (now - last < windowMs) return false;
+  __RECENT_EV.set(key, now);
+  if (__RECENT_EV.size > 256) {
+    for (const [entryKey, ts] of __RECENT_EV) {
+      if (now - ts > windowMs * 8) __RECENT_EV.delete(entryKey);
+    }
+  }
+  return true;
+}
+
 const isLikelySerialPath = (p: string) =>
   /\/dev\/(tty(ACM|USB)\d+|tty\.usb|cu\.usb)/i.test(p);
 
@@ -184,9 +208,18 @@ export async function GET(req: Request) {
       // bus → SSE
       unsubscribe = onSerialEvent((e) => {
         if (e && typeof e === 'object' && (e as any).type === 'ev') {
-          const ev = e as { type: string; kind?: string; mac?: string | null };
+          const ev = e as {
+            type: string;
+            kind?: string;
+            mac?: string | null;
+            ok?: boolean;
+          };
           if (ev.kind === 'START' && ev.mac) {
             currentMonitorMac = String(ev.mac || '').toUpperCase() || currentMonitorMac;
+          }
+          if (ev.kind === 'START' || ev.kind === 'DONE') {
+            const okFlag = ev.kind === 'DONE' ? (!!ev.ok) : null;
+            if (!shouldEmitSerialEvent(ev.kind, ev.mac, okFlag)) return;
           }
         }
         send(e);
@@ -280,6 +313,7 @@ export async function GET(req: Request) {
               }
               currentMonitorMac = mac && mac !== ZERO_MAC ? mac : currentMonitorMac;
               const lineOut = rewriteLineMac(rawLine, mac);
+              if (!shouldEmitSerialEvent('START', mac, null)) return;
               try { console.log('[events] EV START', { mac, line: lineOut }); } catch {}
               send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               return;
@@ -302,13 +336,14 @@ export async function GET(req: Request) {
                 mac = String(first.value || '').toUpperCase();
               }
               if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
+              if (!shouldEmitSerialEvent('DONE', mac, ok)) return;
+              const lineOut = rewriteLineMac(rawLine, mac);
               try {
                 const key = `EV_DONE:${ok ? '1' : '0'}:${mac}`;
-                const lineOut = rewriteLineMac(rawLine, mac);
                 if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line: lineOut });
                 send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               } catch {
-                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: rewriteLineMac(rawLine, mac), ts: Date.now() });
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               }
               return;
             }
@@ -329,13 +364,14 @@ export async function GET(req: Request) {
                 mac = String(first.value || '').toUpperCase();
               }
               if (mac && mac !== ZERO_MAC) currentMonitorMac = mac;
+              if (!shouldEmitSerialEvent('DONE', mac, ok)) return;
+              const lineOut = rewriteLineMac(rawLine, mac);
               try {
                 const key = `RESULT:${ok ? '1' : '0'}:${mac || 'NONE'}`;
-                const lineOut = rewriteLineMac(rawLine, mac);
                 if (__LAST_LOG.shouldLog(key)) console.log('[events] EV DONE', { ok, mac, line: lineOut });
                 send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               } catch {
-                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: rewriteLineMac(rawLine, mac), ts: Date.now() });
+                send({ type: 'ev', kind: 'DONE', ok, ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               }
               return;
             }

@@ -513,17 +513,23 @@ export const useScanFlow = ({
               setGroupedBranches([]);
               return;
             }
-            const text = unknown
-              ? "CHECK ERROR (no pin list)"
-              : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
-            setScanResult({ text, kind: unknown ? "error" : "info" });
-            // Allow the banner to animate out smoothly; no hard unmounts.
-            if (scanResultTimerRef.current)
+            if (unknown) {
+              const text = "CHECK ERROR (no pin list)";
+              setScanResult({ text, kind: "error" });
+              if (scanResultTimerRef.current)
+                clearTimeout(scanResultTimerRef.current);
+              scanResultTimerRef.current = window.setTimeout(() => {
+                setScanResult(null);
+                scanResultTimerRef.current = null;
+              }, 2200);
+              return;
+            }
+            if (scanResultTimerRef.current) {
               clearTimeout(scanResultTimerRef.current);
-            scanResultTimerRef.current = window.setTimeout(() => {
-              setScanResult(null);
               scanResultTimerRef.current = null;
-            }, 2200);
+            }
+            setScanResult(null);
+            setSuppressLive(false);
           }
         } else {
           if (res.status === 429 && attempt < CFG.RETRIES) {

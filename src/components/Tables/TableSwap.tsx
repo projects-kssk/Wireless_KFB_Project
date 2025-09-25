@@ -712,23 +712,120 @@ function Body({
   reserveRightPx?: number;
   darkMode?: boolean;
 }) {
+  const accentGradient = darkMode
+    ? "linear-gradient(120deg,#a5b4fc 0%,#60a5fa 45%,#22d3ee 100%)"
+    : "linear-gradient(120deg,#1e293b 0%,#2563eb 45%,#0ea5e9 100%)";
+  const baseColor = darkMode ? "#f8fafc" : "#0f172a";
+  const highlightWords = new Set(["scan", "barcode", "ksk"]);
+  const segments = prompt.split(/(scan|barcode|ksk)/gi).filter(Boolean);
+  const showScanBadge = /scan/i.test(prompt);
+
+  const spanBase: React.CSSProperties = {
+    display: "inline-block",
+    whiteSpace: "pre",
+    transition: "transform 180ms ease, filter 180ms ease",
+  };
+
+  const highlightShadow = darkMode
+    ? "0 14px 22px rgba(96,165,250,0.35)"
+    : "0 14px 22px rgba(37,99,235,0.25)";
+
   return (
     <div
       style={{
         maxWidth: `calc(92% - ${reserveRightPx}px)`, // reserve space for badge
+        display: "inline-flex",
+        flexDirection: "column",
+        gap: 14,
         fontWeight: 1000,
-        letterSpacing: "0.06em",
+        letterSpacing: "0.05em",
         textTransform: "uppercase",
-        fontSize: "clamp(36px, 6vw, 64px)",
-        color: darkMode ? "#f5f5f5" : "#0f172a",
-        opacity: 0.9,
-        lineHeight: 1.05,
-        wordBreak: "break-word",
-        whiteSpace: "pre-wrap",
+        lineHeight: 1.04,
         textWrap: "balance" as any,
       }}
     >
-      {prompt}
+      <span
+        style={{
+          fontSize: "clamp(36px, 6vw, 64px)",
+          color: baseColor,
+          opacity: 0.92,
+          wordBreak: "break-word",
+        }}
+      >
+        {segments.length
+          ? segments.map((segment, idx) => {
+              const key = `${segment}-${idx}`;
+              const isHighlight = highlightWords.has(segment.toLowerCase());
+              if (!isHighlight) {
+                return (
+                  <span key={key} style={{ ...spanBase, color: baseColor }}>
+                    {segment}
+                  </span>
+                );
+              }
+              return (
+                <span
+                  key={key}
+                  style={{
+                    ...spanBase,
+                    backgroundImage: accentGradient,
+                    color: "transparent",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                    filter: "drop-shadow(0 6px 18px rgba(15,23,42,0.0))",
+                    textShadow: darkMode
+                      ? "0 10px 30px rgba(15,23,42,0.55)"
+                      : "0 8px 20px rgba(148,163,184,0.45)",
+                  }}
+                >
+                  {segment}
+                </span>
+              );
+            })
+          : prompt}
+      </span>
+
+      <span
+        aria-hidden
+        style={{
+          display: "inline-block",
+          width: "min(240px, 55%)",
+          height: 4,
+          borderRadius: 999,
+          backgroundImage: accentGradient,
+          boxShadow: highlightShadow,
+        }}
+      />
+
+      {showScanBadge && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            fontSize: 13,
+            letterSpacing: "0.18em",
+            color: darkMode
+              ? "rgba(226,232,240,0.72)"
+              : "rgba(15,23,42,0.66)",
+            opacity: 0.85,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              backgroundImage: accentGradient,
+              boxShadow: darkMode
+                ? "0 0 0 3px rgba(37,99,235,0.25)"
+                : "0 0 0 3px rgba(59,130,246,0.18)",
+            }}
+          />
+          Scan Ready
+        </span>
+      )}
     </div>
   );
 }

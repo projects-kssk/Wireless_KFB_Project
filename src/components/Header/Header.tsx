@@ -81,8 +81,8 @@ const VersionBadge: React.FC<{
 }> = ({ value, align = "start", variant = "default" }) => (
   <div
     className={[
-      "flex flex-col gap-0.5",
-      align === "center" ? "items-center text-center" : "items-start text-left",
+      "flex items-baseline gap-2",
+      align === "center" ? "justify-center" : "justify-start",
     ].join(" ")}
   >
     <span
@@ -138,23 +138,19 @@ const SupportPillSM: React.FC<{
   supportNumber?: string | number;
   className?: string;
   labelsHidden?: boolean;
-  align?: "start" | "end";
-  justifySelf?: "auto" | "end";
-}> = ({
-  supportNumber = 621,
-  className,
-  labelsHidden,
-  align = "start",
-  justifySelf = "auto",
-}) => {
+  orientation?: "horizontal" | "vertical";
+}> = ({ supportNumber = 621, className, labelsHidden, orientation }) => {
   const reduce = useReducedMotion();
   const number = String(supportNumber ?? 621);
 
+  const resolvedOrientation =
+    orientation ?? (labelsHidden ? "vertical" : "horizontal");
+
   const rootClasses = [
-    "group relative flex w-full flex-col px-1.5 py-1",
-    labelsHidden
-      ? "items-center text-center gap-1.25"
-      : `items-${align} gap-1.5 ${justifySelf === "end" ? "justify-self-end" : ""}`,
+    "group relative flex w-full px-1.5 py-1",
+    resolvedOrientation === "horizontal"
+      ? "flex-row items-center justify-end gap-2"
+      : "flex-col items-center text-center gap-1.25",
     className ?? "",
   ].join(" ");
 
@@ -167,22 +163,35 @@ const SupportPillSM: React.FC<{
       style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
-        Support
-      </span>
-      <div
-        className={[
-          "flex items-center gap-1.5",
-          labelsHidden ? "justify-center" : "",
-        ].join(" ")}
-      >
-        <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
-          <SupportIcon className="h-7 w-7" />
+      {resolvedOrientation === "horizontal" ? (
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
+            Support
+          </span>
+          <div className="flex items-center gap-1.5">
+            <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
+              <SupportIcon className="h-7 w-7" />
+            </div>
+            <span className="text-[24px] font-black tracking-tight text-slate-900 dark:text-white">
+              {number}
+            </span>
+          </div>
         </div>
-        <span className="text-[24px] font-black tracking-tight text-slate-900 dark:text-white">
-          {number}
-        </span>
-      </div>
+      ) : (
+        <>
+          <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
+            Support
+          </span>
+          <div className="flex items-center gap-1.5 justify-center">
+            <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
+              <SupportIcon className="h-7 w-7" />
+            </div>
+            <span className="text-[24px] font-black tracking-tight text-slate-900 dark:text-white">
+              {number}
+            </span>
+          </div>
+        </>
+      )}
     </m.div>
   );
 };
@@ -193,28 +202,39 @@ const HeaderMetaCard: React.FC<{
   labelsHidden?: boolean;
 }> = ({ version, supportNumber = 621, labelsHidden }) => (
   <div className="relative flex h-full">
-    <div
-      className={[
-        "relative grid w-full grid-cols-1 gap-1.5 p-2 sm:p-2.5 text-slate-900 dark:text-slate-100",
-        labelsHidden ? "" : "sm:grid-cols-[minmax(0,1fr)_minmax(0,auto)]",
-      ].join(" ")}
-    >
-      <VersionBadge
-        value={version}
-        align={labelsHidden ? "center" : "start"}
-        variant="card"
-      />
-      <ThemeSwitcher
-        align={labelsHidden ? "start" : "end"}
-        variant="card"
-        justifySelf={labelsHidden ? "auto" : "end"}
-      />
-      <SupportPillSM
-        supportNumber={supportNumber}
-        labelsHidden={labelsHidden}
-        align={labelsHidden ? "center" : "start"}
-        justifySelf={labelsHidden ? "auto" : "end"}
-      />
+    <div className="relative flex h-full w-full flex-col gap-1.5 p-2 sm:p-2.5 text-slate-900 dark:text-slate-100">
+      <div
+        className={[
+          "w-full",
+          labelsHidden
+            ? "flex flex-col items-center gap-1.5"
+            : "flex flex-wrap items-center justify-between gap-2",
+        ].join(" ")}
+      >
+        <VersionBadge
+          value={version}
+          align={labelsHidden ? "center" : "start"}
+          variant="card"
+        />
+        <div
+          className={[
+            "flex items-center gap-3",
+            labelsHidden ? "flex-col" : "flex-row",
+          ].join(" ")}
+        >
+          <SupportPillSM
+            supportNumber={supportNumber}
+            labelsHidden={labelsHidden}
+            orientation={labelsHidden ? "vertical" : "horizontal"}
+            className={labelsHidden ? "" : "order-1"}
+          />
+          <ThemeSwitcher
+            align={labelsHidden ? "start" : "end"}
+            variant="card"
+            justifySelf={labelsHidden ? "auto" : "end"}
+          />
+        </div>
+      </div>
     </div>
   </div>
 );
@@ -1575,29 +1595,40 @@ export const Header: React.FC<HeaderProps> = ({
               />
             </div>
 
-            {/* 2) Status */}
+            {/* 2) Status + Theme */}
             <div className="h-full min-w-0">
-              <StatusRow
-                cells={[
-                  {
-                    title: "Scanner Check",
-                    suffix: 1,
-                    color: s1Color,
-                    sub: s1Sub,
-                  },
-                  {
-                    title: "Scanner Setup",
-                    suffix: 2,
-                    color: s2Color,
-                    sub: s2Sub,
-                  },
-                  { title: "Local Server", color: serverColor, sub: serverSub },
-                  { title: "Krosy Server", color: krosyColor, sub: krosySub },
-                  // Removed Last MAC indicator per request; status rows now focus on live infrastructure only.
-                ]}
-                className="h-full"
-                labelsHidden={labelsHidden}
-              />
+              <div
+                className={[
+                  "flex h-full flex-col gap-2",
+                  labelsHidden ? "" : "sm:flex-row sm:items-center sm:gap-5",
+                ].join(" ")}
+              >
+                <StatusRow
+                  cells={[
+                    {
+                      title: "Scanner Check",
+                      suffix: 1,
+                      color: s1Color,
+                      sub: s1Sub,
+                    },
+                    {
+                      title: "Scanner Setup",
+                      suffix: 2,
+                      color: s2Color,
+                      sub: s2Sub,
+                    },
+                    {
+                      title: "Local Server",
+                      color: serverColor,
+                      sub: serverSub,
+                    },
+                    { title: "Krosy Server", color: krosyColor, sub: krosySub },
+                    // Removed Last MAC indicator per request; status rows now focus on live infrastructure only.
+                  ]}
+                  className="h-full flex-1"
+                  labelsHidden={labelsHidden}
+                />
+              </div>
             </div>
 
             {/* 3) ESP + Settings */}

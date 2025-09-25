@@ -47,8 +47,9 @@ type TestState = "idle" | "calling" | "ok" | "error";
    ──────────────────────────────────────────────────────────────────────────── */
 const StrictHeaderBg = [
   "bg-[radial-gradient(180%_180%_at_0%_-55%,#b3c2ff_0%,#d4ddff_54%,#f4f6ff_100%)]",
-  "dark:bg-[radial-gradient(160%_160%_at_0%_-30%,#0b1220_0%,#0b1220_70%,#070d19_100%)]",
-  "border-b border-[#c0ccf5] dark:border-slate-800",
+  "dark:bg-[#2a2a2a]",
+  "border-b border-[#c0ccf5] dark:border-[#3a3a3a]",
+  "transition-colors",
 ].join(" ");
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1375,6 +1376,10 @@ export const Header: React.FC<HeaderProps> = ({
 
   if ((appConfig as any).hideHeader) return null;
 
+  const columnTemplate = labelsHidden
+    ? "minmax(220px,1fr) 1fr minmax(220px,280px)"
+    : "minmax(300px,420px) 1fr minmax(260px,320px)";
+
   const barVariants: Variants = {
     shown: {
       y: 0,
@@ -1404,11 +1409,10 @@ export const Header: React.FC<HeaderProps> = ({
           }}
         >
           <div
-            className="grid w-full h-full items-center gap-5 xl:gap-8 px-4 sm:px-6 2xl:px-10"
+            className="grid w-full h-full items-center gap-6 md:gap-8 xl:gap-12 2xl:gap-14 px-4 sm:px-6 2xl:px-10"
             style={{
               paddingTop: "env(safe-area-inset-top)",
-              gridTemplateColumns:
-                "minmax(260px,340px) 1fr minmax(260px,320px)",
+              gridTemplateColumns: columnTemplate,
             }}
           >
             {/* 1) Support + Version */}

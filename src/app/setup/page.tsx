@@ -2044,8 +2044,8 @@ export default function SetupPage() {
 
   const gradientLight =
     "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
-  const gradientDark = "#333333";
-  const surfaceBg = isDark ? "#3a3a3a" : "#ffffff";
+  const gradientDark = "#222222";
+  const surfaceBg = isDark ? "#333333" : "#ffffff";
   const surfaceBorder = isDark ? "rgba(255,255,255,0.08)" : "#edf2f7";
   const primaryText = isDark ? "#f5f5f5" : "#0f172a";
   const mutedText = isDark ? "#d1d5db" : "#64748b";
@@ -2794,7 +2794,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   const isErr = status === "error";
   const isPending = status === "pending";
 
-  const baseBg = darkMode ? "#3a3a3a" : "#fbfdff";
+  const baseBg = darkMode ? "#333333" : "#fbfdff";
   const cardBg = isOk
     ? darkMode
       ? "rgba(34,197,94,0.16)"
@@ -3125,7 +3125,7 @@ function StepBadge({
     gap: 10,
     padding: "10px 14px",
     borderRadius: 999,
-    background: darkMode ? "#3a3a3a" : "#fff",
+    background: darkMode ? "#333333" : "#fff",
     border: darkMode
       ? "1px solid rgba(255,255,255,0.12)"
       : "1px solid #e6eef7",

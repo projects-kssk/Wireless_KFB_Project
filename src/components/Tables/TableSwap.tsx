@@ -434,7 +434,7 @@ export default function TableSwap({
           }}
         >
           {/* header */}
-          <Header
+          <SwapHeader
             title={visibleTitle}
             muted={phase !== "idle"}
             darkMode={isDark}
@@ -657,15 +657,13 @@ export default function TableSwap({
 
 /* ---------- parts ---------- */
 
-function Header({
-  title,
-  muted,
-  darkMode = false,
-}: {
+type SwapHeaderProps = {
   title: string;
   muted: boolean;
   darkMode?: boolean;
-}) {
+};
+
+function SwapHeader({ title, muted, darkMode = false }: SwapHeaderProps) {
   return (
     <div
       style={{

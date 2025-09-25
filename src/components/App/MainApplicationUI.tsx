@@ -895,8 +895,8 @@ const MainApplicationUI: React.FC = () => {
     <div
       className={[
         "relative flex min-h-screen w-full",
-        "bg-white text-[#333]",
-        "dark:bg-[#333333] dark:text-[#f1f5f9]",
+        "bg-[#f8fafc] text-[#1f2937]",
+        "dark:bg-[#222222] dark:text-[#f8fafc]",
         "transition-colors",
       ].join(" ")}
     >
@@ -1022,7 +1022,7 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="relative flex-1 overflow-auto bg-white dark:bg-[#3a3a3a] backdrop-blur-sm transition-colors">
+        <main className="relative flex-1 overflow-auto border-t border-transparent bg-white dark:border-[#2f2f2f] dark:bg-[#333333] backdrop-blur-sm transition-colors">
           {/* Animated banner overlay for idle + transient info */}
           <HudBanner banner={banner} />
 

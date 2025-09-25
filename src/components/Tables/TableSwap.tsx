@@ -338,6 +338,37 @@ export default function TableSwap({
   const showProgress = hasBoard && ksskCount < ksskTarget;
   const showScanHint = !showProgress;
 
+  const shellBackground = isDark
+    ? "#333333"
+    : "linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)";
+  const frameBackground = isDark
+    ? "rgba(255,255,255,0.04)"
+    : "rgba(255,255,255,0.80)";
+  const frameBorder = isDark
+    ? "1px solid rgba(255,255,255,0.08)"
+    : "1px solid rgba(15,23,42,0.08)";
+  const frameShadow = isDark
+    ? "0 24px 48px rgba(0,0,0,0.55)"
+    : "0 18px 40px rgba(0,0,0,0.15)";
+  const panelBackground = isDark ? "#3a3a3a" : "#f8fafc";
+  const panelBorder = isDark
+    ? "1px solid rgba(255,255,255,0.08)"
+    : "1px solid #e5e7eb";
+  const panelText = isDark ? "#f5f5f5" : "#0f172a";
+  const headerMeter = isDark ? "rgba(255,255,255,0.18)" : "#e5e7eb";
+  const calloutBg = isDark ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.78)";
+  const calloutBorder = isDark
+    ? "1px solid rgba(255,255,255,0.12)"
+    : "1px solid rgba(15,23,42,0.06)";
+  const calloutColor = panelText;
+  const calloutProgressBg = isDark
+    ? "rgba(255,255,255,0.15)"
+    : "rgba(15,23,42,0.06)";
+  const overlayShadow = isDark
+    ? "inset 0 1px 0 rgba(255,255,255,0.12), 0 22px 44px rgba(0,0,0,0.45)"
+    : "inset 0 1px 0 rgba(255,255,255,0.7), 0 22px 44px rgba(15,23,42,0.25)";
+  const promptAccent = isDark ? "rgba(255,255,255,0.25)" : "rgba(15,23,42,0.06)";
+
   // 50% of callout, clamped; wide:height ≈ 2.4:1
   const tileWpx = Math.round(Math.max(72, Math.min(calloutW * 0.5, 220)));
   const tileHpx = Math.round(tileWpx * 0.42);
@@ -346,18 +377,26 @@ export default function TableSwap({
   const theme =
     okKind === "success"
       ? {
-          bg: "linear-gradient(180deg, rgba(240,253,244,0.92), rgba(220,252,231,0.92))",
-          ring: "0 0 0 10px rgba(16,185,129,0.18)",
-          border: "#86efac",
-          fg: "#065f46",
+          bg: isDark
+            ? "linear-gradient(180deg, rgba(34,197,94,0.22), rgba(34,197,94,0.12))"
+            : "linear-gradient(180deg, rgba(240,253,244,0.92), rgba(220,252,231,0.92))",
+          ring: isDark
+            ? "0 0 0 10px rgba(34,197,94,0.25)"
+            : "0 0 0 10px rgba(16,185,129,0.18)",
+          border: isDark ? "rgba(74,222,128,0.45)" : "#86efac",
+          fg: isDark ? "#dcfce7" : "#065f46",
           label: "OK",
           accent: "#10b981",
         }
       : {
-          bg: "linear-gradient(180deg, rgba(254,242,242,0.92), rgba(254,226,226,0.92))",
-          ring: "0 0 0 10px rgba(239,68,68,0.18)",
-          border: "#fecaca",
-          fg: "#7f1d1d",
+          bg: isDark
+            ? "linear-gradient(180deg, rgba(248,113,113,0.22), rgba(239,68,68,0.12))"
+            : "linear-gradient(180deg, rgba(254,242,242,0.92), rgba(254,226,226,0.92))",
+          ring: isDark
+            ? "0 0 0 10px rgba(248,113,113,0.25)"
+            : "0 0 0 10px rgba(239,68,68,0.18)",
+          border: isDark ? "rgba(248,113,113,0.45)" : "#fecaca",
+          fg: isDark ? "#fee2e2" : "#7f1d1d",
           label: "NOT OK",
           accent: "#ef4444",
         };
@@ -370,7 +409,7 @@ export default function TableSwap({
           height: 420,
           overflow: "hidden",
           borderRadius: 28,
-          background: "linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)",
+          background: shellBackground,
           boxShadow: "0 1px 0 rgba(0,0,0,0.06) inset",
           padding: 16,
         }}
@@ -381,11 +420,11 @@ export default function TableSwap({
             position: "absolute",
             inset: 16,
             borderRadius: 24,
-            background: "rgba(255,255,255,0.80)",
+            background: frameBackground,
             backdropFilter: "saturate(180%) blur(14px)",
             WebkitBackdropFilter: "saturate(180%) blur(14px)",
-            border: "1px solid rgba(15,23,42,0.08)",
-            boxShadow: "0 18px 40px rgba(0,0,0,0.15)",
+            border: frameBorder,
+            boxShadow: frameShadow,
             display: "grid",
             gridTemplateRows: "auto 1fr",
             rowGap: 12,
@@ -393,15 +432,19 @@ export default function TableSwap({
           }}
         >
           {/* header */}
-          <Header title={visibleTitle} muted={phase !== "idle"} />
+          <Header
+            title={visibleTitle}
+            muted={phase !== "idle"}
+            darkMode={isDark}
+          />
 
           {/* sliding body */}
           <div
             style={{
               position: "relative",
               borderRadius: 18,
-              background: "#f8fafc",
-              border: "1px solid #e5e7eb",
+              background: panelBackground,
+              border: panelBorder,
               overflow: "hidden",
             }}
           >
@@ -432,13 +475,18 @@ export default function TableSwap({
                 }}
               >
                 {phase !== "ok" && (
-                  <Body prompt={prompt} reserveRightPx={hintGutter} /> // pass the gutter
+                  <Body
+                    prompt={prompt}
+                    reserveRightPx={hintGutter}
+                    darkMode={isDark}
+                  />
                 )}
                 {phase !== "ok" && showScanHint && (
                   <CornerBarcodeHint
                     top={52}
                     widthPx={tileWpx}
                     heightPx={tileHpx}
+                    darkMode={isDark}
                   />
                 )}
 
@@ -467,8 +515,7 @@ export default function TableSwap({
                         alignItems: "center",
                         justifyContent: "center",
                         pointerEvents: "none",
-                        boxShadow:
-                          "inset 0 1px 0 rgba(255,255,255,0.7), 0 22px 44px rgba(15,23,42,0.25)",
+                        boxShadow: overlayShadow,
                       }}
                     >
                       {/* beveled frame + glow */}
@@ -551,12 +598,12 @@ export default function TableSwap({
                 top: 8, // was 24
                 padding: "14px 18px", // a touch larger
                 borderRadius: 24,
-                border: "1px solid rgba(15,23,42,0.06)",
-                background: "rgba(255,255,255,0.78)",
+                border: calloutBorder,
+                background: calloutBg,
                 backdropFilter: "saturate(180%) blur(12px)",
                 WebkitBackdropFilter: "saturate(180%) blur(12px)",
                 boxShadow: "0 10px 26px rgba(0,0,0,0.14)",
-                color: "#0f172a",
+                color: calloutColor,
                 fontWeight: 900,
                 letterSpacing: "0.04em",
                 textTransform: "uppercase",
@@ -576,7 +623,7 @@ export default function TableSwap({
                     marginLeft: 8,
                     padding: "2px 8px",
                     borderRadius: 999,
-                    background: "rgba(15,23,42,0.06)",
+                    background: calloutProgressBg,
                     fontWeight: 700,
                     letterSpacing: 0,
                     textTransform: "none",
@@ -607,7 +654,15 @@ export default function TableSwap({
 
 /* ---------- parts ---------- */
 
-function Header({ title, muted }: { title: string; muted: boolean }) {
+function Header({
+  title,
+  muted,
+  darkMode = false,
+}: {
+  title: string;
+  muted: boolean;
+  darkMode?: boolean;
+}) {
   return (
     <div
       style={{
@@ -621,7 +676,7 @@ function Header({ title, muted }: { title: string; muted: boolean }) {
           fontWeight: 900,
           fontSize: 22,
           letterSpacing: "0.02em",
-          color: "#0f172a",
+          color: darkMode ? "#f5f5f5" : "#0f172a",
           textTransform: "uppercase",
           lineHeight: 1.1,
           opacity: muted ? 0.85 : 1,
@@ -638,7 +693,7 @@ function Header({ title, muted }: { title: string; muted: boolean }) {
         style={{
           width: 124,
           height: 10,
-          background: "#e5e7eb",
+          background: darkMode ? "rgba(255,255,255,0.18)" : "#e5e7eb",
           borderRadius: 999,
           opacity: 0.9,
         }}
@@ -650,9 +705,11 @@ function Header({ title, muted }: { title: string; muted: boolean }) {
 function Body({
   prompt,
   reserveRightPx = 0,
+  darkMode = false,
 }: {
   prompt: string;
   reserveRightPx?: number;
+  darkMode?: boolean;
 }) {
   return (
     <div
@@ -662,7 +719,7 @@ function Body({
         letterSpacing: "0.06em",
         textTransform: "uppercase",
         fontSize: "clamp(36px, 6vw, 64px)",
-        color: "#0f172a",
+        color: darkMode ? "#f5f5f5" : "#0f172a",
         opacity: 0.9,
         lineHeight: 1.05,
         wordBreak: "break-word",

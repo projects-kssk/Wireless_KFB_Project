@@ -11,7 +11,7 @@ const loadFeatures = () => import('./framer-features').then(m => m.default)
 export default function ClientProviders({ children }: { children: ReactNode }) {
   return (
     <LazyMotion features={loadFeatures} strict>
-      <ThemeProvider attribute="class" defaultTheme="light">
+      <ThemeProvider>
         {/* Scope route transitions here only if you actually need exit animations */}
         <AnimatePresence mode="wait" initial={false}>
           {children}

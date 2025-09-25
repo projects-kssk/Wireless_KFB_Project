@@ -34,6 +34,7 @@
     "type-check:app": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx,.js --fix",
     "format": "prettier . --write",
+    "test:ui": "vitest run",
     "postinstall": "npx electron-builder install-app-deps",
     "logs:monitor": "LOG_MONITOR_ONLY=1 LOG_MONITOR_START_ONLY=1 LOG_LEVEL=info next dev",
     "logs:full": "LOG_MONITOR_ONLY=0 LOG_LEVEL=debug next dev",
@@ -60,10 +61,13 @@
     "zod": "3.25.42"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^14.2.2",
     "@types/node": "^24.3.0",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.21",
     "concurrently": "^9.1.2",
     "electron": "^37.2.5",
@@ -71,13 +75,17 @@
     "eslint": "9.27.0",
     "eslint-config-next": "^15.5.2",
     "husky": "9.1.7",
+    "jsdom": "^27.0.0",
+    "msw": "^2.6.8",
     "postcss": "^8.4.38",
     "prettier": "3.5.3",
     "tailwindcss": "^3.4.3",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3",
-    "wait-on": "^8.0.3"
+    "vitest": "^1.6.1",
+    "wait-on": "^8.0.3",
+    "whatwg-fetch": "^3.6.20"
   },
   "build": {
     "appId": "com.nagyv.typescriptnextjsstarter",

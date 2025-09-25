@@ -809,11 +809,6 @@ export const useScanFlow = ({
         const cooldownMs = Math.max(4000, CFG.RETRY_COOLDOWN_MS);
         idleCooldownUntilRef.current = Date.now() + cooldownMs;
         noSetupCooldownRef.current = { mac: blockKey, until: Date.now() + cooldownMs };
-        if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
-        scanResultTimerRef.current = window.setTimeout(() => {
-          setScanResult(null);
-          scanResultTimerRef.current = null;
-        }, 2000);
         return;
       }
 

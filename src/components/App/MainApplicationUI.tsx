@@ -414,7 +414,9 @@ const MainApplicationUI: React.FC = () => {
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const lastActiveIdsRef = useRef<string[]>([]);
-
+  const noSetupCooldownRef = useRef<{ mac: string; until: number } | null>(
+    null
+  );
   const handleResetKfb = useCallback(() => {
     const clearRetryTimer = () => cancel("checkRetry");
     clearRetryTimer();
@@ -434,6 +436,7 @@ const MainApplicationUI: React.FC = () => {
     lastActiveIdsRef.current = [];
     pendingSimulateRef.current = null;
     simulateCooldownUntilRef.current = 0;
+    noSetupCooldownRef.current = null;
     if (simulateRetryTimerRef.current != null) {
       try {
         window.clearTimeout(simulateRetryTimerRef.current);
@@ -526,6 +529,7 @@ const MainApplicationUI: React.FC = () => {
     setOkSystemNote,
     setErrorMsg,
     setKfbInfo,
+    noSetupCooldownRef,
     isCheckingRef,
     scanResultTimerRef,
     lastRunHadFailuresRef,
@@ -684,7 +688,7 @@ const MainApplicationUI: React.FC = () => {
   /* -----------------------------------------------------------------------------
    * Post-reset cleanups
    * ---------------------------------------------------------------------------*/
-  const { hudMode, hudMessage, hudSubMessage, scannerDetected } = useHud({
+  const { hudMode, hudMessage, hudSubMessage } = useHud({
     mainView,
     isScanning,
     showScanUi,
@@ -831,19 +835,6 @@ const MainApplicationUI: React.FC = () => {
   const banner: BannerState | null = useMemo(() => {
     if (mainView !== "dashboard") return null;
 
-    // Idle → the big "PLEASE SCAN BARCODE"
-    if (hudMode === "idle") {
-      return {
-        key: "idle",
-        kind: "idle",
-        title: "PLEASE SCAN BARCODE",
-        subtitle: scannerDetected
-          ? "Scan a barcode to begin"
-          : "Scanner not detected",
-      };
-    }
-
-    // Transient "info" (e.g., No setup data available for this MAC)
     if (scanResult && scanResult.kind === "info") {
       return {
         key: `info-${scanResult.text}`,
@@ -853,7 +844,7 @@ const MainApplicationUI: React.FC = () => {
     }
 
     return null;
-  }, [hudMode, scanResult, mainView, scannerDetected]);
+  }, [scanResult, mainView]);
 
   return (
     <div className="relative flex min-h-screen bg-white">

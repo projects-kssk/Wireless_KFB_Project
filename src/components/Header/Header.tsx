@@ -1154,7 +1154,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleSidebar: _onToggleSidebar,
   labelsHidden = false,
   serial: injectedSerial,
-  displayMac,
+  displayMac: _displayMac,
 }) => {
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [settingsSize, setSettingsSize] = useState<number>(150);
@@ -1213,8 +1213,6 @@ export const Header: React.FC<HeaderProps> = ({
 
   const serverColor: LedColor = server === "connected" ? "green" : "red";
   const serverSub = server === "connected" ? "ESP + Redis" : "Needs ESP+Redis";
-
-  const macDisplay = (displayMac || "").trim().toUpperCase();
 
   // KROSY: consider live/online when on eth* with ONLINE IP; otherwise offline/no-conn
   const IP_ONLINE = (process.env.NEXT_PUBLIC_KROSY_IP_ONLINE || "").trim();
@@ -1457,11 +1455,7 @@ export const Header: React.FC<HeaderProps> = ({
                   },
                   { title: "Local Server", color: serverColor, sub: serverSub },
                   { title: "Krosy Server", color: krosyColor, sub: krosySub },
-                  {
-                    title: "Last MAC",
-                    color: macDisplay ? "green" : "amber",
-                    sub: macDisplay || "—",
-                  },
+                  // Removed Last MAC indicator per request; status rows now focus on live infrastructure only.
                 ]}
                 className="h-full"
                 labelsHidden={labelsHidden}

@@ -508,6 +508,7 @@ export const useScanFlow = ({
             if (!setupReadyRef) {
               setGroupedBranches([]);
               setScanResult(null);
+              await finalizeOkForMac(mac);
               return;
             }
             const text = unknown

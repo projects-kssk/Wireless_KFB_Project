@@ -5,9 +5,9 @@ import React, {
   useEffect,
   useCallback,
   useRef,
-  useMemo
+  useMemo,
 } from "react";
-import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
+import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { Header } from "@/components/Header/Header";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
 import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
@@ -21,33 +21,114 @@ import { ScannerEffect } from "./components/ScannerEffect";
 import { maskSimMac } from "@/lib/macDisplay";
 import useConfig from "./hooks/useConfig";
 import useTimers from "./hooks/useTimers";
-import useHud, { HudMode, ScanResultState } from "./hooks/useHud";
+import useHud, { ScanResultState } from "./hooks/useHud";
 import useSerialLive from "./hooks/useSerialLive";
 import useFinalize from "./hooks/useFinalize";
 import useScanFlow, { ScanTrigger } from "./hooks/useScanFlow";
-import { canonicalMac, extractMac, MAC_ONLY_REGEX } from "./utils/mac";
+import { canonicalMac, MAC_ONLY_REGEX } from "./utils/mac";
 import {
   isAcmPath,
   pathsEqual as pathsEqualUtil,
   resolveDesiredPath as resolveDesiredPathUtil,
 } from "./utils/paths";
 import { computeActivePins as computeActivePinsUtil } from "./utils/merge";
+import { AnimatePresence, m } from "framer-motion";
 
 /* =================================================================================
  * Constants & helpers
  * ================================================================================= */
 
-const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 const ZERO_MAC = "00:00:00:00:00:00" as const;
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
+
+/** How long info banners should stay visible (ms) */
+const INFO_AUTO_HIDE_MS = Math.max(
+  1200,
+  Number(process.env.NEXT_PUBLIC_INFO_HIDE_MS ?? "4500")
+);
+
+/** Small framer-motion variants shared by banners */
+const bannerVariants = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.22 } },
+  exit: { opacity: 0, y: -8, transition: { duration: 0.18 } },
+};
+
+/* =================================================================================
+ * Small UI: Animated HUD Banner
+ * ================================================================================= */
+
+type BannerKind = "idle" | "info" | "error" | "success";
+
+interface BannerState {
+  key: string;
+  title: string;
+  subtitle?: string;
+  kind: BannerKind;
+}
+
+/** A minimal, centered, animated banner overlay. */
+const HudBanner: React.FC<{ banner: BannerState | null }> = ({ banner }) => {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[12] flex items-center justify-center">
+      <AnimatePresence mode="wait">
+        {banner && (
+          <m.div
+            key={banner.key}
+            variants={bannerVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            className="text-center"
+          >
+            <div
+              className={[
+                "rounded-xl border px-6 py-4 shadow-sm",
+                banner.kind === "error"
+                  ? "border-rose-200 bg-rose-50/80"
+                  : banner.kind === "success"
+                    ? "border-emerald-200 bg-emerald-50/80"
+                    : banner.kind === "info"
+                      ? "border-sky-200 bg-sky-50/80"
+                      : "border-slate-200/70 bg-white/70",
+              ].join(" ")}
+              style={{ backdropFilter: "saturate(1.2) blur(2px)" }}
+            >
+              {/* Title */}
+              <div
+                className={
+                  banner.kind === "idle"
+                    ? "text-4xl font-semibold tracking-[0.2em] text-slate-700 md:text-5xl"
+                    : "text-xl font-medium text-slate-700 md:text-2xl"
+                }
+                style={
+                  banner.kind === "idle" ? { letterSpacing: "0.18em" } : {}
+                }
+              >
+                {banner.title}
+              </div>
+
+              {/* Subtitle */}
+              {banner.subtitle && (
+                <div className="mt-2 text-sm text-slate-500 md:text-base">
+                  {banner.subtitle}
+                </div>
+              )}
+            </div>
+          </m.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 /* =================================================================================
  * Main Component
  * ================================================================================= */
 
 const MainApplicationUI: React.FC = () => {
-  const { CFG, FLAGS, ASSUME_REDIS_READY, ALLOW_IDLE_SCANS } = useConfig();
+  const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -147,17 +228,13 @@ const MainApplicationUI: React.FC = () => {
     }>
   >([]);
 
-  /* -------------------------------------------------------------------------- */
-  /* Live mode gating
-   * EN: Live mode is only permitted when we actually have setup data for this MAC.
-   * HU: Csak akkor engedjük a live módot (unió/ellenőrzés/finalize), ha van aktív KSK vagy alias/setup adat Redisben.
-   */
-  /* -------------------------------------------------------------------------- */
+  /* Live gating — allow live union/finalize only when we actually have setup data */
   const hasSetupForCurrentMac = useCallback(() => {
     const active = (activeKssks?.length ?? 0) > 0;
     const anyItems = (itemsAllFromAliasesRef.current?.length ?? 0) > 0;
     return active || anyItems;
   }, [activeKssks]);
+
   const lastGroupsRef = useRef<
     Array<{ ksk: string; branches: BranchDisplayData[] }>
   >([]);
@@ -200,9 +277,7 @@ const MainApplicationUI: React.FC = () => {
   const tryRunPendingSimulateRef = useRef<() => void>(() => {});
   const simulateRetryTimerRef = useRef<number | null>(null);
 
-  const infoTimerRef = useRef<ReturnType<typeof window.setInterval> | null>(
-    null
-  );
+  const infoTimerRef = useRef<number | null>(null);
   const [infoHideAt, setInfoHideAt] = useState<number | null>(null);
 
   const { schedule, cancel } = useTimers();
@@ -219,7 +294,7 @@ const MainApplicationUI: React.FC = () => {
           scanOverlayTimerRef.current = null;
         }
         if (infoTimerRef.current) {
-          window.clearInterval(infoTimerRef.current as any);
+          window.clearInterval(infoTimerRef.current);
           infoTimerRef.current = null;
         }
       } catch {}
@@ -383,6 +458,9 @@ const MainApplicationUI: React.FC = () => {
         if (!until || until <= now) finalizeOkGuardRef.current.delete(mac);
       }
     } catch {}
+
+    // local banner bookkeeping resets
+    noSetupShownForRef.current = null;
   }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
 
   const { finalizeOkForMac, clearKskLocksFully } = useFinalize({
@@ -416,6 +494,7 @@ const MainApplicationUI: React.FC = () => {
       CHECK_CLIENT_MS: CFG.CHECK_CLIENT_MS,
       RETRIES: CFG.RETRIES,
       FINALIZED_RESCAN_BLOCK_MS: CFG.FINALIZED_RESCAN_BLOCK_MS,
+      RETRY_COOLDOWN_MS: CFG.RETRY_COOLDOWN_MS,
     },
     FLAGS: {
       REHYDRATE_ON_LOAD: FLAGS.REHYDRATE_ON_LOAD,
@@ -568,55 +647,6 @@ const MainApplicationUI: React.FC = () => {
    * Effect Components (modularized side-effects)
    * ================================================================================= */
 
-  /* -------------------------------------------------------------------------- */
-  /* [HU] UnionEffect
-   *   - Élő union (nevek + pin lista) feldolgozása CSAK aktív MAC esetén.
-   *   - Redis "degraded" módban az üres/uninformációs uniont ignorálja.
-   *   - Az aktív KSK-k alapján korlátozza a pineket (computeActivePins).
-   */
-  /* [HU] RedisHealthEffect
-   *   - Figyeli a redisReady flaget, drop esetén "degraded" állapotot kapcsol.
-   *   - Helyreállás után (opcionális) rehydrate, ha épp fut check/scan aktív MAC-re.
-   *   - Rövid debouncolás, hogy a villanásokat/ingadozásokat kiszűrje.
-   */
-  /* -------------------------------------------------------------------------- */
-  /* -------------------------------------------------------------------------- */
-  /* [HU] AutoFinalizeEffect
-   *   - Ha minden megjelenített ág OK és nincs épp check/scanning,
-   *     a jelenlegi MAC-re meghívja a finalize-t (felhasználó nélkül is).
-   */
-  /* -------------------------------------------------------------------------- */
-  /** Auto-success if everything in view is OK (no failures) */
-  /** START / RESULT / DONE device events
-   *  IMPORTANT CHANGE:
-   *  - If we have an active scanned MAC, treat events as for that MAC even if device mac is ZERO or mismatched.
-   *  - ZERO_MAC is substituted with the active MAC; ignored only if there's no active MAC.
-   */
-  /* -------------------------------------------------------------------------- */
-  /* [HU] DeviceEventsEffect
-   *   - START: ha van ev.mac és még nincs aktív MAC, beállítja; mindig "checking" állapotba lép.
-   *   - RESULT/DONE + OK: ha van AKTÍV MAC, minden ágat OK-ra állít és finalize-t kér.
-   *   - FONTOS: a "00:00:00:00:00:00" (ZERO_MAC) esetén az aktív MAC-re helyettesítünk;
-   *             ha nincs aktív MAC, a ZERO_MAC-et figyelmen kívül hagyjuk.
-   *   - FAIL eseménynél, ha épp nem checkelünk, belép "checking" módba.
-   */
-  /* -------------------------------------------------------------------------- */
-  /* ========================================================================== */
-  /* [HU] ScannerEffect lépései
-   *   1. SSE esemény szűrése: preferált olvasó útvonal (ACM0/USB0/index) ellenőrzése.
-   *   2. Ütközésvédelem: aktív check/scanning és throttling blokkolja a feldolgozást.
-   *   3. Koaleszcencia: token ablak (~1.5s) megakadályozza a dupla olvasást.
-   */
-  /* ========================================================================== */
-
-  /* ========================================================================== */
-  /* [HU] PollingEffect lépései
-   *   1. SSE inaktivitás figyelése: stale időküszöb elérésekor lép működésbe.
-   *   2. Feltételes poll: csak tétlen állapotban (nincs MAC, nincs check) indít kérést.
-   *   3. Stabilizáció: útvonal-ellenőrzés és reentrancia gátak biztosítják a hibatűrést.
-   */
-  /* ========================================================================== */
-
   // Allow Dev simulator "Run Check" events to behave like physical scans.
   useEffect(() => {
     const onSimScan = (ev: Event) => {
@@ -651,28 +681,9 @@ const MainApplicationUI: React.FC = () => {
     enableSimOverride,
   ]);
 
-  /* -------------------------------------------------------------------------- */
-  /* [HU] PostResetSanityEffect
-   *   - Finalize után (amikor már nincs aktív MAC) még egyszer óvatosan törli az aliasokat/lockokat,
-   *     így elkerülhető bármilyen "szennyezett" állapot a következő scan előtt.
-   */
-  /* -------------------------------------------------------------------------- */
-  /** Post-reset sanity cleanup for last finalized mac */
   /* -----------------------------------------------------------------------------
-   * HUD derived info
+   * Post-reset cleanups
    * ---------------------------------------------------------------------------*/
-  /* -------------------------------------------------------------------------- */
-  /* [HU] HUD (hudMode/hudMessage/hudSubMessage)
-   *   - "idle" -> vár a scannelésre (scannerDetected alapján kieg. üzenet).
-   *   - "scanning" -> rövid várakozás.
-   *   - "info"/"error" -> átmeneti státuszok (pl. részleges hibalista, timeout).
-   */
-  /* -------------------------------------------------------------------------- */
-  const handleHudIdle = useCallback(() => {
-    idleCooldownUntilRef.current = 0;
-    blockedMacRef.current.clear();
-  }, []);
-
   const { hudMode, hudMessage, hudSubMessage, scannerDetected } = useHud({
     mainView,
     isScanning,
@@ -682,7 +693,10 @@ const MainApplicationUI: React.FC = () => {
     serial,
     redisDegraded,
     infoHideAt,
-    onIdle: handleHudIdle,
+    onIdle: () => {
+      idleCooldownUntilRef.current = 0;
+      blockedMacRef.current.clear();
+    },
   });
 
   // stable empties
@@ -735,9 +749,63 @@ const MainApplicationUI: React.FC = () => {
     EMPTY_IDS,
   ]);
 
-  /* -----------------------------------------------------------------------------
+  /* =================================================================================
+   * Improved: Info banner control (auto-hide) + "no setup" detection
+   * ================================================================================= */
+
+  /** Show a transient info banner with auto-hide. */
+  const showInfo = useCallback(
+    (text: string, ms = INFO_AUTO_HIDE_MS, subtitle?: string) => {
+      setScanResult({ text, kind: "info" });
+      const hideAt = Date.now() + Math.max(1200, ms);
+      setInfoHideAt(hideAt);
+
+      if (infoTimerRef.current) {
+        window.clearInterval(infoTimerRef.current);
+        infoTimerRef.current = null;
+      }
+      infoTimerRef.current = window.setInterval(() => {
+        if (Date.now() >= hideAt) {
+          setScanResult(null);
+          setInfoHideAt(null);
+          if (infoTimerRef.current) {
+            window.clearInterval(infoTimerRef.current);
+            infoTimerRef.current = null;
+          }
+        }
+      }, 250);
+    },
+    []
+  );
+
+  // Avoid repeating the same info message per MAC.
+  const noSetupShownForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Only consider after scan/check cycle settles
+    if (!macAddress) return;
+    if (isScanning || isChecking) return;
+
+    // If we have no setup for this MAC and nothing else is already being shown
+    const norm = canonicalMac(macAddress || "");
+    if (!hasSetupForCurrentMac() && scanResult == null) {
+      if (noSetupShownForRef.current !== norm) {
+        noSetupShownForRef.current = norm;
+        showInfo("No setup data available for this MAC");
+      }
+    }
+  }, [
+    macAddress,
+    isScanning,
+    isChecking,
+    hasSetupForCurrentMac,
+    scanResult,
+    showInfo,
+  ]);
+
+  /* =================================================================================
    * Render
-   * ---------------------------------------------------------------------------*/
+   * ================================================================================= */
   const actualHeaderHeight = mainView === "dashboard" ? "4rem" : "0rem";
   const leftOffset = "0";
   const appCurrentViewType =
@@ -758,6 +826,34 @@ const MainApplicationUI: React.FC = () => {
       toggleSettingsSidebar();
     }
   };
+
+  /** Compute the animated banner to display (idle + info only). */
+  const banner: BannerState | null = useMemo(() => {
+    if (mainView !== "dashboard") return null;
+
+    // Idle → the big "PLEASE SCAN BARCODE"
+    if (hudMode === "idle") {
+      return {
+        key: "idle",
+        kind: "idle",
+        title: "PLEASE SCAN BARCODE",
+        subtitle: scannerDetected
+          ? "Scan a barcode to begin"
+          : "Scanner not detected",
+      };
+    }
+
+    // Transient "info" (e.g., No setup data available for this MAC)
+    if (scanResult && scanResult.kind === "info") {
+      return {
+        key: `info-${scanResult.text}`,
+        kind: "info",
+        title: scanResult.text,
+      };
+    }
+
+    return null;
+  }, [hudMode, scanResult, mainView, scannerDetected]);
 
   return (
     <div className="relative flex min-h-screen bg-white">
@@ -879,60 +975,59 @@ const MainApplicationUI: React.FC = () => {
             onSettingsClick={handleHeaderClick}
             currentView={appCurrentViewType}
             isSidebarOpen={isLeftSidebarOpen}
-            onToggleSidebar={toggleLeftSidebar}
+            onToggleSidebar={() => setIsLeftSidebarOpen((v) => !v)}
           />
         )}
 
-        <main className="flex-1 overflow-auto bg-white">
+        <main className="relative flex-1 overflow-auto bg-white">
+          {/* Animated banner overlay for idle + transient info */}
+          <HudBanner banner={banner} />
+
           {mainView === "dashboard" ? (
-            <>
-              <BranchDashboardMainContent
-                appHeaderHeight={actualHeaderHeight}
-                /* allow child to re-trigger a scan if it calls this; we simply re-run last scanned code if any */
-                onScanAgainRequest={(val?: string) => {
-                  const code = (val || lastScanRef.current || "").trim();
-                  if (code) void loadBranchesData(code, "sse");
-                }}
-                hudMode={hudMode}
-                hudMessage={hudMessage}
-                hudSubMessage={hudSubMessage}
-                onHudDismiss={
-                  scanResult ? () => setScanResult(null) : undefined
-                }
-                branchesData={derived.effBranches}
-                groupedBranches={derived.effGroups}
-                checkFailures={derived.effFailures}
-                nameHints={nameHints}
-                kfbNumber={kfbNumber}
-                kfbInfo={kfbInfo}
-                isScanning={isScanning && showScanUi}
-                macAddress={macAddress}
-                displayMac={displayMacAddress}
-                activeKssks={derived.effActiveKssks}
-                lastEv={(serial as any).lastEv}
-                lastEvTick={(serial as any).lastEvTick}
-                normalPins={
-                  FLAGS.SIMULATE
-                    ? derived.effNormalPins
-                    : suppressLive
-                      ? undefined
-                      : derived.effNormalPins
-                }
-                latchPins={
-                  FLAGS.SIMULATE
-                    ? derived.effLatchPins
-                    : suppressLive
-                      ? undefined
-                      : derived.effLatchPins
-                }
-                onResetKfb={handleResetKfb}
-                onFinalizeOk={finalizeOkForMac}
-                flashOkTick={okFlashTick}
-                okSystemNote={okSystemNote}
-                disableOkAnimation={disableOkAnimation}
-                scanResult={scanResult}
-              />
-            </>
+            <BranchDashboardMainContent
+              appHeaderHeight={actualHeaderHeight}
+              /* allow child to re-trigger a scan if it calls this; we simply re-run last scanned code if any */
+              onScanAgainRequest={(val?: string) => {
+                const code = (val || lastScanRef.current || "").trim();
+                if (code) void loadBranchesData(code, "sse");
+              }}
+              hudMode={hudMode}
+              hudMessage={hudMessage}
+              hudSubMessage={hudSubMessage}
+              onHudDismiss={scanResult ? () => setScanResult(null) : undefined}
+              branchesData={derived.effBranches}
+              groupedBranches={derived.effGroups}
+              checkFailures={derived.effFailures}
+              nameHints={nameHints}
+              kfbNumber={kfbNumber}
+              kfbInfo={kfbInfo}
+              isScanning={isScanning && showScanUi}
+              macAddress={macAddress}
+              displayMac={displayMacAddress}
+              activeKssks={derived.effActiveKssks}
+              lastEv={(serial as any).lastEv}
+              lastEvTick={(serial as any).lastEvTick}
+              normalPins={
+                FLAGS.SIMULATE
+                  ? derived.effNormalPins
+                  : suppressLive
+                    ? undefined
+                    : derived.effNormalPins
+              }
+              latchPins={
+                FLAGS.SIMULATE
+                  ? derived.effLatchPins
+                  : suppressLive
+                    ? undefined
+                    : derived.effLatchPins
+              }
+              onResetKfb={handleResetKfb}
+              onFinalizeOk={finalizeOkForMac}
+              flashOkTick={okFlashTick}
+              okSystemNote={okSystemNote}
+              disableOkAnimation={disableOkAnimation}
+              scanResult={scanResult}
+            />
           ) : (
             <div className="p-6 text-slate-600">Settings view is disabled.</div>
           )}

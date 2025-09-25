@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, startTransition } from "react";
 import { BranchDisplayData, TestStatus, KfbInfo } from "@/types/types";
-import { canonicalMac, extractMac } from "../utils/mac";
+import { canonicalMac, extractMac, macKey } from "../utils/mac";
 import { KFB_REGEX } from "../utils/regex";
 import { mergeAliasesFromItems } from "../utils/merge";
 import { ScanResultState } from "./useHud";
@@ -78,6 +78,7 @@ export type UseScanFlowParams = {
   okFlashAllowedRef: RefLike<boolean>;
   okShownOnceRef: RefLike<boolean>;
   lastScanTokenRef: RefLike<string>;
+  noSetupCooldownRef: RefLike<{ mac: string; until: number } | null>;
 
   activeKssks: string[];
   latchPinsValue: number[] | undefined;
@@ -134,6 +135,7 @@ export const useScanFlow = ({
   okFlashAllowedRef,
   okShownOnceRef,
   lastScanTokenRef,
+  noSetupCooldownRef,
   activeKssks,
   latchPinsValue,
 }: UseScanFlowParams): UseScanFlowResult => {
@@ -648,6 +650,18 @@ export const useScanFlow = ({
 
       const pendingMac = isMac ? (macCanon as string) : "KFB";
 
+      const blockKey = macKey(pendingMac);
+      if (blockedMacRef.current.has(blockKey)) return;
+
+      const noSetupCooldown = noSetupCooldownRef.current;
+      if (noSetupCooldown && noSetupCooldown.mac === blockKey && Date.now() < noSetupCooldown.until) {
+        okFlashAllowedRef.current = false;
+        setScanResult({ text: "No setup data available for this MAC", kind: "info" });
+        setIsScanning(false);
+        setShowScanUi(false);
+        return;
+      }
+
       let aliases: Record<string, string> = {};
       let pins: number[] = [];
       let activeIds: string[] = [];
@@ -785,17 +799,16 @@ export const useScanFlow = ({
         setKfbNumber("");
         setMacAddress("");
         try {
-          const macUp = pendingMac.toUpperCase();
-          if (macUp) {
-            blockedMacRef.current.add(macUp);
-            window.setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(macUp);
-              } catch {}
-            }, 5000);
-          }
+          blockedMacRef.current.add(blockKey);
+          window.setTimeout(() => {
+            try {
+              blockedMacRef.current.delete(blockKey);
+            } catch {}
+          }, 5000);
         } catch {}
-        idleCooldownUntilRef.current = Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS);
+        const cooldownMs = Math.max(4000, CFG.RETRY_COOLDOWN_MS);
+        idleCooldownUntilRef.current = Date.now() + cooldownMs;
+        noSetupCooldownRef.current = { mac: blockKey, until: Date.now() + cooldownMs };
         if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
         scanResultTimerRef.current = window.setTimeout(() => {
           setScanResult(null);
@@ -804,6 +817,7 @@ export const useScanFlow = ({
         return;
       }
 
+      noSetupCooldownRef.current = null;
       okFlashAllowedRef.current = true;
 
       await runCheck(pendingMac, 0, pins);
@@ -839,32 +853,31 @@ export const useScanFlow = ({
       const now = Date.now();
       const trimmed = (raw || "").trim();
       if (!trimmed) return;
-      const macFromAny = extractMac(trimmed);
-      const normalized = (macFromAny || trimmed).toUpperCase();
 
-      const token = `${normalized}:${Math.floor(now / 1500)}`;
+      const key = macKey(trimmed);
+      const token = `${key}:${Math.floor(now / 1500)}`;
       if (lastScanTokenRef.current === token) return;
       lastScanTokenRef.current = token;
 
-      if (blockedMacRef.current.has(normalized)) return;
+      if (blockedMacRef.current.has(key)) return;
       try {
         const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
         const lastAt = Number(lastFinalizedAtRef.current || 0);
         if (
           CFG.FINALIZED_RESCAN_BLOCK_MS &&
           lastMac &&
-          normalized === lastMac &&
+          key === macKey(lastMac) &&
           Date.now() - lastAt < CFG.FINALIZED_RESCAN_BLOCK_MS
         )
           return;
       } catch {}
 
-      if (!(canonicalMac(trimmed) || macFromAny || KFB_REGEX.test(trimmed))) {
+      if (!(canonicalMac(trimmed) || extractMac(trimmed) || KFB_REGEX.test(trimmed))) {
         console.warn("[SCAN] invalid code format", { code: trimmed });
         return;
       }
 
-      await loadBranchesData(macFromAny || trimmed, trig);
+      await loadBranchesData(trimmed, trig);
     },
     [
       CFG.FINALIZED_RESCAN_BLOCK_MS,

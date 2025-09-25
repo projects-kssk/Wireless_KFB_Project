@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
+import { macKey } from "../utils/mac";
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type ScanTrigger = "sse" | "poll";
@@ -102,7 +103,7 @@ export function PollingEffect({
           const { code, path, error } = await res.json();
           const raw = typeof code === "string" ? code.trim() : "";
           if (raw) {
-            const norm = raw.toUpperCase();
+            const key = macKey(raw);
             if (path && !isAcmPath(path)) return;
             if (
               want &&
@@ -112,8 +113,8 @@ export function PollingEffect({
             )
               return;
             if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
-            if (blockedMacRef.current.has(norm)) return;
-            await handleScan(norm, "poll");
+            if (blockedMacRef.current.has(key)) return;
+            await handleScan(raw, "poll");
           } else if (error) {
             const str = String(error);
             const lower = str.toLowerCase();

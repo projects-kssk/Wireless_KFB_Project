@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { macKey } from "../utils/mac";
 
 /**
  * React 19 marks `MutableRefObject` as deprecated in type positions.
@@ -309,6 +310,7 @@ export const useFinalize = ({
         handleResetKfb();
         return;
       }
+      const macKeyCurrent = macKey(mac);
       if (lastRunHadFailuresRef.current) return;
 
       const guardWindowMs = Math.max(2000, cfgRetryCooldownMs);
@@ -326,21 +328,22 @@ export const useFinalize = ({
         setSuppressLive(true);
 
         try {
-          blockedMacRef.current.add(mac);
+          blockedMacRef.current.add(macKeyCurrent);
           if (typeof window !== "undefined") {
-            window.setTimeout(() => {
+            setTimeout(() => {
               try {
-                blockedMacRef.current.delete(mac);
+                blockedMacRef.current.delete(macKeyCurrent);
               } catch {}
             }, cfgRetryCooldownMs);
           }
-          const last = (lastScanRef.current || "").toUpperCase();
-          if (last && last !== mac) {
-            blockedMacRef.current.add(last);
+          const lastRaw = (lastScanRef.current || "").toUpperCase();
+          const lastKey = lastRaw ? macKey(lastRaw) : null;
+          if (lastKey && lastKey !== macKeyCurrent) {
+            blockedMacRef.current.add(lastKey);
             if (typeof window !== "undefined") {
-              window.setTimeout(() => {
+              setTimeout(() => {
                 try {
-                  blockedMacRef.current.delete(last);
+                  blockedMacRef.current.delete(lastKey);
                 } catch {}
               }, cfgRetryCooldownMs);
             }

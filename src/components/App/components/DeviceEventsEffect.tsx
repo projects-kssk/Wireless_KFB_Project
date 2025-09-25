@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 import type { BranchDisplayData } from "@/types/types";
+import { macKey } from "../utils/mac";
 
 /** React 19–friendly structural ref shape */
 type RefLike<T> = { current: T };
@@ -86,7 +87,8 @@ export function DeviceEventsEffect({
       }
       if (!evMac) return;
       const lastFinalizedAgo = Date.now() - (lastFinalizedAtRef.current || 0);
-      if (blockedMacRef.current.has(evMac)) return;
+      const evKey = macKey(evMac);
+      if (blockedMacRef.current.has(evKey)) return;
       if (lastFinalizedAgo >= 0 && lastFinalizedAgo < retryCooldownMs) return;
       if (!active) {
         setMacAddress(evMac);

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
+import { macKey } from "../utils/mac";
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type ScanTrigger = "sse" | "poll";
@@ -52,12 +53,13 @@ export function ScannerEffect({
     if (!code) return;
     if (isCheckingRef.current || isScanning) return;
 
-    const norm = String(code).trim().toUpperCase();
-    if (!norm) return;
+    const raw = String(code).trim();
+    if (!raw) return;
+    const key = macKey(raw);
     if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
-    if (blockedMacRef.current.has(norm)) return;
+    if (blockedMacRef.current.has(key)) return;
 
-    void handleScan(norm, "sse");
+    void handleScan(raw, "sse");
   }, [
     (serial as any).lastScanTick,
     (serial as any).lastScanPath,

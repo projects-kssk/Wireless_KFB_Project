@@ -21,3 +21,6 @@ export const extractMac = (raw: string): string | null => {
   }
   return null;
 };
+
+export const macKey = (raw: string): string =>
+  (canonicalMac(raw) || extractMac(raw) || raw).replace(/[^0-9A-F]/gi, "").toUpperCase();

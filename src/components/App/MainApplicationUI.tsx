@@ -12,7 +12,6 @@ import React, {
 import { BranchDisplayData, KfbInfo, TestStatus } from "@/types/types";
 import { Header } from "@/components/Header/Header";
 import BranchDashboardMainContent from "@/components/Program/BranchDashboardMainContent";
-import { useSerialEvents } from "@/components/Header/useSerialEvents";
 import { readScanScope, subscribeScanScope } from "@/lib/scanScope";
 import { UnionEffect } from "./components/UnionEffect";
 import { AutoFinalizeEffect } from "./components/AutoFinalizeEffect";
@@ -25,6 +24,7 @@ import { maskSimMac } from "@/lib/macDisplay";
 import useConfig from "./hooks/useConfig";
 import useTimers from "./hooks/useTimers";
 import useHud, { HudMode, ScanResultState } from "./hooks/useHud";
+import useSerialLive from "./hooks/useSerialLive";
 import { canonicalMac, extractMac, MAC_ONLY_REGEX } from "./utils/mac";
 import { KFB_REGEX } from "./utils/regex";
 import {
@@ -183,7 +183,6 @@ const MainApplicationUI: React.FC = () => {
   const [suppressLive, setSuppressLive] = useState(false);
 
   const [redisDegraded, setRedisDegraded] = useState(false);
-  const redisReadyRef = useRef<boolean>(false);
   const prevRedisReadyRef = useRef<boolean | null>(null);
   const redisDropTimerRef = useRef<number | null>(null);
   const lastRedisDropAtRef = useRef<number | null>(null);
@@ -281,22 +280,13 @@ const MainApplicationUI: React.FC = () => {
   /* -----------------------------------------------------------------------------
    * Serial live
    * ---------------------------------------------------------------------------*/
-  const serial = useSerialEvents(
-    // In simulation, keep SSE active even while suppressLive so pin toggles reflect immediately.
-    setupGateActive || (suppressLive && !FLAGS.SIMULATE)
-      ? undefined
-      : (macAddress || "").toUpperCase(),
-    {
-      disabled:
-        setupGateActive ||
-        (suppressLive && !FLAGS.SIMULATE) ||
-        mainView !== "dashboard",
-      base: !setupGateActive,
-    }
-  );
-  useEffect(() => {
-    redisReadyRef.current = !!(serial as any).redisReady;
-  }, [(serial as any).redisReady]);
+  const { serial, redisReadyRef } = useSerialLive({
+    macAddress,
+    setupGateActive,
+    suppressLive,
+    simulateEnabled: FLAGS.SIMULATE,
+    mainView,
+  });
 
   /* -----------------------------------------------------------------------------
    * Core helpers

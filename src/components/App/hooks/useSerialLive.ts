@@ -28,7 +28,7 @@ export const useSerialLive = <TSerial = any>({
     {
       disabled:
         setupGateActive ||
-        (suppressive => suppressive)(suppressLive) && !simulateEnabled ||
+        (suppressLive && !simulateEnabled) ||
         mainView !== "dashboard",
       base: !setupGateActive,
     }

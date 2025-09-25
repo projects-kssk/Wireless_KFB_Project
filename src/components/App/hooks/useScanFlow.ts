@@ -530,6 +530,7 @@ export const useScanFlow = ({
             }
             setScanResult(null);
             setSuppressLive(false);
+            okFlashAllowedRef.current = false;
           }
         } else {
           if (res.status === 429 && attempt < CFG.RETRIES) {

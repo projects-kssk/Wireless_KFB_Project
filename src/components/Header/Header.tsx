@@ -11,6 +11,7 @@ import type { Transition } from "framer-motion";
 import { appConfig } from "@/components/config/appConfig";
 import { useSerialEvents, type SerialState } from "./useSerialEvents";
 import ThemeToggle from "./ThemeToggle";
+import { useTheme } from "next-themes";
 
 /* ────────────────────────────────────────────────────────────────────────────
    Config
@@ -46,9 +47,8 @@ type TestState = "idle" | "calling" | "ok" | "error";
    Header chrome
    ──────────────────────────────────────────────────────────────────────────── */
 const StrictHeaderBg = [
-  "bg-[linear-gradient(180deg,#ffffff_0%,#f2f4f7_100%)]",
   "text-slate-900",
-  "dark:bg-[#222222] dark:text-slate-200",
+  "dark:text-slate-200",
   "border-b border-[#e3e6ec] dark:border-[#1a1a1a]",
   "transition-colors",
 ].join(" ");
@@ -243,7 +243,7 @@ const StatusRow: React.FC<{
   labelsHidden?: boolean;
 }> = ({ cells, className, labelsHidden }) => (
   <div className={["w-full h-full p-0 min-w-0", className ?? ""].join(" ")}>
-    <div className="flex h-full">
+    <div className="flex h-full gap-4 xl:gap-6">
       {cells.map((c, i) => (
         <div
           key={i}
@@ -1159,6 +1159,12 @@ export const Header: React.FC<HeaderProps> = ({
   serial: injectedSerial,
   displayMac: _displayMac,
 }) => {
+  const { resolvedTheme } = useTheme();
+  const headerBackground =
+    resolvedTheme === "dark"
+      ? "#222222"
+      : "linear-gradient(180deg,#ffffff 0%,#f2f4f7 100%)";
+
   const [isHeaderVisible, setIsHeaderVisible] = useState(true);
   const [settingsSize, setSettingsSize] = useState<number>(150);
 
@@ -1403,6 +1409,7 @@ export const Header: React.FC<HeaderProps> = ({
             willChange: "transform",
             backfaceVisibility: "hidden",
             transform: "translateZ(0)",
+            background: headerBackground,
           }}
         >
           <div
@@ -1410,8 +1417,8 @@ export const Header: React.FC<HeaderProps> = ({
             style={{
               paddingTop: "env(safe-area-inset-top)",
               gridTemplateColumns: labelsHidden
-                ? "minmax(220px,1fr) 1fr minmax(220px,280px)"
-                : "minmax(300px,420px) 1fr minmax(260px,320px)",
+                ? "minmax(240px,1fr) 1fr minmax(240px,320px)"
+                : "minmax(340px,480px) 1fr minmax(260px,320px)",
             }}
           >
             {/* 1) Support + Version */}

@@ -135,6 +135,10 @@ const MainApplicationUI: React.FC = () => {
   const appBackground = isDarkMode
     ? "#222222"
     : "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
+  const mainSurfaceBg = isDarkMode ? "#222222" : "rgba(255,255,255,0.96)";
+  const mainSurfaceBorder = isDarkMode
+    ? "#151515"
+    : "rgba(15,23,42,0.08)";
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -1029,7 +1033,13 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="relative flex-1 overflow-auto border-t border-transparent bg-white dark:border-[#151515] dark:bg-[#222222] backdrop-blur-sm transition-colors">
+        <main
+          className="relative flex-1 overflow-auto backdrop-blur-sm transition-colors"
+          style={{
+            background: mainSurfaceBg,
+            borderTop: `1px solid ${mainSurfaceBorder}`,
+          }}
+        >
           {/* Animated banner overlay for idle + transient info */}
           <HudBanner banner={banner} />
 

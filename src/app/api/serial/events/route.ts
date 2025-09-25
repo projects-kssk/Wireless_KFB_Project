@@ -314,7 +314,11 @@ export async function GET(req: Request) {
               currentMonitorMac = mac && mac !== ZERO_MAC ? mac : currentMonitorMac;
               const lineOut = rewriteLineMac(rawLine, mac);
               if (!shouldEmitSerialEvent('START', mac, null)) return;
-              try { console.log('[events] EV START', { mac, line: lineOut }); } catch {}
+              try {
+                const key = `START:${mac}`;
+                if (__LAST_LOG.shouldLog(key))
+                  console.log('[events] EV START', { mac, line: lineOut });
+              } catch {}
               send({ type: 'ev', kind: 'START', ch: null, val: null, mac, raw: rawLine, line: lineOut, ts: Date.now() });
               return;
             }

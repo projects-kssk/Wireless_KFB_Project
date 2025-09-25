@@ -11,6 +11,7 @@ import {
   type CSSProperties,
 } from "react";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
+import { useTheme } from "next-themes";
 import TableSwap from "@/components/Tables/TableSwap";
 import type { RefObject } from "react";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
@@ -552,6 +553,15 @@ export default function SetupPage() {
   // allow manual entry only in simulation mode (derived)
   const prefersReduced = useReducedMotion();
   const tableRef = useRef<HTMLDivElement>(null);
+
+  const { resolvedTheme } = useTheme();
+  const [themeReady, setThemeReady] = useState(false);
+
+  useEffect(() => {
+    setThemeReady(true);
+  }, []);
+
+  const isDark = themeReady && resolvedTheme === "dark";
 
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>(() =>
@@ -2023,14 +2033,27 @@ export default function SetupPage() {
   const fontStack =
     'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji"';
 
+  const gradientLight =
+    "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
+  const gradientDark =
+    "radial-gradient(160% 160% at 0% -40%, #0b1220 0%, #0b1220 55%, #020617 100%)";
+  const surfaceBg = isDark ? "rgba(15,23,42,0.86)" : "#ffffff";
+  const surfaceBorder = isDark ? "rgba(148,163,184,0.24)" : "#edf2f7";
+  const primaryText = isDark ? "#e2e8f0" : "#0f172a";
+  const mutedText = isDark ? "#94a3b8" : "#64748b";
+  const inputBg = isDark ? "rgba(15,23,42,0.75)" : "#ffffff";
+  const inputBorder = isDark ? "rgba(148,163,184,0.35)" : "#cbd5e1";
+
   const page: CSSProperties = {
     minHeight: "100vh",
     display: "grid",
     gap: 16,
     alignContent: "start",
-    background: "#ffffff",
+    background: isDark ? gradientDark : gradientLight,
     padding: "18px 16px 40px",
     fontFamily: fontStack,
+    color: primaryText,
+    transition: "background 160ms ease, color 160ms ease",
   };
   const containerWide: CSSProperties = {
     width: "min(1280px, 100%)",
@@ -2039,12 +2062,16 @@ export default function SetupPage() {
 
   const hero: CSSProperties = {
     ...containerWide,
-    border: "1px solid #edf2f7",
-    background: "#fff",
+    border: `1px solid ${surfaceBorder}`,
+    background: surfaceBg,
     borderRadius: 16,
     padding: 16,
     display: "grid",
     gap: 6,
+    boxShadow: isDark
+      ? "0 30px 60px -40px rgba(15,23,42,0.9)"
+      : "0 20px 45px -35px rgba(15,23,42,0.22)",
+    transition: "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
   };
   const heroTopRow: CSSProperties = {
     display: "flex",
@@ -2063,8 +2090,9 @@ export default function SetupPage() {
     fontSize: 44,
     fontWeight: 1000,
     letterSpacing: "0.01em",
-    color: "#0f172a",
+    color: primaryText,
     textTransform: "uppercase",
+    transition: "color 160ms ease",
   };
   const modeBadgeBase =
     "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold";
@@ -2106,25 +2134,31 @@ export default function SetupPage() {
 
   const section: CSSProperties = { ...containerWide, display: "grid", gap: 10 };
   const card: CSSProperties = {
-    border: "1px solid #edf2f7",
+    border: `1px solid ${surfaceBorder}`,
     borderRadius: 16,
-    background: "#fff",
+    background: surfaceBg,
     padding: 18,
     display: "grid",
     gap: 12,
+    boxShadow: isDark
+      ? "0 25px 50px -35px rgba(15,23,42,0.9)"
+      : "0 18px 40px -30px rgba(15,23,42,0.15)",
+    transition: "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
   };
   const eyebrow: CSSProperties = {
     fontSize: 11,
     letterSpacing: "0.08em",
-    color: "#64748b",
+    color: mutedText,
     textTransform: "uppercase",
     fontWeight: 800,
+    transition: "color 160ms ease",
   };
   const heading: CSSProperties = {
     fontSize: 28,
     fontWeight: 900,
     letterSpacing: "0.01em",
-    color: "#0f172a",
+    color: primaryText,
+    transition: "color 160ms ease",
   };
 
   const slotsGrid: CSSProperties = {
@@ -2144,13 +2178,14 @@ export default function SetupPage() {
     width: "100%",
     height: 46,
     borderRadius: 10,
-    border: "1px solid #cbd5e1",
+    border: `1px solid ${inputBorder}`,
     padding: "0 12px",
     fontSize: 18,
     outline: "none",
-    background: "#fff",
-    color: "#0f172a",
-    caretColor: "#0f172a",
+    background: inputBg,
+    color: primaryText,
+    caretColor: primaryText,
+    transition: "background 160ms ease, border-color 160ms ease, color 160ms ease",
   };
 
   // ✅ progress counts only OK slots
@@ -2725,6 +2760,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   onForceClear,
   flashKind,
   flashId,
+  darkMode = false,
 }: {
   index: number;
   code: string | null;
@@ -2736,6 +2772,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   onForceClear?: () => void;
   flashKind?: "success" | "error" | null;
   flashId?: number;
+  darkMode?: boolean;
 }) {
   const prefersReduced = useReducedMotion();
 

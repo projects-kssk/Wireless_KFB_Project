@@ -651,15 +651,21 @@ export const useScanFlow = ({
       const pendingMac = isMac ? (macCanon as string) : "KFB";
 
       const blockKey = macKey(pendingMac);
+      const cooldown = noSetupCooldownRef.current;
       if (blockedMacRef.current.has(blockKey)) return;
 
-      const noSetupCooldown = noSetupCooldownRef.current;
-      if (noSetupCooldown && noSetupCooldown.mac === blockKey && Date.now() < noSetupCooldown.until) {
-        okFlashAllowedRef.current = false;
-        setScanResult({ text: "No setup data available for this MAC", kind: "info" });
-        setIsScanning(false);
-        setShowScanUi(false);
-        return;
+      if (cooldown && cooldown.mac === blockKey) {
+        if (Date.now() >= cooldown.until) {
+          noSetupCooldownRef.current = null;
+        } else {
+          okFlashAllowedRef.current = false;
+          if (!scanResult || scanResult.text !== "No setup data available for this MAC") {
+            setScanResult({ text: "No setup data available for this MAC", kind: "info" });
+          }
+          setIsScanning(false);
+          setShowScanUi(false);
+          return;
+        }
       }
 
       let aliases: Record<string, string> = {};
@@ -809,14 +815,12 @@ export const useScanFlow = ({
         const cooldownMs = Math.max(4000, CFG.RETRY_COOLDOWN_MS);
         idleCooldownUntilRef.current = Date.now() + cooldownMs;
         noSetupCooldownRef.current = { mac: blockKey, until: Date.now() + cooldownMs };
-        if (typeof window !== "undefined") {
-          if (scanResultTimerRef.current)
-            window.clearTimeout(scanResultTimerRef.current);
-          scanResultTimerRef.current = window.setTimeout(() => {
-            setScanResult(null);
-            scanResultTimerRef.current = null;
-          }, Math.min(cooldownMs, 5000));
-        }
+        if (scanResultTimerRef.current)
+          window.clearTimeout(scanResultTimerRef.current);
+        scanResultTimerRef.current = window.setTimeout(() => {
+          setScanResult(null);
+          scanResultTimerRef.current = null;
+        }, Math.min(cooldownMs, 5000));
         return;
       }
 

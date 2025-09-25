@@ -827,7 +827,14 @@ const MainApplicationUI: React.FC = () => {
   }, [scanResult, mainView]);
 
   return (
-    <div className="relative flex min-h-screen bg-white">
+    <div
+      className={[
+        "relative flex min-h-screen w-full",
+        "bg-[radial-gradient(160%_160%_at_0%_-30%,rgba(148,163,184,0.16)_0%,rgba(248,250,252,0.95)_55%,rgba(255,255,255,1)_100%)]",
+        "dark:bg-[radial-gradient(150%_150%_at_0%_-25%,rgba(15,23,42,0.78)_0%,rgba(15,23,42,0.92)_55%,rgba(2,6,23,1)_100%)]",
+        "transition-colors",
+      ].join(" ")}
+    >
       {/* --- Effect components (side-effect orchestration) --- */}
       <UnionEffect
         serial={serial}
@@ -950,7 +957,7 @@ const MainApplicationUI: React.FC = () => {
           />
         )}
 
-        <main className="relative flex-1 overflow-auto bg-white">
+        <main className="relative flex-1 overflow-auto bg-white/90 dark:bg-slate-900/80 backdrop-blur-sm transition-colors">
           {/* Animated banner overlay for idle + transient info */}
           <HudBanner banner={banner} />
 

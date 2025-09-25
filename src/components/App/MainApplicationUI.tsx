@@ -960,6 +960,9 @@ const MainApplicationUI: React.FC = () => {
         isCheckingRef={isCheckingRef}
         okFlashAllowedRef={okFlashAllowedRef}
         okShownOnceRef={okShownOnceRef}
+        clearFailureFlag={() => {
+          lastRunHadFailuresRef.current = false;
+        }}
         setOkFlashTick={setOkFlashTick}
         setMacAddress={setMacAddress}
         setKfbNumber={setKfbNumber}

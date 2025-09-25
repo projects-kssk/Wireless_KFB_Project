@@ -23,6 +23,7 @@ export type DeviceEventsEffectProps = {
   isCheckingRef: RefLike<boolean>;
   okFlashAllowedRef: RefLike<boolean>;
   okShownOnceRef: RefLike<boolean>;
+  clearFailureFlag?: () => void;
 
   // Setters
   setOkFlashTick: Dispatch<SetStateAction<number>>;
@@ -50,6 +51,7 @@ export function DeviceEventsEffect({
   isCheckingRef,
   okFlashAllowedRef,
   okShownOnceRef,
+  clearFailureFlag,
   setOkFlashTick,
   setMacAddress,
   setKfbNumber,
@@ -105,13 +107,13 @@ export function DeviceEventsEffect({
     if (!current) return;
 
     if ((kind === "RESULT" || kind === "DONE") && ok) {
-      if (!setupReady) return;
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
       );
       setCheckFailures([]);
       setIsChecking(false);
       setIsScanning(false);
+      clearFailureFlag?.();
       if (okFlashAllowedRef.current && !okShownOnceRef.current) {
         okShownOnceRef.current = true;
         setOkFlashTick((t) => t + 1);

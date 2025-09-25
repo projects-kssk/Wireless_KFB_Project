@@ -74,6 +74,26 @@ const SupportIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const VersionBadge: React.FC<{ value: string }> = ({ value }) => (
+  <span className="inline-flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300">
+    <span className="tracking-[0.28em] uppercase text-[10px] text-slate-500 dark:text-slate-400">
+      Version
+    </span>
+    <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100">
+      {value}
+    </span>
+  </span>
+);
+
+const ThemeSwitcher: React.FC = () => (
+  <span className="inline-flex items-center gap-2 text-[12px] font-semibold text-slate-600 dark:text-slate-300">
+    <span className="tracking-[0.28em] uppercase text-[10px] text-slate-500 dark:text-slate-400">
+      Theme
+    </span>
+    <ThemeToggle />
+  </span>
+);
+
 const SupportPillSM: React.FC<{
   supportNumber?: string | number;
   onCall?: () => void;
@@ -1482,16 +1502,10 @@ export const Header: React.FC<HeaderProps> = ({
                     "0.8.0"
                 ).trim();
                 const clean = raw.replace(/^v/i, "");
-                const label = `Version: ${clean}`;
                 return (
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-1 text-xs font-bold text-slate-700 shadow-sm dark:border-[#1f1f1f] dark:bg-[#090909] dark:text-slate-200"
-                      title={label}
-                    >
-                      {label}
-                    </span>
-                    <ThemeToggle />
+                  <div className="flex items-center gap-3">
+                    <VersionBadge value={clean} />
+                    <ThemeSwitcher />
                   </div>
                 );
               })()}

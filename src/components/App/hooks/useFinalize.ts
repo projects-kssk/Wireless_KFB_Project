@@ -247,8 +247,10 @@ export const useFinalize = ({
                     workingDataXml = await r2.text();
                     break;
                   }
+                } else {
+                  await sleep(250);
+                  continue;
                 }
-                break;
               }
             } catch {}
             await sleep(250);

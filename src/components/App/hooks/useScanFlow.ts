@@ -838,37 +838,15 @@ export const useScanFlow = ({
         setShowScanUi(false);
         setKfbNumber("");
         setMacAddress("");
-        try {
-          blockedMacRef.current.add(blockKey);
-          window.setTimeout(() => {
-            try {
-              blockedMacRef.current.delete(blockKey);
-            } catch {}
-          }, 5000);
-        } catch {}
-        const cooldownMs = Math.max(4000, CFG.RETRY_COOLDOWN_MS);
-        const until = Date.now() + cooldownMs;
-        idleCooldownUntilRef.current = until;
-        noSetupCooldownRef.current = { mac: blockKey, until };
+        idleCooldownUntilRef.current = 0;
+        noSetupCooldownRef.current = null;
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
-        const hideDelay = Math.min(cooldownMs, 3000);
+        const hideDelay = 2000;
         scanResultTimerRef.current = window.setTimeout(() => {
           setScanResult(null);
           scanResultTimerRef.current = null;
         }, hideDelay);
-        if (typeof window !== "undefined") {
-          window.setTimeout(() => {
-            if (
-              noSetupCooldownRef.current &&
-              noSetupCooldownRef.current.mac === blockKey &&
-              Date.now() >= noSetupCooldownRef.current.until
-            ) {
-              noSetupCooldownRef.current = null;
-              handleResetKfb();
-            }
-          }, cooldownMs + 60);
-        }
         return;
       }
 

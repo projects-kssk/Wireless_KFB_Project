@@ -132,12 +132,13 @@ const MainApplicationUI: React.FC = () => {
   const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
   const { resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === "dark";
-  const appBackground = isDarkMode
-    ? "#222222"
-    : "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
-  const mainSurfaceBg = isDarkMode ? "#222222" : "rgba(255,255,255,0.96)";
+  const gradientLight =
+    "radial-gradient(160% 160% at 0% -35%, #eef3ff 0%, #f6f9ff 55%, #ffffff 100%)";
+  const gradientDark = "#222222";
+  const appBackground = isDarkMode ? gradientDark : gradientLight;
+  const mainSurfaceBg = isDarkMode ? "#333333" : "#ffffff";
   const mainSurfaceBorder = isDarkMode
-    ? "#151515"
+    ? "rgba(255,255,255,0.08)"
     : "rgba(15,23,42,0.08)";
 
   /* -----------------------------------------------------------------------------
@@ -1039,6 +1040,9 @@ const MainApplicationUI: React.FC = () => {
           style={{
             background: mainSurfaceBg,
             borderTop: `1px solid ${mainSurfaceBorder}`,
+            boxShadow: isDarkMode
+              ? "0 30px 60px -40px rgba(0,0,0,0.55)"
+              : "0 20px 45px -35px rgba(15,23,42,0.12)",
           }}
         >
           {/* Animated banner overlay for idle + transient info */}

@@ -499,16 +499,21 @@ export const useScanFlow = ({
           );
 
           if (!unknown && failures.length === 0 && setupReadyRef) {
-            clearScanOverlayTimeout();
-            setSuppressLive(true);
-            cancel("checkWatchdog");
-            await finalizeOkForMac(mac);
-            if (okFlashAllowedRef.current && !okShownOnceRef.current) {
-              okShownOnceRef.current = true;
-              setOkFlashTick((t) => t + 1);
-            }
-            return;
-          } else {
+          clearScanOverlayTimeout();
+          setSuppressLive(true);
+          cancel("checkWatchdog");
+          const finalizePromise = finalizeOkForMac(mac);
+          if (okFlashAllowedRef.current && !okShownOnceRef.current) {
+            okShownOnceRef.current = true;
+            setOkFlashTick((t) => t + 1);
+          }
+          try {
+            await finalizePromise;
+          } catch (err) {
+            console.warn("[FLOW][CHECK] finalizeOkForMac failed", err);
+          }
+          return;
+        } else {
             if (!setupReadyRef) {
               setGroupedBranches([]);
               return;

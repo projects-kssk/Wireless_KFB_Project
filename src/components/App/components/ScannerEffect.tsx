@@ -1,25 +1,27 @@
 import { useEffect } from "react";
-import type { MutableRefObject } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type ScanTrigger = "sse" | "poll";
+
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
 
 type ScannerEffectProps = {
   serial: SerialState;
   mainView: MainView;
   isSettingsSidebarOpen: boolean;
   isScanning: boolean;
-  isCheckingRef: MutableRefObject<boolean>;
-  idleCooldownUntilRef: MutableRefObject<number>;
-  blockedMacRef: MutableRefObject<Set<string>>;
+  isCheckingRef: RefLike<boolean>;
+  idleCooldownUntilRef: RefLike<number>;
+  blockedMacRef: RefLike<Set<string>>;
   resolveDesiredPath: () => string | null;
   pathsEqual: (a?: string | null, b?: string | null) => boolean;
   isAcmPath: (path?: string | null) => boolean;
   handleScan: (code: string, trigger: ScanTrigger) => Promise<void> | void;
 };
 
-export const ScannerEffect: React.FC<ScannerEffectProps> = ({
+export function ScannerEffect({
   serial,
   mainView,
   isSettingsSidebarOpen,
@@ -31,7 +33,7 @@ export const ScannerEffect: React.FC<ScannerEffectProps> = ({
   pathsEqual,
   isAcmPath,
   handleScan,
-}) => {
+}: ScannerEffectProps): null {
   useEffect(() => {
     if (mainView !== "dashboard") return;
     if (isSettingsSidebarOpen) return;
@@ -42,7 +44,8 @@ export const ScannerEffect: React.FC<ScannerEffectProps> = ({
     const pathOk =
       !want ||
       !seen ||
-      ((isAcmPath(seen) && isAcmPath(want)) || pathsEqual(seen, want));
+      (isAcmPath(seen) && isAcmPath(want)) ||
+      pathsEqual(seen, want);
     if (!pathOk) return;
 
     const code = (serial as any).lastScan;
@@ -71,4 +74,6 @@ export const ScannerEffect: React.FC<ScannerEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default ScannerEffect;

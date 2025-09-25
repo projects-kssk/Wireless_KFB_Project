@@ -1,11 +1,10 @@
 import { useEffect } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 import type { BranchDisplayData } from "@/types/types";
+
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
 
 export type DeviceEventsEffectProps = {
   serial: SerialState;
@@ -14,13 +13,17 @@ export type DeviceEventsEffectProps = {
   zeroMac: string;
   retryCooldownMs: number;
   hasSetupForCurrentMac: () => boolean;
-  macRef: MutableRefObject<string>;
-  lastScanRef: MutableRefObject<string>;
-  blockedMacRef: MutableRefObject<Set<string>>;
-  lastFinalizedAtRef: MutableRefObject<number>;
-  isCheckingRef: MutableRefObject<boolean>;
-  okFlashAllowedRef: MutableRefObject<boolean>;
-  okShownOnceRef: MutableRefObject<boolean>;
+
+  // Refs (use RefLike<T> instead of MutableRefObject<T>)
+  macRef: RefLike<string>;
+  lastScanRef: RefLike<string>;
+  blockedMacRef: RefLike<Set<string>>;
+  lastFinalizedAtRef: RefLike<number>;
+  isCheckingRef: RefLike<boolean>;
+  okFlashAllowedRef: RefLike<boolean>;
+  okShownOnceRef: RefLike<boolean>;
+
+  // Setters
   setOkFlashTick: Dispatch<SetStateAction<number>>;
   setMacAddress: Dispatch<SetStateAction<string>>;
   setKfbNumber: Dispatch<SetStateAction<string>>;
@@ -28,10 +31,11 @@ export type DeviceEventsEffectProps = {
   setIsScanning: Dispatch<SetStateAction<boolean>>;
   setBranchesData: Dispatch<SetStateAction<BranchDisplayData[]>>;
   setCheckFailures: Dispatch<SetStateAction<number[] | null>>;
+
   finalizeOkForMac: (mac: string) => Promise<void>;
 };
 
-export const DeviceEventsEffect: React.FC<DeviceEventsEffectProps> = ({
+export function DeviceEventsEffect({
   serial,
   setupGateActive,
   suppressLive,
@@ -53,7 +57,7 @@ export const DeviceEventsEffect: React.FC<DeviceEventsEffectProps> = ({
   setBranchesData,
   setCheckFailures,
   finalizeOkForMac,
-}) => {
+}: DeviceEventsEffectProps): null {
   useEffect(() => {
     if (setupGateActive) return;
     if (suppressLive) return;
@@ -156,8 +160,7 @@ export const DeviceEventsEffect: React.FC<DeviceEventsEffectProps> = ({
     const isResultish =
       kind === "DONE" || kind === "RESULT" || /\bRESULT\b/i.test(raw);
     const isFailure =
-      String(ev.ok).toLowerCase() === "false" ||
-      /\bFAIL(?:URE)?\b/i.test(raw);
+      String(ev.ok).toLowerCase() === "false" || /\bFAIL(?:URE)?\b/i.test(raw);
 
     if (isResultish && isFailure && !isCheckingRef.current) {
       setIsChecking(true);
@@ -195,4 +198,6 @@ export const DeviceEventsEffect: React.FC<DeviceEventsEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default DeviceEventsEffect;

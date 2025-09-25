@@ -1,14 +1,29 @@
 import { useEffect } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
+
 export type UnionEffectProps = {
   serial: SerialState;
   suppressLive: boolean;
   hasSetupForCurrentMac: () => boolean;
-  macRef: React.MutableRefObject<string>;
+
+  // Refs (avoid deprecated MutableRefObject in public API)
+  macRef: RefLike<string>;
+  lastActiveIdsRef: RefLike<string[]>;
+  itemsAllFromAliasesRef: RefLike<
+    Array<{
+      ksk: string;
+      aliases?: Record<string, string>;
+      normalPins?: number[];
+      latchPins?: number[];
+    }>
+  >;
+
   redisDegraded: boolean;
-  lastActiveIdsRef: React.MutableRefObject<string[]>;
   activeKssks: string[];
+
   computeActivePins: (
     items:
       | Array<{
@@ -20,14 +35,7 @@ export type UnionEffectProps = {
       | undefined,
     activeIds: string[] | undefined
   ) => { normal: number[]; latch: number[] };
-  itemsAllFromAliasesRef: React.MutableRefObject<
-    Array<{
-      ksk: string;
-      aliases?: Record<string, string>;
-      normalPins?: number[];
-      latchPins?: number[];
-    }>
-  >;
+
   setNormalPins: React.Dispatch<React.SetStateAction<number[] | undefined>>;
   setLatchPins: React.Dispatch<React.SetStateAction<number[] | undefined>>;
   setNameHints: React.Dispatch<
@@ -35,7 +43,7 @@ export type UnionEffectProps = {
   >;
 };
 
-export const UnionEffect: React.FC<UnionEffectProps> = ({
+export function UnionEffect({
   serial,
   suppressLive,
   hasSetupForCurrentMac,
@@ -48,7 +56,7 @@ export const UnionEffect: React.FC<UnionEffectProps> = ({
   setNormalPins,
   setLatchPins,
   setNameHints,
-}) => {
+}: UnionEffectProps): null {
   useEffect(() => {
     const union = serial.lastUnion as {
       mac?: string;
@@ -56,6 +64,7 @@ export const UnionEffect: React.FC<UnionEffectProps> = ({
       latchPins?: number[];
       names?: Record<string, string>;
     } | null;
+
     if (!union) return;
     if (suppressLive) return;
     if (!hasSetupForCurrentMac()) return;
@@ -63,6 +72,7 @@ export const UnionEffect: React.FC<UnionEffectProps> = ({
     const currentMac = (macRef.current || "").toUpperCase();
     if (!currentMac) return;
 
+    // When Redis is degraded, ignore empty union snapshots to avoid nuking state.
     if (redisDegraded) {
       const np = Array.isArray(union.normalPins) ? union.normalPins.length : 0;
       const lp = Array.isArray(union.latchPins) ? union.latchPins.length : 0;
@@ -84,6 +94,7 @@ export const UnionEffect: React.FC<UnionEffectProps> = ({
     );
     setNormalPins(fromItems.normal);
     setLatchPins(fromItems.latch);
+
     if (union.names && typeof union.names === "object") {
       setNameHints(union.names as Record<string, string>);
     }
@@ -103,4 +114,6 @@ export const UnionEffect: React.FC<UnionEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default UnionEffect;

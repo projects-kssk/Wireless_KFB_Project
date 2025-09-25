@@ -1,28 +1,31 @@
 import { useEffect } from "react";
-import type { MutableRefObject } from "react";
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
+
 type PostResetSanityEffectProps = {
-  lastFinalizedMacRef: MutableRefObject<string | null>;
+  lastFinalizedMacRef: RefLike<string | null>;
   mainView: MainView;
-  macRef: MutableRefObject<string>;
+  macRef: RefLike<string>;
   isScanning: boolean;
   isChecking: boolean;
   clearKskLocksFully: (mac: string) => Promise<boolean>;
 };
 
-export const PostResetSanityEffect: React.FC<PostResetSanityEffectProps> = ({
+export function PostResetSanityEffect({
   lastFinalizedMacRef,
   mainView,
   macRef,
   isScanning,
   isChecking,
   clearKskLocksFully,
-}) => {
+}: PostResetSanityEffectProps): null {
   useEffect(() => {
     const mac = lastFinalizedMacRef.current;
     if (!mac) return;
+
     const onScanView =
       mainView === "dashboard" && !(macRef.current && macRef.current.trim());
     if (!onScanView) return;
@@ -50,4 +53,6 @@ export const PostResetSanityEffect: React.FC<PostResetSanityEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default PostResetSanityEffect;

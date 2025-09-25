@@ -1,23 +1,21 @@
 import { useEffect } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
 import type { BranchDisplayData } from "@/types/types";
+
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
 
 export type AutoFinalizeEffectProps = {
   isScanning: boolean;
   isChecking: boolean;
-  okFlashAllowedRef: MutableRefObject<boolean>;
+  okFlashAllowedRef: RefLike<boolean>;
   checkFailures: number[] | null;
   branchesData: BranchDisplayData[];
   groupedBranches: Array<{ ksk: string; branches: BranchDisplayData[] }>;
-  macRef: MutableRefObject<string>;
+  macRef: RefLike<string>;
   finalizeOkForMac: (mac: string) => Promise<void>;
 };
 
-export const AutoFinalizeEffect: React.FC<AutoFinalizeEffectProps> = ({
+export function AutoFinalizeEffect({
   isScanning,
   isChecking,
   okFlashAllowedRef,
@@ -26,7 +24,7 @@ export const AutoFinalizeEffect: React.FC<AutoFinalizeEffectProps> = ({
   groupedBranches,
   macRef,
   finalizeOkForMac,
-}) => {
+}: AutoFinalizeEffectProps): null {
   useEffect(() => {
     if (isScanning || isChecking) {
       okFlashAllowedRef.current = false;
@@ -40,6 +38,7 @@ export const AutoFinalizeEffect: React.FC<AutoFinalizeEffectProps> = ({
       Array.isArray(branchesData) &&
       branchesData.length > 0 &&
       branchesData.every((b) => b.testStatus === "ok");
+
     const groupedOk =
       Array.isArray(groupedBranches) &&
       groupedBranches.length > 0 &&
@@ -48,6 +47,7 @@ export const AutoFinalizeEffect: React.FC<AutoFinalizeEffectProps> = ({
           g.branches.length > 0 &&
           g.branches.every((b) => b.testStatus === "ok")
       );
+
     if (flatOk || groupedOk) {
       const macUp = (macRef.current || "").toUpperCase();
       if (macUp) void finalizeOkForMac(macUp);
@@ -64,4 +64,6 @@ export const AutoFinalizeEffect: React.FC<AutoFinalizeEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default AutoFinalizeEffect;

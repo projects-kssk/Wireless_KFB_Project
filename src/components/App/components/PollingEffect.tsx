@@ -1,14 +1,13 @@
 import { useEffect } from "react";
-import type {
-  Dispatch,
-  MutableRefObject,
-  SetStateAction,
-} from "react";
+import type { Dispatch, SetStateAction } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 
 type MainView = "dashboard" | "settingsConfiguration" | "settingsBranches";
 type ScanTrigger = "sse" | "poll";
 type ScanResultState = { text: string; kind: "info" | "error" } | null;
+
+/** React 19–friendly structural ref shape */
+type RefLike<T> = { current: T };
 
 type PollingEffectProps = {
   serial: SerialState;
@@ -16,12 +15,12 @@ type PollingEffectProps = {
   mainView: MainView;
   isSettingsSidebarOpen: boolean;
   suppressLive: boolean;
-  macRef: MutableRefObject<string>;
-  isCheckingRef: MutableRefObject<boolean>;
-  isScanning: boolean;
-  idleCooldownUntilRef: MutableRefObject<number>;
-  blockedMacRef: MutableRefObject<Set<string>>;
-  scanResultTimerRef: MutableRefObject<number | null>;
+  isScanning: boolean; // <-- add this
+  macRef: RefLike<string>;
+  isCheckingRef: RefLike<boolean>;
+  idleCooldownUntilRef: RefLike<number>;
+  blockedMacRef: RefLike<Set<string>>;
+  scanResultTimerRef: RefLike<number | null>;
   resolveDesiredPath: () => string | null;
   pathsEqual: (a?: string | null, b?: string | null) => boolean;
   isAcmPath: (path?: string | null) => boolean;
@@ -29,15 +28,15 @@ type PollingEffectProps = {
   setScanResult: Dispatch<SetStateAction<ScanResultState>>;
 };
 
-export const PollingEffect: React.FC<PollingEffectProps> = ({
+export function PollingEffect({
   serial,
   scannerPollEnabled,
   mainView,
   isSettingsSidebarOpen,
   suppressLive,
+  isScanning, // <-- and destructure it
   macRef,
   isCheckingRef,
-  isScanning,
   idleCooldownUntilRef,
   blockedMacRef,
   scanResultTimerRef,
@@ -46,7 +45,7 @@ export const PollingEffect: React.FC<PollingEffectProps> = ({
   isAcmPath,
   handleScan,
   setScanResult,
-}) => {
+}: PollingEffectProps): null {
   useEffect(() => {
     if (!scannerPollEnabled) return;
     if (mainView !== "dashboard") return;
@@ -59,10 +58,7 @@ export const PollingEffect: React.FC<PollingEffectProps> = ({
     const STALE_MS = Number(
       process.env.NEXT_PUBLIC_SCANNER_POLL_IF_STALE_MS ?? "4000"
     );
-    if (
-      !(typeof STALE_MS === "number" && isFinite(STALE_MS)) ||
-      STALE_MS <= 0
-    )
+    if (!(typeof STALE_MS === "number" && isFinite(STALE_MS)) || STALE_MS <= 0)
       return;
 
     let stopped = false;
@@ -71,11 +67,15 @@ export const PollingEffect: React.FC<PollingEffectProps> = ({
 
     const tick = async () => {
       try {
-        const lastAtNow = (serial as any).lastScanAt as number | null | undefined;
+        const lastAtNow = (serial as any).lastScanAt as
+          | number
+          | null
+          | undefined;
         const sseOkNow = !!(serial as any).sseConnected;
         const staleNow =
           !(typeof lastAtNow === "number" && isFinite(lastAtNow)) ||
           Date.now() - (lastAtNow as number) > STALE_MS;
+
         if (sseOkNow && !staleNow) {
           stopped = true;
           return;
@@ -84,19 +84,20 @@ export const PollingEffect: React.FC<PollingEffectProps> = ({
           timer = window.setTimeout(tick, 500);
           return;
         }
+
         ctrl = new AbortController();
         const want = resolveDesiredPath();
         if (!want) {
           timer = window.setTimeout(tick, 1200);
           return;
         }
-        const url = `/api/serial/scanner?path=${encodeURIComponent(
-          want
-        )}&consume=1`;
+
+        const url = `/api/serial/scanner?path=${encodeURIComponent(want)}&consume=1`;
         const res = await fetch(url, {
           cache: "no-store",
           signal: ctrl.signal,
         });
+
         if (res.ok) {
           const { code, path, error } = await res.json();
           const raw = typeof code === "string" ? code.trim() : "";
@@ -165,4 +166,6 @@ export const PollingEffect: React.FC<PollingEffectProps> = ({
   ]);
 
   return null;
-};
+}
+
+export default PollingEffect;

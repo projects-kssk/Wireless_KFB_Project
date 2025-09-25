@@ -1,4 +1,3 @@
-// useScanFlow.ts
 import { Dispatch, SetStateAction, useCallback, startTransition } from "react";
 import { BranchDisplayData, TestStatus, KfbInfo } from "@/types/types";
 import { canonicalMac, extractMac } from "../utils/mac";
@@ -16,6 +15,7 @@ export type UseScanFlowParams = {
     CHECK_CLIENT_MS: number;
     RETRIES: number;
     FINALIZED_RESCAN_BLOCK_MS: number;
+    RETRY_COOLDOWN_MS: number;
   };
   FLAGS: {
     REHYDRATE_ON_LOAD: boolean;
@@ -507,19 +507,21 @@ export const useScanFlow = ({
           } else {
             if (!setupReadyRef) {
               setGroupedBranches([]);
-              setScanResult(null);
+              // Keep a brief, clear info message instead of tearing down UI abruptly.
+              setScanResult({ text: "No setup data available for this MAC", kind: "info" });
+              // Let Main UI fade it; it will fall back to the idle banner afterwards.
               return;
             }
             const text = unknown
               ? "CHECK ERROR (no pin list)"
               : `${failures.length} failure${failures.length === 1 ? "" : "s"}`;
             setScanResult({ text, kind: unknown ? "error" : "info" });
-            if (scanResultTimerRef.current)
-              clearTimeout(scanResultTimerRef.current);
+            // Allow the banner to animate out smoothly; no hard unmounts.
+            if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
             scanResultTimerRef.current = window.setTimeout(() => {
               setScanResult(null);
               scanResultTimerRef.current = null;
-            }, 2000);
+            }, 2200);
           }
         } else {
           if (res.status === 429 && attempt < CFG.RETRIES) {
@@ -777,12 +779,28 @@ export const useScanFlow = ({
       const hasActive = activeIds.length > 0;
       if (!hasPins && !hasAliases && !hasActive) {
         okFlashAllowedRef.current = false;
-        setScanResult({
-          text: "No setup data available for this MAC",
-          kind: "info",
-        });
+        setScanResult({ text: "No setup data available for this MAC", kind: "info" });
         setIsScanning(false);
         setShowScanUi(false);
+        setKfbNumber("");
+        setMacAddress("");
+        try {
+          const macUp = pendingMac.toUpperCase();
+          if (macUp) {
+            blockedMacRef.current.add(macUp);
+            window.setTimeout(() => {
+              try {
+                blockedMacRef.current.delete(macUp);
+              } catch {}
+            }, 5000);
+          }
+        } catch {}
+        idleCooldownUntilRef.current = Date.now() + Math.max(2000, CFG.RETRY_COOLDOWN_MS);
+        if (scanResultTimerRef.current) clearTimeout(scanResultTimerRef.current);
+        scanResultTimerRef.current = window.setTimeout(() => {
+          setScanResult(null);
+          scanResultTimerRef.current = null;
+        }, 2000);
         return;
       }
 

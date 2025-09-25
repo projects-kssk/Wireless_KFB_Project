@@ -1167,7 +1167,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
                   !
                 </span>
-                <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-slate-100 tracking-tight">
+                <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-white tracking-tight">
                   {name}
                 </span>
                 <span

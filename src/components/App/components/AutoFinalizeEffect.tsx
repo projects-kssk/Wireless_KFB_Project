@@ -12,6 +12,7 @@ export type AutoFinalizeEffectProps = {
   branchesData: BranchDisplayData[];
   groupedBranches: Array<{ ksk: string; branches: BranchDisplayData[] }>;
   macRef: RefLike<string>;
+  lastRunHadFailuresRef?: RefLike<boolean>;
   finalizeOkForMac: (mac: string) => Promise<void>;
 };
 
@@ -23,6 +24,7 @@ export function AutoFinalizeEffect({
   branchesData,
   groupedBranches,
   macRef,
+  lastRunHadFailuresRef,
   finalizeOkForMac,
 }: AutoFinalizeEffectProps): null {
   useEffect(() => {
@@ -33,6 +35,10 @@ export function AutoFinalizeEffect({
     const anyFailures =
       Array.isArray(checkFailures) && checkFailures.length > 0;
     if (anyFailures) return;
+    if (lastRunHadFailuresRef?.current) {
+      okFlashAllowedRef.current = false;
+      return;
+    }
 
     const flatOk =
       Array.isArray(branchesData) &&
@@ -60,6 +66,7 @@ export function AutoFinalizeEffect({
     isChecking,
     isScanning,
     macRef,
+    lastRunHadFailuresRef,
     okFlashAllowedRef,
   ]);
 

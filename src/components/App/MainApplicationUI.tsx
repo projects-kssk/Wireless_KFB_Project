@@ -1007,6 +1007,7 @@ const MainApplicationUI: React.FC = () => {
         branchesData={branchesData}
         groupedBranches={groupedBranches}
         macRef={macRef}
+        lastRunHadFailuresRef={lastRunHadFailuresRef}
         finalizeOkForMac={finalizeOkForMac}
       />
       <PostResetSanityEffect

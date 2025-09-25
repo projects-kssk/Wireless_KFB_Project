@@ -529,6 +529,7 @@ export const useScanFlow = ({
               scanResultTimerRef.current = null;
             }
             setScanResult(null);
+            setIsChecking(false);
             setSuppressLive(false);
             okFlashAllowedRef.current = false;
           }

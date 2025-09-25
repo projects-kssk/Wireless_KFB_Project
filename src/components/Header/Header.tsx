@@ -81,7 +81,7 @@ const VersionBadge: React.FC<{
 }> = ({ value, align = "start", variant = "default" }) => (
   <div
     className={[
-      "flex flex-col gap-1",
+      "flex flex-col gap-0.5",
       align === "center" ? "items-center text-center" : "items-start text-left",
     ].join(" ")}
   >
@@ -97,7 +97,7 @@ const VersionBadge: React.FC<{
     </span>
     <span
       className={[
-        "text-[26px] font-black tracking-tight",
+        "text-[24px] font-black tracking-tight",
         variant === "card"
           ? "text-slate-900 dark:text-white"
           : "text-slate-900 dark:text-slate-50",
@@ -114,7 +114,7 @@ const ThemeSwitcher: React.FC<{
 }> = ({ align = "start", variant = "default" }) => (
   <div
     className={[
-      "flex flex-col gap-2",
+      "flex flex-col gap-1.5",
       align === "end" ? "items-end text-right" : "items-start text-left",
     ].join(" ")}
   >
@@ -153,52 +153,42 @@ const SupportPillSM: React.FC<{
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={[
-        "group relative flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2",
-        labelsHidden ? "flex-col items-center gap-2.5 text-center" : "",
+        "group relative flex w-full items-center justify-center gap-1.5 px-1.5 py-1",
+        labelsHidden ? "flex-col text-center" : "",
         className ?? "",
       ].join(" ")}
       style={{ willChange: "transform,opacity" }}
       aria-label={`Support ${number}`}
     >
-      <div
-        className={[
-          labelsHidden
-            ? "flex flex-col items-center gap-1.5 text-center"
-            : "flex items-center gap-2.5",
-        ].join(" ")}
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-200">
+      <div className="flex items-center gap-1.5">
+        <div className="flex h-8 w-8 items-center justify-center text-emerald-600 dark:text-emerald-200">
           <SupportIcon className="h-7 w-7" />
         </div>
-
-        {labelsHidden ? (
-          <span className="text-[22px] font-black tracking-tight text-slate-900 dark:text-white">
-            {number}
-          </span>
-        ) : (
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
-              Support
-            </div>
-            <div className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-[20px] font-black tracking-tight text-slate-900 dark:text-white">
-                {number}
-              </span>
-            </div>
+        <div className="min-w-0 text-left">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-300">
+            Support
           </div>
-        )}
+          <div className="flex items-baseline gap-1">
+            <span className="text-[18px] font-black tracking-tight text-slate-900 dark:text-white">
+              {number}
+            </span>
+          </div>
+        </div>
       </div>
-      <button
-        type="button"
-        onClick={call}
+      <a
+        href={`tel:${number}`}
+        onClick={event => {
+          event.preventDefault();
+          call();
+        }}
         className={[
-          "inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 px-3 py-1.5 text-[12px] font-semibold text-white shadow-[0_12px_24px_-16px_rgba(16,185,129,0.55)] transition-colors hover:bg-emerald-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 dark:bg-emerald-500/90 dark:hover:bg-emerald-400/90",
-          labelsHidden ? "w-full justify-center" : "",
+          "text-[11px] font-semibold text-emerald-600 underline-offset-4 hover:underline dark:text-emerald-300",
+          labelsHidden ? "text-center" : "",
         ].join(" ")}
         aria-label={`Call support ${number}`}
       >
         Call
-      </button>
+      </a>
     </m.div>
   );
 };
@@ -210,7 +200,7 @@ const HeaderMetaCard: React.FC<{
   labelsHidden?: boolean;
 }> = ({ version, supportNumber = 621, onCall, labelsHidden }) => (
   <div className="relative flex h-full">
-    <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[22px] border border-slate-200/70 bg-white/95 text-slate-900 shadow-[0_24px_48px_-36px_rgba(15,23,42,0.4)] backdrop-blur-sm dark:border-black/60 dark:bg-[#222222] dark:text-slate-100">
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-white text-slate-900 dark:bg-[#222222] dark:text-slate-100">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -top-16 right-[-32px] h-32 w-32 rounded-full bg-emerald-300/35 blur-3xl dark:bg-emerald-500/18" />
         <div className="absolute inset-0 rounded-[22px] ring-1 ring-white/40 dark:ring-white/10" />
@@ -240,7 +230,6 @@ const HeaderMetaCard: React.FC<{
           supportNumber={supportNumber}
           onCall={onCall}
           labelsHidden={labelsHidden}
-          className="border border-slate-200 bg-white text-slate-800 shadow-[0_16px_32px_-28px_rgba(15,23,42,0.35)] dark:border-white/10 dark:bg-[#1a1a1a] dark:text-slate-100"
         />
       </div>
     </div>

@@ -3,7 +3,8 @@
 ```mermaid
 %%{init: {'flowchart': {'nodeSpacing': 90, 'rankSpacing': 140}, 'themeVariables': {'fontSize': '18px'}}}%%
 flowchart LR
-    A[IDLE: Scan Prompt] -->|Scan or Run Check| B{Setup data present?}
+    A[IDLE: Scan Prompt] --> S[Scanner ACM0 event]
+    S -->|Run check may retrigger| B{Setup data present?}
     B -- No --> B1[Show no setup data banner\nClear scanned code\nReady for immediate retry] --> A
 
     B -- Yes --> C{Failures or unknown pins?}
@@ -51,6 +52,36 @@ flowchart LR
 
 ## Additional Diagrams
 
+### Setup Page Flow (ACM1)
+
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 85, 'rankSpacing': 130}, 'themeVariables': {'fontSize': '17px'}}}%%
+flowchart LR
+    S0[Setup idle] --> S1[Acquire scan scope setup]
+    S1 --> S2[Scanner ACM1 event or manual input]
+    S2 --> T{Classify code}
+
+    T -- KFB MAC --> K0[Set board MAC and setup name]
+    K0 --> K1[Reset KSK slots to idle]
+    K1 --> K2[Start 60s countdown update TableSwap header]
+    K2 --> S0
+
+    T -- KSK serial --> P0[Pre checks board scanned duplicates capacity]
+    P0 -- fail --> PF[Show panel error keep slot idle] --> S0
+    P0 -- ok --> P1[Mark slot pending]
+    P1 --> P2[POST ksk lock]
+    P2 -- failure --> P3[Revert slot show error] --> S0
+    P2 -- success --> P4[Add lock start heartbeat]
+    P4 --> P5[Load aliases prefer Redis fallback Krosy]
+    P5 -- failure --> P6[Mark slot error toast message] --> S0
+    P5 -- success --> P7[Persist pin map update slot OK]
+    P7 --> P8[Trigger TableSwap flash increment cycle]
+    P8 --> P9[If three OK schedule auto reset]
+    P9 --> S0
+
+    T -- Unknown --> U0[Show unrecognized code error] --> S0
+```
+
 ### LIVE Mode Internals (Scenario 2.1)
 
 ```mermaid
@@ -82,4 +113,21 @@ flowchart TB
     R2 -->|Attempts exhausted| R4[Disable OK animation & reset KFB]
     R4 --> R5[Clear branch data and name hints]
     R5 --> R6[Prompt operator to rescan] --> R7[IDLE]
+```
+
+### TableSwap Flow
+
+```mermaid
+%%{init: {'flowchart': {'nodeSpacing': 80, 'rankSpacing': 120}, 'themeVariables': {'fontSize': '16px'}}}%%
+flowchart TB
+    T0[TableSwap prompt idle] -->|Board MAC scanned| T1[Set board context title]
+    T1 -->|cycle key bump| T2[Animate slide to new header]
+    T2 --> T3[Show progress prompt]
+    T3 -->|Slot pending| T4[Highlight slot pending]
+    T4 --> T5{Lock and alias success}
+    T5 -- no --> T6[Flash error overlay keep slot retry]
+    T6 --> T3
+    T5 -- yes --> T7[Flash success overlay]
+    T7 --> T8[Slot marked OK heartbeat running]
+    T8 -->|All slots cleared or auto reset| T0
 ```

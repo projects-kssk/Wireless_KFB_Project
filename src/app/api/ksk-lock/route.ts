@@ -25,6 +25,28 @@ type LockRow = LockVal & { expiresAt?: number };
 const K = (kssk: string) => `ksk:${kssk}`;
 const S = (stationId: string) => `ksk:station:${stationId}`;
 const REQUIRE_REDIS = ((process.env.KSK_REQUIRE_REDIS ?? process.env.KSSK_REQUIRE_REDIS) ?? '0') === '1';
+
+const normalizeMac = (value?: string | null): string | null => {
+  const hex = String(value ?? '').replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+  if (hex.length !== 12) return null;
+  const parts = hex.match(/.{1,2}/g);
+  return parts ? parts.join(':') : null;
+};
+
+const canonicalizeLock = (lock: LockVal | null): LockVal | null => {
+  if (!lock) return null;
+  const normalized = normalizeMac(lock.mac);
+  return {
+    ...lock,
+    mac: normalized ?? (typeof lock.mac === 'string' ? lock.mac.toUpperCase() : ''),
+  };
+};
+
+const macEquals = (candidate: string | null | undefined, targetNorm: string | null): boolean => {
+  if (!targetNorm) return false;
+  const normCandidate = normalizeMac(candidate);
+  return normCandidate === targetNorm;
+};
 /* ================= In-memory fallback store ================== */
 const memLocks = new Map<string, { v: LockVal; exp: number }>(); // key: K(kssk)
 const memStations = new Map<string, Set<string>>();              // key: S(stationId) -> Set<kssk>
@@ -39,14 +61,16 @@ function memGet(key: string): LockVal | null {
     for (const set of memStations.values()) set.delete(kssk);
     return null;
   }
-  return x.v;
+  return canonicalizeLock(x.v);
 }
 function memSetNX(key: string, v: LockVal, ttlMs: number) {
   if (memGet(key)) return false;
-  memLocks.set(key, { v, exp: nowMs() + ttlMs });
+  const canonical = canonicalizeLock(v);
+  if (!canonical) return false;
+  memLocks.set(key, { v: canonical, exp: nowMs() + ttlMs });
   const skey = S(v.stationId);
   if (!memStations.has(skey)) memStations.set(skey, new Set());
-  memStations.get(skey)!.add(v.kssk);
+  memStations.get(skey)!.add(canonical.kssk);
   return true;
 }
 function memTouchIfOwner(key: string, stationId: string, ttlMs: number) {
@@ -65,13 +89,17 @@ function memList(stationId?: string): LockRow[] {
       const x = memLocks.get(k);
       if (!x) continue;
       if (x.exp <= n) { memLocks.delete(k); ids.delete(kssk); continue; }
-      out.push({ ...x.v, expiresAt: x.exp });
+      const lock = canonicalizeLock(x.v);
+      if (!lock) continue;
+      out.push({ ...lock, expiresAt: x.exp });
     }
     return out;
   }
   for (const [k, { v, exp }] of memLocks.entries()) {
     if (exp <= n) { memLocks.delete(k); continue; }
-    out.push({ ...v, expiresAt: exp });
+    const lock = canonicalizeLock(v);
+    if (!lock) continue;
+    out.push({ ...lock, expiresAt: exp });
   }
   return out;
 }
@@ -132,7 +160,12 @@ async function connectIfNeeded(r: any, timeoutMs = 400): Promise<boolean> {
 async function rGet(key: string): Promise<LockVal | null> {
   const r: any = getRedis();
   if (!r || !(await connectIfNeeded(r))) return null;
-  try { const raw = await r.get(key); return raw ? (asJSON(raw) as LockVal) : null; } catch { return null; }
+  try {
+    const raw = await r.get(key);
+    return canonicalizeLock(raw ? (asJSON(raw) as LockVal) : null);
+  } catch {
+    return null;
+  }
 }
 async function rSetNXPX(key: string, val: LockVal, ttlMs: number): Promise<boolean> {
   const r: any = getRedis();
@@ -233,18 +266,27 @@ export async function POST(req: NextRequest) {
   try {
     const DEFAULT_TTL_SEC = Math.max(5, Number((process.env.KSK_DEFAULT_TTL_SEC ?? process.env.KSSK_DEFAULT_TTL_SEC) ?? '900'));
     const body = await req.json();
-    const mac = body?.mac;
+    const macRaw = typeof body?.mac === 'string' ? body.mac : null;
+    const macCanonical = normalizeMac(macRaw);
     const stationId = body?.stationId;
     const ttlSec = body?.ttlSec ?? DEFAULT_TTL_SEC;
     const ksk = (body?.ksk ?? body?.kssk);
-    log.info('POST begin', { rid: id, action: 'create', ksk, mac: String(mac||'').toUpperCase(), stationId, ttlSec: Number(ttlSec) });
+    const macForLog = macCanonical ?? (macRaw ? String(macRaw).toUpperCase() : '');
+    log.info('POST begin', { rid: id, action: 'create', ksk, mac: macForLog, stationId, ttlSec: Number(ttlSec) });
 
     if (!ksk || !stationId)
       return NextResponse.json({ error: "ksk & stationId required" }, { status: 400 });
 
     const key = K(String(ksk));
     const ttlMs = Math.max(5, Number(ttlSec)) * 1000;
-    const val: any = { kssk: String(ksk), ksk: String(ksk), mac: String(mac ?? "").toUpperCase(), stationId: String(stationId), ts: nowMs() };
+    const baseVal: LockVal & { ksk?: string } = {
+      kssk: String(ksk),
+      ksk: String(ksk),
+      mac: macCanonical ?? (macRaw ? String(macRaw).toUpperCase() : ''),
+      stationId: String(stationId),
+      ts: nowMs(),
+    };
+    const val = canonicalizeLock(baseVal)!;
 
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
@@ -532,7 +574,7 @@ export async function DELETE(req: NextRequest) {
     let ksk: string | null = null;
     let stationId: string | null = null;
     let force = false;
-    let macFilter: string | null = null;
+    let macFilterRaw: string | null = null;
 
     try {
       if ((req.headers.get("content-type") || "").includes("application/json")) {
@@ -540,15 +582,15 @@ export async function DELETE(req: NextRequest) {
         ksk = (b?.ksk ?? b?.kssk) ?? null;
         stationId = b?.stationId ?? null;
         force = b?.force === true || b?.force === 1 || b?.force === "1";
-        if (typeof b?.mac === 'string') macFilter = String(b.mac).toUpperCase();
+        if (typeof b?.mac === 'string') macFilterRaw = String(b.mac);
       }
     } catch {}
     const sp = new URL(req.url).searchParams;
     ksk ??= (sp.get("ksk") || sp.get("kssk"));
     stationId ??= sp.get("stationId");
     force ||= sp.get("force") === "1";
-    macFilter ??= sp.get('mac');
-    if (macFilter) macFilter = macFilter.toUpperCase();
+    macFilterRaw ??= sp.get('mac');
+    const macFilter = normalizeMac(macFilterRaw);
 
     // Allow bulk clear by MAC without specifying a KSK
     if (!ksk && !macFilter) return NextResponse.json({ error: "ksk_or_mac_required" }, { status: 400 });
@@ -585,17 +627,18 @@ export async function DELETE(req: NextRequest) {
               const raw = await (r as any).get(key).catch(() => null);
               if (!raw) continue;
               const v = JSON.parse(raw);
-              const macUp = String(v?.mac || '').toUpperCase();
               const sid = String(v?.stationId || '');
-              if (macUp !== macFilter) continue;
+              const matches = macEquals(v?.mac, macFilter) || macEquals(v?.boardMac, macFilter);
+              if (!matches) continue;
               if (stationId && sid !== String(stationId)) continue; // if station constrained, enforce it
               await (r as any).del(key).catch(() => {});
-              if (sid) await (r as any).srem(S(sid), String(v?.kssk || '').trim()).catch(() => {});
+              const member = String(v?.kssk ?? v?.ksk ?? '').trim();
+              if (sid) await (r as any).srem(S(sid), member).catch(() => {});
               count += 1;
             } catch {}
           }
         } catch {}
-        log.info('DELETE bulk mac (scan)', { rid: id, mac: macFilter, stationId: stationId ?? null, count, mode, durationMs: Date.now()-t0 });
+        log.info('DELETE bulk mac (scan)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count, mode, durationMs: Date.now()-t0 });
         return withMode(NextResponse.json({ ok: true, count }), mode);
       }
       const existing = await rGet(key);
@@ -613,10 +656,12 @@ export async function DELETE(req: NextRequest) {
     // mem fallback bulk
     if (!ksk && macFilter) {
       let rows: LockRow[] = [];
-      if (stationId) rows = memList(stationId).filter(r => String(r.mac || '').toUpperCase() === macFilter);
-      else rows = memList().filter(r => String(r.mac || '').toUpperCase() === macFilter);
+      const filterRows = (items: LockRow[]) =>
+        items.filter((r) => normalizeMac(r.mac) === macFilter);
+      if (stationId) rows = filterRows(memList(stationId));
+      else rows = filterRows(memList());
       for (const row of rows) { memLocks.delete(K(row.kssk)); memStations.get(S(row.stationId))?.delete(row.kssk); }
-      log.info('DELETE bulk mac (mem)', { rid: id, mac: macFilter, stationId: stationId ?? null, count: rows.length, durationMs: Date.now()-t0 });
+      log.info('DELETE bulk mac (mem)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count: rows.length, durationMs: Date.now()-t0 });
       return withMode(NextResponse.json({ ok: true, count: rows.length }), 'mem');
     }
     const cur = memGet(key);

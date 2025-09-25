@@ -47,7 +47,7 @@ function parseArgs() {
     else if (a.startsWith('--mac=')) mac = a.split('=')[1];
     else if (a === '--mac') mac = argv[++i];
   }
-  mac = String(mac || '').trim().toUpperCase();
+  mac = canonicalMac(mac) || String(mac || '').trim().toUpperCase();
   return { mac };
 }
 
@@ -78,7 +78,8 @@ async function readLock(redis, key) {
     mac = hash.mac || hash.boardMac || null;
     stationId = hash.stationId || null;
   }
-  return { ttlMs: typeof pttl === 'number' ? pttl : null, mac: mac ? String(mac).toUpperCase() : null, stationId };
+  const normMac = canonicalMac(mac) || (mac ? String(mac).toUpperCase() : null);
+  return { ttlMs: typeof pttl === 'number' ? pttl : null, mac: normMac, stationId };
 }
 
 async function removeFromAllStations(redis, kssk) {
@@ -155,4 +156,3 @@ async function main() {
 }
 
 main();
-

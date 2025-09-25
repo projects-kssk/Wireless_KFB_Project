@@ -1412,7 +1412,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
           >
             {/* 1) Support + Version */}
-            <div className="h-full flex items-center gap-3">
+            <div className="h-full flex items-center gap-3 pr-2 md:pr-4">
               {(() => {
                 const raw = String(
                   process.env.NEXT_PUBLIC_APP_VERSION ||

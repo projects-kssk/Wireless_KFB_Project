@@ -4,6 +4,34 @@ import type { SerialState } from "@/components/Header/useSerialEvents";
 /** React 19–friendly structural ref shape */
 type RefLike<T> = { current: T };
 
+const areNumberArraysEqual = (
+  a: number[] | undefined,
+  b: number[] | undefined
+) => {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
+const areNameRecordsEqual = (
+  a: Record<string, string> | undefined,
+  b: Record<string, string> | undefined
+) => {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+};
+
 export type UnionEffectProps = {
   serial: SerialState;
   suppressLive: boolean;
@@ -92,11 +120,21 @@ export function UnionEffect({
       itemsAllFromAliasesRef.current,
       activeIds
     );
-    setNormalPins(fromItems.normal);
-    setLatchPins(fromItems.latch);
+    const nextNormalPins = fromItems.normal;
+    const nextLatchPins = fromItems.latch;
+
+    setNormalPins((prev) =>
+      areNumberArraysEqual(prev, nextNormalPins) ? prev : nextNormalPins
+    );
+    setLatchPins((prev) =>
+      areNumberArraysEqual(prev, nextLatchPins) ? prev : nextLatchPins
+    );
 
     if (union.names && typeof union.names === "object") {
-      setNameHints(union.names as Record<string, string>);
+      const names = union.names as Record<string, string>;
+      setNameHints((prev) =>
+        areNameRecordsEqual(prev, names) ? prev : names
+      );
     }
   }, [
     serial.lastUnion,

@@ -10,7 +10,7 @@ export type RefLike<T> = { current: T };
 
 export type ScanTrigger = "sse" | "poll" | "simulate";
 
-export const NO_SETUP_MSG = "No setup data available for this MAC";
+export const NO_SETUP_MSG = "No setup data available";
 
 export type UseScanFlowParams = {
   CFG: {

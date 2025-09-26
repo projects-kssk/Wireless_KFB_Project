@@ -135,13 +135,80 @@ export const useFinalize = ({
 
   const checkpointEnabled = process.env.NEXT_PUBLIC_SEND_CHECKPOINT !== "0";
 
+  /** -------------------------------- Helpers -------------------------------- */
+
+  const uppercaseMac = (m: string) =>
+    String(m || "")
+      .trim()
+      .toUpperCase();
+
+  const now = () => Date.now();
+
+  const within = (ts: number, ms: number) => now() < ts + ms;
+
+  const titleCaseFirst = (s: string) =>
+    s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+
+  const addTempBlockForKey = (key: string, ms: number) => {
+    try {
+      blockedMacRef.current.add(key);
+      if (typeof window !== "undefined") {
+        setTimeout(() => {
+          try {
+            blockedMacRef.current.delete(key);
+          } catch {}
+        }, ms);
+      }
+    } catch {}
+  };
+
+  const setGuardForMac = (mac: string, ms: number) => {
+    try {
+      finalizeOkGuardRef.current.set(mac, now() + ms);
+    } catch {}
+  };
+
+  const isGuardActive = (mac: string) => {
+    try {
+      const until = finalizeOkGuardRef.current.get(mac) || 0;
+      return now() < until;
+    } catch {
+      return false;
+    }
+  };
+
+  const recordFinalizeStamp = (mac: string) => {
+    try {
+      lastFinalizedMacRef.current = mac;
+      lastFinalizedAtRef.current = now();
+    } catch {}
+  };
+
+  const markRecentCleanup = (mac: string) => {
+    try {
+      recentCleanupRef.current.set(mac, now());
+    } catch {}
+  };
+
+  const wasRecentlyCleaned = (mac: string, withinMs: number) => {
+    try {
+      const ts = recentCleanupRef.current.get(mac) || 0;
+      return now() - ts < withinMs;
+    } catch {
+      return false;
+    }
+  };
+
+  /** Fetch and verify aliases clear for MAC */
   const clearAliasesVerify = useCallback(async (mac: string) => {
-    const MAC = mac.toUpperCase();
-    await fetch("/api/aliases/clear", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mac: MAC }),
-    }).catch(() => {});
+    const MAC = uppercaseMac(mac);
+    const attemptClear = async () =>
+      fetch("/api/aliases/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mac: MAC }),
+      }).catch(() => {});
+
     const verify = async (): Promise<boolean> => {
       try {
         const r = await fetch(
@@ -155,42 +222,41 @@ export const useFinalize = ({
         return false;
       }
     };
+
+    await attemptClear();
     let ok = await verify();
     for (let i = 0; !ok && i < 2; i++) {
       await sleep(250);
-      await fetch("/api/aliases/clear", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mac: MAC }),
-      }).catch(() => {});
+      await attemptClear();
       ok = await verify();
     }
   }, []);
 
+  /** Locks helpers */
   const countLocksForMac = useCallback(
     async (mac: string): Promise<number | null> => {
-      const MAC = String(mac || "").trim().toUpperCase();
+      const MAC = uppercaseMac(mac);
       if (!MAC) return 0;
       const v = await safeFetchJson<LocksListResponse>(`/api/ksk-lock`, {
         cache: "no-store",
       });
       if (!v || !Array.isArray(v?.locks)) return null;
-      return v.locks.filter(
-        (x: LockItem) => String(x?.mac || "").toUpperCase() === MAC
-      ).length;
+      return v.locks.filter((x: LockItem) => uppercaseMac(x?.mac || "") === MAC)
+        .length;
     },
     []
   );
 
   const clearKskLocksFully = useCallback(
     async (mac: string): Promise<boolean> => {
-      const MAC = String(mac || "").trim().toUpperCase();
+      const MAC = uppercaseMac(mac);
       if (!MAC) return true;
 
       const preCount = await countLocksForMac(MAC);
       if (preCount === 0) return true;
 
-      for (let i = 0; i < 3; i++) {
+      const MAX = 3;
+      for (let i = 0; i < MAX; i++) {
         await fetch(`/api/ksk-lock?${qs({ mac: MAC, force: "1" })}`, {
           method: "DELETE",
         }).catch(() => {});
@@ -203,17 +269,21 @@ export const useFinalize = ({
     [countLocksForMac]
   );
 
+  /** Checkpoint sender */
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       if (!checkpointEnabled) return false;
-      const MAC = mac.toUpperCase();
+
+      const MAC = uppercaseMac(mac);
       const blockedUntil = checkpointBlockUntilTsRef.current || 0;
-      if (blockedUntil && Date.now() < blockedUntil) return false;
+      if (blockedUntil && now() < blockedUntil) return false;
       if (checkpointMacPendingRef.current.has(MAC)) return false;
+
       checkpointMacPendingRef.current.add(MAC);
       try {
-        let ids: string[] = [];
+        // Gather IDs from aliases (primary) or fallback to onlyIds
         let items: AliasItem[] = [];
+        let ids: string[] = [];
         try {
           const rList = await fetch(
             `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
@@ -227,12 +297,12 @@ export const useFinalize = ({
               .filter(Boolean);
           }
         } catch {}
+
+        // Normalize "onlyIds"
         const onlyIdsNormalized = Array.isArray(onlyIds)
           ? Array.from(
               new Set(
-                onlyIds
-                  .map((s) => String(s || "").trim())
-                  .filter(Boolean)
+                onlyIds.map((s) => String(s || "").trim()).filter(Boolean)
               )
             )
           : [];
@@ -241,15 +311,12 @@ export const useFinalize = ({
           ids = [...onlyIdsNormalized];
         }
         if (onlyIdsNormalized.length) {
-          const want = new Set(
-            onlyIdsNormalized.map((s) => s.toUpperCase())
-          );
+          const want = new Set(onlyIdsNormalized.map((s) => s.toUpperCase()));
           ids = ids.filter((id) => want.has(id.toUpperCase()));
           if (ids.length === 0 && onlyIdsNormalized.length) {
             ids = [...onlyIdsNormalized];
           }
         }
-
         if (ids.length) {
           const seen = new Set<string>();
           ids = ids
@@ -264,14 +331,17 @@ export const useFinalize = ({
         }
 
         let sentAny = false;
+
         for (const id of ids) {
           if (checkpointSentRef.current.has(id)) continue;
 
+          // Attempt to read XML (with ensure), up to 3 tries
           let workingDataXml: string | null = null;
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               const blockUntil = xmlReadBlockUntilRef.current.get(MAC) || 0;
-              if (Date.now() < blockUntil) break;
+              if (now() < blockUntil) break;
+
               const rXml = await fetch(
                 `/api/aliases/xml?mac=${encodeURIComponent(MAC)}&kssk=${encodeURIComponent(id)}`,
                 { cache: "no-store" }
@@ -287,7 +357,7 @@ export const useFinalize = ({
                   body: JSON.stringify({
                     mac: MAC,
                     ksk: id,
-                    requestID: `${Date.now()}_${id}`,
+                    requestID: `${now()}_${id}`,
                   }),
                 }).catch(() => null);
                 if (ensure && ensure.ok) {
@@ -308,8 +378,9 @@ export const useFinalize = ({
             await sleep(250);
           }
 
+          // Build checkpoint payload
           const payload: Record<string, unknown> = {
-            requestID: `${Date.now()}_${id}`,
+            requestID: `${now()}_${id}`,
             intksk: id,
             forceResult: true,
             ...(workingDataXml ? { workingDataXml } : {}),
@@ -322,6 +393,7 @@ export const useFinalize = ({
             const payloadIntksk = String(payload.intksk || "").trim();
             if (!payloadIntksk) continue;
             payload.intksk = payloadIntksk;
+
             const resp = await fetch(checkpointUrl, {
               method: "POST",
               headers: {
@@ -330,16 +402,20 @@ export const useFinalize = ({
               },
               body: JSON.stringify(payload),
             });
-            const checkpointErrHeader = resp.headers.get("X-Krosy-Checkpoint-Error");
+
+            const checkpointErrHeader = resp.headers.get(
+              "X-Krosy-Checkpoint-Error"
+            );
             const respOk = resp.ok && !checkpointErrHeader;
 
             if (!respOk) {
+              // Backoff policies based on server response
               if (resp.status >= 500 || checkpointErrHeader) {
-                checkpointBlockUntilTsRef.current = Date.now() + 120_000;
+                checkpointBlockUntilTsRef.current = now() + 120_000;
                 continue;
               }
               if (resp.status === 429) {
-                checkpointBlockUntilTsRef.current = Date.now() + 30_000;
+                checkpointBlockUntilTsRef.current = now() + 30_000;
                 continue;
               }
             } else {
@@ -347,10 +423,11 @@ export const useFinalize = ({
               sentAny = true;
             }
           } catch {
-            checkpointBlockUntilTsRef.current = Date.now() + 60_000;
+            checkpointBlockUntilTsRef.current = now() + 60_000;
             continue;
           }
         }
+
         return sentAny;
       } finally {
         checkpointMacPendingRef.current.delete(MAC);
@@ -368,187 +445,210 @@ export const useFinalize = ({
     ]
   );
 
+  /** Centralized ID gathering with the same priority you used */
+  const gatherIdsForMac = useCallback(
+    async (
+      mac: string
+    ): Promise<{
+      ids: string[];
+      hadAliases: boolean;
+      hadLocksForMac: boolean;
+      hadAnySnapshot: boolean;
+    }> => {
+      const MAC = uppercaseMac(mac);
+
+      // 1) Prefer current "lastActiveIds" if present, otherwise activeKssks.
+      let ids: string[] = [];
+      if (Array.isArray(lastActiveIdsRef.current) && lastActiveIdsRef.current.length) {
+        ids = [...lastActiveIdsRef.current];
+      } else if (Array.isArray(activeKssks) && activeKssks.length) {
+        ids = [...activeKssks];
+      }
+
+      let hadAliases = false;
+      let hadLocksForMac = ids.length > 0; // if we already have active IDs, treat as "locks context"
+      let hadAnySnapshot = false;
+
+      // 2) If still empty, query aliases
+      if (!ids.length) {
+        try {
+          const r = await fetch(
+            `/api/aliases?mac=${encodeURIComponent(MAC)}&all=1`,
+            { cache: "no-store" }
+          );
+          if (r.ok) {
+            const j = (await r.json()) as AliasesListResponse;
+            const items: AliasItem[] = Array.isArray(j?.items)
+              ? (j.items as AliasItem[])
+              : [];
+            ids = Array.from(
+              new Set(
+                items
+                  .map((it: AliasItem) =>
+                    String((it?.ksk ?? it?.kssk) || "").trim()
+                  )
+                  .filter(Boolean)
+              )
+            );
+            if (items.length) hadAliases = true;
+          }
+        } catch {}
+      }
+
+      // 3) If still empty, query locks for this MAC
+      if (!ids.length) {
+        try {
+          const rLocks = await fetch(`/api/ksk-lock`, {
+            cache: "no-store",
+          }).catch(() => null);
+          if (rLocks && rLocks.ok) {
+            const jL = await rLocks.json().catch(() => null);
+            const locks: LockItem[] = Array.isArray(jL?.locks)
+              ? (jL.locks as LockItem[])
+              : [];
+            const wantMac = MAC;
+            const fromLocks = locks
+              .filter(
+                (row: LockItem) => uppercaseMac(row?.mac || "") === wantMac
+              )
+              .map((row: LockItem) =>
+                String((row?.ksk ?? row?.kssk) || "").trim()
+              )
+              .filter(Boolean);
+            if (fromLocks.length) {
+              ids = Array.from(new Set(fromLocks));
+              hadLocksForMac = true;
+            }
+          }
+        } catch {}
+      }
+
+      // 4) Snapshot fallback
+      if (!ids.length) {
+        try {
+          const snapshot = itemsAllFromAliasesRef.current || [];
+          hadAnySnapshot = snapshot.length > 0;
+          if (snapshot.length) {
+            const fromSnap = Array.from(
+              new Set(
+                snapshot
+                  .map((it: AliasItem) =>
+                    String((it.ksk ?? it.kssk) || "").trim()
+                  )
+                  .filter(Boolean)
+              )
+            );
+            if (fromSnap.length) ids = fromSnap;
+          }
+        } catch {}
+      }
+
+      // 5) Dedup & normalize
+      ids = dedupeCasePreserving(
+        ids.map((s) => String(s || "").trim()).filter(Boolean)
+      );
+
+      // 6) One more safety net: if still empty, reuse active lists (again) or lastActiveIds
+      if (
+        (!ids || ids.length === 0) &&
+        Array.isArray(activeKssks) &&
+        activeKssks.length > 0
+      ) {
+        ids = dedupeCasePreserving(activeKssks);
+      }
+      if (
+        (!ids || ids.length === 0) &&
+        Array.isArray(lastActiveIdsRef.current) &&
+        lastActiveIdsRef.current.length > 0
+      ) {
+        ids = dedupeCasePreserving(lastActiveIdsRef.current);
+      }
+
+      return { ids, hadAliases, hadLocksForMac, hadAnySnapshot };
+    },
+    [activeKssks, itemsAllFromAliasesRef, lastActiveIdsRef]
+  );
+
+  /** -------------------------------- Flow ----------------------------------- */
+
   const finalizeOkForMac = useCallback(
     async (rawMac: string) => {
-      const mac = String(rawMac || "")
-        .trim()
-        .toUpperCase();
+      const mac = uppercaseMac(rawMac);
       if (!mac) {
         handleResetKfb();
         return;
       }
-      const macKeyCurrent = macKey(mac);
       if (lastRunHadFailuresRef.current) return;
 
+      // Guard against too-frequent finalize calls for this MAC
       const guardWindowMs = Math.max(2000, cfgRetryCooldownMs);
-      const guard = finalizeOkGuardRef.current;
-      const guardUntil = guard.get(mac) || 0;
-      const nowTs = Date.now();
-      if (guardUntil && nowTs < guardUntil) return;
-      guard.set(mac, nowTs + guardWindowMs);
+      if (isGuardActive(mac)) return;
+      setGuardForMac(mac, guardWindowMs);
+
+      // Avoid double-cleaning the same MAC within a short window
+      if (wasRecentlyCleaned(mac, 5000)) return;
+
+      // Enter "finalize" mode in UI: freeze live updates during critical mutations
+      setSuppressLive(true);
+
+      // Mark the MAC as "finalized" now (for observability/debug)
+      recordFinalizeStamp(mac);
+
+      // Temporarily block updates for current and last scanned keys
       try {
-        const last = recentCleanupRef.current.get(mac) || 0;
-        if (Date.now() - last < 5000) return;
+        const curKey = macKey(mac);
+        addTempBlockForKey(curKey, cfgRetryCooldownMs);
+
+        const lastRaw = uppercaseMac(lastScanRef.current || "");
+        const lastKey = lastRaw ? macKey(lastRaw) : null;
+        if (lastKey && lastKey !== curKey) {
+          addTempBlockForKey(lastKey, cfgRetryCooldownMs);
+        }
       } catch {}
 
       try {
-        setSuppressLive(true);
+        // 1) Collect KSK/KSSK IDs tied to this MAC (preserving your precedence)
+        const { ids, hadAliases, hadLocksForMac, hadAnySnapshot } =
+          await gatherIdsForMac(mac);
 
-        try {
-          blockedMacRef.current.add(macKeyCurrent);
-          if (typeof window !== "undefined") {
-            setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(macKeyCurrent);
-              } catch {}
-            }, cfgRetryCooldownMs);
-          }
-          const lastRaw = (lastScanRef.current || "").toUpperCase();
-          const lastKey = lastRaw ? macKey(lastRaw) : null;
-          if (lastKey && lastKey !== macKeyCurrent) {
-            blockedMacRef.current.add(lastKey);
-            if (typeof window !== "undefined") {
-              setTimeout(() => {
-                try {
-                  blockedMacRef.current.delete(lastKey);
-                } catch {}
-              }, cfgRetryCooldownMs);
-            }
-          }
-        } catch {}
-
-        try {
-          lastFinalizedMacRef.current = mac;
-          lastFinalizedAtRef.current = Date.now();
-        } catch {}
-
-        let ids =
-          lastActiveIdsRef.current && lastActiveIdsRef.current.length
-            ? [...lastActiveIdsRef.current]
-            : [...(activeKssks || [])];
-        let hadAliases = false;
-        let hadLocksForMac = false;
-        if (ids.length) {
-          hadLocksForMac = true;
-        }
-
-        if (!ids.length) {
-          try {
-            const r = await fetch(
-              `/api/aliases?mac=${encodeURIComponent(mac)}&all=1`,
-              { cache: "no-store" }
-            );
-            if (r.ok) {
-              const j = (await r.json()) as AliasesListResponse;
-              const items: AliasItem[] = Array.isArray(j?.items)
-                ? (j.items as AliasItem[])
-                : [];
-              ids = Array.from(
-                new Set(
-                  items
-                    .map((it: AliasItem) =>
-                      String((it?.ksk ?? it?.kssk) || "").trim()
-                    )
-                    .filter(Boolean)
-                )
-              );
-              if (items.length) hadAliases = true;
-            }
-          } catch {}
-          if (!ids.length) {
-            try {
-              const rLocks = await fetch(`/api/ksk-lock`, {
-                cache: "no-store",
-              }).catch(() => null);
-              if (rLocks && rLocks.ok) {
-                const jL = await rLocks.json().catch(() => null);
-                const locks: LockItem[] = Array.isArray(jL?.locks)
-                  ? (jL.locks as LockItem[])
-                  : [];
-                const wantMac = (mac || "").toUpperCase();
-                const fromLocks = locks
-                  .filter(
-                    (row: LockItem) =>
-                      String(row?.mac || "").toUpperCase() === wantMac
-                  )
-                  .map((row: LockItem) =>
-                    String((row?.ksk ?? row?.kssk) || "").trim()
-                  )
-                  .filter(Boolean);
-                if (fromLocks.length) {
-                  ids = Array.from(new Set(fromLocks));
-                  hadLocksForMac = true;
-                }
-              }
-            } catch {}
-          }
-          if (!ids.length) {
-            try {
-              const snapshot = itemsAllFromAliasesRef.current || [];
-              if (snapshot.length) {
-                const fromSnap = Array.from(
-                  new Set(
-                    snapshot
-                      .map((it: AliasItem) =>
-                        String((it.ksk ?? it.kssk) || "").trim()
-                      )
-                      .filter(Boolean)
-                  )
-                );
-                if (fromSnap.length) {
-                  ids = fromSnap;
-                  hadAliases = true;
-                }
-              }
-            } catch {}
-          }
-          ids = ids.map((s) => String(s || "").trim()).filter(Boolean);
-        }
-
-        if (
-          (!ids || ids.length === 0) &&
-          Array.isArray(activeKssks) &&
-          activeKssks.length > 0
-        ) {
-          ids = dedupeCasePreserving(activeKssks);
-        }
-
-        let hasSetup =
+        const hasSetup =
           (ids?.length ?? 0) > 0 ||
-          (Array.isArray(activeKssks) && activeKssks.length > 0);
+          (Array.isArray(activeKssks) && activeKssks.length > 0) ||
+          (Array.isArray(lastActiveIdsRef.current) &&
+            lastActiveIdsRef.current.length > 0) ||
+          hadAnySnapshot;
 
-        const mutableOps: {
-          checkpoint: boolean;
-          aliases: boolean;
-          locks: boolean;
-        } = {
+        // Track which ops ran, for the user note
+        const ops: { checkpoint: boolean; aliases: boolean; locks: boolean } = {
           checkpoint: false,
           aliases: false,
           locks: false,
         };
 
+        // 2) Send checkpoint if we have IDs
         if ((ids?.length ?? 0) > 0) {
-          mutableOps.checkpoint = await sendCheckpointForMac(mac, ids).catch(
+          ops.checkpoint = await sendCheckpointForMac(mac, ids).catch(
             () => false
           );
         }
 
-        const snapshotCount = Array.isArray(itemsAllFromAliasesRef.current)
-          ? itemsAllFromAliasesRef.current.length
-          : 0;
-        const shouldClearAliases = hasSetup || hadAliases || snapshotCount > 0;
-        if (shouldClearAliases) {
+        // 3) Clear aliases (verify) when there is context (setup/aliases/snapshot)
+        if (hasSetup || hadAliases || hadAnySnapshot) {
           await clearAliasesVerify(mac);
-          mutableOps.aliases = true;
+          ops.aliases = true;
         }
 
+        // 4) Clear locks for this MAC when indicated by context/locks presence
         let shouldClearLocks =
-          hadLocksForMac || (activeKssks?.length ?? 0) > 0 || hasSetup;
-        let lockCountBeforeClear: number | null = null;
+          hadLocksForMac ||
+          (Array.isArray(activeKssks) && activeKssks.length > 0) ||
+          hasSetup;
+
+        let lockCountBefore: number | null = null;
         if (shouldClearLocks) {
           try {
-            lockCountBeforeClear = await countLocksForMac(mac);
-            if (lockCountBeforeClear === 0) shouldClearLocks = false;
+            lockCountBefore = await countLocksForMac(mac);
+            if (lockCountBefore === 0) shouldClearLocks = false;
           } catch {}
         }
 
@@ -558,7 +658,8 @@ export const useFinalize = ({
             await sleep(250);
             locksCleared = await clearKskLocksFully(mac);
           }
-          if (lockCountBeforeClear !== 0) {
+
+          if (!locksCleared && lockCountBefore !== 0) {
             try {
               const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
               if (sid) {
@@ -570,35 +671,31 @@ export const useFinalize = ({
               }
             } catch {}
           }
-          mutableOps.locks = locksCleared;
+          ops.locks = locksCleared;
         }
 
-        const messageParts: string[] = [];
-        if (mutableOps.checkpoint) messageParts.push("checkpoint sent");
-        if (mutableOps.aliases) messageParts.push("cache cleared");
-        if (mutableOps.locks) messageParts.push("locks cleared");
+        // 5) Build "OK system note" message mirroring your style
+        const parts: string[] = [];
+        if (ops.checkpoint) parts.push("checkpoint sent");
+        if (ops.aliases) parts.push("cache cleared");
+        if (ops.locks) parts.push("locks cleared");
 
-        if (!messageParts.length) {
+        if (!parts.length) {
           setOkSystemNote("Nothing to clear");
         } else {
-          const first = messageParts.shift() as string;
-          const tail = messageParts.length
-            ? `; ${messageParts.join("; ")}`
-            : "";
-          const note = `${first}${tail}`;
-          setOkSystemNote(note.charAt(0).toUpperCase() + note.slice(1));
+          const first = parts.shift() as string;
+          const tail = parts.length ? `; ${parts.join("; ")}` : "";
+          setOkSystemNote(titleCaseFirst(`${first}${tail}`));
         }
       } finally {
+        // Always perform housekeeping + UI cleanup
         try {
           checkpointSentRef.current.clear();
         } catch {}
         try {
-          xmlReadBlockUntilRef.current.set(mac, Date.now() + 60_000);
-          recentCleanupRef.current.set(mac, Date.now());
-          finalizeOkGuardRef.current.set(
-            mac,
-            Date.now() + Math.max(2000, cfgRetryCooldownMs)
-          );
+          xmlReadBlockUntilRef.current.set(mac, now() + 60_000);
+          markRecentCleanup(mac);
+          setGuardForMac(mac, Math.max(2000, cfgRetryCooldownMs));
         } catch {}
         handleResetKfb();
       }
@@ -606,24 +703,23 @@ export const useFinalize = ({
     [
       cfgRetryCooldownMs,
       activeKssks,
-      blockedMacRef,
-      clearAliasesVerify,
-      clearKskLocksFully,
-      countLocksForMac,
-      finalizeOkGuardRef,
-      handleResetKfb,
-      itemsAllFromAliasesRef,
-      lastActiveIdsRef,
-      lastFinalizedAtRef,
-      lastFinalizedMacRef,
       lastRunHadFailuresRef,
-      lastScanRef,
-      recentCleanupRef,
-      sendCheckpointForMac,
-      setOkSystemNote,
       setSuppressLive,
+      recordFinalizeStamp,
+      gatherIdsForMac,
+      sendCheckpointForMac,
+      clearAliasesVerify,
+      countLocksForMac,
+      clearKskLocksFully,
       checkpointSentRef,
       xmlReadBlockUntilRef,
+      handleResetKfb,
+      lastScanRef,
+      blockedMacRef,
+      finalizeOkGuardRef,
+      recentCleanupRef,
+      lastActiveIdsRef,
+      setOkSystemNote,
     ]
   );
 

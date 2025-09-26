@@ -344,9 +344,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     useState<BranchDisplayData[]>(branchesData);
   useEffect(() => setLocalBranches(branchesData), [branchesData]);
 
-  const activeKssksLength = Array.isArray(activeKssks)
-    ? activeKssks.length
-    : 0;
+  const activeKssksLength = Array.isArray(activeKssks) ? activeKssks.length : 0;
   const expectingGroups = !!(
     macAddress &&
     macAddress.trim() &&
@@ -408,6 +406,28 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       }
     };
   }, [isChecking, liveMode, checkSettling]);
+
+  /**
+   * Hide union/CL names and any group-derived text until the live view is actually ready.
+   * We also use this to gate "issues/passed" sections so they don't appear early.
+   */
+  const hideUnionNames = useMemo(
+    () =>
+      liveMode &&
+      (isScanning ||
+        isChecking ||
+        waitingForGroups ||
+        !graceDone ||
+        checkSettling),
+    [
+      liveMode,
+      isScanning,
+      isChecking,
+      waitingForGroups,
+      graceDone,
+      checkSettling,
+    ]
+  );
 
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -511,6 +531,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   /* -------------------------- Realtime live pin edges ------------------------ */
   const pinStateRef = useRef<Map<number, number>>(new Map());
   useEffect(() => pinStateRef.current.clear(), [macAddress]);
+  const lastResultSignatureRef = useRef<string>("");
+  useEffect(() => {
+    lastResultSignatureRef.current = "";
+  }, [macAddress]);
   useEffect(() => {
     if (macAddress && macAddress.trim()) {
       setLocalBranches([]);
@@ -571,12 +595,19 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return Array.from(out).sort((a, b) => a - b);
     };
 
+    if (kind === "START") {
+      lastResultSignatureRef.current = "";
+    }
+
     // Terminal summary
     if (kind === "DONE") {
       const macToCheck = evMac && evMac !== ZERO ? evMac : macFromLine || evMac;
       const matchMac =
         !macToCheck || macToCheck === ZERO || macToCheck === current;
       if (!matchMac) return;
+      const signature = `${macToCheck || ""}|${text.trim()}`;
+      if (lastResultSignatureRef.current === signature) return;
+      lastResultSignatureRef.current = signature;
       const okFlag =
         String((lastEv as any).ok).toLowerCase() === "true" || okFromText;
 
@@ -706,20 +737,60 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   isLatch: latchSet.has(p),
                 }) as BranchDisplayData
             );
+          } else if (prev.length === 0 && expectedPins.length === 0) {
+            const isLatch = normalizedLatchPins.includes(ch);
+            base = [
+              {
+                id: String(ch),
+                branchName: `PIN ${ch}`,
+                testStatus:
+                  val === 1
+                    ? isLatch
+                      ? ("not_tested" as const)
+                      : ("ok" as const)
+                    : ("nok" as const),
+                pinNumber: ch,
+                isLatch,
+              } as BranchDisplayData,
+            ];
           }
 
           let changed = false;
+          let found = false;
           const next = base.map((b) => {
             if (b.pinNumber !== ch) return b;
 
+            found = true;
             const isLatch = normalizedLatchPins.includes(ch);
             const nextStatus =
               val === 1 ? "ok" : isLatch && !SIMULATE ? b.testStatus : "nok";
 
-            if (b.testStatus === nextStatus) return b;
+            if (b.testStatus === nextStatus && b.isLatch === isLatch) return b;
             changed = true;
-            return { ...b, testStatus: nextStatus } as BranchDisplayData;
+            return {
+              ...b,
+              isLatch,
+              testStatus: nextStatus,
+            } as BranchDisplayData;
           });
+
+          if (!found) {
+            const isLatch = normalizedLatchPins.includes(ch);
+            next.push({
+              id: String(ch),
+              branchName: `PIN ${ch}`,
+              testStatus:
+                val === 1
+                  ? isLatch
+                    ? ("not_tested" as const)
+                    : ("ok" as const)
+                  : ("nok" as const),
+              pinNumber: ch,
+              isLatch,
+            });
+            changed = true;
+          }
+
           return changed ? next : base;
         })
       );
@@ -747,11 +818,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [groupedBranches, localBranches]);
 
   const labelForPin = useCallback(
-    (pin: number) =>
-      (nameHints && nameHints[String(pin)]) ||
-      unionNameByPin[pin] ||
-      `PIN ${pin}`,
-    [nameHints, unionNameByPin]
+    (pin: number) => {
+      if (hideUnionNames) return `PIN ${pin}`;
+      return (
+        (nameHints && nameHints[String(pin)]) ||
+        unionNameByPin[pin] ||
+        `PIN ${pin}`
+      );
+    },
+    [hideUnionNames, nameHints, unionNameByPin]
   );
 
   const awaitingGroupedResults = useMemo(() => {
@@ -798,44 +873,50 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     ]
   );
 
-  const pending = useMemo(
-    () => {
-      if (waitingForGroups || suppressMissing) {
-        return { items: [] as BranchDisplayData[], source: "none" as const };
-      }
-      const nok = localBranches
-        .filter((b) => b.testStatus === "nok")
-        .sort((a, b) => {
-          const ap =
-            typeof a.pinNumber === "number"
-              ? a.pinNumber
-              : Number.POSITIVE_INFINITY;
-          const bp =
-            typeof b.pinNumber === "number"
-              ? b.pinNumber
-              : Number.POSITIVE_INFINITY;
-          if (ap !== bp) return ap - bp;
-          return String(a.branchName).localeCompare(String(b.branchName));
-        });
+  // Only show grouped lists/content when the live flow is actually ready.
+  const readyToShowGroupedContent =
+    !hideUnionNames && !suppressMissing;
 
-      if (nok.length > 0)
-        return { items: nok, source: "live" as const };
-
-      if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-        const items = checkFailures.map((pin) => ({
-          id: `FAIL:${pin}`,
-          branchName: labelForPin(pin),
-          testStatus: "nok" as const,
-          pinNumber: pin,
-          kfbInfoValue: undefined,
-        }));
-        return { items, source: "failures" as const };
-      }
-
+  const pending = useMemo(() => {
+    if (waitingForGroups || suppressMissing) {
       return { items: [] as BranchDisplayData[], source: "none" as const };
-    },
-    [waitingForGroups, suppressMissing, localBranches, checkFailures, labelForPin]
-  );
+    }
+    const nok = localBranches
+      .filter((b) => b.testStatus === "nok")
+      .sort((a, b) => {
+        const ap =
+          typeof a.pinNumber === "number"
+            ? a.pinNumber
+            : Number.POSITIVE_INFINITY;
+        const bp =
+          typeof b.pinNumber === "number"
+            ? b.pinNumber
+            : Number.POSITIVE_INFINITY;
+        if (ap !== bp) return ap - bp;
+        return String(a.branchName).localeCompare(String(b.branchName));
+      });
+
+    if (nok.length > 0) return { items: nok, source: "live" as const };
+
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+      const items = checkFailures.map((pin) => ({
+        id: `FAIL:${pin}`,
+        branchName: labelForPin(pin),
+        testStatus: "nok" as const,
+        pinNumber: pin,
+        kfbInfoValue: undefined,
+      }));
+      return { items, source: "failures" as const };
+    }
+
+    return { items: [] as BranchDisplayData[], source: "none" as const };
+  }, [
+    waitingForGroups,
+    suppressMissing,
+    localBranches,
+    checkFailures,
+    labelForPin,
+  ]);
 
   const unionAwaitingGroups = useMemo(() => {
     const haveGroups =
@@ -863,13 +944,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (localBranches?.length || 0) === 0 && (failurePins?.length || 0) === 0;
 
     return haveMac && expectingGroups && groupsMissing && noFlatContent;
-  }, [
-    macAddress,
-    expectingGroups,
-    groupsMissing,
-    localBranches,
-    failurePins,
-  ]);
+  }, [macAddress, expectingGroups, groupsMissing, localBranches, failurePins]);
 
   const isLatchPin = useCallback(
     (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
@@ -1258,13 +1333,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   );
 
   const busyLabel =
-    awaitingUnionsStrict ||
-    unionAwaitingGroups ||
-    awaitingGroupedResults
-    ? "LOADING RESULTS"
-    : isChecking
-      ? "CHECKING"
-      : "SCANNING";
+    awaitingUnionsStrict || unionAwaitingGroups || awaitingGroupedResults
+      ? "LOADING RESULTS"
+      : isChecking
+        ? "CHECKING"
+        : "SCANNING";
 
   const busyView = (
     <div
@@ -1398,40 +1471,44 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         return s ? { ...b, testStatus: s } : b;
       });
 
-      const okBranches = branchesLive.filter((b) => {
-        if (b.testStatus !== "ok" || typeof b.pinNumber !== "number")
-          return false;
-        const isContactless =
-          (b as any).isLatch === true || isLatchPin(b.pinNumber);
-        const noCheck =
-          (b as any).noCheck === true || (b as any).notTested === true;
-        return !(isContactless || noCheck);
-      });
+      const okBranches = readyToShowGroupedContent
+        ? branchesLive.filter((b) => {
+            if (b.testStatus !== "ok" || typeof b.pinNumber !== "number")
+              return false;
+            const isContactless =
+              (b as any).isLatch === true || isLatchPin(b.pinNumber);
+            const noCheck =
+              (b as any).noCheck === true || (b as any).notTested === true;
+            return !(isContactless || noCheck);
+          })
+        : [];
       const okNames = okBranches
         .map((b) =>
-          nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]
-            ? nameHints[String(b.pinNumber)]
+          typeof b.pinNumber === "number"
+            ? labelForPin(b.pinNumber)
             : b.branchName
         )
         .filter(Boolean);
 
-      const failedItems = branchesLive
-        .filter(
-          (b) =>
-            typeof b.pinNumber === "number" &&
-            (b.testStatus === "nok" ||
-              (b.testStatus !== "ok" &&
-                ((b as any).isLatch === true || isLatchPin(b.pinNumber))))
-        )
-        .map((b) => ({
-          pin: b.pinNumber as number,
-          name:
-            nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]
-              ? nameHints[String(b.pinNumber)]
-              : b.branchName,
-          isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const failedItems = readyToShowGroupedContent
+        ? branchesLive
+            .filter(
+              (b) =>
+                typeof b.pinNumber === "number" &&
+                (b.testStatus === "nok" ||
+                  (b.testStatus !== "ok" &&
+                    ((b as any).isLatch === true || isLatchPin(b.pinNumber))))
+            )
+            .map((b) => ({
+              pin: b.pinNumber as number,
+              name:
+                typeof b.pinNumber === "number"
+                  ? labelForPin(b.pinNumber)
+                  : b.branchName,
+              isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+        : [];
 
       return (
         <section
@@ -1462,7 +1539,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 >
                   KSK: {(grp as any).ksk}
                 </div>
-                {suppressMissing ? (
+                {(!readyToShowGroupedContent) ? (
                   <span className="inline-flex items-center rounded-full bg-slate-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
                     Loading…
                   </span>
@@ -1479,7 +1556,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             </div>
           </header>
           <div className="p-4 grid gap-4">
-            {!suppressMissing && failedItems.length > 0 && (
+            {readyToShowGroupedContent && failedItems.length > 0 && (
               <div>
                 <div
                   className="text-[12px] font-bold uppercase mb-2"
@@ -1585,24 +1662,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   })();
 
-  const flatView = suppressMissing
-    ? null
-    : (
-        <div className="w-full p-6">
-          {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
-          {pending.source !== "failures" && pending.items.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-              {pending.items.map((branch) => (
-                <BranchCard
-                  key={branch.id}
-                  branch={branch}
-                  isDark={isDarkMode}
-                />
-              ))}
-            </div>
-          )}
+  const flatView = suppressMissing ? null : (
+    <div className="w-full p-6">
+      {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
+      {pending.source !== "failures" && pending.items.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {pending.items.map((branch) => (
+            <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
+          ))}
         </div>
-      );
+      )}
+    </div>
+  );
 
   /* --------------------------- View selection + key -------------------------- */
   const viewKey = useMemo(() => {
@@ -1650,16 +1721,18 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       failurePins.length > 0);
 
   const isLiveViewKey =
-    viewKey === "grouped" ||
-    viewKey === "flat" ||
-    viewKey === "flat-empty";
+    viewKey === "grouped" || viewKey === "flat" || viewKey === "flat-empty";
+  const isLiveFlow = liveMode;
+  // Freeze the animation key in live mode to avoid re-mount flickers when polling flips between states.
+  const animatedViewKey = isLiveFlow ? "live" : viewKey;
 
   return (
     <div
       className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
     >
       <header className="w-full mb-1 min-h-[56px]">
-        {shouldShowHeader && !scanResult &&
+        {shouldShowHeader &&
+        !scanResult &&
         (kfbInfo?.board ||
           kfbNumber ||
           (macAddress &&
@@ -1723,7 +1796,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       {/* Content with subtle cross-fade */}
       <AnimatePresence mode="wait" initial={false}>
         <m.div
-          key={viewKey}
+          key={animatedViewKey}
           initial={isLiveViewKey ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={isLiveViewKey ? { opacity: 0 } : { opacity: 0, y: -8 }}

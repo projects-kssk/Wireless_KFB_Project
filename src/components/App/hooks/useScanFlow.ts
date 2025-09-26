@@ -170,7 +170,8 @@ export const useScanFlow = ({
       if (token) {
         if (!current || current.token !== token) return;
       } else if (current && current.mac === macKeyCurrent) {
-        return;
+        if (isCheckingRef.current) return;
+        checkTokenRef.current = null;
       }
 
       setIsChecking(true);

@@ -323,14 +323,16 @@ export default function TableSwap({
   /* prompt */
   const nextOrdinal = Math.min(ksskCount + 1, ksskTarget);
 
-  const prompt = !hasBoard
+  const boardDetected = hasBoard || ksskCount > 0 || Boolean(boardName) || Boolean(queues?.length);
+
+  const prompt = !boardDetected
     ? "Please scan barcode"
     : ksskCount >= ksskTarget
       ? "Please scan barcode"
       : `Please scan KSK #${nextOrdinal}`;
 
-  const Icon = hasBoard && ksskCount < ksskTarget ? BarsIcon : ScanIcon;
-  const showProgress = hasBoard && ksskCount < ksskTarget;
+  const Icon = boardDetected && ksskCount < ksskTarget ? BarsIcon : ScanIcon;
+  const showProgress = boardDetected && ksskCount < ksskTarget;
   const showScanHint = !showProgress;
 
   const shellBackground = isDark

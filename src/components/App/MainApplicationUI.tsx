@@ -963,12 +963,32 @@ const MainApplicationUI: React.FC = () => {
     blockedMacRef.current.clear();
   }, []);
 
+  const hasBoardData = useMemo(() => {
+    if (macAddress && macAddress.trim()) return true;
+    if (kfbNumber && kfbNumber.trim()) return true;
+    if (Array.isArray(branchesData) && branchesData.length > 0) return true;
+    if (Array.isArray(groupedBranches) && groupedBranches.length > 0) return true;
+    if (Array.isArray(normalPins) && normalPins.length > 0) return true;
+    if (Array.isArray(latchPins) && latchPins.length > 0) return true;
+    if (Array.isArray(activeKssks) && activeKssks.length > 0) return true;
+    return false;
+  }, [
+    macAddress,
+    kfbNumber,
+    branchesData,
+    groupedBranches,
+    normalPins,
+    latchPins,
+    activeKssks,
+  ]);
+
   const { hudMode, hudMessage, hudSubMessage } = useHud({
     mainView,
     isScanning,
     showScanUi,
     scanResult,
     macAddress,
+    hasBoardData,
     serial,
     redisDegraded,
     infoHideAt,

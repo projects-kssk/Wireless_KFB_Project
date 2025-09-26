@@ -15,6 +15,7 @@ export type UseHudParams = {
   showScanUi: boolean;
   scanResult: ScanResultState;
   macAddress: string | null | undefined;
+  hasBoardData?: boolean;
   serial: any;
   redisDegraded: boolean;
   infoHideAt: number | null;
@@ -34,6 +35,7 @@ export const useHud = ({
   showScanUi,
   scanResult,
   macAddress,
+  hasBoardData = false,
   serial,
   redisDegraded,
   infoHideAt,
@@ -54,9 +56,9 @@ export const useHud = ({
     if (isScanning && showScanUi) return "scanning";
     if (scanResult) return scanResult.kind;
     const hasMac = !!(macAddress && macAddress.trim());
-    if (!hasMac) return "idle";
+    if (!hasMac && !hasBoardData) return "idle";
     return null;
-  }, [mainView, isScanning, showScanUi, scanResult, macAddress]);
+  }, [mainView, isScanning, showScanUi, scanResult, macAddress, hasBoardData]);
 
   useEffect(() => {
     if (hudMode === "idle") onIdle?.();

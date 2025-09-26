@@ -887,13 +887,10 @@ export const useScanFlow = ({
           blockedMacRef.current.clear();
           blockedMacRef.current.add(blockKey);
         } catch {}
-        if (scanResultTimerRef.current)
+        if (scanResultTimerRef.current) {
           window.clearTimeout(scanResultTimerRef.current);
-        const hideDelay = 2000;
-        scanResultTimerRef.current = window.setTimeout(() => {
-          setScanResult(null);
           scanResultTimerRef.current = null;
-        }, hideDelay);
+        }
         return;
       }
 

@@ -368,8 +368,6 @@ export const useScanFlow = ({
               }));
 
               if (!setupReadyWithAliases) {
-                setGroupedBranches([]);
-                lastActiveIdsRef.current = [];
                 return flat;
               }
 
@@ -588,7 +586,7 @@ export const useScanFlow = ({
             return;
           }
 
-          if (!setupReadyRef) {
+          if (!setupReadyRef && failures.length === 0) {
             setGroupedBranches([]);
           }
 

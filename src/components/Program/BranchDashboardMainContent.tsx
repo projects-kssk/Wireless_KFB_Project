@@ -52,24 +52,6 @@ const XCircleIcon = ({ className = "w-5 h-5" }) => (
   </svg>
 );
 
-const ClockIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <circle cx="12" cy="12" r="10"></circle>
-    <polyline points="12 6 12 12 16 14"></polyline>
-  </svg>
-);
-
 const HelpCircleIcon = ({ className = "w-5 h-5" }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
@@ -256,6 +238,7 @@ export interface BranchDashboardMainContentProps {
   okSystemNote?: string | null;
   scanResult?: { text: string; kind: "info" | "error" } | null;
   shouldShowHeader?: boolean;
+  disableFlatView?: boolean; // hide flat fallback (grid + missing pills)
 }
 
 /* =================================================================================
@@ -294,6 +277,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   okSystemNote,
   scanResult,
   shouldShowHeader = true,
+  disableFlatView = false,
 }) => {
   const { resolvedTheme } = useTheme();
   const initialTheme = useInitialTheme();
@@ -735,6 +719,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return [...new Set(pins)].sort((a, b) => a - b);
   }, [checkFailures, pending]);
 
+  const hasFlatContent = useMemo(
+    () =>
+      failurePins.length > 0 ||
+      pending.items.length > 0 ||
+      localBranches.length > 0,
+    [failurePins.length, pending.items.length, localBranches.length]
+  );
+
   const awaitingUnionsStrict = useMemo(() => {
     const haveMac = !!(macAddress && macAddress.trim());
     const expectGroups = Array.isArray(activeKssks) && activeKssks.length > 0;
@@ -756,10 +748,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const expectingGroups = scanningActive || activeKssks.length > 0;
     if (!expectingGroups) return false;
 
-    const hasInterimContent =
-      localBranches.length > 0 ||
-      pending.items.length > 0 ||
-      failurePins.length > 0;
+    const hasInterimContent = hasFlatContent;
 
     return hasInterimContent;
   }, [
@@ -767,9 +756,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     isScanning,
     isChecking,
     activeKssks.length,
-    localBranches.length,
-    pending.items.length,
-    failurePins.length,
+    hasFlatContent,
   ]);
 
   const isLatchPin = useCallback(
@@ -1480,7 +1467,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   })();
 
-  const flatView = (
+  const flatContent = (
     <div className="w-full p-6">
       {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
       {pending.source !== "failures" && pending.items.length > 0 && (
@@ -1493,20 +1480,51 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     </div>
   );
 
+  const flatView = disableFlatView
+    ? hasFlatContent
+      ? flatContent
+      : null
+    : flatContent;
+
   /* --------------------------- View selection + key -------------------------- */
   const viewKey = useMemo(() => {
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
-    if (busy) return "busy";
-    if (awaitingGroupedResults) return "busy";
-    if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
+
+    const hasPendingIssues = hasFlatContent;
+    const forceLiveView = disableFlatView && hasPendingIssues;
+
+    if (!forceLiveView && busy) return "busy";
+    if (!forceLiveView && awaitingGroupedResults) return "busy";
+    if (!forceLiveView && (awaitingUnionsStrict || unionAwaitingGroups))
+      return "busy";
+
+    const preferGroupsSoon =
+      isScanning ||
+      isChecking ||
+      (Array.isArray(activeKssks) && activeKssks.length > 0);
+
     if (hasMounted && localBranches.length === 0) {
-      if (failurePins.length > 0) return "flat-empty";
-      return "scan";
+      if (failurePins.length > 0) {
+        return disableFlatView ? "flat" : "flat-empty";
+      }
+      if (disableFlatView && hasPendingIssues) return "flat";
+      return disableFlatView && preferGroupsSoon ? "busy" : "scan";
     }
-    return Array.isArray(groupedBranches) && groupedBranches.length > 0
-      ? "grouped"
-      : "flat";
+
+    const haveGroups =
+      Array.isArray(groupedBranches) && groupedBranches.length > 0;
+    if (haveGroups) return "grouped";
+
+    if (disableFlatView) {
+      return hasPendingIssues || localBranches.length > 0
+        ? "flat"
+        : preferGroupsSoon
+          ? "busy"
+          : "scan";
+    }
+
+    return "flat";
   }, [
     showOkAnimation,
     scanningError,
@@ -1518,6 +1536,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     localBranches.length,
     groupedBranches,
     failurePins.length,
+    disableFlatView,
+    isScanning,
+    isChecking,
+    activeKssks,
+    hasFlatContent,
   ]);
 
   useEffect(() => {

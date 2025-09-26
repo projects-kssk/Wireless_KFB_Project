@@ -6,7 +6,6 @@ import React, {
   useCallback,
   useRef,
   useMemo,
-  type SetStateAction,
 } from "react";
 import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { Header } from "@/components/Header/Header";
@@ -57,33 +56,6 @@ const bannerVariants = {
   animate: { opacity: 1, y: 0, transition: { duration: 0.22 } },
   exit: { opacity: 0, y: -8, transition: { duration: 0.18 } },
 };
-
-const dedupeCasePreserving = (
-  values?: Iterable<string | null | undefined>
-): string[] => {
-  if (!values) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of values) {
-    const original = String(raw || "").trim();
-    if (!original) continue;
-    const key = original.toUpperCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(original);
-  }
-  return out;
-};
-
-class CaseInsensitiveSet extends Set<string> {
-  add(value: string): this {
-    return super.add(String(value || "").trim().toUpperCase());
-  }
-
-  has(value: string): boolean {
-    return super.has(String(value || "").trim().toUpperCase());
-  }
-}
 
 /* =================================================================================
  * Small UI: Animated HUD Banner
@@ -178,7 +150,9 @@ const MainApplicationUI: React.FC = () => {
     if (typeof window === "undefined") return;
     if (!themeMounted) return;
     const nextTheme =
-      resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined) || initialTheme;
+      resolvedTheme ||
+      (theme === "dark" || theme === "light" ? theme : undefined) ||
+      initialTheme;
     if (!nextTheme) return;
     const normalized = nextTheme === "dark" ? "dark" : "light";
     const root = document.documentElement;
@@ -277,25 +251,6 @@ const MainApplicationUI: React.FC = () => {
   const [normalPins, setNormalPins] = useState<number[] | undefined>(undefined);
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssks, setActiveKssks] = useState<string[]>([]);
-  const setActiveKssksSafe = useCallback(
-    (next: SetStateAction<string[]>) => {
-      setActiveKssks((prev) => {
-        const raw =
-          typeof next === "function"
-            ? (next as (value: string[]) => string[])(prev)
-            : next;
-        const canonical = dedupeCasePreserving(raw);
-        if (
-          canonical.length === prev.length &&
-          canonical.every((value, idx) => value === prev[idx])
-        ) {
-          return prev;
-        }
-        return canonical;
-      });
-    },
-    []
-  );
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -364,7 +319,9 @@ const MainApplicationUI: React.FC = () => {
   );
   const tryRunPendingSimulateRef = useRef<() => void>(() => {});
   const simulateRetryTimerRef = useRef<number | null>(null);
-  const currentCheckTokenRef = useRef<{ mac: string; token: string } | null>(null);
+  const currentCheckTokenRef = useRef<{ mac: string; token: string } | null>(
+    null
+  );
 
   const infoTimerRef = useRef<number | null>(null);
   const [infoHideAt, setInfoHideAt] = useState<number | null>(null);
@@ -499,21 +456,19 @@ const MainApplicationUI: React.FC = () => {
     process.env.NEXT_PUBLIC_KROSY_RESULT_URL || ""
   ).trim();
 
-  const checkpointSentRef = useRef<Set<string>>(new CaseInsensitiveSet());
+  const checkpointSentRef = useRef<Set<string>>(new Set());
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
-  const finalizeInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   const lastActiveIdsRef = useRef<string[]>([]);
-  const noSetupCooldownRef = useRef<
-    { mac: string; until: number; requireManual?: boolean }
-  | null>(
-    null
-  );
+  const noSetupCooldownRef = useRef<{
+    mac: string;
+    until: number;
+    requireManual?: boolean;
+  } | null>(null);
   const handleResetKfb = useCallback(() => {
     const clearRetryTimer = () => cancel("checkRetry");
     clearRetryTimer();
     clearScanOverlayTimeout();
-    finalizeInFlightRef.current.clear();
 
     setErrorMsg(null);
     setKfbNumber("");
@@ -563,34 +518,6 @@ const MainApplicationUI: React.FC = () => {
     } catch {}
   }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
 
-  const ensureActiveIdsForFinalize = useCallback((): string[] => {
-    const adopt = (next: string[]) => {
-      lastActiveIdsRef.current = next;
-      return next;
-    };
-
-    const current = adopt(dedupeCasePreserving(lastActiveIdsRef.current));
-    if (current.length) return current;
-
-    const fromState = adopt(dedupeCasePreserving(activeKssks));
-    if (fromState.length) return fromState;
-
-    const aliasSnapshot = Array.isArray(itemsAllFromAliasesRef.current)
-      ? (itemsAllFromAliasesRef.current as Array<{
-          ksk?: string | null;
-          kssk?: string | null;
-        }>)
-      : [];
-    const aliasIds = adopt(
-      dedupeCasePreserving(
-        aliasSnapshot.map((item) => (item?.ksk ?? item?.kssk) || "")
-      )
-    );
-    if (aliasIds.length) return aliasIds;
-
-    return adopt([]);
-  }, [activeKssks]);
-
   const { finalizeOkForMac, clearKskLocksFully } = useFinalize({
     cfgRetryCooldownMs: CFG.RETRY_COOLDOWN_MS,
     activeKssks,
@@ -617,31 +544,6 @@ const MainApplicationUI: React.FC = () => {
     clientResultUrl: CLIENT_RESULT_URL,
   });
 
-  const finalizeMacOnce = useCallback(
-    (rawMac: string): Promise<void> | void => {
-      const mac = String(rawMac || "")
-        .trim()
-        .toUpperCase();
-      if (!mac) return;
-
-      ensureActiveIdsForFinalize();
-
-      const existing = finalizeInFlightRef.current.get(mac);
-      if (existing) return existing;
-
-      const task = (async () => {
-        try {
-          await finalizeOkForMac(mac);
-        } finally {
-          finalizeInFlightRef.current.delete(mac);
-        }
-      })();
-      finalizeInFlightRef.current.set(mac, task);
-      return task;
-    },
-    [ensureActiveIdsForFinalize, finalizeOkForMac]
-  );
-
   const { runCheck, loadBranchesData, handleScan } = useScanFlow({
     CFG: {
       CHECK_CLIENT_MS: CFG.CHECK_CLIENT_MS,
@@ -656,7 +558,7 @@ const MainApplicationUI: React.FC = () => {
     schedule,
     cancel,
     computeActivePins,
-    finalizeOkForMac: finalizeMacOnce,
+    finalizeOkForMac,
     handleResetKfb,
     clearScanOverlayTimeout,
     hasSetupForCurrentMac,
@@ -666,7 +568,7 @@ const MainApplicationUI: React.FC = () => {
     setCheckFailures,
     setBranchesData,
     setGroupedBranches,
-    setActiveKssks: setActiveKssksSafe,
+    setActiveKssks,
     setNameHints,
     setNormalPins,
     setLatchPins,
@@ -1133,7 +1035,7 @@ const MainApplicationUI: React.FC = () => {
         setIsScanning={setIsScanning}
         setBranchesData={setBranchesData}
         setCheckFailures={setCheckFailures}
-        finalizeOkForMac={finalizeMacOnce}
+        finalizeOkForMac={finalizeOkForMac}
       />
       <ScannerEffect
         serial={serial}
@@ -1175,7 +1077,7 @@ const MainApplicationUI: React.FC = () => {
         groupedBranches={groupedBranches}
         macRef={macRef}
         finalizeGuardRef={lastRunHadFailuresRef}
-        finalizeOkForMac={finalizeMacOnce}
+        finalizeOkForMac={finalizeOkForMac}
       />
       <PostResetSanityEffect
         lastFinalizedMacRef={lastFinalizedMacRef}
@@ -1250,7 +1152,7 @@ const MainApplicationUI: React.FC = () => {
                     : derived.effLatchPins
               }
               onResetKfb={handleResetKfb}
-              onFinalizeOk={finalizeMacOnce}
+              onFinalizeOk={finalizeOkForMac}
               flashOkTick={okFlashTick}
               okSystemNote={okSystemNote}
               disableOkAnimation={disableOkAnimation}

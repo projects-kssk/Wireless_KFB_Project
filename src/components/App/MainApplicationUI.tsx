@@ -805,6 +805,10 @@ const MainApplicationUI: React.FC = () => {
   const tryRunPendingSimulate = useCallback(() => {
     const pending = pendingSimulateRef.current;
     if (!pending) return;
+    if (lastRunHadFailuresRef.current) {
+      pendingSimulateRef.current = null;
+      return;
+    }
     if (Array.isArray(checkFailures) && checkFailures.length > 0) {
       pendingSimulateRef.current = null;
       return;

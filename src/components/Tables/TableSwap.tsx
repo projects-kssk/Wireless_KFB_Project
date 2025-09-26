@@ -784,17 +784,7 @@ function Body({
           : prompt}
       </span>
 
-      <span
-        aria-hidden
-        style={{
-          display: "inline-block",
-          width: "min(240px, 55%)",
-          height: 4,
-          borderRadius: 999,
-          backgroundImage: accentGradient,
-          boxShadow: highlightShadow,
-        }}
-      />
+      {/* Accent underline removed per UX feedback to keep prompt text clean */}
     </div>
   );
 }

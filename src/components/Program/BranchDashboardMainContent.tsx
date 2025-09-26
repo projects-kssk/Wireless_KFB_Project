@@ -344,98 +344,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     useState<BranchDisplayData[]>(branchesData);
   useEffect(() => setLocalBranches(branchesData), [branchesData]);
 
-  const activeKssksLength = Array.isArray(activeKssks) ? activeKssks.length : 0;
-  const expectingGroups = !!(
-    macAddress &&
-    macAddress.trim() &&
-    activeKssksLength > 0
-  );
-  const groupsMissing =
-    !Array.isArray(groupedBranches) || groupedBranches.length === 0;
-  const groupsLength = Array.isArray(groupedBranches)
-    ? groupedBranches.length
-    : 0;
-  const waitingForGroups = expectingGroups && groupsMissing;
-  const liveMode = !!(macAddress && macAddress.trim());
-
-  const [groupedFirstSeenAt, setGroupedFirstSeenAt] = useState<number>(0);
-  useEffect(() => {
-    if (groupsLength > 0) setGroupedFirstSeenAt(Date.now());
-  }, [groupsLength, groupedBranches]);
-
-  const [graceDone, setGraceDone] = useState(true);
-  useEffect(() => {
-    if (!groupedFirstSeenAt) return;
-    setGraceDone(false);
-    const GRACE_MS = 500;
-    const id = setTimeout(() => setGraceDone(true), GRACE_MS);
-    return () => clearTimeout(id);
-  }, [groupedFirstSeenAt]);
-
-  const [checkSettling, setCheckSettling] = useState(false);
-  const checkSettlingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
-  useEffect(() => {
-    if (!liveMode) {
-      if (checkSettlingTimerRef.current) {
-        clearTimeout(checkSettlingTimerRef.current);
-        checkSettlingTimerRef.current = null;
-      }
-      if (checkSettling) setCheckSettling(false);
-      return;
-    }
-    if (isChecking) {
-      if (checkSettlingTimerRef.current) {
-        clearTimeout(checkSettlingTimerRef.current);
-        checkSettlingTimerRef.current = null;
-      }
-      if (!checkSettling) setCheckSettling(true);
-      return;
-    }
-    if (!checkSettling) return;
-    if (checkSettlingTimerRef.current) return;
-    checkSettlingTimerRef.current = setTimeout(() => {
-      checkSettlingTimerRef.current = null;
-      setCheckSettling(false);
-    }, 600);
-    return () => {
-      if (checkSettlingTimerRef.current) {
-        clearTimeout(checkSettlingTimerRef.current);
-        checkSettlingTimerRef.current = null;
-      }
-    };
-  }, [isChecking, liveMode, checkSettling]);
-
-  /**
-   * Hide union/CL names and any group-derived text until the live view is actually ready.
-   * We also use this to gate "issues/passed" sections so they don't appear early.
-   */
-  const hideUnionNames = useMemo(
-    () =>
-      liveMode &&
-      (isScanning ||
-        isChecking ||
-        waitingForGroups ||
-        !graceDone ||
-        checkSettling),
-    [
-      liveMode,
-      isScanning,
-      isChecking,
-      waitingForGroups,
-      graceDone,
-      checkSettling,
-    ]
-  );
-
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Busy debounce: enter after 250ms, exit after 350ms (only if there's no content yet).
   const hasData = useMemo(() => {
-    if (waitingForGroups) return false;
     const haveGroups =
       Array.isArray(groupedBranches) &&
       groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
@@ -443,7 +357,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const haveFailures =
       Array.isArray(checkFailures) && checkFailures.length > 0;
     return haveGroups || haveFlat || haveFailures;
-  }, [waitingForGroups, groupedBranches, localBranches, checkFailures]);
+  }, [groupedBranches, localBranches, checkFailures]);
 
   useEffect(() => {
     const wantBusy = (isScanning || isChecking) && !hasData;
@@ -531,15 +445,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   /* -------------------------- Realtime live pin edges ------------------------ */
   const pinStateRef = useRef<Map<number, number>>(new Map());
   useEffect(() => pinStateRef.current.clear(), [macAddress]);
-  const lastResultSignatureRef = useRef<string>("");
-  useEffect(() => {
-    lastResultSignatureRef.current = "";
-  }, [macAddress]);
-  useEffect(() => {
-    if (macAddress && macAddress.trim()) {
-      setLocalBranches([]);
-    }
-  }, [macAddress]);
 
   useEffect(() => {
     if (!lastEv || !macAddress) return;
@@ -595,19 +500,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return Array.from(out).sort((a, b) => a - b);
     };
 
-    if (kind === "START") {
-      lastResultSignatureRef.current = "";
-    }
-
     // Terminal summary
     if (kind === "DONE") {
       const macToCheck = evMac && evMac !== ZERO ? evMac : macFromLine || evMac;
       const matchMac =
         !macToCheck || macToCheck === ZERO || macToCheck === current;
       if (!matchMac) return;
-      const signature = `${macToCheck || ""}|${text.trim()}`;
-      if (lastResultSignatureRef.current === signature) return;
-      lastResultSignatureRef.current = signature;
       const okFlag =
         String((lastEv as any).ok).toLowerCase() === "true" || okFromText;
 
@@ -737,60 +635,20 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                   isLatch: latchSet.has(p),
                 }) as BranchDisplayData
             );
-          } else if (prev.length === 0 && expectedPins.length === 0) {
-            const isLatch = normalizedLatchPins.includes(ch);
-            base = [
-              {
-                id: String(ch),
-                branchName: `PIN ${ch}`,
-                testStatus:
-                  val === 1
-                    ? isLatch
-                      ? ("not_tested" as const)
-                      : ("ok" as const)
-                    : ("nok" as const),
-                pinNumber: ch,
-                isLatch,
-              } as BranchDisplayData,
-            ];
           }
 
           let changed = false;
-          let found = false;
           const next = base.map((b) => {
             if (b.pinNumber !== ch) return b;
 
-            found = true;
             const isLatch = normalizedLatchPins.includes(ch);
             const nextStatus =
               val === 1 ? "ok" : isLatch && !SIMULATE ? b.testStatus : "nok";
 
-            if (b.testStatus === nextStatus && b.isLatch === isLatch) return b;
+            if (b.testStatus === nextStatus) return b;
             changed = true;
-            return {
-              ...b,
-              isLatch,
-              testStatus: nextStatus,
-            } as BranchDisplayData;
+            return { ...b, testStatus: nextStatus } as BranchDisplayData;
           });
-
-          if (!found) {
-            const isLatch = normalizedLatchPins.includes(ch);
-            next.push({
-              id: String(ch),
-              branchName: `PIN ${ch}`,
-              testStatus:
-                val === 1
-                  ? isLatch
-                    ? ("not_tested" as const)
-                    : ("ok" as const)
-                  : ("nok" as const),
-              pinNumber: ch,
-              isLatch,
-            });
-            changed = true;
-          }
-
           return changed ? next : base;
         })
       );
@@ -818,69 +676,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [groupedBranches, localBranches]);
 
   const labelForPin = useCallback(
-    (pin: number) => {
-      if (hideUnionNames) return `PIN ${pin}`;
-      return (
-        (nameHints && nameHints[String(pin)]) ||
-        unionNameByPin[pin] ||
-        `PIN ${pin}`
-      );
-    },
-    [hideUnionNames, nameHints, unionNameByPin]
+    (pin: number) =>
+      (nameHints && nameHints[String(pin)]) ||
+      unionNameByPin[pin] ||
+      `PIN ${pin}`,
+    [nameHints, unionNameByPin]
   );
-
-  const awaitingGroupedResults = useMemo(() => {
-    const groupsReady =
-      Array.isArray(groupedBranches) &&
-      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
-    if (groupsReady) return false;
-
-    const scanningActive = isScanning || isChecking;
-    const expectGroups = scanningActive || activeKssksLength > 0;
-    if (!expectGroups) return false;
-
-    const hasInterimContent =
-      localBranches.length > 0 ||
-      (Array.isArray(checkFailures) && checkFailures.length > 0);
-
-    return hasInterimContent;
-  }, [
-    groupedBranches,
-    isScanning,
-    isChecking,
-    activeKssksLength,
-    localBranches.length,
-    checkFailures,
-  ]);
-
-  const suppressMissing = useMemo(
-    () =>
-      liveMode &&
-      (waitingForGroups ||
-        awaitingGroupedResults ||
-        !graceDone ||
-        checkSettling ||
-        isScanning ||
-        isChecking),
-    [
-      liveMode,
-      waitingForGroups,
-      awaitingGroupedResults,
-      graceDone,
-      checkSettling,
-      isScanning,
-      isChecking,
-    ]
-  );
-
-  // Only show grouped lists/content when the live flow is actually ready.
-  const readyToShowGroupedContent =
-    !hideUnionNames && !suppressMissing;
 
   const pending = useMemo(() => {
-    if (waitingForGroups || suppressMissing) {
-      return { items: [] as BranchDisplayData[], source: "none" as const };
-    }
     const nok = localBranches
       .filter((b) => b.testStatus === "nok")
       .sort((a, b) => {
@@ -910,13 +713,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
 
     return { items: [] as BranchDisplayData[], source: "none" as const };
-  }, [
-    waitingForGroups,
-    suppressMissing,
-    localBranches,
-    checkFailures,
-    labelForPin,
-  ]);
+  }, [localBranches, checkFailures, labelForPin]);
 
   const unionAwaitingGroups = useMemo(() => {
     const haveGroups =
@@ -940,11 +737,40 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const awaitingUnionsStrict = useMemo(() => {
     const haveMac = !!(macAddress && macAddress.trim());
+    const expectGroups = Array.isArray(activeKssks) && activeKssks.length > 0;
+    const groupsMissing =
+      !Array.isArray(groupedBranches) || groupedBranches.length === 0;
     const noFlatContent =
       (localBranches?.length || 0) === 0 && (failurePins?.length || 0) === 0;
 
-    return haveMac && expectingGroups && groupsMissing && noFlatContent;
-  }, [macAddress, expectingGroups, groupsMissing, localBranches, failurePins]);
+    return haveMac && expectGroups && groupsMissing && noFlatContent;
+  }, [macAddress, activeKssks, groupedBranches, localBranches, failurePins]);
+
+  const awaitingGroupedResults = useMemo(() => {
+    const groupsReady =
+      Array.isArray(groupedBranches) &&
+      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    if (groupsReady) return false;
+
+    const scanningActive = isScanning || isChecking;
+    const expectingGroups = scanningActive || activeKssks.length > 0;
+    if (!expectingGroups) return false;
+
+    const hasInterimContent =
+      localBranches.length > 0 ||
+      pending.items.length > 0 ||
+      failurePins.length > 0;
+
+    return hasInterimContent;
+  }, [
+    groupedBranches,
+    isScanning,
+    isChecking,
+    activeKssks.length,
+    localBranches.length,
+    pending.items.length,
+    failurePins.length,
+  ]);
 
   const isLatchPin = useCallback(
     (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
@@ -1471,44 +1297,40 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         return s ? { ...b, testStatus: s } : b;
       });
 
-      const okBranches = readyToShowGroupedContent
-        ? branchesLive.filter((b) => {
-            if (b.testStatus !== "ok" || typeof b.pinNumber !== "number")
-              return false;
-            const isContactless =
-              (b as any).isLatch === true || isLatchPin(b.pinNumber);
-            const noCheck =
-              (b as any).noCheck === true || (b as any).notTested === true;
-            return !(isContactless || noCheck);
-          })
-        : [];
+      const okBranches = branchesLive.filter((b) => {
+        if (b.testStatus !== "ok" || typeof b.pinNumber !== "number")
+          return false;
+        const isContactless =
+          (b as any).isLatch === true || isLatchPin(b.pinNumber);
+        const noCheck =
+          (b as any).noCheck === true || (b as any).notTested === true;
+        return !(isContactless || noCheck);
+      });
       const okNames = okBranches
         .map((b) =>
-          typeof b.pinNumber === "number"
-            ? labelForPin(b.pinNumber)
+          nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]
+            ? nameHints[String(b.pinNumber)]
             : b.branchName
         )
         .filter(Boolean);
 
-      const failedItems = readyToShowGroupedContent
-        ? branchesLive
-            .filter(
-              (b) =>
-                typeof b.pinNumber === "number" &&
-                (b.testStatus === "nok" ||
-                  (b.testStatus !== "ok" &&
-                    ((b as any).isLatch === true || isLatchPin(b.pinNumber))))
-            )
-            .map((b) => ({
-              pin: b.pinNumber as number,
-              name:
-                typeof b.pinNumber === "number"
-                  ? labelForPin(b.pinNumber)
-                  : b.branchName,
-              isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
-            }))
-            .sort((a, b) => a.name.localeCompare(b.name))
-        : [];
+      const failedItems = branchesLive
+        .filter(
+          (b) =>
+            typeof b.pinNumber === "number" &&
+            (b.testStatus === "nok" ||
+              (b.testStatus !== "ok" &&
+                ((b as any).isLatch === true || isLatchPin(b.pinNumber))))
+        )
+        .map((b) => ({
+          pin: b.pinNumber as number,
+          name:
+            nameHints && b.pinNumber != null && nameHints[String(b.pinNumber)]
+              ? nameHints[String(b.pinNumber)]
+              : b.branchName,
+          isLatch: (b as any).isLatch === true || isLatchPin(b.pinNumber),
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       return (
         <section
@@ -1539,11 +1361,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 >
                   KSK: {(grp as any).ksk}
                 </div>
-                {(!readyToShowGroupedContent) ? (
-                  <span className="inline-flex items-center rounded-full bg-slate-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
-                    Loading…
-                  </span>
-                ) : failedItems.length > 0 ? (
+                {failedItems.length > 0 ? (
                   <span className="inline-flex items-center rounded-full bg-red-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
                     {failedItems.length} missing
                   </span>
@@ -1556,7 +1374,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             </div>
           </header>
           <div className="p-4 grid gap-4">
-            {readyToShowGroupedContent && failedItems.length > 0 && (
+            {failedItems.length > 0 && (
               <div>
                 <div
                   className="text-[12px] font-bold uppercase mb-2"
@@ -1662,7 +1480,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   })();
 
-  const flatView = suppressMissing ? null : (
+  const flatView = (
     <div className="w-full p-6">
       {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
       {pending.source !== "failures" && pending.items.length > 0 && (
@@ -1681,8 +1499,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (scanningError) return "error";
     if (busy) return "busy";
     if (awaitingGroupedResults) return "busy";
-    if (awaitingUnionsStrict || unionAwaitingGroups || waitingForGroups)
-      return "busy";
+    if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
     if (hasMounted && localBranches.length === 0) {
       if (failurePins.length > 0) return "flat-empty";
       return "scan";
@@ -1697,7 +1514,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     awaitingGroupedResults,
     awaitingUnionsStrict,
     unionAwaitingGroups,
-    waitingForGroups,
     hasMounted,
     localBranches.length,
     groupedBranches,
@@ -1715,16 +1531,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const hasContent =
     !awaitingUnionsStrict &&
     !awaitingGroupedResults &&
-    !waitingForGroups &&
     ((Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
       (localBranches && localBranches.length > 0) ||
       failurePins.length > 0);
-
-  const isLiveViewKey =
-    viewKey === "grouped" || viewKey === "flat" || viewKey === "flat-empty";
-  const isLiveFlow = liveMode;
-  // Freeze the animation key in live mode to avoid re-mount flickers when polling flips between states.
-  const animatedViewKey = isLiveFlow ? "live" : viewKey;
 
   return (
     <div
@@ -1794,12 +1603,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       </header>
 
       {/* Content with subtle cross-fade */}
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence mode="wait">
         <m.div
-          key={animatedViewKey}
-          initial={isLiveViewKey ? false : { opacity: 0, y: 8 }}
+          key={viewKey}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={isLiveViewKey ? { opacity: 0 } : { opacity: 0, y: -8 }}
+          exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="w-full"
         >

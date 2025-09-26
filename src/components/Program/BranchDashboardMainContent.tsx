@@ -683,35 +683,41 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [nameHints, unionNameByPin]
   );
 
-  const pending = useMemo(() => {
-    const nok = localBranches
-      .filter((b) => b.testStatus === "nok")
-      .sort((a, b) => {
-        const ap =
-          typeof a.pinNumber === "number"
-            ? a.pinNumber
-            : Number.POSITIVE_INFINITY;
-        const bp =
-          typeof b.pinNumber === "number"
-            ? b.pinNumber
-            : Number.POSITIVE_INFINITY;
-        if (ap !== bp) return ap - bp;
-        return String(a.branchName).localeCompare(String(b.branchName));
-      });
+  const pending = useMemo(
+    () => {
+      const nok = localBranches
+        .filter((b) => b.testStatus === "nok")
+        .sort((a, b) => {
+          const ap =
+            typeof a.pinNumber === "number"
+              ? a.pinNumber
+              : Number.POSITIVE_INFINITY;
+          const bp =
+            typeof b.pinNumber === "number"
+              ? b.pinNumber
+              : Number.POSITIVE_INFINITY;
+          if (ap !== bp) return ap - bp;
+          return String(a.branchName).localeCompare(String(b.branchName));
+        });
 
-    if (nok.length > 0) return nok;
+      if (nok.length > 0)
+        return { items: nok, source: "live" as const };
 
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-      return checkFailures.map((pin) => ({
-        id: `FAIL:${pin}`,
-        branchName: labelForPin(pin),
-        testStatus: "nok" as const,
-        pinNumber: pin,
-        kfbInfoValue: undefined,
-      }));
-    }
-    return nok;
-  }, [localBranches, checkFailures, labelForPin]);
+      if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+        const items = checkFailures.map((pin) => ({
+          id: `FAIL:${pin}`,
+          branchName: labelForPin(pin),
+          testStatus: "nok" as const,
+          pinNumber: pin,
+          kfbInfoValue: undefined,
+        }));
+        return { items, source: "failures" as const };
+      }
+
+      return { items: [] as BranchDisplayData[], source: "none" as const };
+    },
+    [localBranches, checkFailures, labelForPin]
+  );
 
   const failurePins: number[] = useMemo(() => {
     if (Array.isArray(checkFailures) && checkFailures.length > 0) {
@@ -719,7 +725,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         (a, b) => a - b
       );
     }
-    const pins = pending
+    const pins = pending.items
       .map((b) => b.pinNumber)
       .filter((n): n is number => typeof n === "number");
     return [...new Set(pins)].sort((a, b) => a - b);
@@ -1410,11 +1416,13 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const flatView = (
     <div className="w-full p-6">
       {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-        {pending.map((branch) => (
-          <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
-        ))}
-      </div>
+      {pending.source !== "failures" && pending.items.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+          {pending.items.map((branch) => (
+            <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
+          ))}
+        </div>
+      )}
     </div>
   );
 

@@ -100,6 +100,9 @@ export function UnionEffect({
     const currentMac = (macRef.current || "").toUpperCase();
     if (!currentMac) return;
 
+    const unionMac = String(union.mac || "").toUpperCase();
+    if (unionMac && unionMac !== currentMac) return;
+
     // When Redis is degraded, ignore empty union snapshots to avoid nuking state.
     if (redisDegraded) {
       const np = Array.isArray(union.normalPins) ? union.normalPins.length : 0;

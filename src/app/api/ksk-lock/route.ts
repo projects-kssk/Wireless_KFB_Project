@@ -487,8 +487,12 @@ export async function GET(req: NextRequest) {
       } catch {}
     }
     const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
-    if (rows.length > 0) log.info('GET list', info);
-    else log.debug('GET list (empty)', info);
+    if (rows.length > 0) {
+      log.info('GET list', info);
+    } else {
+      const quiet = ((process.env.KSK_LOCK_SILENCE_EMPTY ?? process.env.KSSK_LOCK_SILENCE_EMPTY) ?? '1') === '1';
+      if (!quiet) log.debug('GET list (empty)', info);
+    }
 
     // Optional verbose detail logging for terminal visibility
     if (((process.env.KSK_LOCK_LOG_DETAIL ?? process.env.KSSK_LOCK_LOG_DETAIL) ?? '0') === '1') {

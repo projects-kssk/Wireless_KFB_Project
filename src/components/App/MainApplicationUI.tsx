@@ -131,10 +131,13 @@ const HudBanner: React.FC<{ banner: BannerState | null }> = ({ banner }) => {
 const MainApplicationUI: React.FC = () => {
   const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
   const { resolvedTheme, theme, setTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
   const effectiveTheme = (() => {
+    if (!themeMounted) return "light";
     if (resolvedTheme) return resolvedTheme;
     if (theme === "dark" || theme === "light") return theme;
-    return undefined;
+    return "light";
   })();
   const isDarkMode = effectiveTheme === "dark";
   const gradientLight =
@@ -143,6 +146,7 @@ const MainApplicationUI: React.FC = () => {
   const appBackground = isDarkMode ? gradientDark : gradientLight;
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!themeMounted) return;
     const nextTheme =
       resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined);
     if (!nextTheme) {

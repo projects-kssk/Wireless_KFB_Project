@@ -1014,7 +1014,9 @@ function StatusBanner({
   error: string | null;
 }) {
   const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDark = themeMounted && resolvedTheme === "dark";
   const base =
     "mx-6 mt-4 rounded-2xl backdrop-blur-xl ring-1 shadow-[0_14px_44px_rgba(2,6,23,.08)] px-5 py-4 text-center transition-colors";
   const sharedStyle: React.CSSProperties = isDark
@@ -1120,7 +1122,9 @@ function DiscoverEspModal({
     mass: 0.9,
   };
   const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDark = themeMounted && resolvedTheme === "dark";
   const showSuccess = status === "success" && testStatus === "ok";
   const stripText =
     status === "searching"

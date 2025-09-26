@@ -555,15 +555,9 @@ export default function SetupPage() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useTheme();
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return document.documentElement.classList.contains("dark");
-  });
-
-  useEffect(() => {
-    if (!resolvedTheme) return;
-    setIsDark(resolvedTheme === "dark");
-  }, [resolvedTheme]);
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDark = themeMounted && resolvedTheme === "dark";
 
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>(() =>

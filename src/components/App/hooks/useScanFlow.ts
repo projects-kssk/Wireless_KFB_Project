@@ -171,6 +171,9 @@ export const useScanFlow = ({
         okFlashAllowedRef.current = false;
         setDisableOkAnimation(true);
         clearScanOverlayTimeout();
+        try {
+          blockedMacRef.current.clear();
+        } catch {}
         if (message) {
           if (scanResultTimerRef.current) {
             clearTimeout(scanResultTimerRef.current);
@@ -687,22 +690,9 @@ export const useScanFlow = ({
       const pendingMac = isMac ? (macCanon as string) : "KFB";
 
       const blockKey = macKey(pendingMac);
-      const cooldown = noSetupCooldownRef.current;
       if (blockedMacRef.current.has(blockKey)) return;
-
-      if (cooldown && cooldown.mac === blockKey) {
-        if (Date.now() >= cooldown.until) {
-          noSetupCooldownRef.current = null;
-        } else {
-          okFlashAllowedRef.current = false;
-          if (!scanResultTimerRef.current) {
-            setScanResult({ text: NO_SETUP_MSG, kind: "info" });
-          }
-          setIsScanning(false);
-          setShowScanUi(false);
-          return;
-        }
-      }
+      // Always require a fresh scan if setup data is missing; no cooldown loop.
+      noSetupCooldownRef.current = null;
 
       updateHeaderVisibility(false);
 
@@ -844,6 +834,16 @@ export const useScanFlow = ({
         setMacAddress("");
         idleCooldownUntilRef.current = 0;
         noSetupCooldownRef.current = null;
+        try {
+          blockedMacRef.current.add(blockKey);
+          if (typeof window !== "undefined") {
+            window.setTimeout(() => {
+              try {
+                blockedMacRef.current.delete(blockKey);
+              } catch {}
+            }, Math.max(1500, CFG.RETRY_COOLDOWN_MS));
+          }
+        } catch {}
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
         const hideDelay = 2000;

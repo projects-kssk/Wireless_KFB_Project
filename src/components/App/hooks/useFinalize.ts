@@ -153,27 +153,40 @@ export const useFinalize = ({
     }
   }, []);
 
+  const countLocksForMac = useCallback(
+    async (mac: string): Promise<number | null> => {
+      const MAC = String(mac || "").trim().toUpperCase();
+      if (!MAC) return 0;
+      const v = await safeFetchJson<LocksListResponse>(`/api/ksk-lock`, {
+        cache: "no-store",
+      });
+      if (!v || !Array.isArray(v?.locks)) return null;
+      return v.locks.filter(
+        (x: LockItem) => String(x?.mac || "").toUpperCase() === MAC
+      ).length;
+    },
+    []
+  );
+
   const clearKskLocksFully = useCallback(
     async (mac: string): Promise<boolean> => {
-      const MAC = mac.toUpperCase();
+      const MAC = String(mac || "").trim().toUpperCase();
+      if (!MAC) return true;
+
+      const preCount = await countLocksForMac(MAC);
+      if (preCount === 0) return true;
+
       for (let i = 0; i < 3; i++) {
         await fetch(`/api/ksk-lock?${qs({ mac: MAC, force: "1" })}`, {
           method: "DELETE",
         }).catch(() => {});
         await sleep(150);
-        const v = await safeFetchJson<LocksListResponse>(`/api/ksk-lock`, {
-          cache: "no-store",
-        });
-        const left = Array.isArray(v?.locks)
-          ? v.locks.filter(
-              (x: LockItem) => String(x?.mac || "").toUpperCase() === MAC
-            ).length
-          : 0;
+        const left = await countLocksForMac(MAC);
         if (left === 0) return true;
       }
       return false;
     },
-    []
+    [countLocksForMac]
   );
 
   const sendCheckpointForMac = useCallback(
@@ -492,24 +505,34 @@ export const useFinalize = ({
           mutableOps.aliases = true;
         }
 
-        const shouldClearLocks =
+        let shouldClearLocks =
           hadLocksForMac || (activeKssks?.length ?? 0) > 0 || hasSetup;
+        let lockCountBeforeClear: number | null = null;
+        if (shouldClearLocks) {
+          try {
+            lockCountBeforeClear = await countLocksForMac(mac);
+            if (lockCountBeforeClear === 0) shouldClearLocks = false;
+          } catch {}
+        }
+
         if (shouldClearLocks) {
           let locksCleared = await clearKskLocksFully(mac);
           for (let i = 0; !locksCleared && i < 2; i++) {
             await sleep(250);
             locksCleared = await clearKskLocksFully(mac);
           }
-          try {
-            const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
-            if (sid) {
-              await fetch("/api/ksk-lock", {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ stationId: sid, mac, force: 1 }),
-              }).catch(() => {});
-            }
-          } catch {}
+          if (lockCountBeforeClear !== 0) {
+            try {
+              const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
+              if (sid) {
+                await fetch("/api/ksk-lock", {
+                  method: "DELETE",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ stationId: sid, mac, force: 1 }),
+                }).catch(() => {});
+              }
+            } catch {}
+          }
           mutableOps.locks = locksCleared;
         }
 
@@ -549,6 +572,7 @@ export const useFinalize = ({
       blockedMacRef,
       clearAliasesVerify,
       clearKskLocksFully,
+      countLocksForMac,
       finalizeOkGuardRef,
       handleResetKfb,
       itemsAllFromAliasesRef,

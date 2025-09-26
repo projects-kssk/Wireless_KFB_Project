@@ -263,3 +263,22 @@ The project was made by Nagy Viktor.
 [NEXT] POST /api/checkpoint 200 in 291ms
 [NEXT] POST /api/checkpoint 200 in 5ms
 [NEXT] POST /api/checkpoint 200 in 6ms
+
+[NEXT] GET /api/aliases?mac=08%3A3A%3A8D%3A15%3A27%3A54&all=1 200 in 6ms
+[NEXT] ✓ Compiled /api/serial/events in 210ms (873 modules)
+[NEXT] ✓ Compiled in 1ms (873 modules)
+[NEXT] ✓ Compiled in 0ms (873 modules)
+[NEXT] ✓ Compiled in 0ms (873 modules)
+[NEXT] [aliases] GET aliases
+[NEXT] GET /api/aliases?mac=08%3A3A%3A8D%3A15%3A27%3A54 200 in 537ms
+[NEXT] ✓ Compiled /api/aliases/clear in 0ms (873 modules)
+[NEXT] [ksk-lock] GET list (empty)
+[NEXT] GET /api/ksk-lock?stationId=JETSON-01 200 in 452ms
+[NEXT] ✓ Compiled (875 modules)
+[NEXT] [aliases:clear] cleared aliases
+[NEXT] POST /api/aliases/clear 200 in 312ms
+[NEXT] [ksk-lock] DELETE bulk mac (scan)
+[NEXT] DELETE /api/ksk-lock?mac=08%3A3A%3A8D%3A15%3A27%3A54&force=1 200 in 11ms
+[NEXT] [ksk-lock] GET list (empty)
+[NEXT] GET /api/ksk-lock 200 in 6ms
+[NEXT] [ksk-lock] GET list (empty)

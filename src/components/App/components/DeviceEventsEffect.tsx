@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { SerialState } from "@/components/Header/useSerialEvents";
 import type { BranchDisplayData } from "@/types/types";
@@ -63,9 +63,17 @@ export function DeviceEventsEffect({
   setCheckFailures,
   finalizeOkForMac,
 }: DeviceEventsEffectProps): null {
+  const processedResultTickRef = useRef<number>(0);
+  const processedFailureTickRef = useRef<number>(0);
+  const lastSuccessSignatureRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (setupGateActive) return;
     if (suppressLive) return;
+
+    const tick = Number((serial as any).lastEvTick || 0);
+    if (!tick) return;
+    if (processedResultTickRef.current === tick) return;
 
     const ev = (serial as any).lastEv as {
       kind?: string;
@@ -75,6 +83,7 @@ export function DeviceEventsEffect({
       ok?: any;
     } | null;
     if (!ev) return;
+    processedResultTickRef.current = tick;
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
@@ -83,6 +92,7 @@ export function DeviceEventsEffect({
     const setupReady = hasSetupForCurrentMac();
 
     if (kind === "START") {
+      lastSuccessSignatureRef.current = null;
       if (isCheckingRef.current) return;
       let evMac = String(ev.mac || "").toUpperCase();
       const active = (macRef.current || "").toUpperCase();
@@ -109,6 +119,9 @@ export function DeviceEventsEffect({
     if (!current) return;
 
     if ((kind === "RESULT" || kind === "DONE") && ok) {
+      const signature = `${kind}:${String(ev.mac || "").toUpperCase()}:${raw}`;
+      if (lastSuccessSignatureRef.current === signature) return;
+      lastSuccessSignatureRef.current = signature;
       setBranchesData((prev) =>
         prev.map((b) => ({ ...b, testStatus: "ok" as const }))
       );
@@ -131,7 +144,8 @@ export function DeviceEventsEffect({
     okFlashAllowedRef,
     okShownOnceRef,
     retryCooldownMs,
-    serial,
+    serial.lastEv,
+    serial.lastEvTick,
     setBranchesData,
     setCheckFailures,
     setIsChecking,
@@ -150,6 +164,10 @@ export function DeviceEventsEffect({
   useEffect(() => {
     if (suppressLive) return;
     if (!hasSetupForCurrentMac()) return;
+    const tick = Number((serial as any).lastEvTick || 0);
+    if (!tick) return;
+    if (processedFailureTickRef.current === tick) return;
+
     const ev = (serial as any).lastEv as {
       kind?: string;
       mac?: string | null;
@@ -158,6 +176,7 @@ export function DeviceEventsEffect({
       ok?: any;
     } | null;
     if (!ev) return;
+    processedFailureTickRef.current = tick;
 
     const raw = String(ev.line ?? ev.raw ?? "");
     const kind = String(ev.kind || "").toUpperCase();
@@ -170,6 +189,7 @@ export function DeviceEventsEffect({
       String(ev.ok).toLowerCase() === "false" || /\bFAIL(?:URE)?\b/i.test(raw);
 
     if (isResultish && isFailure && !isCheckingRef.current) {
+      lastSuccessSignatureRef.current = null;
       setIsChecking(true);
       okFlashAllowedRef.current = true;
       try {
@@ -197,7 +217,8 @@ export function DeviceEventsEffect({
     isCheckingRef,
     macRef,
     okFlashAllowedRef,
-    serial,
+    serial.lastEv,
+    serial.lastEvTick,
     setBranchesData,
     setCheckFailures,
     setIsChecking,

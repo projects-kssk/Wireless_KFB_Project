@@ -650,6 +650,54 @@ export async function POST(request: Request) {
   }
 }
 
+function aliasIndexKey(macUp: string) {
+  return `kfb:aliases:index:${macUp}`;
+}
+
+async function hasAliasKskEntries(r: any, macUp: string): Promise<boolean> {
+  const hasValidId = (value: unknown) =>
+    typeof value === 'string' && value.trim().length > 0;
+
+  try {
+    const members: string[] = await r.smembers?.(aliasIndexKey(macUp)).catch(() => []);
+    if (Array.isArray(members) && members.some(hasValidId)) return true;
+  } catch {}
+
+  try {
+    const prefix = `kfb:aliases:${macUp}:`;
+    const collectKeys = async (): Promise<string[]> => {
+      if (typeof r.scan === 'function') {
+        const keys: string[] = [];
+        let cursor = '0';
+        do {
+          const res = await r.scan(cursor, 'MATCH', `${prefix}*`, 'COUNT', 200);
+          cursor = res?.[0] ?? '0';
+          const chunk: string[] = res?.[1] ?? [];
+          keys.push(...chunk);
+        } while (cursor !== '0');
+        return keys;
+      }
+      const keys: string[] = await r.keys?.(`${prefix}*`).catch(() => []);
+      return Array.isArray(keys) ? keys : [];
+    };
+
+    const keys = await collectKeys();
+    for (const key of keys) {
+      if (typeof key !== 'string') continue;
+      if (!key.startsWith(prefix)) continue;
+      const id = key.slice(prefix.length).trim();
+      if (id && hasValidId(id)) return true;
+    }
+  } catch {}
+
+  return false;
+}
+
+function fallbackIntksk(macUp: string, requestId: string) {
+  const compact = macUp.replace(/[^0-9A-Za-z]/g, '') || requestId;
+  return `fallback-${compact.slice(-12)}`;
+}
+
 /** Build a minimal workingData XML from Redis aliases and post it to the offline checkpoint route. */
 async function sendCheckpointFromAliases(macUp: string, requestId: string) {
   try {
@@ -657,6 +705,7 @@ async function sendCheckpointFromAliases(macUp: string, requestId: string) {
     const r: any = getRedis();
     const raw = await r.get(`kfb:aliases:${macUp}`).catch(() => null as any);
     if (!raw) return;
+    if (await hasAliasKskEntries(r, macUp)) return;
     const data = JSON.parse(raw);
     const hints = (data?.hints && typeof data.hints === 'object') ? (data.hints as Record<string,string>) : {};
     const namesMap: Record<string,string> = (data?.names && typeof data.names === 'object') ? data.names : {};
@@ -679,13 +728,14 @@ async function sendCheckpointFromAliases(macUp: string, requestId: string) {
       `<objGroup>CL</objGroup><objPos>${escapeXml(nm)}</objPos>`+
       `</sequence>`
     )).join('');
+    const intkskFallback = fallbackIntksk(macUp, requestId);
     const workingDataXml =
       `<krosy xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://www.kroschu.com/kroscada/namespaces/krosy/visualcontrol/V_0_1" xmlns:xsd="http://www.w3.org/2001/XMLSchema">`+
       `<header><requestID>${escapeXml(requestId)}</requestID>`+
       `<sourceHost><hostname>${escapeXml(srcHost)}</hostname></sourceHost>`+
       `<targetHost><hostname>${escapeXml(targetHost)}</hostname></targetHost></header>`+
       `<body><visualControl>`+
-      `<workingData device="${escapeXml(srcHost)}" intksk="" scanned="${escapeXml(nowIso)}">`+
+      `<workingData device="${escapeXml(srcHost)}" intksk="${escapeXml(intkskFallback)}" scanned="${escapeXml(nowIso)}">`+
       `<sequencer><segmentList count="1">`+
       `<segment index="1" name="1"><sequenceList count="${names.length}">${seqXml}</sequenceList></segment>`+
       `</segmentList></sequencer>`+

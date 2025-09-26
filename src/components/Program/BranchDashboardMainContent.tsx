@@ -756,6 +756,32 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     failurePins,
   ]);
 
+  const awaitingGroupedResults = useMemo(() => {
+    const groupsReady =
+      Array.isArray(groupedBranches) &&
+      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    if (groupsReady) return false;
+
+    const scanningActive = isScanning || isChecking;
+    const expectingGroups = scanningActive || activeKssks.length > 0;
+    if (!expectingGroups) return false;
+
+    const hasInterimContent =
+      localBranches.length > 0 ||
+      pending.items.length > 0 ||
+      failurePins.length > 0;
+
+    return hasInterimContent;
+  }, [
+    groupedBranches,
+    isScanning,
+    isChecking,
+    activeKssks.length,
+    localBranches.length,
+    pending.items.length,
+    failurePins.length,
+  ]);
+
   const isLatchPin = useCallback(
     (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
     [normalizedLatchPins]
@@ -1142,7 +1168,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     </div>
   );
 
-  const busyLabel = awaitingUnionsStrict || unionAwaitingGroups
+  const busyLabel =
+    awaitingUnionsStrict ||
+    unionAwaitingGroups ||
+    awaitingGroupedResults
     ? "LOADING RESULTS"
     : isChecking
       ? "CHECKING"
@@ -1481,6 +1510,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
     if (busy) return "busy";
+    if (awaitingGroupedResults) return "busy";
     if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
     if (hasMounted && localBranches.length === 0) {
       if (failurePins.length > 0) return "flat-empty";
@@ -1493,6 +1523,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     showOkAnimation,
     scanningError,
     busy,
+    awaitingGroupedResults,
     awaitingUnionsStrict,
     unionAwaitingGroups,
     hasMounted,
@@ -1511,6 +1542,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   /* ---------------------------------- Header -------------------------------- */
   const hasContent =
     !awaitingUnionsStrict &&
+    !awaitingGroupedResults &&
     ((Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
       (localBranches && localBranches.length > 0) ||
       failurePins.length > 0);

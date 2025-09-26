@@ -51,6 +51,14 @@ const INFO_AUTO_HIDE_MS = Math.max(
   Number(process.env.NEXT_PUBLIC_INFO_HIDE_MS ?? "4500")
 );
 
+/** Default cooldown between simulator retries (ms) */
+const SIMULATE_COOLDOWN_BASE_MS = Math.max(
+  500,
+  Number(process.env.NEXT_PUBLIC_SIMULATE_MIN_COOLDOWN_MS ?? 500)
+);
+
+const SIMULATE_COOLDOWN_FLOOR_MS = 500;
+
 /** Small framer-motion variants shared by banners */
 const bannerVariants = {
   initial: { opacity: 0, y: 8 },
@@ -196,6 +204,14 @@ const MainApplicationUI: React.FC = () => {
   const mainSurfaceBorder = isDarkMode
     ? "rgba(255,255,255,0.06)"
     : "rgba(15,23,42,0.06)";
+
+  const simulateCooldownMs = useMemo(() => {
+    const cfgMs = Number.isFinite(CFG.RETRY_COOLDOWN_MS)
+      ? CFG.RETRY_COOLDOWN_MS
+      : SIMULATE_COOLDOWN_BASE_MS;
+    const limited = Math.min(cfgMs, SIMULATE_COOLDOWN_BASE_MS);
+    return Math.max(SIMULATE_COOLDOWN_FLOOR_MS, limited);
+  }, [CFG.RETRY_COOLDOWN_MS]);
 
   /* -----------------------------------------------------------------------------
    * Basic UI state
@@ -818,13 +834,12 @@ const MainApplicationUI: React.FC = () => {
       }
     }
     pendingSimulateRef.current = null;
-    simulateCooldownUntilRef.current =
-      now + Math.max(3000, CFG.RETRY_COOLDOWN_MS);
+    simulateCooldownUntilRef.current = now + simulateCooldownMs;
     if (setupGateActive) enableSimOverride();
     void handleScanRef.current?.(pending.target, "simulate");
   }, [
     CFG.FINALIZED_RESCAN_BLOCK_MS,
-    CFG.RETRY_COOLDOWN_MS,
+    simulateCooldownMs,
     enableSimOverride,
     isScanning,
     lastFinalizedAtRef,

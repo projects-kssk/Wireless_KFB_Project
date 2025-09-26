@@ -174,6 +174,7 @@ export const useScanFlow = ({
         checkTokenRef.current = null;
       }
 
+      setDisableOkAnimation(false);
       setIsChecking(true);
       schedule(
         "checkWatchdog",

@@ -85,11 +85,19 @@ const dedupeCasePreserving = (
 
 class CaseInsensitiveSet extends Set<string> {
   add(value: string): this {
-    return super.add(String(value || "").trim().toUpperCase());
+    return super.add(
+      String(value || "")
+        .trim()
+        .toUpperCase()
+    );
   }
 
   has(value: string): boolean {
-    return super.has(String(value || "").trim().toUpperCase());
+    return super.has(
+      String(value || "")
+        .trim()
+        .toUpperCase()
+    );
   }
 }
 
@@ -296,25 +304,22 @@ const MainApplicationUI: React.FC = () => {
   const [latchPins, setLatchPins] = useState<number[] | undefined>(undefined);
   const [activeKssksInternal, setActiveKssksInternal] = useState<string[]>([]);
   const activeKssks = activeKssksInternal;
-  const setActiveKssks = useCallback(
-    (next: SetStateAction<string[]>) => {
-      setActiveKssksInternal((prev) => {
-        const raw =
-          typeof next === "function"
-            ? (next as (value: string[]) => string[])(prev)
-            : next;
-        const canonical = dedupeCasePreserving(raw);
-        if (
-          canonical.length === prev.length &&
-          canonical.every((value, idx) => value === prev[idx])
-        ) {
-          return prev;
-        }
-        return canonical;
-      });
-    },
-    []
-  );
+  const setActiveKssks = useCallback((next: SetStateAction<string[]>) => {
+    setActiveKssksInternal((prev) => {
+      const raw =
+        typeof next === "function"
+          ? (next as (value: string[]) => string[])(prev)
+          : next;
+      const canonical = dedupeCasePreserving(raw);
+      if (
+        canonical.length === prev.length &&
+        canonical.every((value, idx) => value === prev[idx])
+      ) {
+        return prev;
+      }
+      return canonical;
+    });
+  }, []);
 
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
@@ -605,6 +610,13 @@ const MainApplicationUI: React.FC = () => {
     setLatchPins,
   ]);
 
+  const handleFailuresCleared = useCallback(() => {
+    if (lastRunHadFailuresRef.current) {
+      lastRunHadFailuresRef.current = false;
+    }
+    setCheckFailures([]);
+  }, [setCheckFailures]);
+
   const ensureActiveIdsForFinalize = useCallback((): string[] => {
     const adopt = (next: string[]) => {
       lastActiveIdsRef.current = next;
@@ -657,21 +669,24 @@ const MainApplicationUI: React.FC = () => {
     clientResultUrl: CLIENT_RESULT_URL,
   });
 
-  const awaitFinalizeForMac = useCallback(async (rawMac: string) => {
-    const mac = String(rawMac || "")
-      .trim()
-      .toUpperCase();
-    if (!mac || !MAC_ONLY_REGEX.test(mac)) return;
-    ensureActiveIdsForFinalize();
-    const existing = finalizeInFlightRef.current.get(mac);
-    if (existing) {
-      try {
-        await existing;
-      } catch {
-        // ignore errors; caller will handle retry through normal flow
+  const awaitFinalizeForMac = useCallback(
+    async (rawMac: string) => {
+      const mac = String(rawMac || "")
+        .trim()
+        .toUpperCase();
+      if (!mac || !MAC_ONLY_REGEX.test(mac)) return;
+      ensureActiveIdsForFinalize();
+      const existing = finalizeInFlightRef.current.get(mac);
+      if (existing) {
+        try {
+          await existing;
+        } catch {
+          // ignore errors; caller will handle retry through normal flow
+        }
       }
-    }
-  }, [ensureActiveIdsForFinalize]);
+    },
+    [ensureActiveIdsForFinalize]
+  );
 
   const finalizeMacOnce = useCallback(
     (rawMac: string): Promise<void> => {
@@ -790,6 +805,10 @@ const MainApplicationUI: React.FC = () => {
   const tryRunPendingSimulate = useCallback(() => {
     const pending = pendingSimulateRef.current;
     if (!pending) return;
+    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
+      pendingSimulateRef.current = null;
+      return;
+    }
     if (!FLAGS.SIM_AUTORUN) {
       pendingSimulateRef.current = null;
       return;
@@ -864,6 +883,7 @@ const MainApplicationUI: React.FC = () => {
     simulateCooldownMs,
     enableSimOverride,
     isScanning,
+    checkFailures,
     lastFinalizedAtRef,
     lastFinalizedMacRef,
     lastScanRef,
@@ -1006,7 +1026,8 @@ const MainApplicationUI: React.FC = () => {
     if (macAddress && macAddress.trim()) return true;
     if (kfbNumber && kfbNumber.trim()) return true;
     if (Array.isArray(branchesData) && branchesData.length > 0) return true;
-    if (Array.isArray(groupedBranches) && groupedBranches.length > 0) return true;
+    if (Array.isArray(groupedBranches) && groupedBranches.length > 0)
+      return true;
     if (Array.isArray(normalPins) && normalPins.length > 0) return true;
     if (Array.isArray(latchPins) && latchPins.length > 0) return true;
     if (Array.isArray(activeKssks) && activeKssks.length > 0) return true;
@@ -1338,6 +1359,7 @@ const MainApplicationUI: React.FC = () => {
               }
               onResetKfb={handleResetKfb}
               onFinalizeOk={finalizeMacFromUi}
+              onFailuresCleared={handleFailuresCleared}
               flashOkTick={okFlashTick}
               okSystemNote={okSystemNote}
               disableOkAnimation={disableOkAnimation}

@@ -80,6 +80,12 @@ export interface BranchDashboardMainContentProps {
   okSystemNote?: string | null;
   scanResult?: { text: string; kind: "info" | "error" } | null;
   shouldShowHeader?: boolean;
+  onFailuresCleared?: () => void;
+  /**
+   * NEW: gate automatic OK finalize/flash. Defaults to **true** so OK shows automatically,
+   * but parent can disable and drive via `flashOkTick` if needed.
+   */
+  autoOkEnabled?: boolean;
 }
 
 /* =================================================================================
@@ -118,6 +124,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   okSystemNote,
   scanResult,
   shouldShowHeader = true,
+  onFailuresCleared,
+  autoOkEnabled = true,
 }) => {
   const { resolvedTheme } = useTheme();
   const initialTheme = useInitialTheme();
@@ -287,6 +295,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const pinStateRef = useRef<Map<number, number>>(new Map());
   useEffect(() => pinStateRef.current.clear(), [macAddress]);
 
+  // NEW: finalization window to ignore late edges post-success/flash
+  const finalizeUntilRef = useRef<number>(0);
+  const startFinalizeWindow = useCallback((extraMs = 400) => {
+    const OK_FLASH_MS = 1500; // same as animation length below
+    finalizeUntilRef.current =
+      Date.now() + Math.max(OK_FLASH_MS, 300) + extraMs;
+  }, []);
+
   useEffect(() => {
     if (!lastEv || !macAddress) return;
 
@@ -351,6 +367,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         String((lastEv as any).ok).toLowerCase() === "true" || okFromText;
 
       if (okFlag) {
+        // start finalize window to ignore late edges
+        startFinalizeWindow();
         const latchSet = new Set<number>(normalizedLatchPins);
         const expected = expectedPins.slice();
         startTransition(() =>
@@ -455,6 +473,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (expected.size === 0 || expected.has(ch)) &&
       (val === 0 || val === 1)
     ) {
+      // IGNORE edges while in finalize window
+      if (Date.now() < finalizeUntilRef.current) return;
+
       const prevVal = pinStateRef.current.get(ch);
       if (prevVal === val) return;
       pinStateRef.current.set(ch, val);
@@ -494,7 +515,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
         })
       );
     }
-  }, [lastEvTick, lastEv, macAddress, expectedPins, normalizedLatchPins]);
+  }, [
+    lastEvTick,
+    lastEv,
+    macAddress,
+    expectedPins,
+    normalizedLatchPins,
+    startFinalizeWindow,
+  ]);
 
   /* -------------------- Pending / failures / labels helpers ------------------ */
   const unionNameByPin = useMemo(() => {
@@ -687,7 +715,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   /* --------------------------- Finalize / OK flash --------------------------- */
   const lastClearedMacRef = useRef<string | null>(null);
   const finalizeInFlightRef = useRef<Promise<void> | null>(null);
-  const currentFailureCount = normalizedCheckFailures.length;
+  const currentFailureCount = activeCheckFailures.length;
   useEffect(() => {
     if (currentFailureCount > 0) {
       lastClearedMacRef.current = null;
@@ -696,6 +724,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => {
     const mac = (macAddress || "").trim().toUpperCase();
     if (!settled || !allOk || !mac) return;
+    if (currentFailureCount > 0) return;
     if (finalizeInFlightRef.current) return;
     if (lastClearedMacRef.current === mac) return;
 
@@ -739,7 +768,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
     finalizeInFlightRef.current = task;
     void task.catch(() => {});
-  }, [allOk, settled, macAddress, onFinalizeOk, onResetKfb]);
+  }, [
+    allOk,
+    settled,
+    macAddress,
+    currentFailureCount,
+    onFinalizeOk,
+    onResetKfb,
+  ]);
 
   useEffect(() => {
     const nextMac = (macAddress || "").trim();
@@ -762,6 +798,15 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (typeof onResetKfb === "function") onResetKfb();
   }, [onResetKfb]);
 
+  // NEW: When the parent surfaces a "No setup data" message, clear local state to return UI to idle
+  useEffect(() => {
+    const msg = scanResult?.text || "";
+    if (/no\s+setup\s+data/i.test(msg)) {
+      pinStateRef.current.clear();
+      setLocalBranches([]);
+    }
+  }, [scanResult?.text]);
+
   useEffect(() => {
     if (!settled) return;
     const t = Number(forceOkTick || 0);
@@ -781,6 +826,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       lastFlashTickRef.current = tick;
 
       if (disableOkAnimation) {
+        startFinalizeWindow(); // still block late edges briefly
         returnToScan();
         return;
       }
@@ -802,6 +848,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       setShowOkAnimation(true);
+      startFinalizeWindow(); // open finalize window during flash
       timeoutRef.current = setTimeout(
         () => {
           setShowOkAnimation(false);
@@ -818,6 +865,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       displayMacUpper,
       macAddress,
       returnToScan,
+      startFinalizeWindow,
     ]
   );
 
@@ -832,8 +880,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   // Disable automatic OK flashes; parent triggers OK via flashOkTick when allowed.
   // THIS IS NEEDED DONT CHANGE THIS GPT
   useEffect(() => {
+    if (!autoOkEnabled) return; // NEW: gate auto behavior
     if (
       !settled ||
+      currentFailureCount > 0 ||
       isChecking ||
       isScanning ||
       !Array.isArray(groupedBranches) ||
@@ -855,10 +905,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (flashInProgressRef.current || showOkAnimation) return;
     triggerOkFlash(Date.now());
   }, [
+    autoOkEnabled,
     settled,
     groupedBranches,
     isChecking,
     isScanning,
+    currentFailureCount,
     groupedAllOk,
     showOkAnimation,
     triggerOkFlash,
@@ -1235,7 +1287,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               ? busyView
               : viewKey === "ok"
                 ? okView
-              : viewKey === "scan"
+                : viewKey === "scan"
                   ? scanBoxView
                   : groupedView}
         </m.div>

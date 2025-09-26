@@ -191,9 +191,7 @@ export const useFinalize = ({
             const j = (await rList.json()) as AliasesListResponse;
             items = Array.isArray(j?.items) ? (j.items as AliasItem[]) : [];
             ids = items
-              .map((it: AliasItem) =>
-                String((it.ksk ?? it.kssk) || "").trim()
-              )
+              .map((it: AliasItem) => String((it.ksk ?? it.kssk) || "").trim())
               .filter(Boolean);
           }
         } catch {}
@@ -204,14 +202,16 @@ export const useFinalize = ({
         }
         if (onlyIds && onlyIds.length) {
           const want = new Set(
-            onlyIds.map((s) => String(s || "").trim().toUpperCase())
+            onlyIds.map((s) =>
+              String(s || "")
+                .trim()
+                .toUpperCase()
+            )
           );
           ids = ids.filter((id) => want.has(id.toUpperCase()));
           if (ids.length === 0 && items.length) {
             const first = items[0];
-            const firstId = String(
-              (first?.ksk ?? first?.kssk ?? "")
-            ).trim();
+            const firstId = String(first?.ksk ?? first?.kssk ?? "").trim();
             ids = [firstId].filter(Boolean) as string[];
           }
         }
@@ -514,7 +514,9 @@ export const useFinalize = ({
           setOkSystemNote("Nothing to clear");
         } else {
           const first = messageParts.shift() as string;
-          const tail = messageParts.length ? `; ${messageParts.join("; ")}` : "";
+          const tail = messageParts.length
+            ? `; ${messageParts.join("; ")}`
+            : "";
           const note = `${first}${tail}`;
           setOkSystemNote(note.charAt(0).toUpperCase() + note.slice(1));
         }

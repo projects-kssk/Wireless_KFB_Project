@@ -4,10 +4,8 @@ import { cookies } from "next/headers";
 import { THEME_STORAGE_KEY } from "@/lib/themeStorage";
 import ClientProviders from "./client-providers";
 
-const resolveInitialTheme = (): "light" | "dark" => {
-  const stored = cookies().get(THEME_STORAGE_KEY)?.value?.toLowerCase();
-  return stored === "dark" ? "dark" : "light";
-};
+const normalizeTheme = (value?: string | null): "light" | "dark" =>
+  value && value.toLowerCase() === "dark" ? "dark" : "light";
 
 export const viewport = {
   width: "device-width",
@@ -25,12 +23,14 @@ export const metadata = {
   icons: { icon: "/favicon.ico" },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const initialTheme = resolveInitialTheme();
+  const cookieStore = await cookies();
+  const storedTheme = cookieStore.get(THEME_STORAGE_KEY)?.value ?? null;
+  const initialTheme = normalizeTheme(storedTheme);
   const htmlThemeClass = initialTheme === "dark" ? "dark" : "light";
 
   return (

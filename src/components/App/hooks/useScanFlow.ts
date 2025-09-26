@@ -82,6 +82,7 @@ export type UseScanFlowParams = {
   okShownOnceRef: RefLike<boolean>;
   lastScanTokenRef: RefLike<string>;
   noSetupCooldownRef: RefLike<{ mac: string; until: number } | null>;
+  checkTokenRef: RefLike<string | null>;
 
   activeKssks: string[];
   latchPinsValue: number[] | undefined;
@@ -142,11 +143,13 @@ export const useScanFlow = ({
   noSetupCooldownRef,
   activeKssks,
   latchPinsValue,
+  checkTokenRef,
 }: UseScanFlowParams): UseScanFlowResult => {
   const updateHeaderVisibility = setShouldShowHeader ?? (() => {});
   const runCheck = useCallback(
-    async (mac: string, attempt: number = 0, pins?: number[]) => {
+    async (mac: string, attempt: number = 0, pins?: number[], token?: string) => {
       if (!mac) return;
+      if (token && checkTokenRef.current && checkTokenRef.current !== token) return;
 
       setIsChecking(true);
       schedule(
@@ -171,6 +174,7 @@ export const useScanFlow = ({
         okFlashAllowedRef.current = false;
         setDisableOkAnimation(true);
         clearScanOverlayTimeout();
+        checkTokenRef.current = null;
         try {
           blockedMacRef.current.clear();
         } catch {}
@@ -589,7 +593,7 @@ export const useScanFlow = ({
           if (res.status === 429 && attempt < CFG.RETRIES) {
             schedule(
               "checkRetry",
-              () => void runCheck(mac, attempt + 1, pins),
+              () => void runCheck(mac, attempt + 1, pins, token),
               350
             );
           } else if (
@@ -600,7 +604,7 @@ export const useScanFlow = ({
             if (attempt < CFG.RETRIES) {
               schedule(
                 "checkRetry",
-                () => void runCheck(mac, attempt + 1, pins),
+                () => void runCheck(mac, attempt + 1, pins, token),
                 250
               );
             } else {
@@ -616,7 +620,7 @@ export const useScanFlow = ({
         if ((err as any)?.name === "AbortError" && attempt < CFG.RETRIES) {
           schedule(
             "checkRetry",
-            () => void runCheck(mac, attempt + 1, pins),
+            () => void runCheck(mac, attempt + 1, pins, token),
             300
           );
         } else {
@@ -637,6 +641,7 @@ export const useScanFlow = ({
           now + 2500
         );
         if (pendingSimulateRef.current) tryRunPendingSimulateRef.current();
+        if (token && checkTokenRef.current === token) checkTokenRef.current = null;
       }
     },
     [

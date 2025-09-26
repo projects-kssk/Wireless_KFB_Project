@@ -149,10 +149,7 @@ const MainApplicationUI: React.FC = () => {
     if (!themeMounted) return;
     const nextTheme =
       resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined);
-    if (!nextTheme) {
-      setTheme("light");
-      return;
-    }
+    if (!nextTheme) return;
     const normalized = nextTheme === "dark" ? "dark" : "light";
     const root = document.documentElement;
     if (normalized === "dark") {
@@ -162,7 +159,7 @@ const MainApplicationUI: React.FC = () => {
       root.classList.remove("dark");
       root.classList.add("light");
     }
-  }, [resolvedTheme, theme, setTheme]);
+  }, [resolvedTheme, theme, themeMounted]);
   const mainSurfaceBg = "transparent";
   const mainSurfaceBorder = isDarkMode
     ? "rgba(255,255,255,0.06)"

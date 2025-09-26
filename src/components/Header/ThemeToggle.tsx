@@ -31,7 +31,7 @@ export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {})
   }, []);
 
   const active = resolveTheme(theme, resolvedTheme);
-  const displayActive = mounted ? active : "light";
+  const displayActive = mounted ? active : active;
 
   useEffect(() => {
     if (!mounted) return;

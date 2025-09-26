@@ -920,6 +920,7 @@ export const useScanFlow = ({
       const runToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
       checkTokenRef.current = { mac: blockKey, token: runToken };
       await runCheck(pendingMac, 0, pins, runToken);
+      pendingSimulateRef.current = null;
       setIsScanning(false);
       setShowScanUi(false);
     },

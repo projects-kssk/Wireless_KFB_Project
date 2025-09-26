@@ -788,6 +788,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   /* --------------------------- Finalize / OK flash --------------------------- */
   const lastClearedMacRef = useRef<string | null>(null);
+  const finalizeInFlightRef = useRef<Promise<void> | null>(null);
   const currentFailureCount = Array.isArray(checkFailures)
     ? checkFailures.length
     : 0;
@@ -797,46 +798,58 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
   }, [currentFailureCount]);
   useEffect(() => {
-    const mac = (macAddress || "").toUpperCase();
+    const mac = (macAddress || "").trim().toUpperCase();
     if (!settled || !allOk || !mac) return;
+    if (finalizeInFlightRef.current) return;
     if (lastClearedMacRef.current === mac) return;
-    lastClearedMacRef.current = mac;
 
-    (async () => {
-      if (typeof onFinalizeOk === "function") {
-        try {
+    const task = (async () => {
+      try {
+        if (typeof onFinalizeOk === "function") {
           await onFinalizeOk(mac);
-        } catch {}
-        return;
+        } else {
+          try {
+            await fetch("/api/aliases/clear", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mac }),
+            }).catch(() => {});
+          } catch {}
+          try {
+            const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
+            const body = sid
+              ? { mac, stationId: sid, force: 1 }
+              : ({ mac, force: 1 } as any);
+            await fetch("/api/ksk-lock", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            }).catch(() => {});
+          } catch {}
+          try {
+            if (typeof onResetKfb === "function") onResetKfb();
+          } catch {}
+        }
+        lastClearedMacRef.current = mac;
+      } catch (err) {
+        if (lastClearedMacRef.current === mac) {
+          lastClearedMacRef.current = null;
+        }
+        throw err;
+      } finally {
+        finalizeInFlightRef.current = null;
       }
-      try {
-        await fetch("/api/aliases/clear", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mac }),
-        }).catch(() => {});
-      } catch {}
-      try {
-        const sid = (process.env.NEXT_PUBLIC_STATION_ID || "").trim();
-        const body = sid
-          ? { mac, stationId: sid, force: 1 }
-          : ({ mac, force: 1 } as any);
-        await fetch("/api/ksk-lock", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }).catch(() => {});
-      } catch {}
-      try {
-        if (typeof onResetKfb === "function") onResetKfb();
-      } catch {}
     })();
+
+    finalizeInFlightRef.current = task;
+    void task.catch(() => {});
   }, [allOk, settled, macAddress, onFinalizeOk, onResetKfb]);
 
   useEffect(() => {
     const nextMac = (macAddress || "").trim();
     if (!nextMac) {
       lastClearedMacRef.current = null;
+      finalizeInFlightRef.current = null;
     }
   }, [macAddress]);
 
@@ -1177,7 +1190,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
                   !
                 </span>
-                <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-white tracking-tight">
+                <span
+                  className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-white tracking-tight"
+                  style={{ color: isDarkMode ? "#ffffff" : undefined }}
+                >
                   {name}
                 </span>
                 <span
@@ -1333,7 +1349,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                       <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
                         !
                       </span>
-                      <span className="text-2xl md:text-3xl font-black leading-none text-slate-800 tracking-tight">
+                      <span
+                        className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-white tracking-tight"
+                        style={{ color: isDarkMode ? "#ffffff" : undefined }}
+                      >
                         {f.name}
                       </span>
                       <span

@@ -723,7 +723,8 @@ const MainApplicationUI: React.FC = () => {
     const blockKey = targetKey;
     const cooldown = noSetupCooldownRef.current;
     if (cooldown && cooldown.mac === blockKey) {
-      return;
+      if (cooldown.requireManual !== false) return;
+      if (Date.now() < cooldown.until) return;
     }
 
     const lastFinalizedKey = macKey(lastFinalizedMacRef.current || "");

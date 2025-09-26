@@ -1343,8 +1343,6 @@ const MainApplicationUI: React.FC = () => {
               disableOkAnimation={disableOkAnimation}
               scanResult={scanResult}
               shouldShowHeader={shouldShowHeader}
-              disableFlatView
-              cardsOnly
             />
           ) : (
             <div className="p-6 text-slate-600">Settings view is disabled.</div>

@@ -11,6 +11,7 @@ import { BranchDisplayData, KfbInfo } from "@/types/types";
 import { maskSimMac } from "@/lib/macDisplay";
 import { m, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
@@ -295,7 +296,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   shouldShowHeader = true,
 }) => {
   const { resolvedTheme } = useTheme();
-  const isDarkMode = resolvedTheme === "dark";
+  const initialTheme = useInitialTheme();
+  const [hasMounted, setHasMounted] = useState(false);
+  useEffect(() => setHasMounted(true), []);
+  const isDarkMode =
+    (hasMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark";
   const surfaceBg = isDarkMode ? "#2f2f2f" : "#ffffff";
   const surfaceBorder = isDarkMode ? "rgba(255,255,255,0.08)" : "#e2e8f0";
   const primaryText = isDarkMode ? "#f5f5f5" : "#0f172a";
@@ -312,9 +317,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const masked = maskSimMac(kfbNumber);
     return masked || kfbNumber;
   }, [kfbNumber]);
-
-  const [hasMounted, setHasMounted] = useState(false);
-  useEffect(() => setHasMounted(true), []);
 
   // Log view enter/exit for MAC binding
   const prevMacRef = useRef<string>("");

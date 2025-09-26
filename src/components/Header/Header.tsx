@@ -12,6 +12,7 @@ import { appConfig } from "@/components/config/appConfig";
 import { useSerialEvents, type SerialState } from "./useSerialEvents";
 import ThemeToggle from "./ThemeToggle";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 
 /* ────────────────────────────────────────────────────────────────────────────
    Config
@@ -1014,9 +1015,11 @@ function StatusBanner({
   error: string | null;
 }) {
   const { resolvedTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDark = themeMounted && resolvedTheme === "dark";
+  const isDark =
+    (themeMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark";
   const base =
     "mx-6 mt-4 rounded-2xl backdrop-blur-xl ring-1 shadow-[0_14px_44px_rgba(2,6,23,.08)] px-5 py-4 text-center transition-colors";
   const sharedStyle: React.CSSProperties = isDark
@@ -1122,9 +1125,11 @@ function DiscoverEspModal({
     mass: 0.9,
   };
   const { resolvedTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDark = themeMounted && resolvedTheme === "dark";
+  const isDark =
+    (themeMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark";
   const showSuccess = status === "success" && testStatus === "ok";
   const stripText =
     status === "searching"
@@ -1338,8 +1343,15 @@ export const Header: React.FC<HeaderProps> = ({
   displayMac: _displayMac,
 }) => {
   const { resolvedTheme } = useTheme();
+  const initialTheme = useInitialTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const effectiveTheme =
+    (themeMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark"
+      ? "dark"
+      : "light";
   const headerBackground =
-    resolvedTheme === "dark"
+    effectiveTheme === "dark"
       ? "#222222"
       : "linear-gradient(180deg,#ffffff 0%,#f2f4f7 100%)";
 

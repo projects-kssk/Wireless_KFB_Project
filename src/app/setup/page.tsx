@@ -12,6 +12,7 @@ import {
 } from "react";
 import { m, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 import TableSwap from "@/components/Tables/TableSwap";
 import type { RefObject } from "react";
 import { useSerialEvents } from "@/components/Header/useSerialEvents";
@@ -555,9 +556,11 @@ export default function SetupPage() {
   const tableRef = useRef<HTMLDivElement>(null);
 
   const { resolvedTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDark = themeMounted && resolvedTheme === "dark";
+  const isDark =
+    (themeMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark";
 
   const [kfb, setKfb] = useState<string | null>(null);
   const [ksskSlots, setKsskSlots] = useState<Array<string | null>>(() =>

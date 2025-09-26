@@ -34,6 +34,7 @@ import {
 import { computeActivePins as computeActivePinsUtil } from "./utils/merge";
 import { AnimatePresence, m } from "framer-motion";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 
 /* =================================================================================
  * Constants & helpers
@@ -131,13 +132,14 @@ const HudBanner: React.FC<{ banner: BannerState | null }> = ({ banner }) => {
 const MainApplicationUI: React.FC = () => {
   const { CFG, FLAGS, ASSUME_REDIS_READY } = useConfig();
   const { resolvedTheme, theme, setTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
   const effectiveTheme = (() => {
-    if (!themeMounted) return "light";
+    if (!themeMounted) return initialTheme;
     if (resolvedTheme) return resolvedTheme;
     if (theme === "dark" || theme === "light") return theme;
-    return "light";
+    return initialTheme;
   })();
   const isDarkMode = effectiveTheme === "dark";
   const gradientLight =
@@ -148,7 +150,7 @@ const MainApplicationUI: React.FC = () => {
     if (typeof window === "undefined") return;
     if (!themeMounted) return;
     const nextTheme =
-      resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined);
+      resolvedTheme || (theme === "dark" || theme === "light" ? theme : undefined) || initialTheme;
     if (!nextTheme) return;
     const normalized = nextTheme === "dark" ? "dark" : "light";
     const root = document.documentElement;
@@ -159,7 +161,7 @@ const MainApplicationUI: React.FC = () => {
       root.classList.remove("dark");
       root.classList.add("light");
     }
-  }, [resolvedTheme, theme, themeMounted]);
+  }, [resolvedTheme, theme, themeMounted, initialTheme]);
   const mainSurfaceBg = "transparent";
   const mainSurfaceBorder = isDarkMode
     ? "rgba(255,255,255,0.06)"

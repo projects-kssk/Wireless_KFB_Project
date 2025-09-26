@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 import { THEME_COOKIE_MAX_AGE, THEME_STORAGE_KEY } from "@/lib/themeStorage";
 
 const THEMES = [
@@ -13,9 +14,10 @@ type ThemeKey = (typeof THEMES)[number]["key"];
 
 const resolveTheme = (
   theme: string | undefined,
-  resolvedTheme: string | undefined
+  resolvedTheme: string | undefined,
+  fallback: ThemeKey
 ): ThemeKey => {
-  const value = (resolvedTheme || theme || "light").toLowerCase();
+  const value = (resolvedTheme || theme || fallback || "light").toLowerCase();
   return value === "dark" ? "dark" : "light";
 };
 
@@ -42,13 +44,14 @@ const persistThemeCookie = (next: ThemeKey) => {
 
 export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {}) {
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const active = resolveTheme(theme, resolvedTheme);
+  const active = resolveTheme(theme, resolvedTheme, initialTheme);
 
   useEffect(() => {
     if (!mounted) return;

@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { m, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
+import { useInitialTheme } from "@/app/theme-provider";
 
 /* ---------- types ---------- */
 
@@ -228,9 +229,11 @@ export default function TableSwap({
   flashSeq,
 }: TableSwapProps) {
   const { resolvedTheme } = useTheme();
+  const initialTheme = useInitialTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDark = themeMounted && resolvedTheme === "dark";
+  const isDark =
+    (themeMounted && resolvedTheme ? resolvedTheme : initialTheme) === "dark";
 
   /* title from boardName/queues/map */
   const incomingTitle = useMemo(() => {

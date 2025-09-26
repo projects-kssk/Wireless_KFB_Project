@@ -747,8 +747,6 @@ export const useScanFlow = ({
         } catch {}
       }
 
-      updateHeaderVisibility(false);
-
       let aliases: Record<string, string> = {};
       let pins: number[] = [];
       let activeIds: string[] = [];
@@ -869,8 +867,6 @@ export const useScanFlow = ({
           } catch {}
         }
       } catch {}
-
-      setBranchesData([]);
 
       setKfbNumber(pendingMac);
       setMacAddress(pendingMac);

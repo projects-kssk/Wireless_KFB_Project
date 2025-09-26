@@ -203,7 +203,9 @@ export const useFinalize = ({
           ];
         }
         if (onlyIds && onlyIds.length) {
-          const want = new Set(onlyIds.map((s) => s.toUpperCase()));
+          const want = new Set(
+            onlyIds.map((s) => String(s || "").trim().toUpperCase())
+          );
           ids = ids.filter((id) => want.has(id.toUpperCase()));
           if (ids.length === 0 && items.length) {
             const first = items[0];
@@ -212,6 +214,19 @@ export const useFinalize = ({
             ).trim();
             ids = [firstId].filter(Boolean) as string[];
           }
+        }
+
+        if (ids.length) {
+          const seen = new Set<string>();
+          ids = ids
+            .map((id) => String(id || "").trim())
+            .filter((id) => {
+              if (!id) return false;
+              const key = id.toUpperCase();
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
         }
 
         let sentAny = false;

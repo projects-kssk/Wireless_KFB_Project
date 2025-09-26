@@ -344,14 +344,35 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     useState<BranchDisplayData[]>(branchesData);
   useEffect(() => setLocalBranches(branchesData), [branchesData]);
 
+  const activeKssksLength = Array.isArray(activeKssks)
+    ? activeKssks.length
+    : 0;
   const expectingGroups = !!(
     macAddress &&
     macAddress.trim() &&
-    (activeKssks?.length ?? 0) > 0
+    activeKssksLength > 0
   );
   const groupsMissing =
     !Array.isArray(groupedBranches) || groupedBranches.length === 0;
+  const groupsLength = Array.isArray(groupedBranches)
+    ? groupedBranches.length
+    : 0;
   const waitingForGroups = expectingGroups && groupsMissing;
+  const liveMode = !!(macAddress && macAddress.trim());
+
+  const [groupedFirstSeenAt, setGroupedFirstSeenAt] = useState<number>(0);
+  useEffect(() => {
+    if (groupsLength > 0) setGroupedFirstSeenAt(Date.now());
+  }, [groupsLength]);
+
+  const [graceDone, setGraceDone] = useState(true);
+  useEffect(() => {
+    if (!groupedFirstSeenAt) return;
+    setGraceDone(false);
+    const GRACE_MS = 500;
+    const id = setTimeout(() => setGraceDone(true), GRACE_MS);
+    return () => clearTimeout(id);
+  }, [groupedFirstSeenAt]);
 
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -698,9 +719,51 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [nameHints, unionNameByPin]
   );
 
+  const awaitingGroupedResults = useMemo(() => {
+    const groupsReady =
+      Array.isArray(groupedBranches) &&
+      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
+    if (groupsReady) return false;
+
+    const scanningActive = isScanning || isChecking;
+    const expectGroups = scanningActive || activeKssksLength > 0;
+    if (!expectGroups) return false;
+
+    const hasInterimContent =
+      localBranches.length > 0 ||
+      (Array.isArray(checkFailures) && checkFailures.length > 0);
+
+    return hasInterimContent;
+  }, [
+    groupedBranches,
+    isScanning,
+    isChecking,
+    activeKssksLength,
+    localBranches.length,
+    checkFailures,
+  ]);
+
+  const suppressMissing = useMemo(
+    () =>
+      liveMode &&
+      (waitingForGroups ||
+        awaitingGroupedResults ||
+        !graceDone ||
+        isScanning ||
+        isChecking),
+    [
+      liveMode,
+      waitingForGroups,
+      awaitingGroupedResults,
+      graceDone,
+      isScanning,
+      isChecking,
+    ]
+  );
+
   const pending = useMemo(
     () => {
-      if (waitingForGroups) {
+      if (waitingForGroups || suppressMissing) {
         return { items: [] as BranchDisplayData[], source: "none" as const };
       }
       const nok = localBranches
@@ -734,7 +797,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       return { items: [] as BranchDisplayData[], source: "none" as const };
     },
-    [waitingForGroups, localBranches, checkFailures, labelForPin]
+    [waitingForGroups, suppressMissing, localBranches, checkFailures, labelForPin]
   );
 
   const unionAwaitingGroups = useMemo(() => {
@@ -769,32 +832,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     groupsMissing,
     localBranches,
     failurePins,
-  ]);
-
-  const awaitingGroupedResults = useMemo(() => {
-    const groupsReady =
-      Array.isArray(groupedBranches) &&
-      groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
-    if (groupsReady) return false;
-
-    const scanningActive = isScanning || isChecking;
-    const expectingGroups = scanningActive || activeKssks.length > 0;
-    if (!expectingGroups) return false;
-
-    const hasInterimContent =
-      localBranches.length > 0 ||
-      pending.items.length > 0 ||
-      failurePins.length > 0;
-
-    return hasInterimContent;
-  }, [
-    groupedBranches,
-    isScanning,
-    isChecking,
-    activeKssks.length,
-    localBranches.length,
-    pending.items.length,
-    failurePins.length,
   ]);
 
   const isLatchPin = useCallback(
@@ -1388,7 +1425,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
                 >
                   KSK: {(grp as any).ksk}
                 </div>
-                {failedItems.length > 0 ? (
+                {suppressMissing ? (
+                  <span className="inline-flex items-center rounded-full bg-slate-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
+                    Loading…
+                  </span>
+                ) : failedItems.length > 0 ? (
                   <span className="inline-flex items-center rounded-full bg-red-600 text-white px-2.5 py-1 text-xs md:text-sm font-extrabold shadow-sm">
                     {failedItems.length} missing
                   </span>
@@ -1401,7 +1442,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
             </div>
           </header>
           <div className="p-4 grid gap-4">
-            {failedItems.length > 0 && (
+            {!suppressMissing && failedItems.length > 0 && (
               <div>
                 <div
                   className="text-[12px] font-bold uppercase mb-2"
@@ -1507,18 +1548,24 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   })();
 
-  const flatView = (
-    <div className="w-full p-6">
-      {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
-      {pending.source !== "failures" && pending.items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-          {pending.items.map((branch) => (
-            <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
-          ))}
+  const flatView = suppressMissing
+    ? null
+    : (
+        <div className="w-full p-6">
+          {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
+          {pending.source !== "failures" && pending.items.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+              {pending.items.map((branch) => (
+                <BranchCard
+                  key={branch.id}
+                  branch={branch}
+                  isDark={isDarkMode}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </div>
-  );
+      );
 
   /* --------------------------- View selection + key -------------------------- */
   const viewKey = useMemo(() => {

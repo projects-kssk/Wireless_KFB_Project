@@ -294,11 +294,6 @@ export const useFinalize = ({
             await sleep(250);
           }
 
-          if (!workingDataXml) {
-            // Skip this id when we can't obtain a workingData snapshot.
-            continue;
-          }
-
           const payload: Record<string, unknown> = {
             requestID: `${Date.now()}_${id}`,
             intksk: id,

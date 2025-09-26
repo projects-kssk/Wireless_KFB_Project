@@ -119,6 +119,8 @@ export const useFinalize = ({
   void _setMacAddress;
   void _setKfbNumber;
 
+  const checkpointEnabled = process.env.NEXT_PUBLIC_SEND_CHECKPOINT !== "0";
+
   const clearAliasesVerify = useCallback(async (mac: string) => {
     const MAC = mac.toUpperCase();
     await fetch("/api/aliases/clear", {
@@ -176,6 +178,7 @@ export const useFinalize = ({
 
   const sendCheckpointForMac = useCallback(
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
+      if (!checkpointEnabled) return false;
       const MAC = mac.toUpperCase();
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
@@ -285,6 +288,9 @@ export const useFinalize = ({
           };
 
           try {
+            const payloadIntksk = String(payload.intksk || "").trim();
+            if (!payloadIntksk) continue;
+            payload.intksk = payloadIntksk;
             const resp = await fetch(checkpointUrl, {
               method: "POST",
               headers: {
@@ -311,6 +317,7 @@ export const useFinalize = ({
       }
     },
     [
+      checkpointEnabled,
       checkpointUrl,
       offlineMode,
       clientResultUrl,
@@ -455,6 +462,7 @@ export const useFinalize = ({
               }
             } catch {}
           }
+          ids = ids.map((s) => String(s || "").trim()).filter(Boolean);
         }
 
         let hasSetup = ids.length > 0;

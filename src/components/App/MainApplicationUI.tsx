@@ -317,7 +317,7 @@ const MainApplicationUI: React.FC = () => {
   );
   const tryRunPendingSimulateRef = useRef<() => void>(() => {});
   const simulateRetryTimerRef = useRef<number | null>(null);
-  const currentCheckTokenRef = useRef<string | null>(null);
+  const currentCheckTokenRef = useRef<{ mac: string; token: string } | null>(null);
 
   const infoTimerRef = useRef<number | null>(null);
   const [infoHideAt, setInfoHideAt] = useState<number | null>(null);

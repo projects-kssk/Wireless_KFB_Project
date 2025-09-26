@@ -82,7 +82,7 @@ export type UseScanFlowParams = {
   okShownOnceRef: RefLike<boolean>;
   lastScanTokenRef: RefLike<string>;
   noSetupCooldownRef: RefLike<{ mac: string; until: number } | null>;
-  checkTokenRef: RefLike<string | null>;
+  checkTokenRef: RefLike<{ mac: string; token: string } | null>;
 
   activeKssks: string[];
   latchPinsValue: number[] | undefined;
@@ -149,7 +149,13 @@ export const useScanFlow = ({
   const runCheck = useCallback(
     async (mac: string, attempt: number = 0, pins?: number[], token?: string) => {
       if (!mac) return;
-      if (token && checkTokenRef.current && checkTokenRef.current !== token) return;
+      const current = checkTokenRef.current;
+      const macKeyCurrent = macKey(mac);
+      if (token) {
+        if (!current || current.token !== token) return;
+      } else if (current && current.mac === macKeyCurrent) {
+        return;
+      }
 
       setIsChecking(true);
       schedule(
@@ -641,7 +647,7 @@ export const useScanFlow = ({
           now + 2500
         );
         if (pendingSimulateRef.current) tryRunPendingSimulateRef.current();
-        if (token && checkTokenRef.current === token) checkTokenRef.current = null;
+        if (token && checkTokenRef.current && checkTokenRef.current.token === token) checkTokenRef.current = null;
       }
     },
     [
@@ -695,6 +701,7 @@ export const useScanFlow = ({
       const pendingMac = isMac ? (macCanon as string) : "KFB";
 
       const blockKey = macKey(pendingMac);
+      if (checkTokenRef.current && checkTokenRef.current.mac === blockKey) return;
       if (blockedMacRef.current.has(blockKey)) return;
       // Always require a fresh scan if setup data is missing; no cooldown loop.
       noSetupCooldownRef.current = null;
@@ -839,6 +846,7 @@ export const useScanFlow = ({
         setMacAddress("");
         idleCooldownUntilRef.current = 0;
         noSetupCooldownRef.current = null;
+        checkTokenRef.current = null;
         try {
           blockedMacRef.current.clear();
           blockedMacRef.current.add(blockKey);
@@ -858,7 +866,7 @@ export const useScanFlow = ({
       updateHeaderVisibility(true);
 
       const runToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      checkTokenRef.current = runToken;
+      checkTokenRef.current = { mac: blockKey, token: runToken };
       await runCheck(pendingMac, 0, pins, runToken);
       setIsScanning(false);
       setShowScanUi(false);

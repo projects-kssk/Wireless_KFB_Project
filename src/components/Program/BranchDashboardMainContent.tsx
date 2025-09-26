@@ -12,6 +12,7 @@ import { maskSimMac } from "@/lib/macDisplay";
 import { m, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useInitialTheme } from "@/app/theme-provider";
+import GroupedSection from "./components/GroupedSection";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
@@ -31,166 +32,6 @@ const CheckCircleIcon = (props: React.SVGProps<SVGSVGElement>) => (
       clipRule="evenodd"
     />
   </svg>
-);
-
-const XCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <circle cx="12" cy="12" r="10"></circle>
-    <line x1="15" y1="9" x2="9" y2="15"></line>
-    <line x1="9" y1="9" x2="15" y2="15"></line>
-  </svg>
-);
-
-const HelpCircleIcon = ({ className = "w-5 h-5" }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <circle cx="12" cy="12" r="10"></circle>
-    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
-    <line x1="12" y1="17" x2="12.01" y2="17"></line>
-  </svg>
-);
-
-/* =================================================================================
- * Helpers
- * ================================================================================= */
-const getStatusInfo = (status: BranchDisplayData["testStatus"]) => {
-  switch (status) {
-    case "ok":
-      return {
-        Icon: CheckCircleIcon,
-        text: "OK",
-        badgeClass:
-          "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300 dark:bg-emerald-500/15",
-      };
-    case "nok":
-      return {
-        Icon: XCircleIcon,
-        text: "NOK",
-        badgeClass:
-          "text-red-600 bg-red-500/10 dark:text-red-300 dark:bg-red-500/20",
-      };
-    default:
-      return {
-        Icon: HelpCircleIcon,
-        text: "Not Tested",
-        badgeClass:
-          "text-slate-600 bg-slate-500/10 dark:text-slate-200 dark:bg-slate-500/15",
-      };
-  }
-};
-
-/* =================================================================================
- * Branch Card
- * ================================================================================= */
-const BranchCardBase = ({
-  branch,
-  isDark,
-}: {
-  branch: BranchDisplayData;
-  isDark: boolean;
-}) => {
-  const statusInfo = useMemo(
-    () => getStatusInfo(branch.testStatus),
-    [branch.testStatus]
-  );
-  const isNok = branch.testStatus === "nok";
-  const isBig =
-    branch.testStatus === "nok" || branch.testStatus === "not_tested";
-
-  const cardStyle: React.CSSProperties = {
-    background: isDark ? "#2f2f2f" : "rgba(255,255,255,0.98)",
-    border: `1px solid ${isDark ? "#3a3a3a" : "#e2e8f0"}`,
-    boxShadow: isDark
-      ? "0 26px 55px -28px rgba(0,0,0,0.65)"
-      : "0 22px 45px -26px rgba(15,23,42,0.16)",
-    color: isDark ? "#f1f5f9" : undefined,
-  };
-
-  return (
-    <div
-      className="group relative w-full rounded-2xl backdrop-blur-sm transition-all duration-300 flex flex-col overflow-hidden"
-      style={cardStyle}
-    >
-      {isNok && <div className="h-[8px] w-full bg-red-600 flex-shrink-0" />}
-      <div className="p-3 flex-grow flex flex-col justify-between">
-        <div className="flex justify-between items-center mb-3">
-          <div
-            className={`inline-flex items-center gap-2 rounded-full font-bold ${statusInfo.badgeClass} ${isBig ? "px-2.5 py-1.5 text-xl" : "px-2 py-1 text-sm"}`}
-            style={{
-              boxShadow: isDark
-                ? "0 12px 22px -18px rgba(16,185,129,0.85)"
-                : undefined,
-            }}
-          >
-            <statusInfo.Icon className={isBig ? "w-7 h-7" : "w-5 h-5"} />
-            <span>{statusInfo.text}</span>
-          </div>
-          {branch.pinNumber != null && (
-            <div className="flex items-center gap-2 text-right">
-              <span className="text-sm md:text-base font-semibold text-slate-400 dark:text-slate-300">
-                PIN
-              </span>
-              <span
-                className="font-mono rounded-full w-14 h-14 flex items-center justify-center text-3xl font-bold border"
-                style={{
-                  background: isDark ? "#3d3d3d" : "#f1f5f9",
-                  color: isDark ? "#f8fafc" : "#111827",
-                  borderColor: isDark ? "#4b4b4b" : "#cbd5e1",
-                  boxShadow: isDark
-                    ? "0 12px 30px -20px rgba(0,0,0,0.6)"
-                    : "inset 0 1px 0 rgba(255,255,255,0.8)",
-                }}
-              >
-                {branch.pinNumber}
-              </span>
-            </div>
-          )}
-        </div>
-        <h3 className="text-5xl md:text-6xl font-bold text-slate-800 dark:text-slate-100 mt-3 text-center whitespace-normal break-words leading-tight">
-          {branch.branchName}
-        </h3>
-      </div>
-    </div>
-  );
-};
-
-const BranchCard = React.memo(
-  BranchCardBase,
-  (
-    prev: { branch: BranchDisplayData; isDark: boolean },
-    next: { branch: BranchDisplayData; isDark: boolean }
-  ) => {
-    const a = prev.branch;
-    const b = next.branch;
-    return (
-      a.id === b.id &&
-      a.testStatus === b.testStatus &&
-      a.branchName === b.branchName &&
-      a.pinNumber === b.pinNumber &&
-      prev.isDark === next.isDark
-    );
-  }
 );
 
 /* =================================================================================
@@ -238,7 +79,6 @@ export interface BranchDashboardMainContentProps {
   okSystemNote?: string | null;
   scanResult?: { text: string; kind: "info" | "error" } | null;
   shouldShowHeader?: boolean;
-  disableFlatView?: boolean; // hide flat fallback (grid + missing pills)
 }
 
 /* =================================================================================
@@ -277,7 +117,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   okSystemNote,
   scanResult,
   shouldShowHeader = true,
-  disableFlatView = false,
 }) => {
   const { resolvedTheme } = useTheme();
   const initialTheme = useInitialTheme();
@@ -1189,80 +1028,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     </div>
   );
 
-  const emptyFailureList = (pins: number[], keyPrefix = "flat") => (
-    <div className="flex flex-col items-center justify-center h-full min-h-[520px] px-4">
-      <div
-        className="w-full max-w-5xl rounded-3xl shadow-2xl p-6"
-        style={{
-          background: isDarkMode ? "#2b1f1f" : "rgba(255,255,255,0.96)",
-          border: `1px solid ${isDarkMode ? "#7f1d1d" : "#fecaca"}`,
-          boxShadow: isDarkMode
-            ? "0 36px 70px -35px rgba(0,0,0,0.65)"
-            : "0 26px 50px -30px rgba(239,68,68,0.25)",
-        }}
-      >
-        <div
-          className="text-[12px] font-bold uppercase mb-3"
-          style={{ color: mutedText }}
-        >
-          Missing items
-        </div>
-        <div className="flex flex-wrap gap-3">
-          {pins.map((pin) => {
-            const name = labelForPin(pin);
-            const latch = isLatchPin(pin);
-            return (
-              <div
-                key={`${keyPrefix}-miss-${pin}`}
-                className="group inline-flex items-center flex-wrap gap-3 rounded-xl px-4 py-3 shadow-sm"
-                title={`PIN ${pin}${latch ? " (Contactless)" : ""}`}
-                style={{
-                  background: isDarkMode ? "#2a1f1f" : "#ffffff",
-                  border: `1px solid ${isDarkMode ? "#5f1f1f" : "#fecaca"}`,
-                  color: isDarkMode ? "#fee2e2" : undefined,
-                }}
-              >
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs font-extrabold shadow-sm">
-                  !
-                </span>
-                <span
-                  className="text-2xl md:text-3xl font-black leading-none text-slate-800 dark:text-white tracking-tight"
-                  style={{ color: isDarkMode ? "#ffffff" : undefined }}
-                >
-                  {name}
-                </span>
-                <span
-                  className="inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-semibold"
-                  style={{
-                    background: isDarkMode ? "#3c3c3c" : "#f1f5f9",
-                    color: isDarkMode ? "#e2e8f0" : "#1f2937",
-                    border: `1px solid ${isDarkMode ? "#4a4a4a" : "#cbd5e1"}`,
-                  }}
-                >
-                  PIN {pin}
-                </span>
-                {latch && (
-                  <span
-                    className="inline-flex items-center rounded-full px-2 py-[3px] text-[11px]"
-                    style={{
-                      background: isDarkMode
-                        ? "rgba(253,230,138,0.16)"
-                        : "#fef3c7",
-                      color: isDarkMode ? "#fcd34d" : "#92400e",
-                      border: `1px solid ${isDarkMode ? "rgba(253,230,138,0.35)" : "#fcd34d"}`,
-                    }}
-                  >
-                    Contactless
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-
   const scanBoxView = (
     <div className="flex flex-col items-center justify-center h-full min-h-[520px]">
       <ScanPrompt />
@@ -1467,37 +1232,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     );
   })();
 
-  const flatContent = (
-    <div className="w-full p-6">
-      {failurePins.length > 0 && emptyFailureList(failurePins, "flat")}
-      {pending.source !== "failures" && pending.items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-          {pending.items.map((branch) => (
-            <BranchCard key={branch.id} branch={branch} isDark={isDarkMode} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const flatView = disableFlatView
-    ? hasFlatContent
-      ? flatContent
-      : null
-    : flatContent;
-
   /* --------------------------- View selection + key -------------------------- */
   const viewKey = useMemo(() => {
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
 
-    const hasPendingIssues = hasFlatContent;
-    const forceLiveView = disableFlatView && hasPendingIssues;
-
-    if (!forceLiveView && busy) return "busy";
-    if (!forceLiveView && awaitingGroupedResults) return "busy";
-    if (!forceLiveView && (awaitingUnionsStrict || unionAwaitingGroups))
-      return "busy";
+    if (busy) return "busy";
+    if (awaitingGroupedResults) return "busy";
+    if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
 
     const preferGroupsSoon =
       isScanning ||
@@ -1505,26 +1247,19 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (Array.isArray(activeKssks) && activeKssks.length > 0);
 
     if (hasMounted && localBranches.length === 0) {
-      if (failurePins.length > 0) {
-        return disableFlatView ? "flat" : "flat-empty";
-      }
-      if (disableFlatView && hasPendingIssues) return "flat";
-      return disableFlatView && preferGroupsSoon ? "busy" : "scan";
+      if (failurePins.length > 0 || hasFlatContent) return "grouped";
+      return preferGroupsSoon ? "busy" : "scan";
     }
 
-    const haveGroups =
-      Array.isArray(groupedBranches) && groupedBranches.length > 0;
-    if (haveGroups) return "grouped";
-
-    if (disableFlatView) {
-      return hasPendingIssues || localBranches.length > 0
-        ? "flat"
-        : preferGroupsSoon
-          ? "busy"
-          : "scan";
+    if (Array.isArray(groupedBranches) && groupedBranches.length > 0) {
+      return "grouped";
     }
 
-    return "flat";
+    return hasFlatContent || localBranches.length > 0
+      ? "grouped"
+      : preferGroupsSoon
+        ? "busy"
+        : "scan";
   }, [
     showOkAnimation,
     scanningError,
@@ -1536,7 +1271,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     localBranches.length,
     groupedBranches,
     failurePins.length,
-    disableFlatView,
     isScanning,
     isChecking,
     activeKssks,
@@ -1641,9 +1375,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               ? busyView
               : viewKey === "ok"
                 ? okView
-                : viewKey === "scan"
+              : viewKey === "scan"
                   ? scanBoxView
-                  : groupedView || flatView}
+                  : groupedView}
         </m.div>
       </AnimatePresence>
 

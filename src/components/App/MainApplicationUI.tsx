@@ -1344,6 +1344,7 @@ const MainApplicationUI: React.FC = () => {
               scanResult={scanResult}
               shouldShowHeader={shouldShowHeader}
               disableFlatView
+              cardsOnly
             />
           ) : (
             <div className="p-6 text-slate-600">Settings view is disabled.</div>

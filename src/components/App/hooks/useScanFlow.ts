@@ -8,7 +8,7 @@ import { ScanResultState } from "./useHud";
 /** React 19-friendly ref shape */
 export type RefLike<T> = { current: T };
 
-export type ScanTrigger = "sse" | "poll";
+export type ScanTrigger = "sse" | "poll" | "simulate";
 
 export const NO_SETUP_MSG = "No setup data available for this MAC";
 
@@ -702,9 +702,20 @@ export const useScanFlow = ({
 
       const blockKey = macKey(pendingMac);
       if (checkTokenRef.current && checkTokenRef.current.mac === blockKey) return;
-      if (blockedMacRef.current.has(blockKey)) return;
-      // Always require a fresh scan if setup data is missing; no cooldown loop.
-      noSetupCooldownRef.current = null;
+
+      const cooldown = noSetupCooldownRef.current;
+      if (cooldown && cooldown.mac === blockKey) {
+        if (trigger !== "sse") return;
+        if (Date.now() < cooldown.until) return;
+        noSetupCooldownRef.current = null;
+      }
+
+      if (blockedMacRef.current.has(blockKey) && trigger !== "sse") return;
+      if (trigger === "sse") {
+        try {
+          blockedMacRef.current.delete(blockKey);
+        } catch {}
+      }
 
       updateHeaderVisibility(false);
 
@@ -845,7 +856,19 @@ export const useScanFlow = ({
         setKfbNumber("");
         setMacAddress("");
         idleCooldownUntilRef.current = 0;
-        noSetupCooldownRef.current = null;
+        const cooldownMs = Math.max(
+          3000,
+          Number.isFinite(CFG.RETRY_COOLDOWN_MS)
+            ? CFG.RETRY_COOLDOWN_MS
+            : 3000
+        );
+        const cooldownEntry = {
+          mac: blockKey,
+          until: Date.now() + cooldownMs,
+        };
+        noSetupCooldownRef.current = cooldownEntry;
+        simulateCooldownUntilRef.current = cooldownEntry.until;
+        pendingSimulateRef.current = null;
         checkTokenRef.current = null;
         try {
           blockedMacRef.current.clear();

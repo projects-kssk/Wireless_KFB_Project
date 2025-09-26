@@ -4,6 +4,9 @@ import { getRedis } from '@/lib/redis';
 import { broadcast } from '@/lib/bus';
 import { LOG } from '@/lib/logger';
 const log = LOG.tag('aliases');
+const LOG_ALIAS_INFO = (process.env.LOG_ALIASES_INFO ?? '0') === '1';
+const logInfo: (msg: string, extra?: unknown) => void =
+  LOG_ALIAS_INFO ? log.info : () => {};
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,7 +68,7 @@ export async function GET(req: Request) {
     if (!MAC_RE.test(macRaw)) return NextResponse.json({ error: 'invalid-mac' }, { status: 400 });
     const all = url.searchParams.get('all') === '1';
     const r: any = getRedis();
-    log.info('GET aliases', { mac: macRaw, all });
+    logInfo('GET aliases', { mac: macRaw, all });
     const ready = await connectIfNeeded(r, 600);
     if (!ready) {
       log.warn('GET aliases redis_unavailable; returning empty', { mac: macRaw, all });
@@ -118,7 +121,7 @@ export async function GET(req: Request) {
         })
       );
       const items = rows.filter(Boolean);
-      log.info('GET aliases items', { mac: macRaw, count: items.length });
+      logInfo('GET aliases items', { mac: macRaw, count: items.length });
       return NextResponse.json({ items });
     }
     const raw = await r.get(keyFor(macRaw)).catch(() => null as any);
@@ -128,7 +131,7 @@ export async function GET(req: Request) {
     const aliases = data?.names || data?.aliases || {};
     const normalPins = Array.isArray(data?.normalPins) ? data.normalPins : [];
     const latchPins = Array.isArray(data?.latchPins) ? data.latchPins : [];
-    log.info('GET aliases single', { mac: macRaw, normal: normalPins.length, latch: latchPins.length });
+    logInfo('GET aliases single', { mac: macRaw, normal: normalPins.length, latch: latchPins.length });
     return NextResponse.json({ aliases, normalPins, latchPins, ts: data?.ts || null });
   } catch (e: any) {
     log.error('GET aliases error', { error: String(e?.message ?? e) });
@@ -221,8 +224,9 @@ export async function POST(req: Request) {
         try {
           await withRetry(() => r.set(`kfb:aliases:xml:${mac}:${ksk}`, xml));
           try {
-            const bytes = typeof xml === 'string' ? Buffer.byteLength(xml, 'utf8') : String(xml).length;
-            log.info('POST aliases xml saved', { mac, ksk, bytes });
+            const bytes =
+              typeof xml === 'string' ? Buffer.byteLength(xml, 'utf8') : String(xml).length;
+            logInfo('POST aliases xml saved', { mac, ksk, bytes });
           } catch {}
         } catch (e: any) {
           log.error('POST aliases xml set failed', { mac, ksk, error: String(e?.message ?? e) });
@@ -240,9 +244,9 @@ export async function POST(req: Request) {
     try {
       const xmlIncluded = typeof xml === 'string' && xml.length > 0;
       const xmlBytes = xmlIncluded ? Buffer.byteLength(xml as string, 'utf8') : 0;
-      log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length, xml: xmlIncluded, xmlBytes });
+      logInfo('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length, xml: xmlIncluded, xmlBytes });
     } catch {
-      log.info('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
+      logInfo('POST aliases saved', { mac, ksk: ksk || null, normalPins: normalPins.length, latchPins: latchPins.length });
     }
     // Rebuild union for MAC key from all KSK entries so UI has complete map
     try {
@@ -271,7 +275,7 @@ export async function POST(req: Request) {
       const allMembers = Array.from(setAll);
       const toAdd = allMembers.filter(id => !(curMembers||[]).includes(id));
       if (toAdd.length) {
-        try { await r.sadd(indexKey(mac), ...toAdd); log.info('POST aliases rehydrate index', { mac, added: toAdd.length }); } catch {}
+        try { await r.sadd(indexKey(mac), ...toAdd); logInfo('POST aliases rehydrate index', { mac, added: toAdd.length }); } catch {}
       }
 
       const members: string[] = allMembers;
@@ -301,7 +305,7 @@ export async function POST(req: Request) {
       const unionVal = JSON.stringify({ names: merged, normalPins: allN, latchPins: allL, ...(Object.keys(unionHints).length?{hints: unionHints}:{}) , ts: Date.now() });
       try { await withRetry(() => r.set(keyFor(mac), unionVal)); }
       catch (e: any) { log.error('POST aliases union set failed', { mac, error: String(e?.message ?? e) }); }
-      log.info('POST aliases union rebuilt', { mac, kskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
+      logInfo('POST aliases union rebuilt', { mac, kskCount: members.length, unionNormal: allN.length, unionLatch: allL.length });
       try { broadcast({ type: 'aliases/union', mac, names: merged, normalPins: allN, latchPins: allL }); } catch {}
     } catch {}
     return NextResponse.json({ ok: true });

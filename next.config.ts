@@ -15,6 +15,12 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
 
+  logging: {
+    incomingRequests: {
+      ignore: [/\/api\/aliases/i, /\/api\/ksk-lock/i],
+    },
+  },
+
   // Skip blocking builds on lint/TS errors while stabilizing
   eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },

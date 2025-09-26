@@ -21,6 +21,30 @@ const dir = isElectronPackaged
   ? path.join((process as any).resourcesPath, 'app.asar')
   : process.cwd()
 
+// Suppress noisy Next.js request/fetch logs for aliases & ksk-lock endpoints.
+const SUPPRESS_LOG_PATTERNS = [
+  /\b\/?api\/aliases\b/i,
+  /\[aliases\]/i,
+  /\b\/?api\/ksk-lock\b/i,
+  /\[ksk-lock\]/i,
+];
+
+const wrapConsole = <K extends "log" | "info">(key: K) => {
+  const original = console[key].bind(console);
+  console[key] = (...args: unknown[]) => {
+    try {
+      const merged = args
+        .filter((value): value is string => typeof value === "string")
+        .join(" ");
+      if (merged && SUPPRESS_LOG_PATTERNS.some((re) => re.test(merged))) return;
+    } catch {}
+    original(...args);
+  };
+};
+
+wrapConsole("log");
+wrapConsole("info");
+
 // TypeScript NodeNext typing workaround: cast to callable
 const app = (next as unknown as (opts: any) => any)({ dev, dir })
 const handle = app.getRequestHandler()

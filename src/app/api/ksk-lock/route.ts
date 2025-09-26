@@ -4,6 +4,9 @@ import { getRedis } from "@/lib/redis";
 
 import { LOG } from "@/lib/logger";
 const log = LOG.tag("ksk-lock");
+const LOG_SILENT = ((process.env.KSK_LOCK_SILENT ?? process.env.KSSK_LOCK_SILENT) ?? '1') === '1';
+const logInfo: (msg: string, extra?: unknown) => void =
+  LOG_SILENT ? () => {} : log.info;
 /** Next runtime */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -272,7 +275,7 @@ export async function POST(req: NextRequest) {
     const ttlSec = body?.ttlSec ?? DEFAULT_TTL_SEC;
     const ksk = (body?.ksk ?? body?.kssk);
     const macForLog = macCanonical ?? (macRaw ? String(macRaw).toUpperCase() : '');
-    log.info('POST begin', { rid: id, action: 'create', ksk, mac: macForLog, stationId, ttlSec: Number(ttlSec) });
+    logInfo('POST begin', { rid: id, action: 'create', ksk, mac: macForLog, stationId, ttlSec: Number(ttlSec) });
 
     if (!ksk || !stationId)
       return NextResponse.json({ error: "ksk & stationId required" }, { status: 400 });
@@ -291,7 +294,7 @@ export async function POST(req: NextRequest) {
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
     if (REQUIRE_REDIS && !haveRedis) {
-      log.info('POST redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now()-t0 });
+      logInfo('POST redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now()-t0 });
       return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
     }
 
@@ -302,7 +305,7 @@ export async function POST(req: NextRequest) {
         if (!existing) {
           // Redis reachable but failed to set for an unknown reason → degrade to mem once
           const memOk = memSetNX(key, val, ttlMs);
-          log.info('POST mem-fallback', { rid: id, ksk, stationId: val.stationId, memSet: memOk, durationMs: Date.now()-t0 });
+          logInfo('POST mem-fallback', { rid: id, ksk, stationId: val.stationId, memSet: memOk, durationMs: Date.now()-t0 });
           return withMode(
             memOk
               ? NextResponse.json({ ok: true, mode: "mem-fallback" })
@@ -310,16 +313,16 @@ export async function POST(req: NextRequest) {
             "mem-fallback"
           );
         }
-        log.info('POST locked', { rid: id, ksk, stationId: existing.stationId, durationMs: Date.now()-t0 });
+        logInfo('POST locked', { rid: id, ksk, stationId: existing.stationId, durationMs: Date.now()-t0 });
         return withMode(NextResponse.json({ error: "locked", existing }, { status: 409 }), "redis");
       }
       await rSAdd(S(val.stationId), val.kssk);
-      log.info('POST ok', { rid: id, ksk, stationId: val.stationId, mode: 'redis', durationMs: Date.now()-t0 });
+      logInfo('POST ok', { rid: id, ksk, stationId: val.stationId, mode: 'redis', durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ ok: true }), "redis", id);
     }
 
     const memOk = memSetNX(key, val, ttlMs);
-    log.info('POST ok', { rid: id, ksk, stationId: val.stationId, mode: 'mem', memSet: memOk, durationMs: Date.now()-t0 });
+    logInfo('POST ok', { rid: id, ksk, stationId: val.stationId, mode: 'mem', memSet: memOk, durationMs: Date.now() - t0 });
     return withMode(
       memOk
         ? NextResponse.json({ ok: true, mode: "mem" })
@@ -327,7 +330,7 @@ export async function POST(req: NextRequest) {
       "mem"
     );
   } catch (e: unknown) {
-    log.info('POST error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
+    logInfo('POST error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now() - t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
@@ -345,7 +348,7 @@ export async function GET(req: NextRequest) {
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
     if (REQUIRE_REDIS && !haveRedis) {
-      log.info('GET redis_unavailable (require_redis)', { rid: id, durationMs: Date.now()-t0 });
+      logInfo('GET redis_unavailable (require_redis)', { rid: id, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
     }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
@@ -356,12 +359,12 @@ export async function GET(req: NextRequest) {
         const existing = await rGet(key);
         const ttl = existing ? await rPTTL(key) : null;
         const expiresAt = existing && ttl && ttl > 0 ? nowMs() + ttl : undefined;
-        log.info('GET one', { rid: id, ksk: kssk, mode, locked: !!existing, durationMs: Date.now()-t0 });
+        logInfo('GET one', { rid: id, ksk: kssk, mode, locked: !!existing, durationMs: Date.now() - t0 });
         return withMode(NextResponse.json({ locked: !!existing, existing: existing ? { ...existing, ksk: existing.kssk, expiresAt } : null }), mode);
       }
       const v = memGet(key);
       const exp = (memLocks.get(key) as any)?.exp as number | undefined;
-      log.info('GET one', { rid: id, ksk: kssk, mode, locked: !!v, durationMs: Date.now()-t0 });
+      logInfo('GET one', { rid: id, ksk: kssk, mode, locked: !!v, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ locked: !!v, existing: v ? { ...v, ksk: v.kssk, expiresAt: exp } : null }), mode);
     }
 
@@ -488,9 +491,9 @@ export async function GET(req: NextRequest) {
     }
     const info = { rid: id, stationId: stationId ?? null, mode, count: rows.length, durationMs: Date.now()-t0 };
     if (rows.length > 0) {
-      log.info('GET list', info);
+      logInfo('GET list', info);
     } else {
-      const quiet = ((process.env.KSK_LOCK_SILENCE_EMPTY ?? process.env.KSSK_LOCK_SILENCE_EMPTY) ?? '1') === '1';
+      const quiet = LOG_SILENT || ((process.env.KSK_LOCK_SILENCE_EMPTY ?? process.env.KSSK_LOCK_SILENCE_EMPTY) ?? '1') === '1';
       if (!quiet) log.debug('GET list (empty)', info);
     }
 
@@ -510,14 +513,16 @@ export async function GET(req: NextRequest) {
         stationId: r.stationId,
         ttlSec: typeof r.expiresAt === 'number' ? Math.max(0, Math.round((r.expiresAt - now)/1000)) : null,
       }));
-      log.info('GET list detail', { rid: id, stationId: stationId ?? null, items: brief });
-      if (rows.length > brief.length) log.info('GET list detail (truncated)', { rid: id, more: rows.length - brief.length });
+      if (!LOG_SILENT) {
+        logInfo('GET list detail', { rid: id, stationId: stationId ?? null, items: brief });
+        if (rows.length > brief.length) logInfo('GET list detail (truncated)', { rid: id, more: rows.length - brief.length });
+      }
     }
     // include 'ksk' alias for compatibility
     const rowsOut = rows.map(r => ({ ...r, ksk: r.kssk }));
     return withMode(NextResponse.json({ locks: rowsOut }), mode);
   } catch (e: unknown) {
-    log.info('GET error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
+    logInfo('GET error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now() - t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
@@ -539,7 +544,7 @@ export async function PATCH(req: NextRequest) {
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
     if (REQUIRE_REDIS && !haveRedis) {
-      log.info('PATCH redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now()-t0 });
+      logInfo('PATCH redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
     }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
@@ -548,24 +553,25 @@ export async function PATCH(req: NextRequest) {
       const existing = await rGet(key);
       if (!existing) {
         // Idempotent: if lock missing (already cleared), treat as OK no-op
-        log.info('PATCH not_locked (idempotent_ok)', { rid: id, ksk, durationMs: Date.now()-t0 });
+        if (!LOG_SILENT)
+          logInfo('PATCH not_locked (idempotent_ok)', { rid: id, ksk, durationMs: Date.now() - t0 });
         return withMode(NextResponse.json({ ok: true, note: 'not_locked' }), mode);
       }
       if (existing.stationId !== String(stationId)) {
-        log.info('PATCH not_owner', { rid: id, ksk, stationId, owner: existing.stationId, durationMs: Date.now()-t0 });
+        logInfo('PATCH not_owner', { rid: id, ksk, stationId, owner: existing.stationId, durationMs: Date.now() - t0 });
         return withMode(NextResponse.json({ error: "not_owner", existing }, { status: 403 }), mode);
       }
       await rExpirePX(key, ttlMs);
       await rSAdd(S(existing.stationId), existing.kssk);
-      log.info('PATCH ok', { rid: id, ksk, stationId: existing.stationId, mode, durationMs: Date.now()-t0 });
+      logInfo('PATCH ok', { rid: id, ksk, stationId: existing.stationId, mode, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ ok: true }), mode);
     }
 
     const ok = memTouchIfOwner(key, String(stationId), ttlMs);
-    log.info('PATCH mem', { rid: id, ksk, stationId, ok, durationMs: Date.now()-t0 });
+    logInfo('PATCH mem', { rid: id, ksk, stationId, ok, durationMs: Date.now() - t0 });
     return withMode(ok ? NextResponse.json({ ok: true }) : NextResponse.json({ ok: true, note: 'not_locked_or_not_owner' }), mode);
   } catch (e: unknown) {
-    log.info('PATCH error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
+    logInfo('PATCH error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now() - t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
@@ -603,7 +609,7 @@ export async function DELETE(req: NextRequest) {
     const r = getRedis();
     const haveRedis = r && (await connectIfNeeded(r));
     if (REQUIRE_REDIS && !haveRedis) {
-      log.info('DELETE redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now()-t0 });
+      logInfo('DELETE redis_unavailable (require_redis)', { rid: id, ksk, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ error: 'redis_unavailable' }, { status: 503 }), 'redis');
     }
     const mode: "redis" | "mem" = haveRedis ? "redis" : "mem";
@@ -642,18 +648,18 @@ export async function DELETE(req: NextRequest) {
             } catch {}
           }
         } catch {}
-        log.info('DELETE bulk mac (scan)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count, mode, durationMs: Date.now()-t0 });
+        logInfo('DELETE bulk mac (scan)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count, mode, durationMs: Date.now() - t0 });
         return withMode(NextResponse.json({ ok: true, count }), mode);
       }
       const existing = await rGet(key);
-      if (!existing) { log.info('DELETE none', { rid: id, ksk, mode, durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
+      if (!existing) { logInfo('DELETE none', { rid: id, ksk, mode, durationMs: Date.now() - t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
       if (!force && (!stationId || existing.stationId !== String(stationId))) {
-        log.info('DELETE not_owner', { rid: id, ksk, stationId, owner: existing.stationId, mode, durationMs: Date.now()-t0 });
+        logInfo('DELETE not_owner', { rid: id, ksk, stationId, owner: existing.stationId, mode, durationMs: Date.now() - t0 });
         return withMode(NextResponse.json({ error: "not_owner", existing }, { status: 403 }), mode);
       }
       await rDel(key);
       await rSRem(S(existing.stationId), existing.kssk);
-      log.info('DELETE ok', { rid: id, ksk, stationId: existing.stationId, mode, durationMs: Date.now()-t0 });
+      logInfo('DELETE ok', { rid: id, ksk, stationId: existing.stationId, mode, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ ok: true, deleted: existing }), mode);
     }
 
@@ -665,21 +671,21 @@ export async function DELETE(req: NextRequest) {
       if (stationId) rows = filterRows(memList(stationId));
       else rows = filterRows(memList());
       for (const row of rows) { memLocks.delete(K(row.kssk)); memStations.get(S(row.stationId))?.delete(row.kssk); }
-      log.info('DELETE bulk mac (mem)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count: rows.length, durationMs: Date.now()-t0 });
+      logInfo('DELETE bulk mac (mem)', { rid: id, mac: macFilter ?? macFilterRaw, stationId: stationId ?? null, count: rows.length, durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ ok: true, count: rows.length }), 'mem');
     }
     const cur = memGet(key);
-    if (!cur) { log.info('DELETE none', { rid: id, ksk, mode: 'mem', durationMs: Date.now()-t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
+    if (!cur) { logInfo('DELETE none', { rid: id, ksk, mode: 'mem', durationMs: Date.now() - t0 }); return withMode(NextResponse.json({ ok: true }), mode); }
     if (!force && (!stationId || cur.stationId !== String(stationId))) {
-      log.info('DELETE not_owner', { rid: id, ksk, stationId, owner: cur.stationId, mode: 'mem', durationMs: Date.now()-t0 });
+      logInfo('DELETE not_owner', { rid: id, ksk, stationId, owner: cur.stationId, mode: 'mem', durationMs: Date.now() - t0 });
       return withMode(NextResponse.json({ error: "not_owner_or_missing", existing: cur }, { status: 403 }), mode);
     }
     memLocks.delete(key);
     memStations.get(S(cur.stationId))?.delete(cur.kssk);
-    log.info('DELETE ok', { rid: id, ksk, stationId: cur.stationId, mode: 'mem', durationMs: Date.now()-t0 });
+    logInfo('DELETE ok', { rid: id, ksk, stationId: cur.stationId, mode: 'mem', durationMs: Date.now() - t0 });
     return withMode(NextResponse.json({ ok: true, deleted: cur }), mode);
   } catch (e: unknown) {
-    log.info('DELETE error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now()-t0 });
+    logInfo('DELETE error', { rid: id, error: (e as any)?.message ?? String(e), durationMs: Date.now() - t0 });
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }

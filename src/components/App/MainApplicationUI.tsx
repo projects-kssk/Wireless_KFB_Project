@@ -670,17 +670,19 @@ const MainApplicationUI: React.FC = () => {
     const noSetupCooldown = noSetupCooldownRef.current;
     if (
       noSetupCooldown &&
-      noSetupCooldown.mac === targetKey &&
-      Date.now() < noSetupCooldown.until
+      noSetupCooldown.mac === targetKey
     ) {
       pendingSimulateRef.current = null;
+      if (Date.now() < noSetupCooldown.until) {
+        scheduleRetry(noSetupCooldown.until - Date.now() + 10);
+      }
       return;
     }
     pendingSimulateRef.current = null;
     simulateCooldownUntilRef.current =
       now + Math.max(3000, CFG.RETRY_COOLDOWN_MS);
     if (setupGateActive) enableSimOverride();
-    void handleScanRef.current?.(pending.target, "sse");
+    void handleScanRef.current?.(pending.target, "simulate");
   }, [
     CFG.FINALIZED_RESCAN_BLOCK_MS,
     CFG.RETRY_COOLDOWN_MS,
@@ -714,7 +716,7 @@ const MainApplicationUI: React.FC = () => {
 
     const blockKey = targetKey;
     const cooldown = noSetupCooldownRef.current;
-    if (cooldown && cooldown.mac === blockKey && Date.now() < cooldown.until) {
+    if (cooldown && cooldown.mac === blockKey) {
       return;
     }
 

@@ -926,11 +926,26 @@ export const useScanFlow = ({
       if (!trimmed) return;
 
       const key = macKey(trimmed);
+      const cooldown = noSetupCooldownRef.current;
+      if (cooldown && cooldown.mac === key) {
+        if (trig !== "sse") return;
+        if (Date.now() < cooldown.until) return;
+        noSetupCooldownRef.current = null;
+        try {
+          blockedMacRef.current.delete(key);
+        } catch {}
+      }
+
       const token = `${key}:${Math.floor(now / 1500)}`;
       if (lastScanTokenRef.current === token) return;
       lastScanTokenRef.current = token;
 
-      if (blockedMacRef.current.has(key)) return;
+      if (blockedMacRef.current.has(key) && trig !== "sse") return;
+      if (trig === "sse") {
+        try {
+          blockedMacRef.current.delete(key);
+        } catch {}
+      }
       try {
         const lastMac = (lastFinalizedMacRef.current || "").toUpperCase();
         const lastAt = Number(lastFinalizedAtRef.current || 0);

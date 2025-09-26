@@ -75,7 +75,11 @@ export default function SimulatePanel() {
   const apply = async (body: any) => {
     setBusy(true);
     try {
-      const r = await fetch('/api/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const r = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, autoCheck: false }),
+      });
       const j = await r.json();
       if (j?.config) setConfig(j.config as SimConfig);
     } catch {} finally { setBusy(false); }

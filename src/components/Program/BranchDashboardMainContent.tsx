@@ -635,6 +635,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const groupedAllOk = useMemo(() => {
     if (disableOkAnimation) return false;
+    if (isChecking || isScanning) return false;
     if (
       !settled ||
       !Array.isArray(groupedBranches) ||
@@ -659,13 +660,29 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
           return s === "not_tested" && isLatch;
         })
     );
-  }, [settled, groupedBranches, localBranches, isLatchPin, disableOkAnimation]);
+  }, [
+    settled,
+    isChecking,
+    isScanning,
+    groupedBranches,
+    localBranches,
+    isLatchPin,
+    disableOkAnimation,
+  ]);
 
   const allOk = useMemo(() => {
     if (disableOkAnimation) return false;
+    if (isChecking || isScanning) return false;
     if (normalizedCheckFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
-  }, [disableOkAnimation, normalizedCheckFailures.length, flatAllOk, groupedAllOk]);
+  }, [
+    disableOkAnimation,
+    isChecking,
+    isScanning,
+    normalizedCheckFailures.length,
+    flatAllOk,
+    groupedAllOk,
+  ]);
 
   /* --------------------------- Finalize / OK flash --------------------------- */
   const lastClearedMacRef = useRef<string | null>(null);
@@ -817,6 +834,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   useEffect(() => {
     if (
       !settled ||
+      isChecking ||
+      isScanning ||
       !Array.isArray(groupedBranches) ||
       groupedBranches.length === 0
     )
@@ -838,6 +857,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [
     settled,
     groupedBranches,
+    isChecking,
+    isScanning,
     groupedAllOk,
     showOkAnimation,
     triggerOkFlash,

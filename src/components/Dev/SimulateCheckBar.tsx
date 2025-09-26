@@ -294,7 +294,15 @@ export default function SimulateCheckBar() {
   // helpers to control simulation failing pins
   const apply = async (body: any) => {
     try {
-      const r = await fetch('/api/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mac: (mac||'').toUpperCase().trim() || undefined, ...body }) });
+      const r = await fetch('/api/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mac: (mac || '').toUpperCase().trim() || undefined,
+          ...body,
+          autoCheck: false,
+        }),
+      });
       const j = await r.json().catch(()=>null);
       const fp = j?.config?.failurePins as any[] | undefined;
       if (Array.isArray(fp)) {

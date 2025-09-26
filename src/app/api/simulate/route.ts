@@ -12,6 +12,7 @@ type PostBody = {
   failurePins?: number[] | string;
   resultDelayMs?: number;
   mac?: string;
+  autoCheck?: boolean;
   // optional actions
   scan?: { code: string; path?: string | null } | Array<{ code: string; path?: string | null }>;
   cue?: string | string[];  // e.g., 'UI:REMOVE_CABLE' (emits as line with MAC)
@@ -110,7 +111,9 @@ export async function POST(req: Request) {
       return ok({ ok: true, config: updated, toggled: { ch, val } });
     }
 
-    if (!hadInjectedScan) {
+    const shouldAutoCheck = body.autoCheck !== false;
+
+    if (!hadInjectedScan && shouldAutoCheck) {
       const macForCheck = String(
         (update.macOverride ?? next?.macOverride ?? body.mac ?? process.env.ESP_EXPECT_MAC ?? '08:3A:8D:15:27:54')
       )

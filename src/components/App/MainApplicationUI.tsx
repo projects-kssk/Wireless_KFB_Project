@@ -315,6 +315,7 @@ const MainApplicationUI: React.FC = () => {
     },
     []
   );
+
   const [checkFailures, setCheckFailures] = useState<number[] | null>(null);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -525,6 +526,9 @@ const MainApplicationUI: React.FC = () => {
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const finalizeInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   const lastActiveIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    lastActiveIdsRef.current = dedupeCasePreserving(activeKssksInternal);
+  }, [activeKssksInternal]);
   const noSetupCooldownRef = useRef<{
     mac: string;
     until: number;
@@ -583,6 +587,23 @@ const MainApplicationUI: React.FC = () => {
       }
     } catch {}
   }, [cancel, clearScanOverlayTimeout, disableSimOverride]);
+
+  const prepareForSimulateRun = useCallback(() => {
+    setBranchesData([]);
+    setGroupedBranches([]);
+    setActiveKssks([]);
+    setNameHints(undefined);
+    setNormalPins(undefined);
+    setLatchPins(undefined);
+    lastActiveIdsRef.current = [];
+  }, [
+    setBranchesData,
+    setGroupedBranches,
+    setActiveKssks,
+    setNameHints,
+    setNormalPins,
+    setLatchPins,
+  ]);
 
   const ensureActiveIdsForFinalize = useCallback((): string[] => {
     const adopt = (next: string[]) => {
@@ -834,6 +855,7 @@ const MainApplicationUI: React.FC = () => {
       }
     }
     pendingSimulateRef.current = null;
+    prepareForSimulateRun();
     simulateCooldownUntilRef.current = now + simulateCooldownMs;
     if (setupGateActive) enableSimOverride();
     void handleScanRef.current?.(pending.target, "simulate");
@@ -848,6 +870,7 @@ const MainApplicationUI: React.FC = () => {
     noSetupCooldownRef,
     FLAGS.SIM_AUTORUN,
     setupGateActive,
+    prepareForSimulateRun,
   ]);
 
   useEffect(() => {

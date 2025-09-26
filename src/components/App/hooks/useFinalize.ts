@@ -213,24 +213,26 @@ export const useFinalize = ({
               .filter(Boolean);
           }
         } catch {}
-        if ((!ids || ids.length === 0) && onlyIds && onlyIds.length) {
-          ids = [
-            ...new Set(onlyIds.map((s) => String(s).trim()).filter(Boolean)),
-          ];
-        }
-        if (onlyIds && onlyIds.length) {
-          const want = new Set(
-            onlyIds.map((s) =>
-              String(s || "")
-                .trim()
-                .toUpperCase()
+        const onlyIdsNormalized = Array.isArray(onlyIds)
+          ? Array.from(
+              new Set(
+                onlyIds
+                  .map((s) => String(s || "").trim())
+                  .filter(Boolean)
+              )
             )
+          : [];
+
+        if ((!ids || ids.length === 0) && onlyIdsNormalized.length) {
+          ids = [...onlyIdsNormalized];
+        }
+        if (onlyIdsNormalized.length) {
+          const want = new Set(
+            onlyIdsNormalized.map((s) => s.toUpperCase())
           );
           ids = ids.filter((id) => want.has(id.toUpperCase()));
-          if (ids.length === 0 && items.length) {
-            const first = items[0];
-            const firstId = String(first?.ksk ?? first?.kssk ?? "").trim();
-            ids = [firstId].filter(Boolean) as string[];
+          if (ids.length === 0 && onlyIdsNormalized.length) {
+            ids = [...onlyIdsNormalized];
           }
         }
 
@@ -290,6 +292,11 @@ export const useFinalize = ({
               }
             } catch {}
             await sleep(250);
+          }
+
+          if (!workingDataXml) {
+            // Skip this id when we can't obtain a workingData snapshot.
+            continue;
           }
 
           const payload: Record<string, unknown> = {

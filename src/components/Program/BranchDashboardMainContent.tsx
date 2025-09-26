@@ -344,12 +344,22 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     useState<BranchDisplayData[]>(branchesData);
   useEffect(() => setLocalBranches(branchesData), [branchesData]);
 
+  const expectingGroups = !!(
+    macAddress &&
+    macAddress.trim() &&
+    (activeKssks?.length ?? 0) > 0
+  );
+  const groupsMissing =
+    !Array.isArray(groupedBranches) || groupedBranches.length === 0;
+  const waitingForGroups = expectingGroups && groupsMissing;
+
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Busy debounce: enter after 250ms, exit after 350ms (only if there's no content yet).
   const hasData = useMemo(() => {
+    if (waitingForGroups) return false;
     const haveGroups =
       Array.isArray(groupedBranches) &&
       groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
@@ -357,7 +367,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const haveFailures =
       Array.isArray(checkFailures) && checkFailures.length > 0;
     return haveGroups || haveFlat || haveFailures;
-  }, [groupedBranches, localBranches, checkFailures]);
+  }, [waitingForGroups, groupedBranches, localBranches, checkFailures]);
 
   useEffect(() => {
     const wantBusy = (isScanning || isChecking) && !hasData;
@@ -445,6 +455,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   /* -------------------------- Realtime live pin edges ------------------------ */
   const pinStateRef = useRef<Map<number, number>>(new Map());
   useEffect(() => pinStateRef.current.clear(), [macAddress]);
+  useEffect(() => {
+    if (macAddress && macAddress.trim()) {
+      setLocalBranches([]);
+    }
+  }, [macAddress]);
 
   useEffect(() => {
     if (!lastEv || !macAddress) return;
@@ -685,6 +700,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const pending = useMemo(
     () => {
+      if (waitingForGroups) {
+        return { items: [] as BranchDisplayData[], source: "none" as const };
+      }
       const nok = localBranches
         .filter((b) => b.testStatus === "nok")
         .sort((a, b) => {
@@ -716,7 +734,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
       return { items: [] as BranchDisplayData[], source: "none" as const };
     },
-    [localBranches, checkFailures, labelForPin]
+    [waitingForGroups, localBranches, checkFailures, labelForPin]
   );
 
   const unionAwaitingGroups = useMemo(() => {
@@ -741,17 +759,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const awaitingUnionsStrict = useMemo(() => {
     const haveMac = !!(macAddress && macAddress.trim());
-    const expectGroups = Array.isArray(activeKssks) && activeKssks.length > 0;
-    const groupsMissing =
-      !Array.isArray(groupedBranches) || groupedBranches.length === 0;
     const noFlatContent =
       (localBranches?.length || 0) === 0 && (failurePins?.length || 0) === 0;
 
-    return haveMac && expectGroups && groupsMissing && noFlatContent;
+    return haveMac && expectingGroups && groupsMissing && noFlatContent;
   }, [
     macAddress,
-    activeKssks,
-    groupedBranches,
+    expectingGroups,
+    groupsMissing,
     localBranches,
     failurePins,
   ]);
@@ -1511,7 +1526,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (scanningError) return "error";
     if (busy) return "busy";
     if (awaitingGroupedResults) return "busy";
-    if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
+    if (awaitingUnionsStrict || unionAwaitingGroups || waitingForGroups)
+      return "busy";
     if (hasMounted && localBranches.length === 0) {
       if (failurePins.length > 0) return "flat-empty";
       return "scan";
@@ -1526,6 +1542,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     awaitingGroupedResults,
     awaitingUnionsStrict,
     unionAwaitingGroups,
+    waitingForGroups,
     hasMounted,
     localBranches.length,
     groupedBranches,
@@ -1543,6 +1560,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const hasContent =
     !awaitingUnionsStrict &&
     !awaitingGroupedResults &&
+    !waitingForGroups &&
     ((Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
       (localBranches && localBranches.length > 0) ||
       failurePins.length > 0);

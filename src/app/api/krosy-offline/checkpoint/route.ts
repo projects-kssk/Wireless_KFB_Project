@@ -43,7 +43,7 @@ const FORCE_RESULT: boolean | null =
 const b2s = (b: boolean) => (b ? "true" : "false");
 
 /* ===== CORS ===== */
-function cors(req: NextRequest) {
+function cors(req: NextRequest): Record<string, string> {
   const origin = req.headers.get("origin") || "";
   const allow = ALLOW_ANY ? "*" : ORIGINS.includes(origin) ? origin : ORIGINS[0] || "";
   return {
@@ -381,18 +381,21 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (!reqOut.ok || !reqOut.text?.trim().startsWith("<")) {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-Krosy-Used-Url": reqOut.used,
+        "X-Krosy-Log-Path": base,
+        ...cors(req),
+      };
+      const errMsg = reqOut.error || "request-failed";
+      headers["X-Krosy-Checkpoint-Error"] = errMsg;
       return new Response(JSON.stringify({
         ok: false, phase: "workingRequest", requestID: reqId, usedUrl: reqOut.used,
         status: reqOut.status, durationMs: dur1, error: reqOut.error || "no xml response",
         responsePreview: (reqRespPretty || reqOut.text || "").slice(0, 2000),
       }, null, 2), {
-        status: 502,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Krosy-Used-Url": reqOut.used,
-          "X-Krosy-Log-Path": base,
-          ...cors(req),
-        },
+        status: 200,
+        headers,
       });
     }
     workingDataXml = reqOut.text;
@@ -435,30 +438,40 @@ export async function POST(req: NextRequest) {
   ]);
   try { await pruneOldLogs(LOG_DIR, 31); } catch {}
 
+  const failureHeader = resOut.ok
+    ? null
+    : resOut.error || `status-${resOut.status || 0}`;
+
   if ((accept.includes("xml") || accept === "*/*") && resOut.text && resOut.text.trim().startsWith("<")) {
-    return new Response(prettyResultResp || resOut.text, {
-      status: resOut.ok ? 200 : 502,
-      headers: {
-        "Content-Type": "application/xml; charset=utf-8",
-        "X-Krosy-Used-Url": resOut.used,
-        ...cors(req),
-      },
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/xml; charset=utf-8",
+      "X-Krosy-Used-Url": resOut.used,
+      ...cors(req),
+    };
+    if (failureHeader) headers["X-Krosy-Checkpoint-Error"] = failureHeader;
+    return new Response(prettyResultResp || resOut.text, { status: 200, headers });
   }
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Krosy-Used-Url": resOut.used,
+    "X-Krosy-Log-Path": base,
+    ...cors(req),
+  };
+  if (failureHeader) headers["X-Krosy-Checkpoint-Error"] = failureHeader;
+
   return new Response(JSON.stringify({
-    ok: resOut.ok, phase: "workingResult", requestID: meta?.requestID, usedUrl: resOut.used, status: resOut.status,
+    ok: resOut.ok,
+    phase: "workingResult",
+    requestID: meta?.requestID,
+    usedUrl: resOut.used,
+    status: resOut.status,
     durations: { buildAndSendMs: dur2, totalMs: Date.now() - startedAll },
     error: resOut.error,
     sentWorkingResultPreview: prettyResultReq.slice(0, 2000),
     responsePreview: (prettyResultResp || resOut.text || "").slice(0, 2000),
   }, null, 2), {
-    status: resOut.ok ? 200 : 502,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Krosy-Used-Url": resOut.used,
-      "X-Krosy-Log-Path": base,
-      ...cors(req),
-    },
+    status: 200,
+    headers,
   });
 }

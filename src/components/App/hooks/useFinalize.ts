@@ -193,6 +193,8 @@ export const useFinalize = ({
     async (mac: string, onlyIds?: string[]): Promise<boolean> => {
       if (!checkpointEnabled) return false;
       const MAC = mac.toUpperCase();
+      const blockedUntil = checkpointBlockUntilTsRef.current || 0;
+      if (blockedUntil && Date.now() < blockedUntil) return false;
       if (checkpointMacPendingRef.current.has(MAC)) return false;
       checkpointMacPendingRef.current.add(MAC);
       try {
@@ -312,9 +314,17 @@ export const useFinalize = ({
               },
               body: JSON.stringify(payload),
             });
-            if (!resp.ok) {
-              if (resp.status >= 500) {
+            const checkpointErrHeader = resp.headers.get("X-Krosy-Checkpoint-Error");
+            const respOk = resp.ok && !checkpointErrHeader;
+
+            if (!respOk) {
+              if (resp.status >= 500 || checkpointErrHeader) {
                 checkpointBlockUntilTsRef.current = Date.now() + 120_000;
+                continue;
+              }
+              if (resp.status === 429) {
+                checkpointBlockUntilTsRef.current = Date.now() + 30_000;
+                continue;
               }
             } else {
               checkpointSentRef.current.add(id);
@@ -322,6 +332,7 @@ export const useFinalize = ({
             }
           } catch {
             checkpointBlockUntilTsRef.current = Date.now() + 60_000;
+            continue;
           }
         }
         return sentAny;

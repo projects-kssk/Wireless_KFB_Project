@@ -1547,6 +1547,11 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (localBranches && localBranches.length > 0) ||
       failurePins.length > 0);
 
+  const isLiveViewKey =
+    viewKey === "grouped" ||
+    viewKey === "flat" ||
+    viewKey === "flat-empty";
+
   return (
     <div
       className={`flex-grow flex flex-col items-center ${hasContent ? "justify-start" : "justify-center"} p-2`}
@@ -1614,12 +1619,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       </header>
 
       {/* Content with subtle cross-fade */}
-      <AnimatePresence mode="wait">
+      <AnimatePresence mode="wait" initial={false}>
         <m.div
           key={viewKey}
-          initial={{ opacity: 0, y: 8 }}
+          initial={isLiveViewKey ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
+          exit={isLiveViewKey ? { opacity: 0 } : { opacity: 0, y: -8 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className="w-full"
         >

@@ -653,7 +653,20 @@ export default function SetupPage() {
   // compute manual flag from simulation state
   const allowManual = simulateOn;
 
-  // Setup countdown (60s) — resets layout to initial scan when it expires
+  const SETUP_COUNTDOWN_SECONDS = 120;
+
+  const formatSetupCountdown = (value: number): string => {
+    if (!Number.isFinite(value)) return "--";
+    const total = Math.max(0, Math.floor(value));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    if (minutes > 0) {
+      return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+    }
+    return `${seconds}s`;
+  };
+
+  // Setup countdown (120s) — resets layout to initial scan when it expires
   const [setupCountdown, setSetupCountdown] = useState<number | null>(null);
 
   const hb = useRef<Map<string, number>>(new Map());
@@ -1162,8 +1175,8 @@ export default function SetupPage() {
       }
       return code;
     });
-    // Start fresh 60s setup window for each newly scanned MAC
-    setSetupCountdown(60);
+    // Start fresh setup window for each newly scanned MAC
+    setSetupCountdown(SETUP_COUNTDOWN_SECONDS);
     setTableCycle((n) => n + 1);
     showOk(code, "BOARD SET", "kfb");
   }, []);
@@ -2049,7 +2062,9 @@ export default function SetupPage() {
   const inputBg = isDark ? "#2b2b2b" : "#ffffff";
   const inputBorder = isDark ? "rgba(255,255,255,0.12)" : "#cbd5e1";
 
-  const badgePalette = (ok: boolean): {
+  const badgePalette = (
+    ok: boolean
+  ): {
     container: React.CSSProperties;
     value: string;
   } =>
@@ -2127,16 +2142,22 @@ export default function SetupPage() {
   };
   const heroTopRow: CSSProperties = {
     display: "flex",
-    gap: 10,
-    alignItems: "center",
     justifyContent: "space-between",
+    alignItems: "flex-start",
     flexWrap: "wrap",
+    gap: 16,
   };
   const heroLeft: CSSProperties = {
     display: "flex",
     gap: 12,
     alignItems: "center",
     flexWrap: "wrap",
+  };
+  const heroRight: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-end",
+    gap: 14,
   };
   const heroBoard: CSSProperties = {
     fontSize: 44,
@@ -2149,18 +2170,6 @@ export default function SetupPage() {
   const modeBadgeBase =
     "inline-flex items-center gap-1 rounded-full px-3 py-1 text-[12px] md:text-[13px] font-extrabold";
 
-  const heroProgressPill: CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "8px 12px",
-    borderRadius: 999,
-    border: "2px solid #a7f3d0",
-    background: "rgba(16,185,129,0.08)",
-    fontSize: 18,
-    fontWeight: 900,
-    color: "#065f46",
-  };
   const scannerPillBase: CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -2245,7 +2254,155 @@ export default function SetupPage() {
   // ✅ progress counts only OK slots
   const ksskOkCount = ksskStatus.filter((s) => s === "ok").length;
 
-  // Countdown lifecycle: start at 60s once a board is scanned; stop when finished or cleared
+  const progressRatio =
+    KSK_SLOT_TARGET > 0
+      ? Math.min(1, Math.max(0, ksskOkCount) / KSK_SLOT_TARGET)
+      : 0;
+  const progressAccent = isDark
+    ? "rgba(14,165,233,0.85)"
+    : "rgba(17,94,163,0.85)";
+  const progressTrack = isDark
+    ? "rgba(30,41,59,0.65)"
+    : "rgba(226,232,240,0.6)";
+  const progressPercentStop = `${Math.round(progressRatio * 100)}%`;
+  const heroProgressBorder =
+    progressRatio > 0
+      ? isDark
+        ? "rgba(34,197,94,0.55)"
+        : "rgba(34,197,94,0.35)"
+      : isDark
+        ? "rgba(148,163,184,0.35)"
+        : "rgba(148,163,184,0.3)";
+  const heroProgressBackground = `linear-gradient(90deg, ${progressAccent} 0%, ${progressAccent} ${progressPercentStop}, ${progressTrack} ${progressPercentStop}, ${progressTrack} 100%)`;
+  const heroProgressText =
+    progressRatio > 0 ? "#f8fafc" : isDark ? "#cbd5f5" : "#0f172a";
+  const statusCardBase: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "10px 16px",
+    borderRadius: 16,
+    minWidth: 150,
+    background: isDark ? "rgba(15,23,42,0.55)" : "rgba(255,255,255,0.85)",
+    border: isDark
+      ? "1px solid rgba(148,163,184,0.35)"
+      : "1px solid rgba(191,219,254,0.45)",
+    boxShadow: isDark
+      ? "0 18px 42px -28px rgba(15,23,42,0.7)"
+      : "0 18px 40px -28px rgba(15,23,42,0.22)",
+    backdropFilter: "blur(8px)",
+    WebkitBackdropFilter: "blur(8px)",
+  };
+  const statusStack: CSSProperties = {
+    display: "flex",
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-end",
+    flexWrap: "wrap",
+  };
+  const progressCard: CSSProperties = {
+    ...statusCardBase,
+    border: `1px solid ${
+      progressRatio > 0
+        ? isDark
+          ? "rgba(59,130,246,0.65)"
+          : "rgba(59,130,246,0.45)"
+        : isDark
+          ? "rgba(148,163,184,0.35)"
+          : "rgba(191,219,254,0.4)"
+    }`,
+    background:
+      progressRatio > 0
+        ? isDark
+          ? "linear-gradient(135deg, rgba(30,64,175,0.68), rgba(14,165,233,0.48))"
+          : "linear-gradient(135deg, rgba(219,234,254,0.82), rgba(96,165,250,0.55))"
+        : statusCardBase.background,
+    boxShadow:
+      progressRatio > 0
+        ? isDark
+          ? "0 18px 44px -28px rgba(30,64,175,0.6)"
+          : "0 18px 42px -28px rgba(59,130,246,0.28)"
+        : statusCardBase.boxShadow,
+  };
+  const progressBar: CSSProperties = {
+    width: "100%",
+    height: 10,
+    borderRadius: 999,
+    border: `1px solid ${heroProgressBorder}`,
+    background: heroProgressBackground,
+  };
+  const progressLabel: CSSProperties = {
+    fontSize: 11,
+    opacity: 0.75,
+    letterSpacing: "0.18em",
+    textTransform: "uppercase",
+    color: isDark ? "#cbd5f5" : "#0f172a",
+  };
+  const progressValue: CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 22,
+    fontWeight: 900,
+    color: heroProgressText,
+    letterSpacing: "0.04em",
+    fontVariantNumeric: "tabular-nums",
+  };
+
+  const countdownValue =
+    typeof setupCountdown === "number"
+      ? Math.max(0, Math.floor(setupCountdown))
+      : null;
+  const countdownFraction =
+    countdownValue != null
+      ? Math.min(1, countdownValue / SETUP_COUNTDOWN_SECONDS)
+      : 0;
+  const countdownHue = Math.max(
+    0,
+    Math.min(120, Math.round(countdownFraction * 120))
+  );
+  const countdownAccent = isDark
+    ? "rgba(251,113,133,0.75)"
+    : `hsl(${Math.max(0, countdownHue - 15)}, 82%, 52%)`;
+  const countdownTrack = isDark
+    ? "rgba(92,33,91,0.6)"
+    : "rgba(254,226,226,0.7)";
+  const countdownPercentStop = `${Math.round(countdownFraction * 100)}%`;
+  const countdownBackground =
+    countdownValue != null
+      ? `linear-gradient(90deg, ${countdownAccent} 0%, ${countdownAccent} ${countdownPercentStop}, ${countdownTrack} ${countdownPercentStop}, ${countdownTrack} 100%)`
+      : undefined;
+  const timerCard: CSSProperties = {
+    ...statusCardBase,
+    border: `1px solid ${isDark ? "rgba(251,113,133,0.55)" : "rgba(244,63,94,0.45)"}`,
+    background: isDark
+      ? "linear-gradient(135deg, rgba(127,29,29,0.65), rgba(76,29,149,0.55))"
+      : "linear-gradient(135deg, rgba(254,226,226,0.78), rgba(252,165,165,0.52))",
+  };
+  const timerBar: CSSProperties = {
+    width: "100%",
+    height: 10,
+    borderRadius: 999,
+    border: `1px solid ${countdownAccent}`,
+    background: countdownBackground,
+  };
+  const timerLabel: CSSProperties = {
+    fontSize: 11,
+    opacity: 0.8,
+    letterSpacing: "0.18em",
+    textTransform: "uppercase",
+    color: isDark ? "#cbd5f5" : "#082f49",
+    textAlign: "left",
+  };
+  const timerValue: CSSProperties = {
+    fontSize: 24,
+    fontWeight: 900,
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "0.08em",
+    color: isDark ? "#f8fafc" : "#082f49",
+  };
+
+  // Countdown lifecycle: start at 120s once a board is scanned; stop when finished or cleared
   useEffect(() => {
     if (!kfb) {
       setSetupCountdown(null);
@@ -2256,7 +2413,9 @@ export default function SetupPage() {
       return;
     }
     // initialize if not set
-    setSetupCountdown((v) => (typeof v === "number" ? v : 60));
+    setSetupCountdown((v) =>
+      typeof v === "number" ? v : SETUP_COUNTDOWN_SECONDS
+    );
     const id = window.setInterval(() => {
       setSetupCountdown((s) => {
         if (typeof s !== "number") return s;
@@ -2390,18 +2549,32 @@ export default function SetupPage() {
               >
                 BOARD: {kfb}
               </m.div>
-
-              <m.div layout style={heroProgressPill}>
-                <SignalDot />
-                {ksskOkCount}/{KSK_SLOT_TARGET} KSK
-              </m.div>
               {/* Scanner pill requested under SETUP title; omit here to reduce noise */}
             </m.div>
 
-            <m.div
-              layout
-              style={{ display: "flex", gap: 10, alignItems: "center" }}
-            >
+            <div style={heroRight}>
+              <div style={statusStack}>
+                <div style={progressCard}>
+                  <div style={progressBar} />
+                  <span style={progressLabel}>KSK count</span>
+                  <span style={progressValue}>
+                    <SignalDot />
+                    <span>
+                      {ksskOkCount}/{KSK_SLOT_TARGET}
+                    </span>
+                  </span>
+                </div>
+                {countdownValue != null && ksskOkCount < KSK_SLOT_TARGET && (
+                  <div style={timerCard}>
+                    <div style={timerBar} />
+                    <span style={timerLabel}>Refresh</span>
+                    <span style={timerValue}>
+                      {formatSetupCountdown(countdownValue)}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {ksskOkCount >= 1 && (
                 <StepBadge
                   label="SCAN NEW BOARD TO START OVER"
@@ -2409,22 +2582,7 @@ export default function SetupPage() {
                   onClick={resetAll}
                 />
               )}
-              {/* <button
-                type="button"
-                onClick={handleClearRedis}
-                style={{
-                  border: "2px solid #fca5a5",
-                  background: "rgba(239,68,68,0.08)",
-                  color: "#7f1d1d",
-                  fontWeight: 900,
-                  padding: "8px 12px",
-                  borderRadius: 999,
-                }}
-                title={kfb ? `Clear Redis for ${kfb}` : "Scan a board first"}
-              >
-                CLEAR REDIS + LOCKS
-              </button> */}
-            </m.div>
+            </div>
           </m.div>
         )}
       </m.section>
@@ -2580,31 +2738,6 @@ export default function SetupPage() {
           flashSeq={0}
         />
       </div>
-
-      {/* Setup countdown (below TableSwap) */}
-      {kfb &&
-        typeof setupCountdown === "number" &&
-        ksskOkCount < KSK_SLOT_TARGET && (
-          <div className="mt-4 flex items-center justify-center">
-            <div
-              className={
-                "inline-flex items-center gap-3 rounded-lg px-6 py-4 text-2xl font-extrabold " +
-                (setupCountdown > 30
-                  ? "border border-emerald-300 bg-emerald-50 text-emerald-900"
-                  : setupCountdown > 15
-                    ? "border border-amber-300 bg-amber-50 text-amber-900"
-                    : "border border-red-300 bg-red-50 text-red-900")
-              }
-              aria-live="polite"
-            >
-              <span>
-                {setupCountdown > 0
-                  ? `You have ${setupCountdown}s to set up the board`
-                  : "Time expired — resetting"}
-              </span>
-            </div>
-          </div>
-        )}
 
       <ToastStack
         items={toasts}
@@ -3162,9 +3295,7 @@ function StepBadge({
     padding: "10px 14px",
     borderRadius: 999,
     background: darkMode ? "#333333" : "#fff",
-    border: darkMode
-      ? "1px solid rgba(255,255,255,0.12)"
-      : "1px solid #e6eef7",
+    border: darkMode ? "1px solid rgba(255,255,255,0.12)" : "1px solid #e6eef7",
     boxShadow: darkMode
       ? "0 12px 30px -20px rgba(0,0,0,0.55)"
       : "0 2px 6px rgba(15,23,42,0.04)",
@@ -3344,7 +3475,8 @@ function ToastStack({
         border: "rgba(74,222,128,0.45)",
         dot: "linear-gradient(180deg,#34d399,#10b981)",
         dotRing: "0 0 0 2px rgba(34,197,94,0.25)",
-        badgeBg: "linear-gradient(180deg,rgba(34,197,94,0.32),rgba(22,163,74,0.18))",
+        badgeBg:
+          "linear-gradient(180deg,rgba(34,197,94,0.32),rgba(22,163,74,0.18))",
         badgeBorder: "rgba(74,222,128,0.45)",
         badgeFg: "#dcfce7",
       }
@@ -3365,7 +3497,8 @@ function ToastStack({
         border: "rgba(248,113,113,0.45)",
         dot: "linear-gradient(180deg,#fb7185,#ef4444)",
         dotRing: "0 0 0 2px rgba(248,113,113,0.25)",
-        badgeBg: "linear-gradient(180deg,rgba(248,113,113,0.28),rgba(239,68,68,0.18))",
+        badgeBg:
+          "linear-gradient(180deg,rgba(248,113,113,0.28),rgba(239,68,68,0.18))",
         badgeBorder: "rgba(248,113,113,0.45)",
         badgeFg: "#fee2e2",
       }
@@ -3651,7 +3784,8 @@ function ToastStack({
                     color: historyPalette.buttonColor,
                     fontWeight: 900,
                     cursor: "pointer",
-                    transition: "background 160ms ease, color 160ms ease, border-color 160ms ease",
+                    transition:
+                      "background 160ms ease, color 160ms ease, border-color 160ms ease",
                   }}
                 >
                   Clear all

@@ -835,14 +835,8 @@ export const useScanFlow = ({
         idleCooldownUntilRef.current = 0;
         noSetupCooldownRef.current = null;
         try {
+          blockedMacRef.current.clear();
           blockedMacRef.current.add(blockKey);
-          if (typeof window !== "undefined") {
-            window.setTimeout(() => {
-              try {
-                blockedMacRef.current.delete(blockKey);
-              } catch {}
-            }, Math.max(1500, CFG.RETRY_COOLDOWN_MS));
-          }
         } catch {}
         if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);

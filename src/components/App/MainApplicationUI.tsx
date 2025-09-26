@@ -480,6 +480,9 @@ const MainApplicationUI: React.FC = () => {
     pendingSimulateRef.current = null;
     simulateCooldownUntilRef.current = 0;
     noSetupCooldownRef.current = null;
+    try {
+      blockedMacRef.current?.clear();
+    } catch {}
     if (simulateRetryTimerRef.current != null) {
       try {
         window.clearTimeout(simulateRetryTimerRef.current);

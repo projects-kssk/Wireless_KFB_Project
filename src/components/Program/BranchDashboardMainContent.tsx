@@ -363,7 +363,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [groupedFirstSeenAt, setGroupedFirstSeenAt] = useState<number>(0);
   useEffect(() => {
     if (groupsLength > 0) setGroupedFirstSeenAt(Date.now());
-  }, [groupsLength]);
+  }, [groupsLength, groupedBranches]);
 
   const [graceDone, setGraceDone] = useState(true);
   useEffect(() => {
@@ -373,6 +373,41 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const id = setTimeout(() => setGraceDone(true), GRACE_MS);
     return () => clearTimeout(id);
   }, [groupedFirstSeenAt]);
+
+  const [checkSettling, setCheckSettling] = useState(false);
+  const checkSettlingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  useEffect(() => {
+    if (!liveMode) {
+      if (checkSettlingTimerRef.current) {
+        clearTimeout(checkSettlingTimerRef.current);
+        checkSettlingTimerRef.current = null;
+      }
+      if (checkSettling) setCheckSettling(false);
+      return;
+    }
+    if (isChecking) {
+      if (checkSettlingTimerRef.current) {
+        clearTimeout(checkSettlingTimerRef.current);
+        checkSettlingTimerRef.current = null;
+      }
+      if (!checkSettling) setCheckSettling(true);
+      return;
+    }
+    if (!checkSettling) return;
+    if (checkSettlingTimerRef.current) return;
+    checkSettlingTimerRef.current = setTimeout(() => {
+      checkSettlingTimerRef.current = null;
+      setCheckSettling(false);
+    }, 600);
+    return () => {
+      if (checkSettlingTimerRef.current) {
+        clearTimeout(checkSettlingTimerRef.current);
+        checkSettlingTimerRef.current = null;
+      }
+    };
+  }, [isChecking, liveMode, checkSettling]);
 
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -749,6 +784,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (waitingForGroups ||
         awaitingGroupedResults ||
         !graceDone ||
+        checkSettling ||
         isScanning ||
         isChecking),
     [
@@ -756,6 +792,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       waitingForGroups,
       awaitingGroupedResults,
       graceDone,
+      checkSettling,
       isScanning,
       isChecking,
     ]

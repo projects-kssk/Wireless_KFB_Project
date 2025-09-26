@@ -3,6 +3,50 @@
 import React from 'react';
 import { useSerialEvents } from '@/components/Header/useSerialEvents';
 
+const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
+
+const normalizePins = (
+  normal?: unknown,
+  latch?: unknown
+): number[] => {
+  const out = new Set<number>();
+  const push = (arr?: unknown) => {
+    if (!Array.isArray(arr)) return;
+    for (const value of arr) {
+      const num = Number(value);
+      if (Number.isFinite(num) && num > 0) out.add(num);
+    }
+  };
+  push(normal);
+  push(latch);
+  return Array.from(out).sort((a, b) => a - b);
+};
+
+const arraysEqual = (a: number[], b: number[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
+
+const prepareNames = (raw?: unknown): Record<string, string> => {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!key) continue;
+    if (typeof value === 'string') out[key] = value;
+    else if (value != null) out[key] = String(value);
+  }
+  return out;
+};
+
+const shallowEqualRecord = (
+  a: Record<string, string>,
+  b: Record<string, string>
+) => {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) if (a[key] !== b[key]) return false;
+  return true;
+};
+
 type SimConfig = {
   scenario: string;
   macOverride?: string | null;
@@ -29,7 +73,7 @@ export default function SimulateCheckBar() {
   );
   const [unionPins, setUnionPins] = React.useState<number[]>([]);
   const [names, setNames] = React.useState<Record<string,string>>({});
-  const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set());
+  const [simFailing, setSimFailing] = React.useState<Set<number>>(new Set<number>());
 
   const isMountedRef = React.useRef(true);
   React.useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -97,32 +141,83 @@ export default function SimulateCheckBar() {
   }, [panelOpen, serial.lastEvTick]);
 
   // Load union pins and labels for current MAC
+  const applyUnionSnapshot = React.useCallback(
+    (
+      normalPins?: number[] | null,
+      latchPins?: number[] | null,
+      aliasMap?: Record<string, string> | null
+    ) => {
+      const pins = normalizePins(normalPins, latchPins);
+      setUnionPins((prev) => (arraysEqual(prev, pins) ? prev : pins));
+
+      const preparedNames = prepareNames(aliasMap);
+      setNames((prev) =>
+        shallowEqualRecord(prev, preparedNames) ? prev : preparedNames
+      );
+
+      setSimFailing((prev) => {
+        if (!prev.size) return prev;
+        if (pins.length === 0) return prev.size === 0 ? prev : new Set<number>();
+        const allowed = new Set(pins);
+        let changed = false;
+        const next = new Set<number>();
+        prev.forEach((pin) => {
+          if (allowed.has(pin)) next.add(pin);
+          else changed = true;
+        });
+        return changed ? next : prev;
+      });
+    },
+    []
+  );
+
+  const fetchUnionSnapshot = React.useCallback(async () => {
+    const mm = (mac || '').toUpperCase().trim();
+    if (!mm || !MAC_RE.test(mm)) {
+      if (!isMountedRef.current) return;
+      setUnionPins((prev) => (prev.length === 0 ? prev : []));
+      setNames((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+      setSimFailing((prev) => (prev.size === 0 ? prev : new Set<number>()));
+      return;
+    }
+    try {
+      const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mm)}`, {
+        cache: 'no-store',
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (!isMountedRef.current) return;
+      applyUnionSnapshot(
+        Array.isArray(j?.normalPins) ? (j.normalPins as number[]) : undefined,
+        Array.isArray(j?.latchPins) ? (j.latchPins as number[]) : undefined,
+        (j?.aliases && typeof j.aliases === 'object'
+          ? (j.aliases as Record<string, string>)
+          : undefined) ?? undefined
+      );
+    } catch {}
+  }, [mac, applyUnionSnapshot]);
+
   React.useEffect(() => {
     if (!panelOpen) {
       setUnionPins([]);
       setNames({});
+      setSimFailing(new Set<number>());
       return;
     }
-    let stop = false;
+    fetchUnionSnapshot();
+    const id = window.setInterval(fetchUnionSnapshot, 1500);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [panelOpen, fetchUnionSnapshot]);
+
+  const lastUnion = serial.lastUnion;
+  React.useEffect(() => {
+    if (!panelOpen || !lastUnion) return;
     const mm = (mac || '').toUpperCase().trim();
-    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
-    if (!mm || !MAC_RE.test(mm)) { setUnionPins([]); setNames({}); return; }
-    (async () => {
-      try {
-        const r = await fetch(`/api/aliases?mac=${encodeURIComponent(mm)}`, { cache: 'no-store' });
-        if (!r.ok) return;
-        const j = await r.json();
-        if (stop) return;
-        const np = Array.isArray(j?.normalPins) ? j.normalPins : [];
-        const lp = Array.isArray(j?.latchPins) ? j.latchPins : [];
-        const pins = Array.from(new Set([...(np||[]), ...(lp||[])]))
-          .map((n: any)=>Number(n)).filter((n:number)=>Number.isFinite(n)&&n>0).sort((a:number,b:number)=>a-b);
-        setUnionPins(pins);
-        setNames((j?.aliases && typeof j.aliases==='object') ? j.aliases as Record<string,string> : {});
-      } catch {}
-    })();
-    return () => { stop = true; };
-  }, [panelOpen, mac]);
+    if (!mm || !MAC_RE.test(mm) || lastUnion.mac !== mm) return;
+    applyUnionSnapshot(lastUnion.normalPins, lastUnion.latchPins, lastUnion.names || undefined);
+  }, [panelOpen, mac, lastUnion, applyUnionSnapshot]);
 
   // NOTE: Do not auto-post MAC changes — only update simulator MAC during Run Check.
 
@@ -170,7 +265,6 @@ export default function SimulateCheckBar() {
   };
 
   const runCheck = async () => {
-    const MAC_RE = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/i;
     if (!mac || !MAC_RE.test(mac.toUpperCase())) return;
     setBusy(true); setLast(null);
     try {

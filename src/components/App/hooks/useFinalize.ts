@@ -61,6 +61,20 @@ async function safeFetchJson<T>(
 /** Build query strings safely */
 const qs = (o: Record<string, string>) => new URLSearchParams(o).toString();
 
+const dedupeCasePreserving = (
+  values: Array<string | null | undefined> | undefined | null
+): string[] => {
+  if (!values || values.length === 0) return [];
+  const map = new Map<string, string>();
+  for (const raw of values) {
+    const id = String(raw || "").trim();
+    if (!id) continue;
+    const key = id.toUpperCase();
+    if (!map.has(key)) map.set(key, id);
+  }
+  return Array.from(map.values());
+};
+
 /** Hook params (kept API-compatible with your original, but with RefLike<T>) */
 export type UseFinalizeParams = {
   cfgRetryCooldownMs: number;
@@ -491,7 +505,17 @@ export const useFinalize = ({
           ids = ids.map((s) => String(s || "").trim()).filter(Boolean);
         }
 
-        let hasSetup = ids.length > 0;
+        if (
+          (!ids || ids.length === 0) &&
+          Array.isArray(activeKssks) &&
+          activeKssks.length > 0
+        ) {
+          ids = dedupeCasePreserving(activeKssks);
+        }
+
+        let hasSetup =
+          (ids?.length ?? 0) > 0 ||
+          (Array.isArray(activeKssks) && activeKssks.length > 0);
 
         const mutableOps: {
           checkpoint: boolean;
@@ -503,7 +527,7 @@ export const useFinalize = ({
           locks: false,
         };
 
-        if (hasSetup) {
+        if ((ids?.length ?? 0) > 0) {
           mutableOps.checkpoint = await sendCheckpointForMac(mac, ids).catch(
             () => false
           );
@@ -512,7 +536,7 @@ export const useFinalize = ({
         const snapshotCount = Array.isArray(itemsAllFromAliasesRef.current)
           ? itemsAllFromAliasesRef.current.length
           : 0;
-        const shouldClearAliases = hadAliases || snapshotCount > 0;
+        const shouldClearAliases = hasSetup || hadAliases || snapshotCount > 0;
         if (shouldClearAliases) {
           await clearAliasesVerify(mac);
           mutableOps.aliases = true;

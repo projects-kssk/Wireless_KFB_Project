@@ -719,6 +719,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     [localBranches, checkFailures, labelForPin]
   );
 
+  const unionAwaitingGroups = useMemo(() => {
+    const haveGroups =
+      Array.isArray(groupedBranches) && groupedBranches.length > 0;
+    if (haveGroups) return false;
+    const { source, items } = pending;
+    return source === "failures" && items.length > 0;
+  }, [groupedBranches, pending]);
+
   const failurePins: number[] = useMemo(() => {
     if (Array.isArray(checkFailures) && checkFailures.length > 0) {
       return [...new Set(checkFailures.filter((n) => Number.isFinite(n)))].sort(
@@ -1117,6 +1125,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     </div>
   );
 
+  const busyLabel = unionAwaitingGroups
+    ? "LOADING RESULTS"
+    : isChecking
+      ? "CHECKING"
+      : "SCANNING";
+
   const busyView = (
     <div
       className="flex flex-col items-center justify-center h-full min-h-[500px]"
@@ -1124,7 +1138,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       aria-live="polite"
     >
       <h2 className="text-7xl text-slate-600 dark:text-slate-200 font-bold uppercase tracking-wider animate-pulse">
-        {isChecking ? "CHECKING" : "SCANNING"}...
+        {busyLabel}...
       </h2>
     </div>
   );
@@ -1450,6 +1464,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
     if (busy) return "busy";
+    if (unionAwaitingGroups) return "busy";
     if (hasMounted && localBranches.length === 0) {
       if (failurePins.length > 0) return "flat-empty";
       return "scan";
@@ -1476,9 +1491,10 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   /* ---------------------------------- Header -------------------------------- */
   const hasContent =
-    (Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
-    (localBranches && localBranches.length > 0) ||
-    failurePins.length > 0;
+    !unionAwaitingGroups &&
+    ((Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
+      (localBranches && localBranches.length > 0) ||
+      failurePins.length > 0);
 
   return (
     <div

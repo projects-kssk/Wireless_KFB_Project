@@ -88,6 +88,7 @@ export type UseScanFlowParams = {
 
   activeKssks: string[];
   latchPinsValue: number[] | undefined;
+  awaitFinalizeForMac?: (mac: string) => Promise<void> | void;
 };
 
 export type UseScanFlowResult = {
@@ -146,6 +147,7 @@ export const useScanFlow = ({
   activeKssks,
   latchPinsValue,
   checkTokenRef,
+  awaitFinalizeForMac,
 }: UseScanFlowParams): UseScanFlowResult => {
   const updateHeaderVisibility = setShouldShowHeader ?? (() => {});
   const runCheck = useCallback(
@@ -702,6 +704,14 @@ export const useScanFlow = ({
 
       const pendingMac = isMac ? (macCanon as string) : "KFB";
 
+      if (awaitFinalizeForMac) {
+        try {
+          await awaitFinalizeForMac(pendingMac);
+        } catch (err) {
+          console.warn("[FLOW][SCAN] finalize wait failed", err);
+        }
+      }
+
       const blockKey = macKey(pendingMac);
       if (checkTokenRef.current && checkTokenRef.current.mac === blockKey) return;
 
@@ -917,6 +927,7 @@ export const useScanFlow = ({
       setOkSystemNote,
       setShowScanUi,
       setShouldShowHeader,
+      awaitFinalizeForMac,
     ]
   );
 

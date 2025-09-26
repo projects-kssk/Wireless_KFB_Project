@@ -81,7 +81,9 @@ export type UseScanFlowParams = {
   okFlashAllowedRef: RefLike<boolean>;
   okShownOnceRef: RefLike<boolean>;
   lastScanTokenRef: RefLike<string>;
-  noSetupCooldownRef: RefLike<{ mac: string; until: number } | null>;
+  noSetupCooldownRef: RefLike<
+    { mac: string; until: number; requireManual?: boolean } | null
+  >;
   checkTokenRef: RefLike<{ mac: string; token: string } | null>;
 
   activeKssks: string[];
@@ -865,6 +867,7 @@ export const useScanFlow = ({
         const cooldownEntry = {
           mac: blockKey,
           until: Date.now() + cooldownMs,
+          requireManual: true,
         };
         noSetupCooldownRef.current = cooldownEntry;
         simulateCooldownUntilRef.current = cooldownEntry.until;

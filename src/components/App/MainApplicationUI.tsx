@@ -456,7 +456,9 @@ const MainApplicationUI: React.FC = () => {
   const checkpointMacPendingRef = useRef<Set<string>>(new Set());
   const checkpointBlockUntilTsRef = useRef<number>(0);
   const lastActiveIdsRef = useRef<string[]>([]);
-  const noSetupCooldownRef = useRef<{ mac: string; until: number } | null>(
+  const noSetupCooldownRef = useRef<
+    { mac: string; until: number; requireManual?: boolean }
+  | null>(
     null
   );
   const handleResetKfb = useCallback(() => {
@@ -668,15 +670,19 @@ const MainApplicationUI: React.FC = () => {
       return;
     }
     const noSetupCooldown = noSetupCooldownRef.current;
-    if (
-      noSetupCooldown &&
-      noSetupCooldown.mac === targetKey
-    ) {
-      pendingSimulateRef.current = null;
+    if (noSetupCooldown && noSetupCooldown.mac === targetKey) {
+      const requireManual = noSetupCooldown.requireManual !== false;
+      if (requireManual) {
+        pendingSimulateRef.current = null;
+        if (Date.now() < noSetupCooldown.until) {
+          scheduleRetry(noSetupCooldown.until - Date.now() + 10);
+        }
+        return;
+      }
       if (Date.now() < noSetupCooldown.until) {
         scheduleRetry(noSetupCooldown.until - Date.now() + 10);
+        return;
       }
-      return;
     }
     pendingSimulateRef.current = null;
     simulateCooldownUntilRef.current =

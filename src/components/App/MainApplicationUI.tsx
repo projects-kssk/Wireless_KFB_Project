@@ -660,6 +660,14 @@ const MainApplicationUI: React.FC = () => {
     [ensureActiveIdsForFinalize, finalizeOkForMac]
   );
 
+  const finalizeMacFromUi = useCallback(
+    (rawMac: string) => {
+      lastRunHadFailuresRef.current = false;
+      return finalizeMacOnce(rawMac);
+    },
+    [finalizeMacOnce]
+  );
+
   const { runCheck, loadBranchesData, handleScan } = useScanFlow({
     CFG: {
       CHECK_CLIENT_MS: CFG.CHECK_CLIENT_MS,
@@ -1194,7 +1202,7 @@ const MainApplicationUI: React.FC = () => {
         groupedBranches={groupedBranches}
         macRef={macRef}
         finalizeGuardRef={lastRunHadFailuresRef}
-        finalizeOkForMac={finalizeMacOnce}
+        finalizeOkForMac={finalizeMacFromUi}
       />
       <PostResetSanityEffect
         lastFinalizedMacRef={lastFinalizedMacRef}
@@ -1269,7 +1277,7 @@ const MainApplicationUI: React.FC = () => {
                     : derived.effLatchPins
               }
               onResetKfb={handleResetKfb}
-              onFinalizeOk={finalizeMacOnce}
+              onFinalizeOk={finalizeMacFromUi}
               flashOkTick={okFlashTick}
               okSystemNote={okSystemNote}
               disableOkAnimation={disableOkAnimation}

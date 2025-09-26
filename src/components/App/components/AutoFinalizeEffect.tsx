@@ -35,9 +35,17 @@ export const AutoFinalizeEffect: FC<AutoFinalizeEffectProps> = ({
     const anyFailures =
       Array.isArray(checkFailures) && checkFailures.length > 0;
     if (anyFailures) return;
+    const hasCoverage =
+      (Array.isArray(branchesData) && branchesData.length > 0) ||
+      (Array.isArray(groupedBranches) && groupedBranches.length > 0);
+
     if (finalizeGuardRef?.current) {
-      okFlashAllowedRef.current = false;
-      return;
+      if (hasCoverage) {
+        finalizeGuardRef.current = false;
+      } else {
+        okFlashAllowedRef.current = false;
+        return;
+      }
     }
 
     const isBranchCleared = (branch: BranchDisplayData) => {

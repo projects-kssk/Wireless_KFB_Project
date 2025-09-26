@@ -19,6 +19,7 @@ export type FeatureFlags = {
   HINT_ON_EMPTY: boolean;
   CHECK_ON_EMPTY: boolean;
   SIMULATE: boolean;
+  SIM_AUTORUN: boolean;
 };
 
 export type UseConfigResult = {
@@ -77,6 +78,7 @@ export function useConfig(): UseConfigResult {
       HINT_ON_EMPTY: asBool(process.env.NEXT_PUBLIC_HINT_ON_EMPTY),
       CHECK_ON_EMPTY: asBool(process.env.NEXT_PUBLIC_CHECK_ON_EMPTY),
       SIMULATE: asBool(process.env.NEXT_PUBLIC_SIMULATE),
+      SIM_AUTORUN: asBool(process.env.NEXT_PUBLIC_SIMULATE_AUTORUN),
     };
 
     const assumeRedisReady = asBool(process.env.NEXT_PUBLIC_ASSUME_REDIS_READY);

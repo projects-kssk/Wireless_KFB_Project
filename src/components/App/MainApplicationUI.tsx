@@ -624,6 +624,10 @@ const MainApplicationUI: React.FC = () => {
   const tryRunPendingSimulate = useCallback(() => {
     const pending = pendingSimulateRef.current;
     if (!pending) return;
+    if (!FLAGS.SIM_AUTORUN) {
+      pendingSimulateRef.current = null;
+      return;
+    }
     const now = Date.now();
     const scheduleRetry = (delay = 250) => {
       if (simulateRetryTimerRef.current != null) return;
@@ -698,6 +702,7 @@ const MainApplicationUI: React.FC = () => {
     lastFinalizedMacRef,
     lastScanRef,
     noSetupCooldownRef,
+    FLAGS.SIM_AUTORUN,
     setupGateActive,
   ]);
 
@@ -709,6 +714,11 @@ const MainApplicationUI: React.FC = () => {
     const tick = Number(serial.simulateCheckTick || 0);
     if (!tick || tick === lastSimulateCheckTickRef.current) return;
     lastSimulateCheckTickRef.current = tick;
+
+    if (!FLAGS.SIM_AUTORUN) {
+      pendingSimulateRef.current = null;
+      return;
+    }
 
     const macFromEvent = String(serial.simulateCheckMac || "").trim();
     const fallback = (macRef.current || "").trim();
@@ -753,6 +763,7 @@ const MainApplicationUI: React.FC = () => {
     noSetupCooldownRef,
     serial.simulateCheckTick,
     serial.simulateCheckMac,
+    FLAGS.SIM_AUTORUN,
     tryRunPendingSimulate,
   ]);
 

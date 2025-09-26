@@ -35,6 +35,7 @@ vi.mock("@/components/App/hooks/useConfig", () => ({
       HINT_ON_EMPTY: false,
       CHECK_ON_EMPTY: false,
       SIMULATE: false,
+      SIM_AUTORUN: false,
     },
     ASSUME_REDIS_READY: true,
     ALLOW_IDLE_SCANS: true,

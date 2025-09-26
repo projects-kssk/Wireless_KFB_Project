@@ -20,6 +20,7 @@ vi.mock("@/components/App/hooks/useConfig", () => ({
     FLAGS: {
       REHYDRATE_ON_LOAD: false,
       USE_LOCKS: true,
+      SIM_AUTORUN: false,
     },
     ASSUME_REDIS_READY: true,
   }),

@@ -91,7 +91,7 @@ flowchart LR
 2. INPUT: Scan or run check returns failures/unknown pin data -> OUTPUT: Live mode stays active, streaming real-time pin edges with contact labels and a pending-failures list until all errors clear; once recovered it falls through to the finalize sequence.
 2.1 INPUT: BranchDashboardMainContent enters live mode with active MAC -> OUTPUT: Renders status pill (`SCANNING`/`CHECKING`), builds branch cards with OK/NOK/Not Tested badges, highlights pending pins, flashes a large OK SVG once the pins recover, pushes checkpoints for active KSKs, clears Redis aliases and locks, shows the cleanup note, then returns to the scan prompt.
 3. INPUT: Scan or run check finishes with no failures and setup data present -> OUTPUT: Finalize sequence runs (checkpoints → alias purge → lock clear), flashes the OK SVG, surfaces the cleanup note, and resets the UI for the next device.
-4. INPUT: Scan or run check hits errors like 429/504/pending -> OUTPUT: Flow auto-retries with scheduled backoff; if retries succeed it rejoins the normal flow, otherwise it disables the OK animation, resets the KFB context, clears branch data, and prompts another attempt.
+4. INPUT: Scan or run check hits errors like 429/504/pending -> OUTPUT: Scheduler queues bounded retries (default 350 ms backoff); any successful retry drops back into the normal live/finalize branch, while exhausting the retry budget disables the OK flash, clears branch/alias state, resets the KFB context to IDLE, and surfaces a retry prompt so the operator must rescan.
 
 ### Setup Page Flow (ACM1)
 

@@ -167,6 +167,29 @@ export const useScanFlow = ({
         CFG.CHECK_CLIENT_MS + 1200
       );
 
+      const scheduleFailureReset = (message: string) => {
+        okFlashAllowedRef.current = false;
+        setDisableOkAnimation(true);
+        clearScanOverlayTimeout();
+        if (message) {
+          if (scanResultTimerRef.current) {
+            clearTimeout(scanResultTimerRef.current);
+            scanResultTimerRef.current = null;
+          }
+          setScanResult({ text: message, kind: "error" });
+          scanResultTimerRef.current = window.setTimeout(() => {
+            setScanResult(null);
+            scanResultTimerRef.current = null;
+          }, 2600);
+        }
+        setTimeout(() => {
+          handleResetKfb();
+          setGroupedBranches([]);
+          setActiveKssks([]);
+          setNameHints(undefined);
+        }, 1300);
+      };
+
       try {
         lastRunHadFailuresRef.current = false;
         setCheckFailures(null);
@@ -212,6 +235,7 @@ export const useScanFlow = ({
               : undefined;
           setNameHints(hints);
 
+          let pinsUsedSafe: number[] = [];
           try {
             const toPinArray = (value: unknown): number[] | undefined => {
               if (!Array.isArray(value)) return undefined;
@@ -221,14 +245,15 @@ export const useScanFlow = ({
               return pins.length ? pins : undefined;
             };
 
-            const pinsUsed = toPinArray((result as any)?.pinsUsed);
+            const pinsUsedRaw = toPinArray((result as any)?.pinsUsed);
+            pinsUsedSafe = Array.isArray(pinsUsedRaw) ? pinsUsedRaw : [];
             const normalPinsFromResult = toPinArray(result?.normalPins);
             const latchPinsFromResult = toPinArray(result?.latchPins);
 
             const resolvedNormalPins =
               (normalPinsFromResult && normalPinsFromResult.length
                 ? normalPinsFromResult
-                : pinsUsed) || undefined;
+              : pinsUsedSafe) || undefined;
 
             setNormalPins(resolvedNormalPins);
             setLatchPins(latchPinsFromResult);
@@ -284,7 +309,7 @@ export const useScanFlow = ({
                 .map((n) => Number(n))
                 .filter((n) => Number.isFinite(n) && n > 0);
               const pinsCombined = new Set<number>(aliasPins);
-              for (const pin of pinsUsed || []) pinsCombined.add(pin);
+              for (const pin of pinsUsedSafe) pinsCombined.add(pin);
               for (const pin of failures)
                 if (Number.isFinite(pin) && pin > 0) pinsCombined.add(pin);
               const pinsAll = Array.from(pinsCombined).sort((a, b) => a - b);
@@ -576,25 +601,11 @@ export const useScanFlow = ({
                 250
               );
             } else {
-              setDisableOkAnimation(true);
-              clearScanOverlayTimeout();
-              setTimeout(() => {
-                handleResetKfb();
-                setGroupedBranches([]);
-                setActiveKssks([]);
-                setNameHints(undefined);
-              }, 1300);
+              scheduleFailureReset("Retry limit reached — please rescan");
             }
             cancel("checkWatchdog");
           } else {
-            setDisableOkAnimation(true);
-            clearScanOverlayTimeout();
-            setTimeout(() => {
-              handleResetKfb();
-              setGroupedBranches([]);
-              setActiveKssks([]);
-              setNameHints(undefined);
-            }, 1300);
+            scheduleFailureReset("Unexpected CHECK error — please rescan");
             cancel("checkWatchdog");
           }
         }
@@ -606,14 +617,7 @@ export const useScanFlow = ({
             300
           );
         } else {
-          setDisableOkAnimation(true);
-          clearScanOverlayTimeout();
-          setTimeout(() => {
-            handleResetKfb();
-            setGroupedBranches([]);
-            setActiveKssks([]);
-            setNameHints(undefined);
-          }, 1300);
+          scheduleFailureReset("Connection lost — please rescan");
         }
         cancel("checkWatchdog");
       } finally {

@@ -2680,40 +2680,8 @@ export default function SetupPage() {
                       }
                       manualOpen={!!(showManualFor as any)[`ksk${idx}`]}
                       onSubmit={(v) => handleManualSubmit(`ksk${idx}`, v)}
-                      onForceClear={async () => {
-                        const kssk = ksskSlots[idx];
-                        const macUp = (kfb || "").toUpperCase();
-                        if (!kssk || !macUp) return;
-                        try {
-                          await fetch("/api/aliases/clear", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ mac: macUp, ksk: kssk }),
-                          }).catch(() => {});
-                        } catch {}
-                        try {
-                          await releaseLock(kssk);
-                        } catch {}
-                        activeLocks.current.delete(kssk);
-                        setKsskSlots((prev) => {
-                          const n = [...prev];
-                          n[idx] = null;
-                          return n;
-                        });
-                        setKsskStatus((prev) => {
-                          const n = [...prev] as Array<(typeof prev)[number]>;
-                          n[idx] = "idle";
-                          return n;
-                        });
-                        fireFlash(
-                          "success",
-                          kssk,
-                          `ksk${idx}` as PanelKey,
-                          "Cleared"
-                        );
-                      }}
-                      flashKind={undefined}
-                      flashId={undefined}
+                      flashKind={hit ? flash?.kind : undefined}
+                      flashId={hit ? flash?.id : undefined}
                     />
                   );
                 }
@@ -2940,7 +2908,6 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   manualOpen,
   onManualToggle,
   onSubmit,
-  onForceClear,
   flashKind,
   flashId,
   darkMode = false,
@@ -2952,7 +2919,6 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   manualOpen: boolean;
   onManualToggle: () => void;
   onSubmit: (v: string) => void;
-  onForceClear?: () => void;
   flashKind?: "success" | "error" | null;
   flashId?: number;
   darkMode?: boolean;
@@ -3002,11 +2968,22 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
   const numberBg = darkMode ? "rgba(148,163,184,0.2)" : "#eef6ff";
   const numberBorder = darkMode ? "rgba(148,163,184,0.36)" : "#d9e7ff";
   const numberColor = darkMode ? "#e2e8f0" : "#0b1220";
-  const stripeSurface = darkMode ? "#353535" : "#fbfdff";
-  const stripeBorder = darkMode ? "rgba(148,163,184,0.3)" : "#d6e3f0";
-  const stripePattern = darkMode
-    ? "repeating-linear-gradient(90deg,rgba(148,163,184,0.55) 0 6px,transparent 6px 14px)"
-    : "repeating-linear-gradient(90deg,#8aa0b8 0 6px,transparent 6px 14px)";
+  const stripeSurface = darkMode
+    ? "linear-gradient(135deg, rgba(17,24,39,0.95), rgba(30,41,59,0.75))"
+    : "linear-gradient(135deg,#f8fafc,#e2e8f0)";
+  const stripeBorder = darkMode
+    ? "rgba(148,163,184,0.45)"
+    : "rgba(148,163,184,0.35)";
+  const stripePatternColor = darkMode
+    ? "rgba(226,232,240,0.78)"
+    : "rgba(71,85,105,0.82)";
+  const stripePattern = `repeating-linear-gradient(90deg, ${stripePatternColor} 0 6px, transparent 6px 14px)`;
+  const stripeSheen = darkMode
+    ? "linear-gradient(120deg, rgba(255,255,255,0.05) 0%, rgba(148,163,184,0.18) 45%, rgba(255,255,255,0.05) 100%)"
+    : "linear-gradient(120deg, rgba(255,255,255,0.6) 0%, rgba(148,163,184,0.2) 45%, rgba(255,255,255,0.55) 100%)";
+  const stripeTextColor = darkMode
+    ? "rgba(226,232,240,0.68)"
+    : "rgba(30,41,59,0.55)";
   const slotInputStyle: CSSProperties = {
     width: "100%",
     height: 46,
@@ -3084,6 +3061,7 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
           value={code || "—"}
           highlight={isErr ? "danger" : isOk ? "success" : "neutral"}
           big
+          darkMode={darkMode}
         />
       </div>
 
@@ -3107,25 +3085,64 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
         aria-label={`KSK scan zone ${index + 1}`}
         style={{
           width: "100%",
-          height: 112,
-          borderRadius: 12,
+          height: 118,
+          borderRadius: 14,
           background: stripeSurface,
           border: `1px dashed ${stripeBorder}`,
-          display: "grid",
-          placeItems: "center",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 14,
+          position: "relative",
           overflow: "hidden",
-          transition: "background 160ms ease, border-color 160ms ease",
+          boxShadow: darkMode
+            ? "0 18px 36px -28px rgba(15,15,15,0.9)"
+            : "0 22px 48px -36px rgba(15,23,42,0.22)",
+          transition:
+            "background 160ms ease, border-color 160ms ease, box-shadow 160ms ease",
         }}
       >
         <div
           style={{
-            width: "min(100%, 520px)",
-            height: 64,
-            borderRadius: 8,
-            background: stripePattern,
-            opacity: 0.9,
+            position: "absolute",
+            inset: 0,
+            background: stripeSheen,
+            opacity: darkMode ? 0.28 : 0.42,
+            pointerEvents: "none",
           }}
         />
+        <div
+          style={{
+            width: "min(100%, 520px)",
+            height: 70,
+            borderRadius: 10,
+            background: stripePattern,
+            position: "relative",
+            overflow: "hidden",
+            boxShadow: darkMode
+              ? "0 16px 30px -28px rgba(15,15,15,0.85)"
+              : "0 24px 42px -34px rgba(15,23,42,0.25)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: "6px 14px",
+              borderRadius: 6,
+              border: `1px solid ${darkMode ? "rgba(226,232,240,0.12)" : "rgba(148,163,184,0.25)"}`,
+              pointerEvents: "none",
+            }}
+          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: stripeSheen,
+              opacity: darkMode ? 0.24 : 0.34,
+              mixBlendMode: darkMode ? "screen" : "soft-light",
+            }}
+          />
+        </div>
       </div>
 
       <button
@@ -3144,27 +3161,6 @@ const KsskSlotCompact = memo(function KsskSlotCompact({
       >
         Enter manually
       </button>
-
-      {code && (
-        <button
-          type="button"
-          onClick={onForceClear}
-          style={{
-            fontSize: 12,
-            color: "#b91c1c",
-            textDecoration: "underline",
-            cursor: "pointer",
-            fontWeight: 800,
-            background: "transparent",
-            border: 0,
-            justifySelf: "start",
-          }}
-          aria-label={`Force clear KSK ${code}`}
-          title="Force-clear this KSK (lock + aliases)"
-        >
-          Force clear
-        </button>
-      )}
 
       <AnimatePresence initial={false}>
         {manualOpen && (
@@ -3374,34 +3370,42 @@ function CodePill({
   value,
   highlight = "neutral",
   big = false,
+  darkMode = false,
 }: {
   value: string;
   highlight?: "neutral" | "success" | "danger";
   big?: boolean;
+  darkMode?: boolean;
 }) {
   const palette =
     highlight === "success"
       ? {
-          bg: "rgba(16,185,129,0.08)",
-          bd: "#a7f3d0",
-          fg: "#065f46",
-          dot: "linear-gradient(180deg,#34d399,#10b981)",
-          ring: "rgba(16,185,129,0.18)",
+          bg: darkMode ? "rgba(34,197,94,0.22)" : "rgba(16,185,129,0.08)",
+          bd: darkMode ? "rgba(134,239,172,0.55)" : "#a7f3d0",
+          fg: darkMode ? "#f8fafc" : "#065f46",
+          dot: darkMode
+            ? "linear-gradient(180deg,rgba(134,239,172,0.9),rgba(74,222,128,0.9))"
+            : "linear-gradient(180deg,#34d399,#10b981)",
+          ring: darkMode ? "rgba(134,239,172,0.32)" : "rgba(16,185,129,0.18)",
         }
       : highlight === "danger"
         ? {
-            bg: "rgba(239,68,68,0.08)",
-            bd: "#fecaca",
-            fg: "#7f1d1d",
-            dot: "linear-gradient(180deg,#fb7185,#ef4444)",
-            ring: "rgba(239,68,68,0.18)",
+            bg: darkMode ? "rgba(248,113,113,0.2)" : "rgba(239,68,68,0.08)",
+            bd: darkMode ? "rgba(248,113,113,0.45)" : "#fecaca",
+            fg: darkMode ? "#fee2e2" : "#7f1d1d",
+            dot: darkMode
+              ? "linear-gradient(180deg,rgba(248,113,113,0.9),rgba(239,68,68,0.9))"
+              : "linear-gradient(180deg,#fb7185,#ef4444)",
+            ring: darkMode ? "rgba(248,113,113,0.28)" : "rgba(239,68,68,0.18)",
           }
         : {
-            bg: "rgba(2,6,23,0.04)",
-            bd: "#dbe3ee",
-            fg: "#0f172a",
-            dot: "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-            ring: "rgba(2,6,23,0.06)",
+            bg: darkMode ? "rgba(30,41,59,0.42)" : "rgba(2,6,23,0.04)",
+            bd: darkMode ? "rgba(148,163,184,0.35)" : "#dbe3ee",
+            fg: darkMode ? "#e2e8f0" : "#0f172a",
+            dot: darkMode
+              ? "linear-gradient(180deg,rgba(226,232,240,0.65),rgba(148,163,184,0.6))"
+              : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
+            ring: darkMode ? "rgba(148,163,184,0.28)" : "rgba(2,6,23,0.06)",
           };
 
   return (
@@ -3415,7 +3419,9 @@ function CodePill({
         background: palette.bg,
         border: `2px solid ${palette.bd}`,
         lineHeight: 1,
-        boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.8)`,
+        boxShadow: darkMode
+          ? "inset 0 0 0 1px rgba(255,255,255,0.08)"
+          : "inset 0 0 0 1px rgba(255,255,255,0.8)",
       }}
     >
       <span

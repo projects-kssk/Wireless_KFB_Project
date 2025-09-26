@@ -97,29 +97,27 @@ function CornerBarcodeHint({
       }}
     >
       {/* outer frame */}
-        <div
-          style={{
-            position: "relative",
-            width: widthPx,
-            height: heightPx,
-            borderRadius: rOuter,
-            background: frameColor,
-            overflow: "hidden",
-            boxShadow:
-              `inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px ${darkMode ? "rgba(0,0,0,0.35)" : "rgba(15,23,42,.15)"}`,
-          }}
+      <div
+        style={{
+          position: "relative",
+          width: widthPx,
+          height: heightPx,
+          borderRadius: rOuter,
+          background: frameColor,
+          overflow: "hidden",
+          boxShadow: `inset 0 0 0 1px rgba(255,255,255,.10), inset 0 1px 0 rgba(255,255,255,.10), inset 0 -1px 0 rgba(255,255,255,.06), 0 6px 16px ${darkMode ? "rgba(0,0,0,0.35)" : "rgba(15,23,42,.15)"}`,
+        }}
       >
         {/* subtle vertical grid like the big box */}
         <div
           aria-hidden
-            style={{
-              position: "absolute",
-              inset: 0,
-              opacity: 0.22,
-              backgroundImage:
-                `repeating-linear-gradient(90deg, ${gridColor} 0 1px, transparent 1px 12px)`,
-              backgroundSize: "120px 100%",
-            }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            opacity: 0.22,
+            backgroundImage: `repeating-linear-gradient(90deg, ${gridColor} 0 1px, transparent 1px 12px)`,
+            backgroundSize: "120px 100%",
+          }}
         />
 
         {/* centered barcode slab */}
@@ -366,7 +364,9 @@ export default function TableSwap({
   const overlayShadow = isDark
     ? "inset 0 1px 0 rgba(255,255,255,0.12), 0 22px 44px rgba(0,0,0,0.45)"
     : "inset 0 1px 0 rgba(255,255,255,0.7), 0 22px 44px rgba(15,23,42,0.25)";
-  const promptAccent = isDark ? "rgba(255,255,255,0.25)" : "rgba(15,23,42,0.06)";
+  const promptAccent = isDark
+    ? "rgba(255,255,255,0.25)"
+    : "rgba(15,23,42,0.06)";
 
   // 50% of callout, clamped; wide:height ≈ 2.4:1
   const tileWpx = Math.round(Math.max(72, Math.min(calloutW * 0.5, 220)));
@@ -793,36 +793,6 @@ function Body({
           boxShadow: highlightShadow,
         }}
       />
-
-      {showScanBadge && (
-        <span
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 10,
-            fontSize: 13,
-            letterSpacing: "0.18em",
-            color: darkMode
-              ? "rgba(226,232,240,0.72)"
-              : "rgba(15,23,42,0.66)",
-            opacity: 0.85,
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 999,
-              backgroundImage: accentGradient,
-              boxShadow: darkMode
-                ? "0 0 0 3px rgba(37,99,235,0.25)"
-                : "0 0 0 3px rgba(59,130,246,0.18)",
-            }}
-          />
-          Scan Ready
-        </span>
-      )}
     </div>
   );
 }

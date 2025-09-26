@@ -170,6 +170,22 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const statusByPin = useStatusByPin(localBranches);
 
+  const normalizedCheckFailures = useMemo(() => {
+    if (!Array.isArray(checkFailures) || checkFailures.length === 0) return [];
+    const seen = new Set<number>();
+    for (const raw of checkFailures) {
+      const pin = Number(raw);
+      if (Number.isFinite(pin) && pin > 0) seen.add(pin);
+    }
+    return Array.from(seen).sort((a, b) => a - b);
+  }, [checkFailures]);
+
+  const activeCheckFailures = useMemo(
+    () =>
+      normalizedCheckFailures.filter((pin) => statusByPin.get(pin) !== "ok"),
+    [normalizedCheckFailures, statusByPin]
+  );
+
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearBusyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -180,10 +196,9 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       Array.isArray(groupedBranches) &&
       groupedBranches.some((g) => (g?.branches?.length ?? 0) > 0);
     const haveFlat = localBranches.length > 0;
-    const haveFailures =
-      Array.isArray(checkFailures) && checkFailures.length > 0;
+    const haveFailures = normalizedCheckFailures.length > 0;
     return haveGroups || haveFlat || haveFailures;
-  }, [groupedBranches, localBranches, checkFailures]);
+  }, [groupedBranches, localBranches, normalizedCheckFailures.length]);
 
   useEffect(() => {
     const wantBusy = (isScanning || isChecking) && !hasData;
@@ -244,7 +259,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const snapObj = {
       branches: branchesData.length,
       grouped: Array.isArray(groupedBranches) ? groupedBranches.length : 0,
-      failures: Array.isArray(checkFailures) ? checkFailures.length : 0,
+      failures: normalizedCheckFailures.length,
       nameHints: nh,
       normalPins: normalizedNormalPins.length,
       latchPins: normalizedLatchPins.length,
@@ -260,7 +275,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [
     branchesData,
     groupedBranches,
-    checkFailures,
+    normalizedCheckFailures.length,
     nameHints,
     normalizedNormalPins.length,
     normalizedLatchPins.length,
@@ -527,8 +542,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
     if (nok.length > 0) return { items: nok, source: "live" as const };
 
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-      const items = checkFailures.map((pin) => ({
+    if (activeCheckFailures.length > 0) {
+      const items = activeCheckFailures.map((pin) => ({
         id: `FAIL:${pin}`,
         branchName: labelForPin(pin),
         testStatus: "nok" as const,
@@ -539,7 +554,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     }
 
     return { items: [] as BranchDisplayData[], source: "none" as const };
-  }, [localBranches, checkFailures, labelForPin]);
+  }, [localBranches, activeCheckFailures, labelForPin]);
 
   const unionAwaitingGroups = useMemo(() => {
     const haveGroups =
@@ -550,16 +565,12 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   }, [groupedBranches, pending]);
 
   const failurePins: number[] = useMemo(() => {
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) {
-      return [...new Set(checkFailures.filter((n) => Number.isFinite(n)))].sort(
-        (a, b) => a - b
-      );
-    }
+    if (activeCheckFailures.length > 0) return activeCheckFailures;
     const pins = pending.items
       .map((b) => b.pinNumber)
       .filter((n): n is number => typeof n === "number");
     return [...new Set(pins)].sort((a, b) => a - b);
-  }, [checkFailures, pending]);
+  }, [activeCheckFailures, pending]);
 
   const hasLiveContent = useMemo(
     () =>
@@ -652,16 +663,14 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const allOk = useMemo(() => {
     if (disableOkAnimation) return false;
-    if (Array.isArray(checkFailures) && checkFailures.length > 0) return false;
+    if (normalizedCheckFailures.length > 0) return false;
     return flatAllOk || groupedAllOk;
-  }, [disableOkAnimation, checkFailures, flatAllOk, groupedAllOk]);
+  }, [disableOkAnimation, normalizedCheckFailures.length, flatAllOk, groupedAllOk]);
 
   /* --------------------------- Finalize / OK flash --------------------------- */
   const lastClearedMacRef = useRef<string | null>(null);
   const finalizeInFlightRef = useRef<Promise<void> | null>(null);
-  const currentFailureCount = Array.isArray(checkFailures)
-    ? checkFailures.length
-    : 0;
+  const currentFailureCount = normalizedCheckFailures.length;
   useEffect(() => {
     if (currentFailureCount > 0) {
       lastClearedMacRef.current = null;

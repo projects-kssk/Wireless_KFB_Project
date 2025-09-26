@@ -58,6 +58,7 @@ export async function POST(req: Request) {
       const code = String((s as any)?.code ?? '').trim();
       if (code) {
         const path = (s as any)?.path ?? undefined;
+        try { broadcast({ type: 'simulate/check', mac: code }); } catch {}
         // broadcast over in-process bus (SSE listeners consume immediately)
         try { broadcast({ type: 'scan', code, path }); } catch {}
         // also push into scanner memory so polling and SSE scan-poll can consume

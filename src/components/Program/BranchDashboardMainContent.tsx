@@ -739,6 +739,23 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return [...new Set(pins)].sort((a, b) => a - b);
   }, [checkFailures, pending]);
 
+  const awaitingUnionsStrict = useMemo(() => {
+    const haveMac = !!(macAddress && macAddress.trim());
+    const expectGroups = Array.isArray(activeKssks) && activeKssks.length > 0;
+    const groupsMissing =
+      !Array.isArray(groupedBranches) || groupedBranches.length === 0;
+    const noFlatContent =
+      (localBranches?.length || 0) === 0 && (failurePins?.length || 0) === 0;
+
+    return haveMac && expectGroups && groupsMissing && noFlatContent;
+  }, [
+    macAddress,
+    activeKssks,
+    groupedBranches,
+    localBranches,
+    failurePins,
+  ]);
+
   const isLatchPin = useCallback(
     (p?: number) => typeof p === "number" && normalizedLatchPins.includes(p),
     [normalizedLatchPins]
@@ -1125,7 +1142,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     </div>
   );
 
-  const busyLabel = unionAwaitingGroups
+  const busyLabel = awaitingUnionsStrict || unionAwaitingGroups
     ? "LOADING RESULTS"
     : isChecking
       ? "CHECKING"
@@ -1133,7 +1150,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   const busyView = (
     <div
-      className="flex flex-col items-center justify-center h-full min-h-[500px]"
+      className="flex flex-col items-center justify-center h-full min-h-[580px]"
       aria-busy="true"
       aria-live="polite"
     >
@@ -1464,7 +1481,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     if (showOkAnimation) return "ok";
     if (scanningError) return "error";
     if (busy) return "busy";
-    if (unionAwaitingGroups) return "busy";
+    if (awaitingUnionsStrict || unionAwaitingGroups) return "busy";
     if (hasMounted && localBranches.length === 0) {
       if (failurePins.length > 0) return "flat-empty";
       return "scan";
@@ -1476,6 +1493,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     showOkAnimation,
     scanningError,
     busy,
+    awaitingUnionsStrict,
+    unionAwaitingGroups,
     hasMounted,
     localBranches.length,
     groupedBranches,
@@ -1491,7 +1510,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
 
   /* ---------------------------------- Header -------------------------------- */
   const hasContent =
-    !unionAwaitingGroups &&
+    !awaitingUnionsStrict &&
     ((Array.isArray(groupedBranches) && groupedBranches.length > 0) ||
       (localBranches && localBranches.length > 0) ||
       failurePins.length > 0);
@@ -1519,6 +1538,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
               <div />
             )}
             {macAddress &&
+            !awaitingUnionsStrict &&
             localBranches.length > 0 &&
             !(Array.isArray(groupedBranches) && groupedBranches.length > 0) &&
             activeKssks &&

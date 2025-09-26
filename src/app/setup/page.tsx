@@ -617,6 +617,9 @@ export default function SetupPage() {
   const [setupName, setSetupName] = useState<string>("");
   const sendBusyRef = useRef(false);
   const [simulateOn, setSimulateOn] = useState<boolean>(false);
+  const simulateRunCheckSkipRef = useRef<{ mac: string; expires: number } | null>(
+    null
+  );
 
   useEffect(() => {
     const token = acquireScanScope("setup");
@@ -1909,6 +1912,19 @@ export default function SetupPage() {
   // ---- Serial scanner integration (SSE) ----
   // Enable base SSE in Setup to receive live scanner/device status without a MAC filter
   const serial = useSerialEvents(undefined, { base: true });
+
+  useEffect(() => {
+    const tick = serial.simulateCheckTick;
+    if (!tick) return;
+    const mac = String(serial.simulateCheckMac || "")
+      .trim()
+      .toUpperCase();
+    if (!mac) return;
+    simulateRunCheckSkipRef.current = {
+      mac,
+      expires: Date.now() + 2000,
+    };
+  }, [serial.simulateCheckTick, serial.simulateCheckMac]);
   const SETUP_SCANNER_INDEX = Number(
     process.env.NEXT_PUBLIC_SCANNER_INDEX_SETUP ?? "1"
   );
@@ -1967,6 +1983,26 @@ export default function SetupPage() {
     if (!serial.lastScanTick) return;
     const raw = String(serial.lastScan || "").trim();
     if (!raw) return;
+    const guard = simulateRunCheckSkipRef.current;
+    if (guard) {
+      const { type, code } = classify(raw);
+      const normalized = String(type === "kfb" ? code : raw)
+        .trim()
+        .toUpperCase();
+      const now = Date.now();
+      if (normalized && normalized === guard.mac) {
+        if (now <= guard.expires) {
+          simulateRunCheckSkipRef.current = null;
+          try {
+            serial.clearLastScan?.();
+          } catch {}
+          return;
+        }
+        simulateRunCheckSkipRef.current = null;
+      } else if (now > guard.expires) {
+        simulateRunCheckSkipRef.current = null;
+      }
+    }
     const want = resolveDesiredPath();
     const seen = serial.lastScanPath;
     if (want && seen && !pathsEqual(seen, want)) return; // ignore other scanner paths

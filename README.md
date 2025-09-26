@@ -255,3 +255,11 @@ flowchart TB
 Kérdés esetén nézd át a [docs/EN/4-ERRORS.md](https://github.com/projects-kssk/Wireless_KFB_Project/blob/main/docs/EN/4-ERRORS.md) útmutatót, vagy jelezd a csapatnak a konkrét hibát/napló részlettel.
 Telefonos elérhetőség: 621.
 The project was made by Nagy Viktor.
+
+[NEXT] POST /api/visualcontrol 200 in 604ms
+[NEXT] POST /api/visualcontrol 200 in 7ms
+[NEXT] POST /api/visualcontrol 200 in 7ms
+[NEXT] ✓ Compiled /api/checkpoint in 244ms (349 modules)
+[NEXT] POST /api/checkpoint 200 in 291ms
+[NEXT] POST /api/checkpoint 200 in 5ms
+[NEXT] POST /api/checkpoint 200 in 6ms

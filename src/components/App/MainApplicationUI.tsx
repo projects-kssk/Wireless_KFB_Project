@@ -58,19 +58,19 @@ const bannerVariants = {
   exit: { opacity: 0, y: -8, transition: { duration: 0.18 } },
 };
 
-const dedupeUpper = (
+const dedupeCasePreserving = (
   values?: Iterable<string | null | undefined>
 ): string[] => {
   if (!values) return [];
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of values) {
-    const normalized = String(raw || "")
-      .trim()
-      .toUpperCase();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    out.push(normalized);
+    const original = String(raw || "").trim();
+    if (!original) continue;
+    const key = original.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(original);
   }
   return out;
 };
@@ -284,7 +284,7 @@ const MainApplicationUI: React.FC = () => {
           typeof next === "function"
             ? (next as (value: string[]) => string[])(prev)
             : next;
-        const canonical = dedupeUpper(raw);
+        const canonical = dedupeCasePreserving(raw);
         if (
           canonical.length === prev.length &&
           canonical.every((value, idx) => value === prev[idx])
@@ -569,10 +569,10 @@ const MainApplicationUI: React.FC = () => {
       return next;
     };
 
-    const current = adopt(dedupeUpper(lastActiveIdsRef.current));
+    const current = adopt(dedupeCasePreserving(lastActiveIdsRef.current));
     if (current.length) return current;
 
-    const fromState = adopt(dedupeUpper(activeKssks));
+    const fromState = adopt(dedupeCasePreserving(activeKssks));
     if (fromState.length) return fromState;
 
     const aliasSnapshot = Array.isArray(itemsAllFromAliasesRef.current)
@@ -582,7 +582,7 @@ const MainApplicationUI: React.FC = () => {
         }>)
       : [];
     const aliasIds = adopt(
-      dedupeUpper(
+      dedupeCasePreserving(
         aliasSnapshot.map((item) => (item?.ksk ?? item?.kssk) || "")
       )
     );

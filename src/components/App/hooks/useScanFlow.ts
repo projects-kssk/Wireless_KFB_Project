@@ -857,7 +857,9 @@ export const useScanFlow = ({
       okFlashAllowedRef.current = true;
       updateHeaderVisibility(true);
 
-      await runCheck(pendingMac, 0, pins);
+      const runToken = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      checkTokenRef.current = runToken;
+      await runCheck(pendingMac, 0, pins, runToken);
       setIsScanning(false);
       setShowScanUi(false);
     },

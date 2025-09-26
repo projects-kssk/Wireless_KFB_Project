@@ -192,6 +192,7 @@ export function DeviceEventsEffect({
       lastSuccessSignatureRef.current = null;
       setIsChecking(true);
       okFlashAllowedRef.current = true;
+      lastRunHadFailuresRef.current = true;
       try {
         const m = raw.match(/MISSING\s+([0-9 ,]+)/i);
         if (m && m[1]) {

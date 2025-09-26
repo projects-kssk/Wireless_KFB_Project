@@ -13,6 +13,7 @@ import { m, AnimatePresence } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useInitialTheme } from "@/app/theme-provider";
 import GroupedSection from "./components/GroupedSection";
+import useStatusByPin from "./hooks/useStatusByPin";
 
 const DEBUG_LIVE = process.env.NEXT_PUBLIC_DEBUG_LIVE === "1";
 
@@ -166,6 +167,8 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const [localBranches, setLocalBranches] =
     useState<BranchDisplayData[]>(branchesData);
   useEffect(() => setLocalBranches(branchesData), [branchesData]);
+
+  const statusByPin = useStatusByPin(localBranches);
 
   const [busy, setBusy] = useState(false);
   const busyEnterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -558,7 +561,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     return [...new Set(pins)].sort((a, b) => a - b);
   }, [checkFailures, pending]);
 
-  const hasFlatContent = useMemo(
+  const hasLiveContent = useMemo(
     () =>
       failurePins.length > 0 ||
       pending.items.length > 0 ||
@@ -587,7 +590,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     const expectingGroups = scanningActive || activeKssks.length > 0;
     if (!expectingGroups) return false;
 
-    const hasInterimContent = hasFlatContent;
+    const hasInterimContent = hasLiveContent;
 
     return hasInterimContent;
   }, [
@@ -595,7 +598,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     isScanning,
     isChecking,
     activeKssks.length,
-    hasFlatContent,
+    hasLiveContent,
   ]);
 
   const isLatchPin = useCallback(
@@ -1037,11 +1040,6 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
   const groupedView = (() => {
     if (!groupedBranches || groupedBranches.length === 0) return null;
 
-    const statusByPin = new Map<number, "ok" | "nok" | "not_tested">();
-    for (const b of localBranches)
-      if (typeof b.pinNumber === "number")
-        statusByPin.set(b.pinNumber, b.testStatus as any);
-
     return (
       <div className="flex flex-col gap-4 w-full mt-0">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -1079,7 +1077,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       (Array.isArray(activeKssks) && activeKssks.length > 0);
 
     if (hasMounted && localBranches.length === 0) {
-      if (failurePins.length > 0 || hasFlatContent) return "grouped";
+      if (failurePins.length > 0 || hasLiveContent) return "grouped";
       return preferGroupsSoon ? "busy" : "scan";
     }
 
@@ -1087,7 +1085,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
       return "grouped";
     }
 
-    return hasFlatContent || localBranches.length > 0
+    return hasLiveContent || localBranches.length > 0
       ? "grouped"
       : preferGroupsSoon
         ? "busy"
@@ -1106,7 +1104,7 @@ const BranchDashboardMainContent: React.FC<BranchDashboardMainContentProps> = ({
     isScanning,
     isChecking,
     activeKssks,
-    hasFlatContent,
+    hasLiveContent,
   ]);
 
   useEffect(() => {

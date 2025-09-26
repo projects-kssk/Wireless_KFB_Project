@@ -89,7 +89,7 @@ export type UseScanFlowParams = {
 };
 
 export type UseScanFlowResult = {
-  runCheck: (mac: string, attempt?: number, pins?: number[]) => Promise<void>;
+  runCheck: (mac: string, attempt?: number, pins?: number[], token?: string) => Promise<void>;
   loadBranchesData: (value?: string, trigger?: ScanTrigger) => Promise<void>;
   handleScan: (raw: string, trigger?: ScanTrigger) => Promise<void>;
 };

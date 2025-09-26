@@ -481,6 +481,9 @@ const MainApplicationUI: React.FC = () => {
     try {
       blockedMacRef.current?.clear();
     } catch {}
+    try {
+      currentCheckTokenRef.current = null;
+    } catch {}
     if (simulateRetryTimerRef.current != null) {
       try {
         window.clearTimeout(simulateRetryTimerRef.current);

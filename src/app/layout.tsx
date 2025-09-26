@@ -1,6 +1,13 @@
 // app/layout.tsx
 import "@/app/globals.css";
+import { cookies } from "next/headers";
+import { THEME_STORAGE_KEY } from "@/lib/themeStorage";
 import ClientProviders from "./client-providers";
+
+const resolveInitialTheme = (): "light" | "dark" => {
+  const stored = cookies().get(THEME_STORAGE_KEY)?.value?.toLowerCase();
+  return stored === "dark" ? "dark" : "light";
+};
 
 export const viewport = {
   width: "device-width",
@@ -23,8 +30,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const initialTheme = resolveInitialTheme();
+  const htmlThemeClass = initialTheme === "dark" ? "dark" : "light";
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={htmlThemeClass} suppressHydrationWarning>
       <body
         className={[
           "font-sans min-h-screen transition-colors",
@@ -33,7 +43,7 @@ export default function RootLayout({
           "dark:bg-none dark:bg-[#222222] dark:text-slate-100",
         ].join(" ")}
       >
-        <ClientProviders>
+        <ClientProviders initialTheme={initialTheme}>
           <main className="h-full">{children}</main>
         </ClientProviders>
       </body>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTheme } from "next-themes";
+import { THEME_COOKIE_MAX_AGE, THEME_STORAGE_KEY } from "@/lib/themeStorage";
 
 const THEMES = [
   { key: "light", label: "Light" },
@@ -22,6 +23,23 @@ type ThemeToggleProps = {
   tone?: "default" | "card";
 };
 
+const updateRootThemeClass = (next: ThemeKey) => {
+  if (typeof window === "undefined") return;
+  const root = document.documentElement;
+  if (next === "dark") {
+    root.classList.add("dark");
+    root.classList.remove("light");
+  } else {
+    root.classList.remove("dark");
+    root.classList.add("light");
+  }
+};
+
+const persistThemeCookie = (next: ThemeKey) => {
+  if (typeof document === "undefined") return;
+  document.cookie = `${THEME_STORAGE_KEY}=${next}; path=/; max-age=${THEME_COOKIE_MAX_AGE}; SameSite=Lax`;
+};
+
 export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {}) {
   const { theme, resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -31,33 +49,21 @@ export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {})
   }, []);
 
   const active = resolveTheme(theme, resolvedTheme);
-  const displayActive = mounted ? active : active;
 
   useEffect(() => {
     if (!mounted) return;
-    if (typeof window === "undefined") return;
-    const root = document.documentElement;
-    if (active === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.remove("dark");
-      root.classList.add("light");
-    }
+    updateRootThemeClass(active);
+    persistThemeCookie(active);
   }, [active, mounted]);
 
-  const applyTheme = (next: ThemeKey) => {
-    setTheme(next);
-    if (typeof window === "undefined") return;
-    const root = document.documentElement;
-    if (next === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.remove("dark");
-      root.classList.add("light");
-    }
-  };
+  const applyTheme = useCallback(
+    (next: ThemeKey) => {
+      setTheme(next);
+      updateRootThemeClass(next);
+      persistThemeCookie(next);
+    },
+    [setTheme]
+  );
 
   const containerClass =
     tone === "card"
@@ -77,7 +83,7 @@ export default function ThemeToggle({ tone = "default" }: ThemeToggleProps = {})
   return (
     <div className={containerClass} role="group" aria-label="Theme toggle">
       {THEMES.map(({ key, label }) => {
-        const isActive = key === displayActive;
+        const isActive = key === active;
         return (
           <button
             key={key}

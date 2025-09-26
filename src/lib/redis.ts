@@ -7,6 +7,16 @@ const log = LOG.tag('redis');
 
 let client: any = null;
 
+function getGlobalStore() {
+  try {
+    const g: any = globalThis as any;
+    g.__KFB_REDIS_STORE__ ||= {};
+    return g.__KFB_REDIS_STORE__;
+  } catch {
+    return {};
+  }
+}
+
 // Track recent status for diagnostics
 const lastInfo: {
   status: string;
@@ -72,13 +82,15 @@ function ensureKeepAlive(r: any) {
 }
 
 export function getRedis() {
+  const store = getGlobalStore();
+  if (!client) client = store.client;
   if (client) return client;
 
   const url = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
   const shown = maskUrl(url);
   const connectTimeout = Number(process.env.REDIS_CONNECT_TIMEOUT_MS ?? '2000');
 
-  client = new Redis(url, {
+  const instance = new Redis(url, {
     lazyConnect: false,          // connect immediately
     enableOfflineQueue: false,   // fail fast if down
     maxRetriesPerRequest: 2,
@@ -86,8 +98,10 @@ export function getRedis() {
   });
 
   log.info(`init url=${shown} lazyConnect=false offlineQueue=false timeout=${connectTimeout}ms`);
-  attachEventLogging(client, shown);
-  ensureKeepAlive(client);
+  attachEventLogging(instance, shown);
+  ensureKeepAlive(instance);
+  store.client = instance;
+  client = instance;
 
   // Also log unhandled error events at process level (useful in prod)
   // Install once to avoid MaxListenersExceededWarning under hot-reload

@@ -59,7 +59,7 @@ export function ScannerEffect({
     if (Date.now() < (idleCooldownUntilRef.current || 0)) return;
     if (blockedMacRef.current.has(key)) return;
 
-    void handleScan(raw, "sse");
+    void handleScan(raw, "poll");
   }, [
     (serial as any).lastScanTick,
     (serial as any).lastScanPath,

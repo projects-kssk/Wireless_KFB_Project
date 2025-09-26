@@ -964,6 +964,7 @@ const MainApplicationUI: React.FC = () => {
   }, []);
 
   const hasBoardData = useMemo(() => {
+    if (scanResult?.text === NO_SETUP_MSG) return false;
     if (macAddress && macAddress.trim()) return true;
     if (kfbNumber && kfbNumber.trim()) return true;
     if (Array.isArray(branchesData) && branchesData.length > 0) return true;
@@ -980,6 +981,7 @@ const MainApplicationUI: React.FC = () => {
     normalPins,
     latchPins,
     activeKssks,
+    scanResult,
   ]);
 
   const { hudMode, hudMessage, hudSubMessage } = useHud({

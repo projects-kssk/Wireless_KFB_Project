@@ -81,9 +81,11 @@ export type UseScanFlowParams = {
   okFlashAllowedRef: RefLike<boolean>;
   okShownOnceRef: RefLike<boolean>;
   lastScanTokenRef: RefLike<string>;
-  noSetupCooldownRef: RefLike<
-    { mac: string; until: number; requireManual?: boolean } | null
-  >;
+  noSetupCooldownRef: RefLike<{
+    mac: string;
+    until: number;
+    requireManual?: boolean;
+  } | null>;
   checkTokenRef: RefLike<{ mac: string; token: string } | null>;
 
   activeKssks: string[];
@@ -92,7 +94,12 @@ export type UseScanFlowParams = {
 };
 
 export type UseScanFlowResult = {
-  runCheck: (mac: string, attempt?: number, pins?: number[], token?: string) => Promise<void>;
+  runCheck: (
+    mac: string,
+    attempt?: number,
+    pins?: number[],
+    token?: string
+  ) => Promise<void>;
   loadBranchesData: (value?: string, trigger?: ScanTrigger) => Promise<void>;
   handleScan: (raw: string, trigger?: ScanTrigger) => Promise<void>;
 };
@@ -151,7 +158,12 @@ export const useScanFlow = ({
 }: UseScanFlowParams): UseScanFlowResult => {
   const updateHeaderVisibility = setShouldShowHeader ?? (() => {});
   const runCheck = useCallback(
-    async (mac: string, attempt: number = 0, pins?: number[], token?: string) => {
+    async (
+      mac: string,
+      attempt: number = 0,
+      pins?: number[],
+      token?: string
+    ) => {
       if (!mac) return;
       const current = checkTokenRef.current;
       const macKeyCurrent = macKey(mac);
@@ -270,7 +282,7 @@ export const useScanFlow = ({
             const resolvedNormalPins =
               (normalPinsFromResult && normalPinsFromResult.length
                 ? normalPinsFromResult
-              : pinsUsedSafe) || undefined;
+                : pinsUsedSafe) || undefined;
 
             setNormalPins(resolvedNormalPins);
             setLatchPins(latchPinsFromResult);
@@ -651,7 +663,12 @@ export const useScanFlow = ({
           now + 2500
         );
         if (pendingSimulateRef.current) tryRunPendingSimulateRef.current();
-        if (token && checkTokenRef.current && checkTokenRef.current.token === token) checkTokenRef.current = null;
+        if (
+          token &&
+          checkTokenRef.current &&
+          checkTokenRef.current.token === token
+        )
+          checkTokenRef.current = null;
       }
     },
     [
@@ -713,7 +730,8 @@ export const useScanFlow = ({
       }
 
       const blockKey = macKey(pendingMac);
-      if (checkTokenRef.current && checkTokenRef.current.mac === blockKey) return;
+      if (checkTokenRef.current && checkTokenRef.current.mac === blockKey)
+        return;
 
       const cooldown = noSetupCooldownRef.current;
       if (cooldown && cooldown.mac === blockKey) {
@@ -870,9 +888,7 @@ export const useScanFlow = ({
         idleCooldownUntilRef.current = 0;
         const cooldownMs = Math.max(
           3000,
-          Number.isFinite(CFG.RETRY_COOLDOWN_MS)
-            ? CFG.RETRY_COOLDOWN_MS
-            : 3000
+          Number.isFinite(CFG.RETRY_COOLDOWN_MS) ? CFG.RETRY_COOLDOWN_MS : 3000
         );
         const cooldownEntry = {
           mac: blockKey,
@@ -887,10 +903,13 @@ export const useScanFlow = ({
           blockedMacRef.current.clear();
           blockedMacRef.current.add(blockKey);
         } catch {}
-        if (scanResultTimerRef.current) {
+        if (scanResultTimerRef.current)
           window.clearTimeout(scanResultTimerRef.current);
+        const hideDelay = 2000;
+        scanResultTimerRef.current = window.setTimeout(() => {
+          setScanResult(null);
           scanResultTimerRef.current = null;
-        }
+        }, hideDelay);
         return;
       }
 
